@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Pedidos</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══ LOGIN ═══ -->
+  <div id="login-screen">
+    <div class="login-box">
+      <div class="login-logo">
+        <div class="logo-icon">📦</div>
+        <h1>Sistema de Pedidos</h1>
+        <p>Gestión de Pedidos Operacional</p>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label>Usuario</label>
+          <input type="text" id="l-user" required autocomplete="username" placeholder="Ingrese su usuario">
+        </div>
+        <div class="form-group">
+          <label>Contraseña</label>
+          <input type="password" id="l-pass" required autocomplete="current-password" placeholder="••••••••">
+        </div>
+        <div id="login-error" class="msg-error hidden"></div>
+        <button type="submit" class="btn btn-primary btn-full">Ingresar</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══ MAIN APP ═══ -->
+  <div id="main-app" class="hidden">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">📦</div>
+        <div>
+          <div class="sidebar-title">Pedidos</div>
+          <div id="sb-user" class="sidebar-user"></div>
+        </div>
+      </div>
+      <nav class="sidebar-nav" id="sidebar-nav"></nav>
+      <div class="sidebar-footer">
+        <div id="sb-role" class="sb-role-badge"></div>
+        <button class="btn-logout" id="logout-btn">↪ Salir</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <div id="view-container"></div>
+    </main>
+  </div>
+
+</div>
+
+<!-- ═══ AUTOCOMPLETE PORTAL ═══ -->
+<div id="ac-portal" style="position:fixed;z-index:9000;display:none;background:#fff;border:1.5px solid #4361ee;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:260px;overflow-y:auto;min-width:260px"></div>
+
+<!-- ═══ TOAST ═══ -->
+<div id="toast-container"></div>
+
+<!-- ═══ MODAL ═══ -->
+<div id="modal" class="modal hidden">
+  <div class="modal-backdrop" id="modal-backdrop"></div>
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close" id="modal-close">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
