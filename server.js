@@ -44,6 +44,7 @@ app.use('/api/users',   require('./routes/users'));
 app.use('/api/pedidos', require('./routes/pedidos'));
 app.use('/api/datos',   require('./routes/datos'));
 app.use('/api/upload',  require('./routes/upload'));
+app.use('/api/admin',   require('./routes/admin'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

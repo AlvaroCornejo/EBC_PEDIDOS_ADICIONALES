@@ -80,6 +80,52 @@ async function login(username, password) {
   S.token = data.token;
   localStorage.setItem('pedidos_token', data.token);
   localStorage.setItem('pedidos_user', JSON.stringify(data.user));
+  return data;
+}
+
+function showChangePasswordModal() {
+  const overlay = document.createElement('div');
+  overlay.id = 'chpwd-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:32px;width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+      <h2 style="margin:0 0 8px;font-size:18px">🔐 Cambio de contraseña obligatorio</h2>
+      <p style="color:#6b7280;font-size:13px;margin:0 0 20px">Por seguridad, debes establecer una nueva contraseña antes de continuar.</p>
+      <div class="form-group">
+        <label>Nueva contraseña *</label>
+        <input type="password" id="chpwd-new" class="form-control" placeholder="Mínimo 4 caracteres" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box">
+      </div>
+      <div class="form-group" style="margin-top:12px">
+        <label>Confirmar contraseña *</label>
+        <input type="password" id="chpwd-confirm" class="form-control" placeholder="Repite la contraseña" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box">
+      </div>
+      <div id="chpwd-error" style="color:#dc2626;font-size:13px;margin-top:8px;display:none"></div>
+      <button id="chpwd-btn" style="margin-top:20px;width:100%;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer">
+        💾 Guardar contraseña
+      </button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById('chpwd-btn').addEventListener('click', async () => {
+    const newPwd = document.getElementById('chpwd-new').value;
+    const confirm = document.getElementById('chpwd-confirm').value;
+    const errEl = document.getElementById('chpwd-error');
+    errEl.style.display = 'none';
+    if (!newPwd || newPwd.length < 4) { errEl.textContent = 'Mínimo 4 caracteres'; errEl.style.display = 'block'; return; }
+    if (newPwd !== confirm) { errEl.textContent = 'Las contraseñas no coinciden'; errEl.style.display = 'block'; return; }
+    const btn = document.getElementById('chpwd-btn');
+    btn.disabled = true; btn.textContent = '⏳ Guardando...';
+    try {
+      await PUT('/auth/change-password', { newPassword: newPwd });
+      S.user.mustChangePassword = false;
+      localStorage.setItem('pedidos_user', JSON.stringify(S.user));
+      overlay.remove();
+      showApp();
+    } catch (err) {
+      errEl.textContent = err.message; errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = '💾 Guardar contraseña';
+    }
+  });
 }
 
 function logout() {
@@ -996,10 +1042,12 @@ async function viewAdmin(container) {
         <button class="tab-btn active" data-tab="usuarios">👥 Usuarios</button>
         <button class="tab-btn" data-tab="archivos">📁 Archivos Excel</button>
         <button class="tab-btn" data-tab="pedidos-admin">📋 Todos los Pedidos</button>
+        <button class="tab-btn" data-tab="database">🗄️ Base de Datos</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-archivos" class="tab-panel"></div>
       <div id="tab-pedidos-admin" class="tab-panel"></div>
+      <div id="tab-database" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1014,6 +1062,7 @@ async function viewAdmin(container) {
   renderAdminUsuarios(document.getElementById('tab-usuarios'));
   renderAdminArchivos(document.getElementById('tab-archivos'));
   renderAdminPedidos(document.getElementById('tab-pedidos-admin'));
+  renderAdminDatabase(document.getElementById('tab-database'));
 }
 
 async function renderAdminUsuarios(container) {
@@ -1197,6 +1246,99 @@ async function renderAdminPedidos(container) {
   renderPedidosList(container, pedidos, { canEdit: false });
 }
 
+// ─── Admin: Base de Datos ─────────────────────────────────────────
+function renderAdminDatabase(container) {
+  container.innerHTML = `
+    <div class="section-title mb-16">Copia de seguridad y restauración</div>
+    <div class="card mb-16">
+      <div class="card-body">
+        <p class="text-muted mb-16" style="font-size:13px">
+          La copia incluye todos los usuarios y pedidos de la base de datos en un archivo JSON.
+          Úsala para hacer respaldos periódicos o para migrar datos.
+        </p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary" id="btn-backup">⬇️ Descargar copia de seguridad</button>
+          <span class="text-muted" style="font-size:13px">Descarga un archivo .json con todos los datos</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <p class="text-muted mb-8" style="font-size:13px">
+          ⚠️ <strong>Restaurar reemplaza TODOS los datos actuales</strong> con los del archivo seleccionado. Esta acción no se puede deshacer.
+        </p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <label class="btn btn-outline" style="cursor:pointer;margin:0">
+            📂 Seleccionar archivo de restauración
+            <input type="file" id="file-restore" accept=".json" style="display:none">
+          </label>
+          <span id="restore-filename" class="text-muted" style="font-size:13px">Ningún archivo seleccionado</span>
+        </div>
+        <button class="btn btn-danger mt-12" id="btn-restore" disabled style="margin-top:12px">🔄 Restaurar base de datos</button>
+        <div id="restore-status" style="margin-top:10px;font-size:13px"></div>
+      </div>
+    </div>`;
+
+  // Backup
+  document.getElementById('btn-backup').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-backup');
+    btn.disabled = true; btn.textContent = '⏳ Descargando...';
+    try {
+      const res = await fetch(`${API}/admin/backup`, { headers: { Authorization: `Bearer ${S.token}` } });
+      if (!res.ok) throw new Error('Error al generar backup');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const fecha = new Date().toISOString().split('T')[0];
+      a.href = url; a.download = `pedidos-backup-${fecha}.json`;
+      a.click(); URL.revokeObjectURL(url);
+      toast('Copia descargada correctamente', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+    btn.disabled = false; btn.textContent = '⬇️ Descargar copia de seguridad';
+  });
+
+  // Restore file select
+  let restoreData = null;
+  document.getElementById('file-restore').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    document.getElementById('restore-filename').textContent = file.name;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        restoreData = JSON.parse(e.target.result);
+        if (!Array.isArray(restoreData.users) || !Array.isArray(restoreData.pedidos))
+          throw new Error('Formato inválido');
+        document.getElementById('restore-status').innerHTML =
+          `<span style="color:var(--success)">✔ Archivo válido: ${restoreData.users.length} usuarios, ${restoreData.pedidos.length} pedidos. Exportado: ${restoreData.exportedAt ? new Date(restoreData.exportedAt).toLocaleString('es-CL') : '—'}</span>`;
+        document.getElementById('btn-restore').disabled = false;
+      } catch {
+        document.getElementById('restore-status').innerHTML = `<span style="color:var(--danger)">✕ Archivo inválido. Selecciona un backup generado por este sistema.</span>`;
+        document.getElementById('btn-restore').disabled = true;
+        restoreData = null;
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  // Restore
+  document.getElementById('btn-restore').addEventListener('click', async () => {
+    if (!restoreData) return;
+    if (!confirm(`⚠️ ¿Confirmas la restauración?\n\nEsto reemplazará TODOS los datos actuales con:\n• ${restoreData.users.length} usuarios\n• ${restoreData.pedidos.length} pedidos\n\nEsta acción no se puede deshacer.`)) return;
+    const btn = document.getElementById('btn-restore');
+    btn.disabled = true; btn.textContent = '⏳ Restaurando...';
+    try {
+      const result = await POST('/admin/restore', restoreData);
+      toast(`Base de datos restaurada: ${result.users} usuarios, ${result.pedidos} pedidos`, 'success');
+      document.getElementById('restore-status').innerHTML = `<span style="color:var(--success)">✔ Restauración completada correctamente.</span>`;
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false; btn.textContent = '🔄 Restaurar base de datos';
+    }
+  });
+}
+
 // ─── App Init ─────────────────────────────────────────────────────
 function showApp() {
   document.getElementById('login-screen').style.display = 'none';
@@ -1214,7 +1356,8 @@ function showApp() {
 document.addEventListener('DOMContentLoaded', () => {
   // Restore session
   if (restoreSession()) {
-    showApp();
+    if (S.user.mustChangePassword) showChangePasswordModal();
+    else showApp();
   }
 
   // Login form
@@ -1226,8 +1369,9 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Ingresando...';
     try {
-      await login(document.getElementById('l-user').value, document.getElementById('l-pass').value);
-      showApp();
+      const result = await login(document.getElementById('l-user').value, document.getElementById('l-pass').value);
+      if (result.mustChangePassword) showChangePasswordModal();
+      else showApp();
     } catch (err) {
       errEl.textContent = err.message;
       errEl.classList.remove('hidden');
