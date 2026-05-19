@@ -8,6 +8,6 @@ const userSchema = new mongoose.Schema({
   role: { type: String, required: true, enum: ['ADMIN', 'OPERADOR_SOLICITUD', 'OPERADOR_APROBACION', 'OPERADOR_ATENCION'] },
   operations: { type: [String], default: [] },
   mustChangePassword: { type: Boolean, default: true }
-}, { _id: false });
+});
 
 module.exports = mongoose.model('User', userSchema);

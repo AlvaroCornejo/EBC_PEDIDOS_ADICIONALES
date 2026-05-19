@@ -30,6 +30,6 @@ const pedidoSchema = new mongoose.Schema({
   createdAt: String,
   updatedAt: String,
   lineas: [lineaSchema]
-}, { _id: false });
+});
 
 module.exports = mongoose.model('Pedido', pedidoSchema);
