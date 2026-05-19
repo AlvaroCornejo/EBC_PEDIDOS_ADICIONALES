@@ -209,10 +209,8 @@ async function viewSolicitar(container, params = {}) {
     S.form = { id: null, operacion: S.user.operations?.[0] || '', fecha: today(), lineas: [], editMode: 'edit' };
   }
 
-  // Load items once
-  if (!S.items.length) {
-    try { S.items = await GET('/datos/items'); } catch { S.items = []; }
-  }
+  // Load items for current operation
+  try { S.items = await GET(`/datos/items?operacion=${encodeURIComponent(S.form.operacion)}`); } catch { S.items = []; }
 
   const ops = S.user.role === ROLES.ADMIN
     ? (S.user.operations?.length ? S.user.operations : ['AASI'])
@@ -426,8 +424,9 @@ function addLinea() {
 
 function setupSolicitarEvents(container) {
   // Operación / fecha change
-  document.getElementById('f-op').addEventListener('change', e => {
+  document.getElementById('f-op').addEventListener('change', async e => {
     S.form.operacion = e.target.value;
+    try { S.items = await GET(`/datos/items?operacion=${encodeURIComponent(S.form.operacion)}`); } catch { S.items = []; }
     refetchAllLineas();
   });
   document.getElementById('f-fecha').addEventListener('change', e => {
