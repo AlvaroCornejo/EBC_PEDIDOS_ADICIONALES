@@ -118,7 +118,8 @@ tr:last-child td { border-bottom: none; }
 tr:hover td { background: #fafbff; }
 th.group-header { background: #eef0fd; color: var(--accent); text-align: center; font-size: 11px; border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); }
 th.sub-header { background: #f0f2ff; font-size: 10.5px; border-left: 1px solid #d4d8f8; }
-.col-item { min-width: 160px; }
+.col-item { min-width: 260px; }
+.item-input { min-width: 240px; width: 100%; }
 .col-auto { min-width: 80px; }
 .col-num { text-align: right; }
 .col-actions { width: 60px; text-align: center; }
