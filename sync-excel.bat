@@ -11,3 +11,10 @@ copy /Y "C:\Users\CORP.PROCESOS\Box\OPERACIONES\FRQ1\RQ FRQ1\RQ CDL28\Seguimient
 if %errorlevel%==0 (echo OK: CDL28 - ADICIONALES.xlsx) else (echo ERROR: CDL28 - ADICIONALES.xlsx)
 
 echo Sincronizacion completada.
+
+echo Subiendo a GitHub...
+cd C:\pedidos-app
+git add data\
+git commit -m "Sync Excel %date%"
+git push
+echo GitHub actualizado. DigitalOcean actualizara en 1-2 minutos.
