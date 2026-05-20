@@ -36,7 +36,7 @@ router.put('/change-password', authMiddleware, async (req, res) => {
     if (!newPassword || newPassword.length < 4)
       return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
 
-    const user = await User.findById(req.user.id);
+    const user = await User.findOne({ id: req.user.id });
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
 
     // Si viene currentPassword (cambio voluntario) lo validamos; si no viene (mustChangePassword) no
