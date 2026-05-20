@@ -2086,6 +2086,10 @@ async function initPush() {
     // Verificar o crear suscripción
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
+      if (Notification.permission === 'denied') {
+        console.warn('Notificaciones bloqueadas. Ve a Configuración del sitio para habilitarlas.');
+        return;
+      }
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') return;
       sub = await reg.pushManager.subscribe({
