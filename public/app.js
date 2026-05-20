@@ -54,7 +54,7 @@ async function upload(file, tipo) {
 
 // ─── Formatting ──────────────────────────────────────────────────
 const fmt = (n, dec = 2) => n == null || n === '' ? '—' : Number(n).toLocaleString('es-CL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-const fmtMoney = (n) => n == null ? '—' : 'S/ ' + Number(n).toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const fmtMoney = (n) => n == null ? '—' : 'S/ ' + Number(n).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => d ? d.split('T')[0] : '—';
 const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
@@ -352,7 +352,7 @@ async function showKardexModal(item, nombre, operacion) {
   const trxExtra  = [...allTrx].filter(t => !TRX_MAIN.includes(t) && !TRX_BOTTOM.includes(t));
   const trxBottom = TRX_BOTTOM.filter(t => allTrx.has(t));
 
-  const fmtK = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 0);
+  const fmtK = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 2);
 
   function headerLabel(s) {
     const yr = Math.floor(s / 100), wk = String(s % 100).padStart(2, '0');
