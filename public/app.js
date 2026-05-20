@@ -295,7 +295,7 @@ async function viewSolicitar(container, params = {}) {
           <table id="lineas-table">
             ${renderTableHeader(S.form.editMode || 'edit')}
             <tbody id="lineas-tbody">
-              ${S.form.lineas.map((l, i) => renderLineaRow(l, i, true, S.form.editMode || 'edit')).join('')}
+              ${S.form.lineas.map((l, i) => renderLineaRow(l, i, true, S.form.editMode || 'edit', S.form.operacion)).join('')}
             </tbody>
           </table>
         </div>
@@ -315,6 +315,89 @@ async function viewSolicitar(container, params = {}) {
   setupSolicitarEvents(container, editId);
   document.getElementById('btn-resumen')?.addEventListener('click', showResumenModal);
 }
+
+// ─── Kardex Modal ────────────────────────────────────────────────
+const TRX_MAIN   = ['COMPRA','PRODUCCION','TRANSFORMACION','TRANSFERENCIA',
+                    'VENTA','CONSUMOS','BAJA','MERMA',
+                    'CONSUMO PRODUCCION','CONSUMO TRANSFORMACION'];
+const TRX_BOTTOM = ['SOBRANTE','FALTANTE'];
+
+async function showKardexModal(item, nombre, operacion) {
+  openModal(`📊 Kardex — ${esc(nombre || item)} (${esc(operacion)})`,
+    `<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>`);
+
+  let data;
+  try {
+    data = await GET(`/datos/kardex-item?item=${encodeURIComponent(item)}&operacion=${encodeURIComponent(operacion)}`);
+  } catch (err) {
+    document.getElementById('modal-body').innerHTML = `<p class="msg-error">${err.message}</p>`;
+    return;
+  }
+
+  if (!data.length) {
+    document.getElementById('modal-body').innerHTML = `<p class="text-muted">Sin movimientos en el kardex para este item.</p>`;
+    return;
+  }
+
+  const semanas = data.map(d => d.semana);
+  // Recopilar todos los TRX que aparecen en los datos
+  const allTrx = new Set();
+  data.forEach(d => Object.keys(d.movimientos).forEach(t => allTrx.add(t)));
+
+  // Ordenar: primero los de TRX_MAIN que existen, luego los desconocidos, luego TRX_BOTTOM
+  const trxMain   = TRX_MAIN.filter(t => allTrx.has(t));
+  const trxExtra  = [...allTrx].filter(t => !TRX_MAIN.includes(t) && !TRX_BOTTOM.includes(t));
+  const trxBottom = TRX_BOTTOM.filter(t => allTrx.has(t));
+
+  const fmtK = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 0);
+
+  function headerLabel(s) {
+    const yr = Math.floor(s / 100), wk = s % 100;
+    return `Sem ${wk}<br><small>${yr}</small>`;
+  }
+
+  function buildRow(label, key, bold = false, color = '') {
+    const cells = data.map(d => {
+      const v = key === '__saldoInicial' ? d.saldoInicial
+              : key === '__saldoFinal'   ? d.saldoFinal
+              : (d.movimientos[key] || 0);
+      return `<td class="col-num" style="white-space:nowrap${color?' color:'+color:''}">${fmtK(v)}</td>`;
+    }).join('');
+    const style = bold ? 'font-weight:700;background:#f0f4ff' : '';
+    return `<tr style="${style}"><td style="white-space:nowrap;padding:4px 10px;${bold?'font-weight:700':''}">${label}</td>${cells}</tr>`;
+  }
+
+  const semanaCols = semanas.map(s => `<th class="col-num" style="white-space:nowrap">${headerLabel(s)}</th>`).join('');
+
+  const html = `
+    <div style="overflow-x:auto;max-height:70vh;overflow-y:auto">
+      <table class="data-table" style="font-size:12px;min-width:600px">
+        <thead><tr style="position:sticky;top:0;z-index:2;background:#4361ee;color:#fff">
+          <th style="min-width:200px;text-align:left;padding:6px 10px">Movimiento</th>
+          ${semanaCols}
+        </tr></thead>
+        <tbody>
+          ${buildRow('SALDO INICIAL', '__saldoInicial', true)}
+          ${trxMain.map(t  => buildRow(t, t)).join('')}
+          ${trxExtra.map(t => buildRow(t, t)).join('')}
+          <tr><td colspan="${semanas.length+1}" style="padding:0;border:none"><hr style="margin:4px 0;border-color:#e5e7eb"></td></tr>
+          ${trxBottom.map(t => buildRow(t, t)).join('')}
+          ${buildRow('SALDO FINAL', '__saldoFinal', true)}
+        </tbody>
+      </table>
+    </div>`;
+
+  document.getElementById('modal-body').innerHTML = html;
+}
+
+// Delegated click para botones de kardex (se registra una sola vez)
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.btn-kardex');
+  if (!btn) return;
+  e.stopPropagation();
+  const { item, nombre, op } = btn.dataset;
+  if (item && op) showKardexModal(item, nombre, op);
+});
 
 function gestionIcon(gestion) {
   const g = gestion || 'COMPRAS';
@@ -363,7 +446,7 @@ function renderTableHeader(mode = 'edit') {
     </thead>`;
 }
 
-function renderLineaRow(l, idx, editable = true, mode = 'edit') {
+function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') {
   const sa = l.semanaAnterior || {};
   const sc = l.semanaActual || {};
   const ct = (l.cantidadSolicitada || 0) * (l.costoUnitario || 0);
@@ -437,8 +520,15 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit') {
           <input type="text" class="tbl-input item-input" data-idx="${idx}" value="${esc(l.itemNombre || l.item || '')}" placeholder="Buscar item..." autocomplete="off">
           <div class="ac-dropdown hidden"></div>
         </div>
-        <span class="auto-gestion-${idx}" style="margin-top:4px;display:inline-block">${gestionIcon(l.gestion)}</span>` : `
-        <div style="display:flex;align-items:center;gap:6px">${gestionIcon(l.gestion)}<strong>${esc(l.itemNombre || l.item || '')}</strong></div>`}
+        <div style="margin-top:4px;display:flex;align-items:center;gap:4px">
+          <span class="auto-gestion-${idx}">${gestionIcon(l.gestion)}</span>
+          ${l.item ? `<button class="btn-kardex" data-item="${esc(l.item)}" data-nombre="${esc(l.itemNombre||l.item)}" data-op="${esc(operacion||S.form?.operacion||'')}" title="Ver Kardex">📊</button>` : ''}
+        </div>` : `
+        <div style="display:flex;align-items:center;gap:6px">
+          ${gestionIcon(l.gestion)}
+          <strong>${esc(l.itemNombre || l.item || '')}</strong>
+          ${l.item ? `<button class="btn-kardex" data-item="${esc(l.item)}" data-nombre="${esc(l.itemNombre||l.item)}" data-op="${esc(operacion||S.form?.operacion||'')}" title="Ver Kardex">📊</button>` : ''}
+        </div>`}
     </td>
     <td><span class="auto-grupo-${idx}">${esc(l.grupoCompra || '—')}</span></td>
     <td class="col-num"><span class="auto-ceA-${idx} ${!l.semanaAnterior?'cell-loading':''}">${l.semanaAnterior ? fmt(sa.consumoEstimado) : '...'}</span></td>
@@ -516,7 +606,7 @@ function setupSolicitarEvents(container) {
       S.form.lineas.splice(idx, 1);
       // Re-render tbody
       const f = S.form;
-      tbody.innerHTML = f.lineas.map((l, i) => renderLineaRow(l, i, true, S.form.editMode || 'edit')).join('');
+      tbody.innerHTML = f.lineas.map((l, i) => renderLineaRow(l, i, true, S.form.editMode || 'edit', S.form.operacion)).join('');
       tbody.querySelectorAll('tr').forEach((tr, i) => setupRowEvents(tr, i));
       updateTotal();
     }
@@ -986,13 +1076,13 @@ function pedidoCard(p, opts = {}) {
         </div>
       </div>
       <div class="pedido-card-body">
-        ${renderLineasReadOnly(p.lineas)}
+        ${renderLineasReadOnly(p.lineas, p.operacion)}
         <div class="mt-8 text-right font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
       </div>
     </div>`;
 }
 
-function renderLineasReadOnly(lineas) {
+function renderLineasReadOnly(lineas, operacion = '') {
   if (!lineas?.length) return '<p class="text-muted">Sin líneas</p>';
   const hasAtencion = lineas.some(l => l.estadoAtencion === 'ATENDIDO');
   const hasApproval = lineas.some(l => l.estadoLinea && l.estadoLinea !== 'PENDIENTE');
@@ -1000,7 +1090,7 @@ function renderLineasReadOnly(lineas) {
   return `<div class="table-wrap"><table>
     ${renderTableHeader(mode)}
     <tbody>
-      ${lineas.map((l, i) => renderLineaRow(l, i, false, mode)).join('')}
+      ${lineas.map((l, i) => renderLineaRow(l, i, false, mode, operacion)).join('')}
     </tbody>
     </table></div>`;
 }
@@ -1025,7 +1115,7 @@ function renderPedidosAprobar(container, pedidos) {
           <table>
             ${renderTableHeader('approve')}
             <tbody>
-              ${p.lineas.map((l, i) => renderLineaRow(l, i, false, 'approve')).join('')}
+              ${p.lineas.map((l, i) => renderLineaRow(l, i, false, 'approve', p.operacion)).join('')}
             </tbody>
           </table>
         </div>
@@ -1084,7 +1174,7 @@ function renderPedidosProcesados(container, pedidos) {
       <div class="pedido-card-body">
         <div class="table-wrap"><table>
           ${renderTableHeader(estadoMode)}
-          <tbody>${p.lineas.map((l,i) => renderLineaRow(l, i, false, estadoMode)).join('')}</tbody>
+          <tbody>${p.lineas.map((l,i) => renderLineaRow(l, i, false, estadoMode, p.operacion)).join('')}</tbody>
         </table></div>
         <div class="mt-8 text-right font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
       </div>
@@ -1120,7 +1210,7 @@ function renderPedidosAtender(container, pedidos) {
               ${p.lineas.map((l, i) => {
                 const lineaGestion = l.gestion || 'COMPRAS';
                 const esPropia = S.user.role === 'ADMIN' || lineaGestion === gestionRol;
-                return renderLineaRow(l, i, false, esPropia ? 'atender' : 'atendido');
+                return renderLineaRow(l, i, false, esPropia ? 'atender' : 'atendido', p.operacion);
               }).join('')}
             </tbody>
           </table>
@@ -1184,7 +1274,7 @@ function renderPedidosAtendidos(container, pedidos) {
           <table>
             ${renderTableHeader('atendido')}
             <tbody>
-              ${p.lineas.map((l, i) => renderLineaRow(l, i, false, 'atendido')).join('')}
+              ${p.lineas.map((l, i) => renderLineaRow(l, i, false, 'atendido', p.operacion)).join('')}
             </tbody>
           </table>
         </div>

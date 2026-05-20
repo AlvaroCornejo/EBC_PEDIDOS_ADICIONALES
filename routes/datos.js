@@ -231,6 +231,45 @@ router.get('/item-data', async (req, res) => {
   }
 });
 
+/** GET /api/datos/kardex-item?item=ID&operacion=AASI */
+router.get('/kardex-item', async (req, res) => {
+  try {
+    const { item, operacion } = req.query;
+    if (!item || !operacion) return res.status(400).json({ error: 'item y operacion requeridos' });
+
+    const fp = findFile(operacion);
+    if (!fp) return res.status(404).json({ error: `No se encontró archivo para ${operacion}` });
+
+    const wb    = await loadWB(fp);
+    const rows  = readKardex(wb).filter(r => r.item === String(item).trim());
+
+    if (!rows.length) return res.json([]);
+
+    // Semanas únicas ordenadas
+    const semanas = [...new Set(rows.map(r => r.añosem))].sort((a, b) => a - b);
+
+    // Agrupar cantidades por semana y TRX
+    const byWeek = {};
+    for (const r of rows) {
+      if (!byWeek[r.añosem]) byWeek[r.añosem] = {};
+      byWeek[r.añosem][r.trx] = (byWeek[r.añosem][r.trx] || 0) + r.cant;
+    }
+
+    // Calcular saldo acumulado
+    let saldoAcum = 0;
+    const result = semanas.map(s => {
+      const saldoInicial = saldoAcum;
+      const movs = byWeek[s] || {};
+      const totalSem = Object.values(movs).reduce((a, b) => a + b, 0);
+      const saldoFinal = saldoInicial + totalSem;
+      saldoAcum = saldoFinal;
+      return { semana: s, saldoInicial, movimientos: movs, saldoFinal };
+    });
+
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /** GET /api/datos/files */
 router.get('/files', (req, res) => {
   if (!fs.existsSync(DATA_DIR)) return res.json([]);
