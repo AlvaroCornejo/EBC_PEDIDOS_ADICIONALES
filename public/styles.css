@@ -109,6 +109,11 @@ input, select, textarea { font: inherit; }
 .badge-REVISAR    { background: #fef3c7; color: #92400e; }
 .badge-ATENDIDO   { background: #0d9488; color: #ffffff; }
 
+/* ─── Gestión badges ─────────────────────────────────────────── */
+.gestion-badge { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; cursor: default; flex-shrink: 0; }
+.gestion-compras { background: #d1fae5; border: 1px solid #6ee7b7; title: "Compras"; }
+.gestion-planta  { background: #dbeafe; border: 1px solid #93c5fd; }
+
 /* ─── Tables ─────────────────────────────────────────────────── */
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }

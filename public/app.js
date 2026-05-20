@@ -272,6 +272,13 @@ async function viewSolicitar(container, params = {}) {
   setupSolicitarEvents(container, editId);
 }
 
+function gestionIcon(gestion) {
+  const g = gestion || 'COMPRAS';
+  return g === 'PLANTA'
+    ? `<span class="gestion-badge gestion-planta" title="Gestión: Planta">🏭</span>`
+    : `<span class="gestion-badge gestion-compras" title="Gestión: Compras">🛒</span>`;
+}
+
 function renderTableHeader(mode = 'edit') {
   let lastCols;
   if (mode === 'approve') {
@@ -376,7 +383,9 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit') {
         <div class="ac-wrap">
           <input type="text" class="tbl-input item-input" data-idx="${idx}" value="${esc(l.itemNombre || l.item || '')}" placeholder="Buscar item..." autocomplete="off">
           <div class="ac-dropdown hidden"></div>
-        </div>` : `<strong>${esc(l.itemNombre || l.item || '')}</strong>`}
+        </div>
+        <span class="auto-gestion-${idx}" style="margin-top:4px;display:inline-block">${gestionIcon(l.gestion)}</span>` : `
+        <div style="display:flex;align-items:center;gap:6px">${gestionIcon(l.gestion)}<strong>${esc(l.itemNombre || l.item || '')}</strong></div>`}
     </td>
     <td><span class="auto-grupo-${idx}">${esc(l.grupoCompra || '—')}</span></td>
     <td class="col-num"><span class="auto-ceA-${idx} ${!l.semanaAnterior?'cell-loading':''}">${l.semanaAnterior ? fmt(sa.consumoEstimado) : '...'}</span></td>
@@ -633,6 +642,8 @@ async function fetchItemData(itemCode, idx) {
     set(`.auto-vC-${idx}`, fmt(sc.variacion), `auto-vC-${idx} ${sc.variacion >= 0 ? 'variacion-pos' : 'variacion-neg'}`);
     set(`.auto-saldo-${idx}`, fmt(data.saldo));
     set(`.auto-cu-${idx}`, fmtMoney(data.costoUnitario));
+    const gEl = document.querySelector(`.auto-gestion-${idx}`);
+    if (gEl) gEl.innerHTML = gestionIcon(data.gestion || 'COMPRAS');
 
     // Update costo total
     const ct = (linea.cantidadSolicitada || 0) * (linea.costoUnitario || 0);
