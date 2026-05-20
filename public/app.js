@@ -148,11 +148,12 @@ function restoreSession() {
 
 // ─── Navigation ──────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { id: 'solicitar',   label: 'Solicitar',   icon: '📝', roles: [ROLES.ADMIN, ROLES.SOL] },
-  { id: 'mis-pedidos', label: 'Mis Pedidos', icon: '📋', roles: [ROLES.ADMIN, ROLES.SOL] },
-  { id: 'aprobar',     label: 'Aprobar',     icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
-  { id: 'atender',     label: 'Atender',     icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
-  { id: 'admin',       label: 'Admin',       icon: '⚙️', roles: [ROLES.ADMIN] }
+  { id: 'solicitar',    label: 'Solicitar',    icon: '📝', roles: [ROLES.ADMIN, ROLES.SOL] },
+  { id: 'mis-pedidos',  label: 'Mis Pedidos',  icon: '📋', roles: [ROLES.ADMIN, ROLES.SOL] },
+  { id: 'comentarios',  label: 'Comentarios',  icon: '💬', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
+  { id: 'aprobar',      label: 'Aprobar',      icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
+  { id: 'atender',      label: 'Atender',      icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
+  { id: 'admin',        label: 'Admin',        icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
 function renderNav() {
@@ -179,7 +180,7 @@ function navigate(view, params = {}) {
   setActiveNav(view);
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, aprobar: viewAprobar, atender: viewAtender, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -729,6 +730,63 @@ async function viewMisPedidos(container) {
   }
   document.getElementById('filter-estado').addEventListener('change', render);
   document.getElementById('filter-op').addEventListener('change', render);
+  render();
+}
+
+// ─── View: Comentarios ───────────────────────────────────────────
+async function viewComentarios(container) {
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">💬 Comentarios</div></div>
+    <div class="page-body">
+      <div class="filter-bar mb-16">
+        <select id="com-filter-op">
+          <option value="">Todas las operaciones</option>
+          ${(S.user.operations || []).map(o => `<option value="${o}">${o}</option>`).join('')}
+        </select>
+        <select id="com-filter-estado">
+          <option value="">Todos los estados</option>
+          ${['SOLICITADO','APROBADO','RECHAZADO','REVISAR','ATENDIDO'].map(e => `<option value="${e}">${e}</option>`).join('')}
+        </select>
+      </div>
+      <div id="com-list"><div class="loading-overlay"><span class="spinner spinner-dark"></span> Cargando...</div></div>
+    </div>`;
+
+  let pedidos = [];
+  try { pedidos = await GET('/pedidos'); } catch (err) { toast(err.message, 'error'); }
+
+  function render() {
+    const op  = document.getElementById('com-filter-op').value;
+    const est = document.getElementById('com-filter-estado').value;
+    const filtered = pedidos.filter(p => (!op || p.operacion === op) && (!est || p.estado === est));
+    const list = document.getElementById('com-list');
+    if (!filtered.length) {
+      list.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div><p>No hay pedidos</p></div>`;
+      return;
+    }
+    list.innerHTML = filtered.map(p => `
+      <div class="pedido-card" style="cursor:pointer" data-pid="${p.id}" data-op="${esc(p.operacion)}" data-fecha="${esc(p.fechaPedido)}">
+        <div class="pedido-card-header" style="cursor:pointer">
+          <div class="pedido-meta">
+            <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
+            <div class="pedido-info">
+              📅 ${fmtDate(p.fechaPedido)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}
+              ${p.aprobadoPorNombre ? ` &nbsp;·&nbsp; ✅ ${esc(p.aprobadoPorNombre)}` : ''}
+              &nbsp;·&nbsp; <span style="font-weight:600;color:var(--accent)">${p.lineas?.length || 0} líneas</span>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-outline" style="flex-shrink:0">💬 Ver / Agregar comentarios</button>
+        </div>
+      </div>`).join('');
+
+    list.querySelectorAll('.pedido-card').forEach(card => {
+      card.addEventListener('click', () =>
+        showComentariosModal(card.dataset.pid, card.dataset.op, card.dataset.fecha)
+      );
+    });
+  }
+
+  document.getElementById('com-filter-op').addEventListener('change', render);
+  document.getElementById('com-filter-estado').addEventListener('change', render);
   render();
 }
 
