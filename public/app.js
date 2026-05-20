@@ -354,9 +354,10 @@ async function showKardexModal(item, nombre, operacion) {
 
   const fmtK = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 2);
 
-  function headerLabel(s) {
+  function headerLabel(s, i) {
     const yr = Math.floor(s / 100), wk = String(s % 100).padStart(2, '0');
-    return `Hasta<br><small>${yr}-${wk}</small>`;
+    const prefix = i === 0 ? 'Hasta' : 'Sem';
+    return `${prefix}<br><small>${yr}-${wk}</small>`;
   }
 
   function buildRow(label, key, bold = false, color = '') {
@@ -370,7 +371,7 @@ async function showKardexModal(item, nombre, operacion) {
     return `<tr style="${style}"><td style="white-space:nowrap;padding:4px 10px;${bold?'font-weight:700':''}">${label}</td>${cells}</tr>`;
   }
 
-  const semanaCols = semanas.map(s => `<th class="col-num" style="white-space:nowrap">${headerLabel(s)}</th>`).join('');
+  const semanaCols = semanas.map((s, i) => `<th class="col-num" style="white-space:nowrap">${headerLabel(s, i)}</th>`).join('');
 
   const html = `
     <div style="overflow-x:auto;max-height:70vh;overflow-y:auto">
