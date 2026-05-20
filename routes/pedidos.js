@@ -244,24 +244,38 @@ router.put('/:id', async (req, res) => {
     res.json(pedido.toObject());
 
     // ── Push notifications post-guardado ──────────────────────────
-    const op = pedido.operacion;
+    const op    = pedido.operacion;
     const solId = pedido.solicitadoPorId;
+    const lineasAprobadas = pedido.lineas.filter(l => l.estadoLinea === 'APROBADO');
+    const tieneCompras = lineasAprobadas.some(l => (l.gestion || 'COMPRAS') === 'COMPRAS');
+    const tienePlanta  = lineasAprobadas.some(l => l.gestion === 'PLANTA');
+
+    // 1. Solicitante crea pedido → notificar aprobadores (en POST, ver abajo)
+    // 2. Aprobador actúa → notificar solicitante + compras/planta según gestión
     if (role === 'OPERADOR_APROBACION' || (role === 'ADMIN' && req.body.lineas?.[0]?.estadoLinea)) {
       const nuevoEstado = pedido.estado;
       if (nuevoEstado === 'APROBADO') {
+        // Al solicitante
         sendPush({ userId: solId },
           { title: '✅ Pedido aprobado', body: `Tu solicitud de ${op} fue aprobada`, url: '/#mis-pedidos' });
-        sendPush({ role: 'OPERADOR_ATENCION', operations: op },
-          { title: '🚚 Pedido listo para atender', body: `${op} — aprobado por ${req.user.username}`, url: '/#atender' });
-        sendPush({ role: 'OPERADOR_PLANTA', operations: op },
-          { title: '🚚 Pedido listo para atender', body: `${op} — aprobado por ${req.user.username}`, url: '/#atender' });
+        // A compras — solo si hay ítems gestionados por compras
+        if (tieneCompras) {
+          sendPush({ role: 'OPERADOR_ATENCION', operations: op },
+            { title: '🛒 Pedido listo para atender', body: `${op} — tiene ítems de Compras`, url: '/#atender' });
+        }
+        // A planta — solo si hay ítems gestionados por planta
+        if (tienePlanta) {
+          sendPush({ role: 'OPERADOR_PLANTA', operations: op },
+            { title: '🏭 Pedido listo para atender', body: `${op} — tiene ítems de Planta`, url: '/#atender' });
+        }
       } else if (nuevoEstado === 'RECHAZADO') {
         sendPush({ userId: solId },
           { title: '❌ Pedido rechazado', body: `Tu solicitud de ${op} fue rechazada`, url: '/#mis-pedidos' });
       } else if (nuevoEstado === 'REVISAR') {
         sendPush({ userId: solId },
-          { title: '🔄 Pedido requiere revisión', body: `Tu solicitud de ${op} necesita ajustes`, url: '/#solicitar' });
+          { title: '🔄 Pedido a revisar', body: `Tu solicitud de ${op} necesita ajustes`, url: '/#solicitar' });
       }
+    // 3. Compras/Planta atiende → notificar al solicitante
     } else if (role === 'OPERADOR_ATENCION' || role === 'OPERADOR_PLANTA') {
       if (pedido.estado === 'ATENDIDO') {
         sendPush({ userId: solId },
