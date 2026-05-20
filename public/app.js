@@ -4,8 +4,8 @@
 
 // ─── Config ──────────────────────────────────────────────────────
 const API = '/api';
-const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION' };
-const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Atención' };
+const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA' };
+const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta' };
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28'];
 
@@ -151,7 +151,7 @@ const NAV_ITEMS = [
   { id: 'solicitar',   label: 'Solicitar',   icon: '📝', roles: [ROLES.ADMIN, ROLES.SOL] },
   { id: 'mis-pedidos', label: 'Mis Pedidos', icon: '📋', roles: [ROLES.ADMIN, ROLES.SOL] },
   { id: 'aprobar',     label: 'Aprobar',     icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
-  { id: 'atender',     label: 'Atender',     icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE] },
+  { id: 'atender',     label: 'Atender',     icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
   { id: 'admin',       label: 'Admin',       icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -610,6 +610,7 @@ async function fetchItemData(itemCode, idx) {
   try {
     const data = await GET(`/datos/item-data?item=${encodeURIComponent(itemCode)}&operacion=${encodeURIComponent(S.form.operacion)}&fecha=${S.form.fecha}`);
     linea.grupoCompra = data.grupoCompra;
+    linea.gestion = data.gestion || 'COMPRAS';
     linea.costoUnitario = data.costoUnitario;
     linea.saldo = data.saldo;
     linea.semanaAnterior = data.semanaAnterior;
@@ -945,6 +946,7 @@ function renderPedidosAtender(container, pedidos) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">🚚</div><p>No hay pedidos aprobados pendientes</p></div>`;
     return;
   }
+  const gestionRol = S.user.role === 'OPERADOR_PLANTA' ? 'PLANTA' : 'COMPRAS';
 
   container.innerHTML = pedidos.map(p => `
     <div class="pedido-card" id="pac-${p.id}">
@@ -960,7 +962,11 @@ function renderPedidosAtender(container, pedidos) {
           <table>
             ${renderTableHeader('atender')}
             <tbody>
-              ${p.lineas.map((l, i) => renderLineaRow(l, i, false, 'atender')).join('')}
+              ${p.lineas.map((l, i) => {
+                const lineaGestion = l.gestion || 'COMPRAS';
+                const esPropia = S.user.role === 'ADMIN' || lineaGestion === gestionRol;
+                return renderLineaRow(l, i, false, esPropia ? 'atender' : 'atendido');
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -1353,7 +1359,7 @@ function showApp() {
   const role = S.user.role;
   if ([ROLES.SOL, ROLES.ADMIN].includes(role)) navigate('solicitar');
   else if (role === ROLES.APR) navigate('aprobar');
-  else if (role === ROLES.ATE) navigate('atender');
+  else if (role === ROLES.ATE || role === ROLES.PLT) navigate('atender');
 }
 
 document.addEventListener('DOMContentLoaded', () => {

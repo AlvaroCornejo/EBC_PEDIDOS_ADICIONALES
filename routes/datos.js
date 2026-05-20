@@ -68,7 +68,7 @@ async function loadWB(fp) {
 
 // ─── Readers ──────────────────────────────────────────────────────
 
-/** Items sheet: col1=ITEM, col2=NOMBRE, col3=GRUPO COMPRA */
+/** Items sheet: col1=ITEM, col2=NOMBRE, col3=GRUPO COMPRA, col4=GESTION */
 function readItems(wb) {
   const sh = wb.getWorksheet('Items');
   if (!sh) return [];
@@ -78,7 +78,8 @@ function readItems(wb) {
     const item = str(row, 1);
     const nombre = str(row, 2);
     const grupoCompra = str(row, 3);
-    if (item) items.push({ item, nombre, grupoCompra });
+    const gestion = str(row, 4) || 'COMPRAS';
+    if (item) items.push({ item, nombre, grupoCompra, gestion });
   });
   return items;
 }
@@ -174,6 +175,7 @@ router.get('/item-data', async (req, res) => {
     // Maestro
     const maestro     = itemsMap[itemKey] || {};
     const grupoCompra = maestro.grupoCompra || '';
+    const gestion     = maestro.gestion || 'COMPRAS';
     const costoUnitario = costosMap[itemKey] || 0;
 
     // Consumos estimados de Requisiciones
@@ -201,6 +203,7 @@ router.get('/item-data', async (req, res) => {
 
     res.json({
       grupoCompra,
+      gestion,
       costoUnitario,
       semanaAnterior: {
         label: `Sem ${añoSemAnt % 100}/${Math.floor(añoSemAnt / 100)}`,

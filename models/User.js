@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, default: '' },
   password: { type: String, required: true },
-  role: { type: String, required: true, enum: ['ADMIN', 'OPERADOR_SOLICITUD', 'OPERADOR_APROBACION', 'OPERADOR_ATENCION'] },
+  role: { type: String, required: true, enum: ['ADMIN', 'OPERADOR_SOLICITUD', 'OPERADOR_APROBACION', 'OPERADOR_ATENCION', 'OPERADOR_PLANTA'] },
   operations: { type: [String], default: [] },
   mustChangePassword: { type: Boolean, default: true }
 });

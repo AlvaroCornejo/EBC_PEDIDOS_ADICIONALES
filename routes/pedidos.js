@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
       query.solicitadoPorId = userId;
     } else if (role === 'OPERADOR_APROBACION') {
       query.operacion = { $in: operations };
-    } else if (role === 'OPERADOR_ATENCION') {
+    } else if (role === 'OPERADOR_ATENCION' || role === 'OPERADOR_PLANTA') {
       query.operacion = { $in: operations };
       query.estado = { $in: ['APROBADO', 'ATENDIDO'] };
     }
@@ -110,12 +110,14 @@ router.put('/:id', async (req, res) => {
       pedido.aprobadoPorId = req.user.id;
       pedido.aprobadoPorNombre = req.user.username;
 
-    } else if (role === 'OPERADOR_ATENCION') {
+    } else if (role === 'OPERADOR_ATENCION' || role === 'OPERADOR_PLANTA') {
       if (pedido.estado !== 'APROBADO') return res.status(403).json({ error: 'Solo se atienden pedidos aprobados' });
       if (!lineas?.length) return res.status(400).json({ error: 'Se requieren las líneas con estado de atención' });
 
+      const gestionRol = role === 'OPERADOR_PLANTA' ? 'PLANTA' : 'COMPRAS';
       const lineaMap = Object.fromEntries(lineas.map(l => [l.id, l]));
       pedido.lineas = pedido.lineas.map(existing => {
+        if ((existing.gestion || 'COMPRAS') !== gestionRol) return existing;
         const upd = lineaMap[existing.id];
         return upd ? { ...existing.toObject(), estadoAtencion: upd.estadoAtencion || existing.estadoAtencion || 'PENDIENTE' } : existing;
       });

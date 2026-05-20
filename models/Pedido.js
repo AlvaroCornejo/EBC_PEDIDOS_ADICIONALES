@@ -11,6 +11,7 @@ const lineaSchema = new mongoose.Schema({
   semanaActual: mongoose.Schema.Types.Mixed,
   saldo: Number,
   costoUnitario: Number,
+  gestion: { type: String, default: 'COMPRAS' },
   estadoLinea: { type: String, default: 'PENDIENTE' },
   comentarioAprobador: { type: String, default: '' },
   estadoAtencion: { type: String, default: 'PENDIENTE' }
