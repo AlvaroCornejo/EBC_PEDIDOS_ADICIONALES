@@ -132,6 +132,47 @@ function showChangePasswordModal() {
   });
 }
 
+function showCambiarPasswordModal() {
+  openModal('🔑 Cambiar contraseña', `
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="form-group">
+        <label>Contraseña actual *</label>
+        <input type="password" id="cp-actual" class="form-control" placeholder="Tu contraseña actual">
+      </div>
+      <div class="form-group">
+        <label>Nueva contraseña *</label>
+        <input type="password" id="cp-nueva" class="form-control" placeholder="Mínimo 4 caracteres">
+      </div>
+      <div class="form-group">
+        <label>Confirmar nueva contraseña *</label>
+        <input type="password" id="cp-confirmar" class="form-control" placeholder="Repite la nueva contraseña">
+      </div>
+      <div id="cp-error" class="msg-error hidden"></div>
+      <button id="cp-guardar-btn" class="btn btn-primary">💾 Guardar contraseña</button>
+    </div>
+  `);
+  document.getElementById('cp-guardar-btn').addEventListener('click', async () => {
+    const actual    = document.getElementById('cp-actual').value;
+    const nueva     = document.getElementById('cp-nueva').value;
+    const confirmar = document.getElementById('cp-confirmar').value;
+    const errEl     = document.getElementById('cp-error');
+    errEl.classList.add('hidden');
+    if (!actual)              { errEl.textContent = 'Ingresa tu contraseña actual';          errEl.classList.remove('hidden'); return; }
+    if (!nueva || nueva.length < 4) { errEl.textContent = 'La nueva contraseña debe tener al menos 4 caracteres'; errEl.classList.remove('hidden'); return; }
+    if (nueva !== confirmar)  { errEl.textContent = 'Las contraseñas nuevas no coinciden';   errEl.classList.remove('hidden'); return; }
+    const btn = document.getElementById('cp-guardar-btn');
+    btn.disabled = true; btn.textContent = '⏳ Guardando...';
+    try {
+      await PUT('/auth/change-password', { currentPassword: actual, newPassword: nueva });
+      document.getElementById('modal').classList.add('hidden');
+      toast('Contraseña actualizada correctamente', 'success');
+    } catch (err) {
+      errEl.textContent = err.message; errEl.classList.remove('hidden');
+      btn.disabled = false; btn.textContent = '💾 Guardar contraseña';
+    }
+  });
+}
+
 function logout() {
   S.user = null; S.token = null;
   localStorage.removeItem('pedidos_token');
@@ -1724,6 +1765,9 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.textContent = 'Ingresar';
     }
   });
+
+  // Cambiar contraseña
+  document.getElementById('chpwd-btn-sidebar').addEventListener('click', showCambiarPasswordModal);
 
   // Logout
   document.getElementById('logout-btn').addEventListener('click', logout);

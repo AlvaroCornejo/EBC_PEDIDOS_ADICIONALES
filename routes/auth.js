@@ -32,12 +32,23 @@ router.post('/login', async (req, res) => {
 // PUT /api/auth/change-password
 router.put('/change-password', authMiddleware, async (req, res) => {
   try {
-    const { newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body;
     if (!newPassword || newPassword.length < 4)
       return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
 
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    // Si viene currentPassword (cambio voluntario) lo validamos; si no viene (mustChangePassword) no
+    if (currentPassword !== undefined) {
+      const ok = await bcrypt.compare(currentPassword, user.password);
+      if (!ok) return res.status(401).json({ error: 'La contraseña actual es incorrecta' });
+    }
+
     const hashed = await bcrypt.hash(newPassword, 10);
-    await User.findOneAndUpdate({ id: req.user.id }, { password: hashed, mustChangePassword: false });
+    user.password = hashed;
+    user.mustChangePassword = false;
+    await user.save();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
