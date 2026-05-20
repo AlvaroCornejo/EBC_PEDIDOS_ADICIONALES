@@ -341,8 +341,8 @@ function renderTableHeader(mode = 'edit') {
       <tr>
         <th class="col-item" rowspan="2">Item</th>
         <th rowspan="2">Grupo</th>
-        <th class="group-header" colspan="4">Semana Anterior</th>
-        <th class="group-header" colspan="4">Semana Actual</th>
+        <th class="group-header" colspan="5">Semana Anterior</th>
+        <th class="group-header" colspan="5">Semana Actual</th>
         <th rowspan="2" class="col-auto col-num">Saldo</th>
         <th rowspan="2" class="col-auto col-num">🔒 Costo U.</th>
         <th rowspan="2" class="col-auto col-num">Cantidad</th>
@@ -354,10 +354,12 @@ function renderTableHeader(mode = 'edit') {
         <th class="sub-header col-num">Cons. Est.</th>
         <th class="sub-header col-num">Real Venta</th>
         <th class="sub-header col-num">Real Transf.</th>
+        <th class="sub-header col-num">Real Prod.</th>
         <th class="sub-header col-num">Variación</th>
         <th class="sub-header col-num">Cons. Est.</th>
         <th class="sub-header col-num">Real Venta</th>
         <th class="sub-header col-num">Real Transf.</th>
+        <th class="sub-header col-num">Real Prod.</th>
         <th class="sub-header col-num">Variación</th>
       </tr>
     </thead>`;
@@ -444,10 +446,12 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit') {
     <td class="col-num"><span class="auto-ceA-${idx} ${!l.semanaAnterior?'cell-loading':''}">${l.semanaAnterior ? fmt(sa.consumoEstimado) : '...'}</span></td>
     <td class="col-num"><span class="auto-rvA-${idx}">${l.semanaAnterior ? fmt(sa.consumoRealVenta) : '...'}</span></td>
     <td class="col-num"><span class="auto-rtA-${idx}">${l.semanaAnterior ? fmt(sa.consumoRealTransformacion) : '...'}</span></td>
+    <td class="col-num"><span class="auto-rpA-${idx}">${l.semanaAnterior ? fmt(sa.consumoRealProduccion) : '...'}</span></td>
     <td class="col-num"><span class="auto-vA-${idx} ${varA>=0?'variacion-pos':'variacion-neg'}">${l.semanaAnterior ? fmt(varA) : '...'}</span></td>
     <td class="col-num"><span class="auto-ceC-${idx}">${l.semanaActual ? fmt(sc.consumoEstimado) : '...'}</span></td>
     <td class="col-num"><span class="auto-rvC-${idx}">${l.semanaActual ? fmt(sc.consumoRealVenta) : '...'}</span></td>
     <td class="col-num"><span class="auto-rtC-${idx}">${l.semanaActual ? fmt(sc.consumoRealTransformacion) : '...'}</span></td>
+    <td class="col-num"><span class="auto-rpC-${idx}">${l.semanaActual ? fmt(sc.consumoRealProduccion) : '...'}</span></td>
     <td class="col-num"><span class="auto-vC-${idx} ${varC>=0?'variacion-pos':'variacion-neg'}">${l.semanaActual ? fmt(varC) : '...'}</span></td>
     <td class="col-num"><span class="auto-saldo-${idx}">${l.saldo != null ? fmt(l.saldo) : '...'}</span></td>
     <td class="col-num"><span class="auto-cu-${idx}">${l.costoUnitario != null ? fmtMoney(l.costoUnitario) : '...'}</span></td>
@@ -689,10 +693,12 @@ async function fetchItemData(itemCode, idx) {
     set(`.auto-ceA-${idx}`, fmt(sa.consumoEstimado));
     set(`.auto-rvA-${idx}`, fmt(sa.consumoRealVenta));
     set(`.auto-rtA-${idx}`, fmt(sa.consumoRealTransformacion));
+    set(`.auto-rpA-${idx}`, fmt(sa.consumoRealProduccion));
     set(`.auto-vA-${idx}`, fmt(sa.variacion), `auto-vA-${idx} ${sa.variacion >= 0 ? 'variacion-pos' : 'variacion-neg'}`);
     set(`.auto-ceC-${idx}`, fmt(sc.consumoEstimado));
     set(`.auto-rvC-${idx}`, fmt(sc.consumoRealVenta));
     set(`.auto-rtC-${idx}`, fmt(sc.consumoRealTransformacion));
+    set(`.auto-rpC-${idx}`, fmt(sc.consumoRealProduccion));
     set(`.auto-vC-${idx}`, fmt(sc.variacion), `auto-vC-${idx} ${sc.variacion >= 0 ? 'variacion-pos' : 'variacion-neg'}`);
     set(`.auto-saldo-${idx}`, fmt(data.saldo));
     set(`.auto-cu-${idx}`, fmtMoney(data.costoUnitario));

@@ -186,14 +186,15 @@ router.get('/item-data', async (req, res) => {
 
     // Consumos reales del Kardex por semana
     function kardexSem(añosem) {
-      let vta = 0, tre = 0;
+      let vta = 0, tre = 0, pro = 0;
       kardexRows
         .filter(r => r.item === itemKey && r.añosem === añosem)
         .forEach(r => {
-          if (r.trx === 'VTA') vta += r.cant;
-          else if (r.trx === 'TRE') tre += r.cant;
+          if      (r.trx === 'VENTA')                  vta += r.cant;
+          else if (r.trx === 'CONSUMO TRANSFORMACION') tre += r.cant;
+          else if (r.trx === 'CONSUMO PRODUCCION')     pro += r.cant;
         });
-      return { vta: Math.abs(vta), tre: Math.abs(tre) };
+      return { vta: Math.abs(vta), tre: Math.abs(tre), pro: Math.abs(pro) };
     }
 
     const kAct = kardexSem(añoSemAct);
@@ -211,17 +212,19 @@ router.get('/item-data', async (req, res) => {
       costoUnitario,
       semanaAnterior: {
         label: `Sem ${añoSemAnt % 100}/${Math.floor(añoSemAnt / 100)}`,
-        consumoEstimado:          rq.semAnt,
-        consumoRealVenta:         kAnt.vta,
+        consumoEstimado:           rq.semAnt,
+        consumoRealVenta:          kAnt.vta,
         consumoRealTransformacion: kAnt.tre,
-        variacion: (kAnt.vta + kAnt.tre) - rq.semAnt
+        consumoRealProduccion:     kAnt.pro,
+        variacion: (kAnt.vta + kAnt.tre + kAnt.pro) - rq.semAnt
       },
       semanaActual: {
         label: `Sem ${cw}/${cy}`,
-        consumoEstimado:          rq.semAct,
-        consumoRealVenta:         kAct.vta,
+        consumoEstimado:           rq.semAct,
+        consumoRealVenta:          kAct.vta,
         consumoRealTransformacion: kAct.tre,
-        variacion: (kAct.vta + kAct.tre) - rq.semAct
+        consumoRealProduccion:     kAct.pro,
+        variacion: (kAct.vta + kAct.tre + kAct.pro) - rq.semAct
       },
       saldo
     });
