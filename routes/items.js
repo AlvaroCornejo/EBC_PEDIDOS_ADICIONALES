@@ -1,37 +1,11 @@
 const express = require('express');
 const authMiddleware = require('../middleware/auth');
 const Item = require('../models/Item');
-const ExcelJS = require('exceljs');
-const fs = require('fs');
-const path = require('path');
+// Reutilizar los helpers de lectura Excel ya existentes en datos.js
+const { readItems, findFile, loadWB } = require('./datos');
 
 const router = express.Router();
 router.use(authMiddleware);
-
-const DATA_DIR = path.join(__dirname, '../data');
-
-// ─── Helpers Excel ────────────────────────────────────────────────
-function cellVal(row, col) {
-  const v = row.getCell(col).value;
-  if (v == null) return null;
-  if (typeof v === 'object') {
-    if (v.result  !== undefined) return v.result;
-    if (v.richText !== undefined) return v.richText.map(r => r.text).join('');
-    return null;
-  }
-  return v;
-}
-const str = (row, col) => { const v = cellVal(row, col); return v != null ? String(v).trim() : ''; };
-const num = (row, col) => parseFloat(cellVal(row, col)) || 0;
-
-function findFile(operacion) {
-  const names = [`${operacion} - ADICIONALES.xlsx`, `${operacion} - Adicionales.xlsx`, `${operacion}.xlsx`];
-  for (const n of names) {
-    const fp = path.join(DATA_DIR, n);
-    if (fs.existsSync(fp)) return fp;
-  }
-  return null;
-}
 
 // GET /api/items?operacion=AASI  (items activos para autocomplete / solicitud)
 router.get('/', async (req, res) => {
@@ -54,7 +28,7 @@ router.get('/all', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/items/sync?operacion=AASI  — solo inserta items nuevos
+// POST /api/items/sync?operacion=AASI  — solo inserta items nuevos desde Excel
 router.post('/sync', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'No autorizado' });
@@ -64,25 +38,15 @@ router.post('/sync', async (req, res) => {
     const fp = findFile(operacion);
     if (!fp) return res.status(404).json({ error: `No se encontró archivo para ${operacion}` });
 
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile(fp);
-    const sh = wb.getWorksheet('Items');
-    if (!sh) return res.status(400).json({ error: 'Hoja "Items" no encontrada en el Excel' });
+    const wb = await loadWB(fp);
+    // Usa la misma función readItems que ya usa el sistema (datos.js)
+    const excelItems = readItems(wb).map(i => ({
+      ...i,
+      operacion,
+      loteCompra: 1   // default — editable luego en el maestro
+    }));
 
-    const excelItems = [];
-    sh.eachRow((row, rn) => {
-      if (rn === 1) return;
-      const item = str(row, 1);
-      if (!item) return;
-      excelItems.push({
-        operacion,
-        item,
-        nombre:      str(row, 2),
-        grupoCompra: str(row, 3),
-        gestion:     str(row, 4) || 'COMPRAS',
-        loteCompra:  num(row, 5) || 1   // default 1 si no viene en el Excel
-      });
-    });
+    if (!excelItems.length) return res.status(400).json({ error: 'No se encontraron items en la hoja "Items"' });
 
     // Solo inserta items que no existen aún
     let insertados = 0;
@@ -98,7 +62,7 @@ router.post('/sync', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /api/items/bulk?operacion=AASI  — actualizar loteCompra/gestion a todos
+// PUT /api/items/bulk?operacion=AASI  — poner lote=1 solo a los que tienen lote=0
 router.put('/bulk', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'No autorizado' });
@@ -106,7 +70,7 @@ router.put('/bulk', async (req, res) => {
     const upd = {};
     if (req.body.loteCompra !== undefined) upd.loteCompra = Number(req.body.loteCompra) || 1;
     if (req.body.gestion    !== undefined) upd.gestion    = req.body.gestion;
-    // Solo actualiza items que aún tienen lote = 0 (sin configurar); preserva los que ya tienen valor
+    // Solo actualiza items sin lote configurado; preserva los que ya tienen valor
     const filter = operacion ? { operacion, loteCompra: 0 } : { loteCompra: 0 };
     const result = await Item.updateMany(filter, { $set: upd });
     res.json({ updated: result.modifiedCount });

@@ -243,3 +243,7 @@ router.get('/files', (req, res) => {
 });
 
 module.exports = router;
+// Exportar helpers para que items.js pueda reutilizarlos
+module.exports.readItems = readItems;
+module.exports.findFile  = findFile;
+module.exports.loadWB    = loadWB;
