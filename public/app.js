@@ -2035,6 +2035,23 @@ function showApp() {
   initPush().catch(() => {});
 }
 
+// ─── PWA: Install prompt ─────────────────────────────────────────
+let _installPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();               // Evita el banner automático del browser
+  _installPrompt = e;               // Guardamos el evento para usarlo después
+  const btn = document.getElementById('install-btn');
+  if (btn) btn.classList.remove('hidden');
+});
+
+window.addEventListener('appinstalled', () => {
+  _installPrompt = null;
+  const btn = document.getElementById('install-btn');
+  if (btn) btn.classList.add('hidden');
+  toast('✅ App instalada correctamente', 'success');
+});
+
 // ─── PWA: Service Worker + Push Notifications ────────────────────
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -2105,6 +2122,17 @@ document.addEventListener('DOMContentLoaded', () => {
       errEl.classList.remove('hidden');
       btn.disabled = false;
       btn.textContent = 'Ingresar';
+    }
+  });
+
+  // Instalar PWA
+  document.getElementById('install-btn').addEventListener('click', async () => {
+    if (!_installPrompt) return;
+    _installPrompt.prompt();
+    const { outcome } = await _installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      _installPrompt = null;
+      document.getElementById('install-btn').classList.add('hidden');
     }
   });
 

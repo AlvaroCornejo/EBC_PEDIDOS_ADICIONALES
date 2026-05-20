@@ -73,6 +73,8 @@ input, select, textarea { font: inherit; }
 .sb-role-badge { font-size: 11px; color: #8892b0; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
 .btn-kardex { background:none;border:none;cursor:pointer;font-size:14px;padding:1px 3px;border-radius:4px;opacity:.7;transition:opacity .15s; }
 .btn-kardex:hover { opacity:1;background:#e0e7ff; }
+.btn-install { width: 100%; background: rgba(99,215,140,.15); border: 1px solid rgba(99,215,140,.35); color: #6ed49a; padding: 8px 12px; border-radius: var(--radius); cursor: pointer; font-size: 13px; text-align: left; transition: background .15s; margin-bottom: 4px; font-weight: 600; }
+.btn-install:hover { background: rgba(99,215,140,.28); color: #fff; }
 .btn-chpwd { width: 100%; background: rgba(255,255,255,.06); border: none; color: #a0aec0; padding: 8px 12px; border-radius: var(--radius); cursor: pointer; font-size: 13px; text-align: left; transition: background .15s; margin-bottom: 4px; }
 .btn-chpwd:hover { background: rgba(255,255,255,.13); color: #fff; }
 .btn-logout { width: 100%; background: rgba(255,255,255,.08); border: none; color: #c8d0e7; padding: 8px 12px; border-radius: var(--radius); cursor: pointer; font-size: 13px; text-align: left; transition: background .15s; }
