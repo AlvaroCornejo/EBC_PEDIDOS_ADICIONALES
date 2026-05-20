@@ -735,31 +735,65 @@ async function viewMisPedidos(container) {
 
 // ─── View: Comentarios ───────────────────────────────────────────
 async function viewComentarios(container) {
-  container.innerHTML = `
-    <div class="page-header"><div class="page-title">💬 Comentarios</div></div>
-    <div class="page-body">
-      <div class="card" style="max-width:700px">
-        <div class="card-body" style="padding:0;display:flex;flex-direction:column;height:65vh">
-          <div id="com-list" style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px">
-            <div class="loading-overlay"><span class="spinner spinner-dark"></span></div>
-          </div>
-          <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px">
-            <textarea id="com-texto" placeholder="Escribe un comentario..." rows="2"
-              style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font:inherit;font-size:13px;resize:none"></textarea>
-            <button class="btn btn-primary" id="com-send" style="align-self:flex-end">Enviar</button>
+  const ops = S.user.role === ROLES.ADMIN ? ALL_OPS : (S.user.operations || ALL_OPS);
+  let activeOp = ops[0];
+
+  function renderShell() {
+    container.innerHTML = `
+      <div class="page-header"><div class="page-title">💬 Comentarios</div></div>
+      <div class="page-body">
+        <div class="tabs" id="com-tabs">
+          ${ops.map(o => `<button class="tab-btn${o===activeOp?' active':''}" data-op="${o}">${o}</button>`).join('')}
+        </div>
+        <div class="card" style="max-width:700px">
+          <div class="card-body" style="padding:0;display:flex;flex-direction:column;height:62vh">
+            <div id="com-list" style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px">
+              <div class="loading-overlay"><span class="spinner spinner-dark"></span></div>
+            </div>
+            <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px">
+              <textarea id="com-texto" placeholder="Escribe un comentario para ${activeOp}..." rows="2"
+                style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font:inherit;font-size:13px;resize:none"></textarea>
+              <button class="btn btn-primary" id="com-send" style="align-self:flex-end">Enviar</button>
+            </div>
           </div>
         </div>
-      </div>
-    </div>`;
+      </div>`;
+
+    container.querySelectorAll('#com-tabs .tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeOp = btn.dataset.op;
+        renderShell();
+        loadComments();
+      });
+    });
+
+    document.getElementById('com-send')?.addEventListener('click', async () => {
+      const texto = document.getElementById('com-texto')?.value?.trim();
+      if (!texto) return;
+      const btn = document.getElementById('com-send');
+      btn.disabled = true;
+      try {
+        await POST('/comentarios', { texto, operacion: activeOp });
+        document.getElementById('com-texto').value = '';
+        await loadComments();
+      } catch (err) { toast(err.message, 'error'); }
+      btn.disabled = false;
+    });
+
+    document.getElementById('com-texto')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && e.ctrlKey) document.getElementById('com-send')?.click();
+    });
+  }
 
   async function loadComments() {
     const list = document.getElementById('com-list');
     if (!list) return;
+    list.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
     try {
-      const comentarios = await GET('/comentarios');
+      const comentarios = await GET(`/comentarios?operacion=${encodeURIComponent(activeOp)}`);
       if (!list) return;
       if (!comentarios.length) {
-        list.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div><p>Sin comentarios aún. ¡Sé el primero!</p></div>`;
+        list.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div><p>Sin comentarios para ${activeOp} aún.</p></div>`;
       } else {
         list.innerHTML = comentarios.map(c => {
           const isOwn = c.userId === S.user.id;
@@ -785,25 +819,8 @@ async function viewComentarios(container) {
     }
   }
 
+  renderShell();
   await loadComments();
-
-  document.getElementById('com-send')?.addEventListener('click', async () => {
-    const texto = document.getElementById('com-texto')?.value?.trim();
-    if (!texto) return;
-    const btn = document.getElementById('com-send');
-    btn.disabled = true;
-    try {
-      await POST('/comentarios', { texto });
-      document.getElementById('com-texto').value = '';
-      await loadComments();
-    } catch (err) { toast(err.message, 'error'); }
-    btn.disabled = false;
-  });
-
-  // Enviar con Ctrl+Enter
-  document.getElementById('com-texto')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && e.ctrlKey) document.getElementById('com-send')?.click();
-  });
 }
 
 // ─── View: Aprobar ────────────────────────────────────────────────

@@ -5,10 +5,12 @@ const Comentario = require('../models/Comentario');
 const router = express.Router();
 router.use(authMiddleware);
 
-// GET /api/comentarios  — comentarios generales
+// GET /api/comentarios?operacion=AASI
 router.get('/', async (req, res) => {
   try {
-    const comentarios = await Comentario.find({ pedidoId: 'general' })
+    const { operacion } = req.query;
+    if (!operacion) return res.status(400).json({ error: 'operacion requerida' });
+    const comentarios = await Comentario.find({ pedidoId: `op:${operacion}` })
       .sort({ createdAt: 1 }).lean();
     res.json(comentarios);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -17,10 +19,10 @@ router.get('/', async (req, res) => {
 // POST /api/comentarios
 router.post('/', async (req, res) => {
   try {
-    const { texto } = req.body;
-    if (!texto?.trim()) return res.status(400).json({ error: 'texto requerido' });
+    const { texto, operacion } = req.body;
+    if (!texto?.trim() || !operacion) return res.status(400).json({ error: 'texto y operacion requeridos' });
     const c = new Comentario({
-      pedidoId: 'general',
+      pedidoId: `op:${operacion}`,
       userId:   req.user.id,
       username: req.user.username,
       role:     req.user.role,
