@@ -2031,6 +2031,54 @@ function showApp() {
   if ([ROLES.SOL, ROLES.ADMIN].includes(role)) navigate('solicitar');
   else if (role === ROLES.APR) navigate('aprobar');
   else if (role === ROLES.ATE || role === ROLES.PLT) navigate('atender');
+  // Inicializar push notifications (sin bloquear)
+  initPush().catch(() => {});
+}
+
+// ─── PWA: Service Worker + Push Notifications ────────────────────
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64  = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw     = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function initPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+
+    // Escuchar mensajes del SW (navegación desde notificación)
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data?.type === 'NAVIGATE') {
+        const hash = (e.data.url || '').replace(/^.*#/, '');
+        if (hash) navigate(hash);
+      }
+    });
+
+    // Obtener clave pública VAPID
+    let vapidKey;
+    try {
+      const r = await GET('/push/vapid-public-key');
+      vapidKey = r.key;
+    } catch { return; }
+    if (!vapidKey) return;
+
+    // Verificar o crear suscripción
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly:      true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey)
+      });
+    }
+    // Registrar/actualizar suscripción en el servidor
+    await POST('/push/subscribe', { subscription: sub.toJSON() });
+  } catch (err) {
+    console.warn('Push init error:', err.message);
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

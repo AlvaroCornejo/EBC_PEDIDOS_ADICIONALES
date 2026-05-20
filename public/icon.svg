@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="38" fill="#4361ee"/>
+  <!-- Caja superior -->
+  <rect x="36" y="48" width="120" height="32" rx="7" fill="#ffffff"/>
+  <rect x="80" y="48" width="32" height="10" rx="5" fill="#4361ee"/>
+  <!-- Caja cuerpo -->
+  <rect x="36" y="86" width="120" height="72" rx="7" fill="#ffffff" opacity="0.88"/>
+  <!-- Líneas decorativas -->
+  <rect x="56" y="106" width="80" height="8" rx="4" fill="#4361ee" opacity="0.35"/>
+  <rect x="66" y="122" width="60" height="8" rx="4" fill="#4361ee" opacity="0.25"/>
+  <rect x="72" y="138" width="48" height="8" rx="4" fill="#4361ee" opacity="0.18"/>
+</svg>

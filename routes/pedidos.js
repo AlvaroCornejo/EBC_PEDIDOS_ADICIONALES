@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const authMiddleware = require('../middleware/auth');
 const Pedido = require('../models/Pedido');
 const Config = require('../models/Config');
+const { sendPush } = require('../utils/sendPush');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -110,6 +111,18 @@ router.post('/', async (req, res) => {
 
     await pedido.save();
     res.json(pedido.toObject());
+
+    // Notificar aprobadores si el pedido no fue auto-aprobado totalmente
+    if (pedido.estado === 'SOLICITADO') {
+      sendPush(
+        { role: 'OPERADOR_APROBACION', operations: operacion },
+        { title: '📝 Nueva solicitud pendiente', body: `${operacion} — ${req.user.username} (${lineasMapped.length} línea${lineasMapped.length !== 1 ? 's' : ''})`, url: '/#aprobar' }
+      );
+      sendPush(
+        { role: 'ADMIN' },
+        { title: '📝 Nueva solicitud pendiente', body: `${operacion} — ${req.user.username}`, url: '/#aprobar' }
+      );
+    }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -229,6 +242,32 @@ router.put('/:id', async (req, res) => {
     pedido.markModified('lineas');
     await pedido.save();
     res.json(pedido.toObject());
+
+    // ── Push notifications post-guardado ──────────────────────────
+    const op = pedido.operacion;
+    const solId = pedido.solicitadoPorId;
+    if (role === 'OPERADOR_APROBACION' || (role === 'ADMIN' && req.body.lineas?.[0]?.estadoLinea)) {
+      const nuevoEstado = pedido.estado;
+      if (nuevoEstado === 'APROBADO') {
+        sendPush({ userId: solId },
+          { title: '✅ Pedido aprobado', body: `Tu solicitud de ${op} fue aprobada`, url: '/#mis-pedidos' });
+        sendPush({ role: 'OPERADOR_ATENCION', operations: op },
+          { title: '🚚 Pedido listo para atender', body: `${op} — aprobado por ${req.user.username}`, url: '/#atender' });
+        sendPush({ role: 'OPERADOR_PLANTA', operations: op },
+          { title: '🚚 Pedido listo para atender', body: `${op} — aprobado por ${req.user.username}`, url: '/#atender' });
+      } else if (nuevoEstado === 'RECHAZADO') {
+        sendPush({ userId: solId },
+          { title: '❌ Pedido rechazado', body: `Tu solicitud de ${op} fue rechazada`, url: '/#mis-pedidos' });
+      } else if (nuevoEstado === 'REVISAR') {
+        sendPush({ userId: solId },
+          { title: '🔄 Pedido requiere revisión', body: `Tu solicitud de ${op} necesita ajustes`, url: '/#solicitar' });
+      }
+    } else if (role === 'OPERADOR_ATENCION' || role === 'OPERADOR_PLANTA') {
+      if (pedido.estado === 'ATENDIDO') {
+        sendPush({ userId: solId },
+          { title: '📦 Pedido atendido', body: `Tu solicitud de ${op} fue atendida`, url: '/#mis-pedidos' });
+      }
+    }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
