@@ -738,56 +738,72 @@ async function viewComentarios(container) {
   container.innerHTML = `
     <div class="page-header"><div class="page-title">💬 Comentarios</div></div>
     <div class="page-body">
-      <div class="filter-bar mb-16">
-        <select id="com-filter-op">
-          <option value="">Todas las operaciones</option>
-          ${(S.user.operations || []).map(o => `<option value="${o}">${o}</option>`).join('')}
-        </select>
-        <select id="com-filter-estado">
-          <option value="">Todos los estados</option>
-          ${['SOLICITADO','APROBADO','RECHAZADO','REVISAR','ATENDIDO'].map(e => `<option value="${e}">${e}</option>`).join('')}
-        </select>
+      <div class="card" style="max-width:700px">
+        <div class="card-body" style="padding:0;display:flex;flex-direction:column;height:65vh">
+          <div id="com-list" style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px">
+            <div class="loading-overlay"><span class="spinner spinner-dark"></span></div>
+          </div>
+          <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px">
+            <textarea id="com-texto" placeholder="Escribe un comentario..." rows="2"
+              style="flex:1;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font:inherit;font-size:13px;resize:none"></textarea>
+            <button class="btn btn-primary" id="com-send" style="align-self:flex-end">Enviar</button>
+          </div>
+        </div>
       </div>
-      <div id="com-list"><div class="loading-overlay"><span class="spinner spinner-dark"></span> Cargando...</div></div>
     </div>`;
 
-  let pedidos = [];
-  try { pedidos = await GET('/pedidos'); } catch (err) { toast(err.message, 'error'); }
-
-  function render() {
-    const op  = document.getElementById('com-filter-op').value;
-    const est = document.getElementById('com-filter-estado').value;
-    const filtered = pedidos.filter(p => (!op || p.operacion === op) && (!est || p.estado === est));
+  async function loadComments() {
     const list = document.getElementById('com-list');
-    if (!filtered.length) {
-      list.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div><p>No hay pedidos</p></div>`;
-      return;
+    if (!list) return;
+    try {
+      const comentarios = await GET('/comentarios');
+      if (!list) return;
+      if (!comentarios.length) {
+        list.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div><p>Sin comentarios aún. ¡Sé el primero!</p></div>`;
+      } else {
+        list.innerHTML = comentarios.map(c => {
+          const isOwn = c.userId === S.user.id;
+          const rol   = ROLE_LABELS[c.role] || c.role;
+          const dt    = new Date(c.createdAt).toLocaleString('es-CL');
+          return `
+            <div style="display:flex;flex-direction:column;align-items:${isOwn?'flex-end':'flex-start'}">
+              <div style="max-width:80%;background:${isOwn?'var(--accent-light)':'#f3f4f6'};border-radius:12px;padding:10px 14px;
+                          border-bottom-${isOwn?'right':'left'}-radius:3px">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">
+                  <strong>${esc(c.username)}</strong>
+                  &nbsp;<span class="badge" style="background:#e0e7ff;color:#3730a3;font-size:10px">${esc(rol)}</span>
+                  &nbsp;· ${dt}
+                </div>
+                <div style="font-size:13px">${esc(c.texto)}</div>
+              </div>
+            </div>`;
+        }).join('');
+        list.scrollTop = list.scrollHeight;
+      }
+    } catch (err) {
+      if (list) list.innerHTML = `<p style="color:var(--danger)">Error: ${err.message}</p>`;
     }
-    list.innerHTML = filtered.map(p => `
-      <div class="pedido-card" style="cursor:pointer" data-pid="${p.id}" data-op="${esc(p.operacion)}" data-fecha="${esc(p.fechaPedido)}">
-        <div class="pedido-card-header" style="cursor:pointer">
-          <div class="pedido-meta">
-            <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
-            <div class="pedido-info">
-              📅 ${fmtDate(p.fechaPedido)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}
-              ${p.aprobadoPorNombre ? ` &nbsp;·&nbsp; ✅ ${esc(p.aprobadoPorNombre)}` : ''}
-              &nbsp;·&nbsp; <span style="font-weight:600;color:var(--accent)">${p.lineas?.length || 0} líneas</span>
-            </div>
-          </div>
-          <button class="btn btn-sm btn-outline" style="flex-shrink:0">💬 Ver / Agregar comentarios</button>
-        </div>
-      </div>`).join('');
-
-    list.querySelectorAll('.pedido-card').forEach(card => {
-      card.addEventListener('click', () =>
-        showComentariosModal(card.dataset.pid, card.dataset.op, card.dataset.fecha)
-      );
-    });
   }
 
-  document.getElementById('com-filter-op').addEventListener('change', render);
-  document.getElementById('com-filter-estado').addEventListener('change', render);
-  render();
+  await loadComments();
+
+  document.getElementById('com-send')?.addEventListener('click', async () => {
+    const texto = document.getElementById('com-texto')?.value?.trim();
+    if (!texto) return;
+    const btn = document.getElementById('com-send');
+    btn.disabled = true;
+    try {
+      await POST('/comentarios', { texto });
+      document.getElementById('com-texto').value = '';
+      await loadComments();
+    } catch (err) { toast(err.message, 'error'); }
+    btn.disabled = false;
+  });
+
+  // Enviar con Ctrl+Enter
+  document.getElementById('com-texto')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.ctrlKey) document.getElementById('com-send')?.click();
+  });
 }
 
 // ─── View: Aprobar ────────────────────────────────────────────────
@@ -891,9 +907,6 @@ function renderPedidosList(container, pedidos, opts = {}) {
       btn.addEventListener('click', e => { e.stopPropagation(); navigate('solicitar', { editId: btn.dataset.id }); });
     });
   }
-  container.querySelectorAll('.btn-comentarios').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); showComentariosModal(btn.dataset.id, btn.dataset.op, btn.dataset.fecha); });
-  });
 }
 
 function pedidoCard(p, opts = {}) {
@@ -911,7 +924,6 @@ function pedidoCard(p, opts = {}) {
         </div>
         <div class="pedido-actions" onclick="event.stopPropagation()">
           ${canEdit ? `<button class="btn btn-sm btn-outline btn-edit-pedido" data-id="${p.id}">✏️ Editar</button>` : ''}
-          <button class="btn btn-sm btn-ghost btn-comentarios" data-id="${p.id}" data-op="${esc(p.operacion)}" data-fecha="${esc(p.fechaPedido)}" title="Comentarios">💬</button>
           <span style="color:var(--text-muted);font-size:12px">▼</span>
         </div>
       </div>
@@ -948,10 +960,7 @@ function renderPedidosAprobar(container, pedidos) {
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}</div>
         </div>
-        <div class="pedido-actions" onclick="event.stopPropagation()">
-          <button class="btn btn-sm btn-ghost btn-comentarios" data-id="${p.id}" data-op="${esc(p.operacion)}" data-fecha="${esc(p.fechaPedido)}" title="Comentarios">💬</button>
-          <span style="color:var(--text-muted);font-size:12px">▼</span>
-        </div>
+        <span style="color:var(--text-muted);font-size:12px">▼</span>
       </div>
       <div class="pedido-card-body open">
         <div class="table-wrap">
@@ -994,9 +1003,6 @@ function renderPedidosAprobar(container, pedidos) {
         btn.disabled = false; btn.textContent = '💾 Guardar aprobación';
       }
     });
-  });
-  container.querySelectorAll('.btn-comentarios').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); showComentariosModal(btn.dataset.id, btn.dataset.op, btn.dataset.fecha); });
   });
 }
 
@@ -1046,10 +1052,7 @@ function renderPedidosAtender(container, pedidos) {
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)} &nbsp;·&nbsp; ✅ ${esc(p.aprobadoPorNombre||'')}</div>
         </div>
-        <div class="pedido-actions" onclick="event.stopPropagation()">
-          <button class="btn btn-sm btn-ghost btn-comentarios" data-id="${p.id}" data-op="${esc(p.operacion)}" data-fecha="${esc(p.fechaPedido)}" title="Comentarios">💬</button>
-          <span style="color:var(--text-muted);font-size:12px">▼</span>
-        </div>
+        <span style="color:var(--text-muted);font-size:12px">▼</span>
       </div>
       <div class="pedido-card-body open">
         <div class="table-wrap">
@@ -1103,9 +1106,6 @@ function renderPedidosAtender(container, pedidos) {
       btn.disabled = false; btn.textContent = '💾 Guardar atención';
     });
   });
-  container.querySelectorAll('.btn-comentarios').forEach(btn => {
-    btn.addEventListener('click', e => { e.stopPropagation(); showComentariosModal(btn.dataset.id, btn.dataset.op, btn.dataset.fecha); });
-  });
 }
 
 function renderPedidosAtendidos(container, pedidos) {
@@ -1137,69 +1137,6 @@ function renderPedidosAtendidos(container, pedidos) {
     h.addEventListener('click', () => h.nextElementSibling.classList.toggle('open'));
   });
   container.appendChild(wrap);
-}
-
-// ─── Modal: Comentarios ───────────────────────────────────────────
-async function showComentariosModal(pedidoId, operacion, fecha) {
-  // Crear overlay
-  const overlay = document.createElement('div');
-  overlay.className = 'comentarios-modal-overlay';
-  overlay.innerHTML = `
-    <div class="comentarios-modal">
-      <div class="comentarios-modal-header">
-        <strong>💬 Comentarios — ${esc(operacion)} / ${fmtDate(fecha)}</strong>
-        <button class="btn btn-xs btn-ghost" id="cm-close">✕</button>
-      </div>
-      <div class="comentarios-list" id="cm-list">
-        <div class="loading-overlay"><span class="spinner spinner-dark"></span></div>
-      </div>
-      <div class="comentarios-input-row">
-        <textarea id="cm-texto" placeholder="Escribe un comentario..."></textarea>
-        <button class="btn btn-primary" id="cm-send">Enviar</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  const close = () => overlay.remove();
-  document.getElementById('cm-close').onclick = close;
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-
-  async function loadComments() {
-    const list = document.getElementById('cm-list');
-    if (!list) return;
-    try {
-      const comentarios = await GET(`/comentarios?pedidoId=${encodeURIComponent(pedidoId)}`);
-      if (!list) return;
-      if (!comentarios.length) {
-        list.innerHTML = `<p class="text-muted" style="text-align:center;padding:20px">Sin comentarios aún</p>`;
-      } else {
-        list.innerHTML = comentarios.map(c => {
-          const isOwn = c.userId === S.user.id;
-          const rol = ROLE_LABELS[c.role] || c.role;
-          const dt  = new Date(c.createdAt).toLocaleString('es-CL');
-          return `<div class="comentario-item${isOwn?' own':''}">
-            <div class="comentario-meta">${esc(c.username)} <span class="badge" style="background:#e0e7ff;color:#3730a3;font-size:10px">${esc(rol)}</span> &nbsp;·&nbsp; ${dt}</div>
-            <div class="comentario-texto">${esc(c.texto)}</div>
-          </div>`;
-        }).join('');
-        list.scrollTop = list.scrollHeight;
-      }
-    } catch (err) {
-      if (list) list.innerHTML = `<p style="color:var(--danger)">Error: ${err.message}</p>`;
-    }
-  }
-
-  await loadComments();
-
-  document.getElementById('cm-send')?.addEventListener('click', async () => {
-    const texto = document.getElementById('cm-texto')?.value?.trim();
-    if (!texto) return;
-    try {
-      await POST('/comentarios', { pedidoId, texto });
-      document.getElementById('cm-texto').value = '';
-      await loadComments();
-    } catch (err) { toast(err.message, 'error'); }
-  });
 }
 
 // ─── Resumen de adicionales ───────────────────────────────────────

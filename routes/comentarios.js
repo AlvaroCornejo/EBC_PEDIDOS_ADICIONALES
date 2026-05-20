@@ -5,12 +5,11 @@ const Comentario = require('../models/Comentario');
 const router = express.Router();
 router.use(authMiddleware);
 
-// GET /api/comentarios?pedidoId=xxx
+// GET /api/comentarios  — comentarios generales
 router.get('/', async (req, res) => {
   try {
-    const { pedidoId } = req.query;
-    if (!pedidoId) return res.status(400).json({ error: 'pedidoId requerido' });
-    const comentarios = await Comentario.find({ pedidoId }).sort({ createdAt: 1 }).lean();
+    const comentarios = await Comentario.find({ pedidoId: 'general' })
+      .sort({ createdAt: 1 }).lean();
     res.json(comentarios);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -18,16 +17,14 @@ router.get('/', async (req, res) => {
 // POST /api/comentarios
 router.post('/', async (req, res) => {
   try {
-    const { pedidoId, fase, texto, parentId } = req.body;
-    if (!pedidoId || !texto?.trim()) return res.status(400).json({ error: 'pedidoId y texto son requeridos' });
+    const { texto } = req.body;
+    if (!texto?.trim()) return res.status(400).json({ error: 'texto requerido' });
     const c = new Comentario({
-      pedidoId,
-      fase:     fase || '',
+      pedidoId: 'general',
       userId:   req.user.id,
       username: req.user.username,
       role:     req.user.role,
-      texto:    texto.trim(),
-      parentId: parentId || null
+      texto:    texto.trim()
     });
     await c.save();
     res.json(c.toObject());
