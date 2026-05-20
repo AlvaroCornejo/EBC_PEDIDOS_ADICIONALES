@@ -80,7 +80,7 @@ router.post('/sync', async (req, res) => {
         nombre:      str(row, 2),
         grupoCompra: str(row, 3),
         gestion:     str(row, 4) || 'COMPRAS',
-        loteCompra:  num(row, 5) || 0
+        loteCompra:  num(row, 5) || 1   // default 1 si no viene en el Excel
       });
     });
 

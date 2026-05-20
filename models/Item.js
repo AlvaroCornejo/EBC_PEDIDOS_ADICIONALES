@@ -5,7 +5,7 @@ const itemSchema = new mongoose.Schema({
   nombre:      { type: String, default: '' },
   grupoCompra: { type: String, default: '' },
   gestion:     { type: String, default: 'COMPRAS' },
-  loteCompra:  { type: Number, default: 0 },
+  loteCompra:  { type: Number, default: 1 },
   activo:      { type: Boolean, default: true }
 });
 itemSchema.index({ operacion: 1, item: 1 }, { unique: true });

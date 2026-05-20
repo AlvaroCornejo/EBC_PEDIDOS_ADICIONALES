@@ -301,7 +301,6 @@ function renderTableHeader(mode = 'edit') {
         <th rowspan="2">Grupo</th>
         <th class="group-header" colspan="4">Semana Anterior</th>
         <th class="group-header" colspan="4">Semana Actual</th>
-        <th rowspan="2" class="col-sugerido col-num" title="Variación sem. ant. redondeada al lote de compra/producción">Sugerido</th>
         <th rowspan="2" class="col-auto col-num">Saldo</th>
         <th rowspan="2" class="col-auto col-num">🔒 Costo U.</th>
         <th rowspan="2" class="col-auto col-num">Cantidad</th>
@@ -322,13 +321,6 @@ function renderTableHeader(mode = 'edit') {
     </thead>`;
 }
 
-function calcSugerido(linea) {
-  const varA = (linea.semanaAnterior || {}).variacion || 0;
-  if (varA <= 0) return null;
-  const lote = linea.loteCompra || 0;
-  return lote > 0 ? Math.ceil(varA / lote) * lote : varA;
-}
-
 function renderLineaRow(l, idx, editable = true, mode = 'edit') {
   const sa = l.semanaAnterior || {};
   const sc = l.semanaActual || {};
@@ -336,7 +328,6 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit') {
   const varA = sa.variacion || 0;
   const varC = sc.variacion || 0;
   const lid  = esc(l.id || '');
-  const sugerido = calcSugerido(l);
   const isAutoAprobado = !!l.autoAprobado;
 
   // En modo edit-revisar, las líneas APROBADO/RECHAZADO son de solo lectura
@@ -416,7 +407,6 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit') {
     <td class="col-num"><span class="auto-rvC-${idx}">${l.semanaActual ? fmt(sc.consumoRealVenta) : '...'}</span></td>
     <td class="col-num"><span class="auto-rtC-${idx}">${l.semanaActual ? fmt(sc.consumoRealTransformacion) : '...'}</span></td>
     <td class="col-num"><span class="auto-vC-${idx} ${varC>=0?'variacion-pos':'variacion-neg'}">${l.semanaActual ? fmt(varC) : '...'}</span></td>
-    <td class="col-sugerido col-num"><span class="auto-sug-${idx}">${sugerido != null ? fmt(sugerido) : '—'}</span></td>
     <td class="col-num"><span class="auto-saldo-${idx}">${l.saldo != null ? fmt(l.saldo) : '...'}</span></td>
     <td class="col-num"><span class="auto-cu-${idx}">${l.costoUnitario != null ? fmtMoney(l.costoUnitario) : '...'}</span></td>
     <td class="col-num">
@@ -666,12 +656,6 @@ async function fetchItemData(itemCode, idx) {
     set(`.auto-cu-${idx}`, fmtMoney(data.costoUnitario));
     const gEl = document.querySelector(`.auto-gestion-${idx}`);
     if (gEl) gEl.innerHTML = gestionIcon(data.gestion || 'COMPRAS');
-    // Actualizar sugerido
-    const sugEl = document.querySelector(`.auto-sug-${idx}`);
-    if (sugEl) {
-      const sug = calcSugerido(linea);
-      sugEl.textContent = sug != null ? fmt(sug) : '—';
-    }
 
     // Update costo total
     const ct = (linea.cantidadSolicitada || 0) * (linea.costoUnitario || 0);
