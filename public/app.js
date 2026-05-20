@@ -1628,8 +1628,85 @@ async function renderAdminArchivos(container) {
 async function renderAdminPedidos(container) {
   container.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
   let pedidos = [];
-  try { pedidos = await GET('/pedidos'); } catch (err) { toast(err.message, 'error'); }
-  renderPedidosList(container, pedidos, { canEdit: false });
+  try { pedidos = await GET('/pedidos'); } catch (err) { toast(err.message, 'error'); return; }
+
+  // Filtros
+  const ops    = ['', ...ALL_OPS];
+  const estados = ['', 'SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
+
+  function render(list) {
+    container.innerHTML = `
+      <div class="section-title mb-16">Gestión de pedidos (${list.length} pedido${list.length !== 1 ? 's' : ''})</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+        <select id="ap-fil-op" class="form-control" style="width:140px">
+          ${ops.map(o => `<option value="${o}">${o || 'Todas las ops.'}</option>`)}
+        </select>
+        <select id="ap-fil-est" class="form-control" style="width:160px">
+          ${estados.map(e => `<option value="${e}">${e || 'Todos los estados'}</option>`)}
+        </select>
+        <input id="ap-fil-q" type="text" class="form-control" placeholder="Buscar solicitante…" style="width:200px">
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr>
+            <th>Operación</th><th>Fecha</th><th>Solicitante</th>
+            <th>Estado</th><th>Líneas</th><th style="width:60px"></th>
+          </tr></thead>
+          <tbody>
+            ${list.length ? list.map(p => `
+              <tr>
+                <td><span class="badge-op">${esc(p.operacion)}</span></td>
+                <td>${fmtDate(p.fecha)}</td>
+                <td>${esc(p.solicitadoPorNombre || p.solicitadoPorId || '—')}</td>
+                <td><span class="badge badge-${(p.estado||'').toLowerCase()}">${p.estado || '—'}</span></td>
+                <td>${(p.lineas||[]).length}</td>
+                <td>
+                  <button class="btn btn-sm btn-danger ap-del-btn" data-id="${esc(p.id)}"
+                    title="Eliminar pedido">🗑️</button>
+                </td>
+              </tr>`).join('') : `<tr><td colspan="6" class="text-muted text-center">No hay pedidos</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+
+    // Filtros reactivos
+    function applyFilters() {
+      const op  = document.getElementById('ap-fil-op').value;
+      const est = document.getElementById('ap-fil-est').value;
+      const q   = document.getElementById('ap-fil-q').value.toLowerCase();
+      const filtered = pedidos.filter(p =>
+        (!op  || p.operacion === op) &&
+        (!est || p.estado === est) &&
+        (!q   || (p.solicitadoPorNombre || '').toLowerCase().includes(q) || (p.solicitadoPorId || '').toLowerCase().includes(q))
+      );
+      render(filtered);
+      // restaurar valores
+      document.getElementById('ap-fil-op').value  = op;
+      document.getElementById('ap-fil-est').value = est;
+      document.getElementById('ap-fil-q').value   = q;
+    }
+    document.getElementById('ap-fil-op').addEventListener('change', applyFilters);
+    document.getElementById('ap-fil-est').addEventListener('change', applyFilters);
+    document.getElementById('ap-fil-q').addEventListener('input', applyFilters);
+
+    // Borrar pedido
+    container.querySelectorAll('.ap-del-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const p  = pedidos.find(x => x.id === id);
+        const label = p ? `${p.operacion} ${fmtDate(p.fecha)} — ${p.solicitadoPorNombre || id}` : id;
+        if (!confirm(`¿Eliminar el pedido "${label}"?\nEsta acción no se puede deshacer.`)) return;
+        try {
+          await DEL(`/pedidos/${id}`);
+          pedidos = pedidos.filter(x => x.id !== id);
+          toast('Pedido eliminado', 'success');
+          render(pedidos);
+        } catch (err) { toast(err.message, 'error'); }
+      });
+    });
+  }
+
+  render(pedidos);
 }
 
 // ─── Admin: Base de Datos ─────────────────────────────────────────

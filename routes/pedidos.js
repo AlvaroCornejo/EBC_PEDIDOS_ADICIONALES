@@ -232,4 +232,14 @@ router.put('/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// DELETE /api/pedidos/:id  — solo ADMIN
+router.delete('/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'No autorizado' });
+    const pedido = await Pedido.findOneAndDelete({ id: req.params.id });
+    if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
