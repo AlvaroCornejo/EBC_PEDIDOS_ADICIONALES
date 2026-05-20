@@ -2025,6 +2025,8 @@ function showApp() {
   document.getElementById('main-app').classList.remove('hidden');
   document.getElementById('sb-user').textContent = S.user.username;
   document.getElementById('sb-role').textContent = ROLE_LABELS[S.user.role] || S.user.role;
+  // Si el prompt ya estaba listo antes del login, mostrar el botón ahora
+  if (_installPrompt) document.getElementById('install-btn').classList.remove('hidden');
   renderNav();
   // Navigate to default view
   const role = S.user.role;
