@@ -98,6 +98,20 @@ router.post('/sync', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// PUT /api/items/bulk?operacion=AASI  — actualizar loteCompra/gestion a todos
+router.put('/bulk', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'No autorizado' });
+    const { operacion } = req.query;
+    const upd = {};
+    if (req.body.loteCompra !== undefined) upd.loteCompra = Number(req.body.loteCompra) || 1;
+    if (req.body.gestion    !== undefined) upd.gestion    = req.body.gestion;
+    const filter = operacion ? { operacion } : {};
+    const result = await Item.updateMany(filter, { $set: upd });
+    res.json({ updated: result.modifiedCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // PUT /api/items/:id  — editar loteCompra, gestion, activo
 router.put('/:id', async (req, res) => {
   try {

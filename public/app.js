@@ -1307,6 +1307,7 @@ async function renderAdminItems(container) {
           ${ALL_OPS.map(o => `<option value="${o}" ${o===selectedOp?'selected':''}>${o}</option>`).join('')}
         </select>
         <button class="btn btn-sm btn-outline" id="items-sync-btn">🔄 Sincronizar desde Excel</button>
+        <button class="btn btn-sm btn-secondary" id="items-bulk-btn" title="Poner lote=1 a todos los items de esta operación">Lote = 1 a todos</button>
         <span id="items-sync-status" style="font-size:13px"></span>
         <span class="text-muted" style="font-size:12px;margin-left:auto">${items.length} items</span>
       </div>
@@ -1357,6 +1358,22 @@ async function renderAdminItems(container) {
         status.innerHTML = `<span style="color:var(--danger)">✕ ${err.message}</span>`;
         btn.disabled = false; btn.textContent = '🔄 Sincronizar desde Excel';
       }
+      setTimeout(() => { if (document.getElementById('items-sync-status')) document.getElementById('items-sync-status').innerHTML = ''; }, 4000);
+    });
+
+    document.getElementById('items-bulk-btn')?.addEventListener('click', async () => {
+      if (!confirm(`¿Poner lote = 1 a TODOS los items de ${selectedOp}?`)) return;
+      const btn = document.getElementById('items-bulk-btn');
+      const status = document.getElementById('items-sync-status');
+      btn.disabled = true;
+      try {
+        const r = await PUT(`/items/bulk?operacion=${encodeURIComponent(selectedOp)}`, { loteCompra: 1 });
+        status.innerHTML = `<span style="color:var(--success)">✔ ${r.updated} items actualizados</span>`;
+        await load();
+      } catch (err) {
+        status.innerHTML = `<span style="color:var(--danger)">✕ ${err.message}</span>`;
+      }
+      btn.disabled = false;
       setTimeout(() => { if (document.getElementById('items-sync-status')) document.getElementById('items-sync-status').innerHTML = ''; }, 4000);
     });
 
