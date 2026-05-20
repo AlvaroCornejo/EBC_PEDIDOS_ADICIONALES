@@ -106,7 +106,8 @@ router.put('/bulk', async (req, res) => {
     const upd = {};
     if (req.body.loteCompra !== undefined) upd.loteCompra = Number(req.body.loteCompra) || 1;
     if (req.body.gestion    !== undefined) upd.gestion    = req.body.gestion;
-    const filter = operacion ? { operacion } : {};
+    // Solo actualiza items que aún tienen lote = 0 (sin configurar); preserva los que ya tienen valor
+    const filter = operacion ? { operacion, loteCompra: 0 } : { loteCompra: 0 };
     const result = await Item.updateMany(filter, { $set: upd });
     res.json({ updated: result.modifiedCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
