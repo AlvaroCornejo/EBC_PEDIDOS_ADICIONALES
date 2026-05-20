@@ -193,6 +193,7 @@ function restoreSession() {
 const NAV_ITEMS = [
   { id: 'solicitar',    label: 'Solicitar',    icon: '📝', roles: [ROLES.ADMIN, ROLES.SOL] },
   { id: 'mis-pedidos',  label: 'Mis Pedidos',  icon: '📋', roles: [ROLES.ADMIN, ROLES.SOL] },
+  { id: 'kardex',       label: 'Kardex',       icon: '📊', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
   { id: 'comentarios',  label: 'Comentarios',  icon: '💬', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
   { id: 'aprobar',      label: 'Aprobar',      icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
   { id: 'atender',      label: 'Atender',      icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
@@ -223,7 +224,7 @@ function navigate(view, params = {}) {
   setActiveNav(view);
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -433,6 +434,7 @@ function renderTableHeader(mode = 'edit') {
         <th rowspan="2" class="col-auto col-num">Saldo</th>
         <th rowspan="2" class="col-auto col-num">🔒 Costo U.</th>
         <th rowspan="2" class="col-auto col-num">Cantidad</th>
+        <th rowspan="2" class="col-auto" style="text-align:center;min-width:80px">Desp. Exceso</th>
         <th rowspan="2" class="col-auto col-num">Costo Total</th>
         <th rowspan="2" style="min-width:160px">Comentarios</th>
         ${lastCols}
@@ -550,6 +552,11 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
         ? `<input type="number" class="tbl-input tbl-input-num cantidad-input" data-idx="${idx}" value="${l.cantidadSolicitada || ''}" min="0" step="0.01" style="width:90px">`
         : fmt(l.cantidadSolicitada)}
     </td>
+    <td style="text-align:center">
+      ${rowEditable
+        ? `<input type="checkbox" class="despacho-check" data-idx="${idx}" ${l.despachoEnExceso ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer">`
+        : (l.despachoEnExceso ? '<span style="color:var(--primary);font-size:16px">✔</span>' : '')}
+    </td>
     <td class="col-num"><span class="auto-ct-${idx}">${fmtMoney(ct || 0)}</span></td>
     <td>
       ${rowEditable
@@ -634,6 +641,10 @@ function setupRowEvents(tr, idx) {
   }
   if (comInput) {
     comInput.addEventListener('input', e => { S.form.lineas[idx].comentarios = e.target.value; });
+  }
+  const despachoCheck = tr.querySelector('.despacho-check');
+  if (despachoCheck) {
+    despachoCheck.addEventListener('change', e => { S.form.lineas[idx].despachoEnExceso = e.target.checked; });
   }
 }
 
@@ -869,6 +880,115 @@ async function viewMisPedidos(container) {
   document.getElementById('filter-estado').addEventListener('change', render);
   document.getElementById('filter-op').addEventListener('change', render);
   render();
+}
+
+// ─── View: Kardex ────────────────────────────────────────────────
+async function viewKardex(container) {
+  const ops = S.user.role === ROLES.ADMIN ? ALL_OPS : (S.user.operations || ALL_OPS);
+  let activeOp = ops[0];
+  let allItems = [];
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">📊 Kardex</div></div>
+    <div class="page-body">
+      <div class="tab-bar">
+        ${ops.map(o => `<button class="tab-btn${o===activeOp?' active':''}" data-op="${o}">${o}</button>`).join('')}
+      </div>
+      <div class="card mt-16" style="max-width:500px">
+        <div class="card-body">
+          <label class="form-label">Buscar item</label>
+          <div style="position:relative">
+            <input id="kx-item-input" type="text" class="form-control" placeholder="Escriba código o nombre del item..." autocomplete="off">
+            <div id="kx-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #4361ee;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);max-height:260px;overflow-y:auto;z-index:100"></div>
+          </div>
+        </div>
+      </div>
+      <div id="kx-result" class="mt-16"></div>
+    </div>`;
+
+  async function loadItems() {
+    try { allItems = await GET(`/items?operacion=${activeOp}`); } catch { allItems = []; }
+  }
+
+  function renderKardexTable(data, item, nombre) {
+    const resultDiv = document.getElementById('kx-result');
+    if (!data.length) { resultDiv.innerHTML = `<p class="text-muted">Sin movimientos en el kardex para este item.</p>`; return; }
+    const semanas = data.map(d => d.semana);
+    const allTrx = new Set();
+    data.forEach(d => Object.keys(d.movimientos).forEach(t => allTrx.add(t)));
+    const trxMain2   = TRX_MAIN.filter(t => allTrx.has(t));
+    const trxExtra2  = [...allTrx].filter(t => !TRX_MAIN.includes(t) && !TRX_BOTTOM.includes(t));
+    const trxBottom2 = TRX_BOTTOM.filter(t => allTrx.has(t));
+    const fmtK2 = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 2);
+    const hdr = (s, i) => { const yr=Math.floor(s/100), wk=String(s%100).padStart(2,'0'); return `${i===0?'Hasta':'Sem'}<br><small>${yr}-${wk}</small>`; };
+    const semanaCols = semanas.map((s,i) => `<th class="col-num" style="white-space:nowrap">${hdr(s,i)}</th>`).join('');
+    const buildRow = (label, key, bold=false) => {
+      const cells = data.map(d => {
+        const v = key==='__saldoInicial' ? d.saldoInicial : key==='__saldoFinal' ? d.saldoFinal : (d.movimientos[key]||0);
+        return `<td class="col-num" style="white-space:nowrap">${fmtK2(v)}</td>`;
+      }).join('');
+      return `<tr style="${bold?'font-weight:700;background:#f0f4ff':''}"><td style="white-space:nowrap;padding:4px 10px">${label}</td>${cells}</tr>`;
+    };
+    resultDiv.innerHTML = `
+      <div class="card">
+        <div class="card-body" style="padding:12px">
+          <div class="section-title mb-8">📦 ${esc(nombre)} &nbsp;<span style="color:#6b7280;font-weight:400;font-size:13px">${esc(item)} — ${esc(activeOp)}</span></div>
+          <div style="overflow-x:auto">
+            <table class="data-table" style="font-size:12px">
+              <thead><tr style="background:#4361ee;color:#fff">
+                <th style="min-width:220px;text-align:left;padding:6px 10px">Movimiento</th>${semanaCols}
+              </tr></thead>
+              <tbody>
+                ${buildRow('SALDO INICIAL','__saldoInicial',true)}
+                ${trxMain2.map(t=>buildRow(t,t)).join('')}
+                ${trxExtra2.map(t=>buildRow(t,t)).join('')}
+                <tr><td colspan="${semanas.length+1}" style="padding:0;border:none"><hr style="margin:4px 0;border-color:#e5e7eb"></td></tr>
+                ${trxBottom2.map(t=>buildRow(t,t)).join('')}
+                ${buildRow('SALDO FINAL','__saldoFinal',true)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function selectKardexItem(itemCode, itemNombre) {
+    document.getElementById('kx-item-input').value = `${itemCode} — ${itemNombre}`;
+    document.getElementById('kx-dropdown').style.display = 'none';
+    document.getElementById('kx-result').innerHTML = `<div style="padding:40px;text-align:center"><span class="spinner spinner-dark"></span></div>`;
+    try {
+      const data = await GET(`/datos/kardex-item?item=${encodeURIComponent(itemCode)}&operacion=${encodeURIComponent(activeOp)}`);
+      renderKardexTable(data, itemCode, itemNombre);
+    } catch(err) { document.getElementById('kx-result').innerHTML = `<p class="msg-error">${err.message}</p>`; }
+  }
+
+  container.querySelectorAll('.tab-btn[data-op]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      container.querySelectorAll('.tab-btn[data-op]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeOp = btn.dataset.op;
+      document.getElementById('kx-item-input').value = '';
+      document.getElementById('kx-result').innerHTML = '';
+      await loadItems();
+    });
+  });
+
+  const input = document.getElementById('kx-item-input');
+  const dropdown = document.getElementById('kx-dropdown');
+  input.addEventListener('input', () => {
+    const q = input.value.toLowerCase();
+    if (!q) { dropdown.style.display = 'none'; return; }
+    const matches = allItems.filter(i => i.item.toLowerCase().includes(q) || i.nombre.toLowerCase().includes(q)).slice(0, 15);
+    if (!matches.length) { dropdown.style.display = 'none'; return; }
+    dropdown.innerHTML = matches.map(i => `<div class="ac-item" data-item="${esc(i.item)}" data-nombre="${esc(i.nombre)}" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f3f4f6"><strong>${esc(i.item)}</strong> — ${esc(i.nombre)}</div>`).join('');
+    dropdown.style.display = 'block';
+    dropdown.querySelectorAll('.ac-item').forEach(el => {
+      el.addEventListener('mousedown', () => selectKardexItem(el.dataset.item, el.dataset.nombre));
+    });
+  });
+  input.addEventListener('blur', () => setTimeout(() => { dropdown.style.display = 'none'; }, 200));
+
+  await loadItems();
 }
 
 // ─── View: Comentarios ───────────────────────────────────────────
