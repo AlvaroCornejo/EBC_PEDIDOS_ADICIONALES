@@ -520,8 +520,8 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
           <input type="text" class="tbl-input item-input" data-idx="${idx}" value="${esc(l.itemNombre || l.item || '')}" placeholder="Buscar item..." autocomplete="off">
           <div class="ac-dropdown hidden"></div>
         </div>
-        <div style="margin-top:4px;display:flex;align-items:center;gap:4px">
-          <span class="auto-gestion-${idx}">${gestionIcon(l.gestion)}</span>
+        <div class="auto-gestion-${idx}" style="margin-top:4px;display:flex;align-items:center;gap:4px">
+          ${gestionIcon(l.gestion)}
           ${l.item ? `<button class="btn-kardex" data-item="${esc(l.item)}" data-nombre="${esc(l.itemNombre||l.item)}" data-op="${esc(operacion||S.form?.operacion||'')}" title="Ver Kardex">📊</button>` : ''}
         </div>` : `
         <div style="display:flex;align-items:center;gap:6px">
@@ -787,7 +787,7 @@ async function fetchItemData(itemCode, idx) {
     set(`.auto-saldo-${idx}`, fmt(data.saldo));
     set(`.auto-cu-${idx}`, fmtMoney(data.costoUnitario));
     const gEl = document.querySelector(`.auto-gestion-${idx}`);
-    if (gEl) gEl.innerHTML = gestionIcon(data.gestion || 'COMPRAS');
+    if (gEl) gEl.innerHTML = `${gestionIcon(data.gestion || 'COMPRAS')}<button class="btn-kardex" data-item="${esc(itemCode)}" data-nombre="${esc(linea.itemNombre||itemCode)}" data-op="${esc(S.form.operacion||'')}" title="Ver Kardex">📊</button>`;
 
     // Update costo total
     const ct = (linea.cantidadSolicitada || 0) * (linea.costoUnitario || 0);
