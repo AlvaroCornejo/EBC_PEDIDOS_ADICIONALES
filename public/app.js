@@ -68,11 +68,13 @@ function toast(msg, type = 'info') {
 }
 
 // ─── Modal ───────────────────────────────────────────────────────
-function openModal(title, html, onClose) {
+function openModal(title, html, onClose, opts = {}) {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = html;
   document.getElementById('modal').classList.remove('hidden');
-  const close = () => { document.getElementById('modal').classList.add('hidden'); onClose?.(); };
+  const box = document.querySelector('.modal-box');
+  box.classList.toggle('modal-wide', !!opts.wide);
+  const close = () => { document.getElementById('modal').classList.add('hidden'); box.classList.remove('modal-wide'); onClose?.(); };
   document.getElementById('modal-close').onclick = close;
   document.getElementById('modal-backdrop').onclick = close;
 }
@@ -324,7 +326,8 @@ const TRX_BOTTOM = ['SOBRANTE','FALTANTE'];
 
 async function showKardexModal(item, nombre, operacion) {
   openModal(`📊 Kardex — ${esc(nombre || item)} (${esc(operacion)})`,
-    `<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>`);
+    `<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>`,
+    null, { wide: true });
 
   let data;
   try {
@@ -352,8 +355,8 @@ async function showKardexModal(item, nombre, operacion) {
   const fmtK = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 0);
 
   function headerLabel(s) {
-    const yr = Math.floor(s / 100), wk = s % 100;
-    return `Sem ${wk}<br><small>${yr}</small>`;
+    const yr = Math.floor(s / 100), wk = String(s % 100).padStart(2, '0');
+    return `Hasta<br><small>${yr}-${wk}</small>`;
   }
 
   function buildRow(label, key, bold = false, color = '') {
@@ -748,6 +751,9 @@ async function selectItem(itemCode, itemNombre, idx) {
   linea.itemNombre = itemNombre;
   const input = document.querySelector(`.item-input[data-idx="${idx}"]`);
   if (input) input.value = itemNombre;
+  // Mostrar icono kardex de inmediato, sin esperar la carga de datos
+  const gEl = document.querySelector(`.auto-gestion-${idx}`);
+  if (gEl) gEl.innerHTML = `${gestionIcon(linea.gestion || 'COMPRAS')}<button class="btn-kardex" data-item="${esc(itemCode)}" data-nombre="${esc(itemNombre)}" data-op="${esc(S.form.operacion||'')}" title="Ver Kardex">📊</button>`;
   await fetchItemData(itemCode, idx);
 }
 
