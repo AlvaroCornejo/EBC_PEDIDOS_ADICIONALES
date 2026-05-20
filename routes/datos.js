@@ -12,6 +12,7 @@ const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 const authMiddleware = require('../middleware/auth');
+const Item = require('../models/Item');
 
 const router = express.Router();
 const DATA_DIR = path.join(__dirname, '../data');
@@ -172,10 +173,12 @@ router.get('/item-data', async (req, res) => {
 
     const itemKey = String(item).trim();
 
-    // Maestro
+    // Maestro (Excel + MongoDB para loteCompra/gestion actualizado)
     const maestro     = itemsMap[itemKey] || {};
+    const dbItem      = await Item.findOne({ operacion, item: itemKey }).lean();
     const grupoCompra = maestro.grupoCompra || '';
-    const gestion     = maestro.gestion || 'COMPRAS';
+    const gestion     = dbItem?.gestion ?? maestro.gestion ?? 'COMPRAS';
+    const loteCompra  = dbItem?.loteCompra ?? 0;
     const costoUnitario = costosMap[itemKey] || 0;
 
     // Consumos estimados de Requisiciones
@@ -204,6 +207,7 @@ router.get('/item-data', async (req, res) => {
     res.json({
       grupoCompra,
       gestion,
+      loteCompra,
       costoUnitario,
       semanaAnterior: {
         label: `Sem ${añoSemAnt % 100}/${Math.floor(añoSemAnt / 100)}`,

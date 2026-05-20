@@ -2,10 +2,45 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const authMiddleware = require('../middleware/auth');
 const Pedido = require('../models/Pedido');
+const Config = require('../models/Config');
 
 const router = express.Router();
-
 router.use(authMiddleware);
+
+// ─── Helper: leer config ──────────────────────────────────────────
+async function getConfig() {
+  const docs = await Config.find({}).lean();
+  const cfg = { maxVariacion: 10 };
+  docs.forEach(d => { cfg[d.key] = d.value; });
+  return cfg;
+}
+
+// ─── Helper: auto-aprobación por línea ───────────────────────────
+function aplicarAutoAprobacion(lineas, maxVariacion) {
+  const factor = (maxVariacion || 10) / 100;
+  for (const linea of lineas) {
+    if (linea.estadoLinea === 'APROBADO' || linea.estadoLinea === 'RECHAZADO') continue;
+    const varA = (linea.semanaAnterior || {}).variacion || 0;
+    if (varA <= 0) continue;
+    const lote = linea.loteCompra || 0;
+    const sugerido = lote > 0 ? Math.ceil(varA / lote) * lote : varA;
+    const limite = sugerido * (1 + factor);
+    const cant = linea.cantidadSolicitada || 0;
+    if (cant > 0 && cant <= limite) {
+      linea.estadoLinea = 'APROBADO';
+      linea.autoAprobado = true;
+      linea.comentarioAprobador = `Auto-aprobado (cant. ${cant} ≤ límite ${limite.toFixed(2)})`;
+    }
+  }
+}
+
+// ─── Helper: estado del pedido según líneas ───────────────────────
+function calcEstadoPedido(lineas) {
+  const estados = lineas.map(l => l.estadoLinea || 'PENDIENTE');
+  if (estados.some(e => e === 'REVISAR'))    return 'REVISAR';
+  if (estados.every(e => e === 'RECHAZADO')) return 'RECHAZADO';
+  return 'APROBADO';
+}
 
 // GET /api/pedidos?vista=aprobar|atender|admin
 router.get('/', async (req, res) => {
@@ -22,7 +57,7 @@ router.get('/', async (req, res) => {
       query.operacion = { $in: operations };
       query.estado = { $in: ['APROBADO', 'ATENDIDO'] };
     }
-    // ADMIN: no filter
+    // ADMIN: sin filtro
 
     if (vista === 'aprobar') query.estado = { $in: ['SOLICITADO', 'REVISAR'] };
     if (vista === 'atender') query.estado = { $in: ['APROBADO', 'ATENDIDO'] };
@@ -41,18 +76,36 @@ router.post('/', async (req, res) => {
     const { operacion, fechaPedido, lineas } = req.body;
     if (!operacion || !fechaPedido || !lineas?.length) return res.status(400).json({ error: 'Datos incompletos' });
 
+    const cfg = await getConfig();
+    const lineasMapped = lineas.map(l => ({
+      ...l,
+      id:                  l.id || uuidv4(),
+      estadoLinea:         'PENDIENTE',
+      autoAprobado:        false,
+      comentarioAprobador: '',
+      estadoAtencion:      'PENDIENTE',
+      loteCompra:          l.loteCompra || 0
+    }));
+
+    // Aplicar auto-aprobación (#6)
+    aplicarAutoAprobacion(lineasMapped, cfg.maxVariacion);
+
+    const todosAprobados = lineasMapped.every(l => l.estadoLinea === 'APROBADO');
+
     const pedido = new Pedido({
       id: uuidv4(),
       operacion,
       fechaPedido,
-      estado: 'SOLICITADO',
-      solicitadoPorId: req.user.id,
-      solicitadoPorNombre: req.user.username,
-      aprobadoPorId: null, aprobadoPorNombre: null,
-      atendidoPorId: null, atendidoPorNombre: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      lineas: lineas.map(l => ({ ...l, id: l.id || uuidv4(), estadoLinea: 'PENDIENTE', comentarioAprobador: '', estadoAtencion: 'PENDIENTE' }))
+      estado:               todosAprobados ? 'APROBADO' : 'SOLICITADO',
+      solicitadoPorId:      req.user.id,
+      solicitadoPorNombre:  req.user.username,
+      aprobadoPorId:        todosAprobados ? req.user.id : null,
+      aprobadoPorNombre:    todosAprobados ? 'Auto-aprobado' : null,
+      atendidoPorId:        null,
+      atendidoPorNombre:    null,
+      createdAt:            new Date().toISOString(),
+      updatedAt:            new Date().toISOString(),
+      lineas:               lineasMapped
     });
 
     await pedido.save();
@@ -75,22 +128,57 @@ router.put('/:id', async (req, res) => {
       }
       if (lineas) {
         if (pedido.estado === 'REVISAR') {
-          // Preserve APROBADO/RECHAZADO lines; only update REVISAR/PENDIENTE
-          const lockedIds = new Set(pedido.lineas.filter(l => ['APROBADO','RECHAZADO'].includes(l.estadoLinea)).map(l => l.id));
-          const updatedMap = Object.fromEntries(lineas.map(l => [l.id, l]));
-          pedido.lineas = pedido.lineas.map(existing =>
-            lockedIds.has(existing.id) ? existing : { ...existing.toObject(), ...updatedMap[existing.id], id: existing.id, estadoLinea: existing.estadoLinea, comentarioAprobador: existing.comentarioAprobador }
+          // Preservar líneas bloqueadas (APROBADO/RECHAZADO)
+          const lockedIds = new Set(
+            pedido.lineas.filter(l => ['APROBADO', 'RECHAZADO'].includes(l.estadoLinea)).map(l => l.id)
           );
-          // Add new lines
+          const updatedMap = Object.fromEntries(lineas.map(l => [l.id, l]));
+          pedido.lineas = pedido.lineas.map(existing => {
+            if (lockedIds.has(existing.id)) return existing;
+            const upd = updatedMap[existing.id];
+            if (!upd) return existing;
+            return {
+              ...existing.toObject(), ...upd,
+              id:                  existing.id,
+              estadoLinea:         existing.estadoLinea,
+              autoAprobado:        existing.autoAprobado,
+              comentarioAprobador: existing.comentarioAprobador,
+              costoUnitario:       existing.costoUnitario  // Preservar costo original (#10)
+            };
+          });
+          // Agregar nuevas líneas
           const existingIds = new Set(pedido.lineas.map(l => l.id));
           lineas.filter(l => !existingIds.has(l.id)).forEach(l => {
-            pedido.lineas.push({ ...l, id: l.id || uuidv4(), estadoLinea: 'PENDIENTE', comentarioAprobador: '', estadoAtencion: 'PENDIENTE' });
+            pedido.lineas.push({ ...l, id: l.id || uuidv4(), estadoLinea: 'PENDIENTE', autoAprobado: false, comentarioAprobador: '', estadoAtencion: 'PENDIENTE', loteCompra: l.loteCompra || 0 });
           });
         } else {
-          pedido.lineas = lineas.map(l => ({ ...l, id: l.id || uuidv4(), estadoLinea: l.estadoLinea || 'PENDIENTE', comentarioAprobador: l.comentarioAprobador || '', estadoAtencion: l.estadoAtencion || 'PENDIENTE' }));
+          // Estado SOLICITADO: reemplazar lineas preservando costo original (#10)
+          const existingMap = Object.fromEntries(pedido.lineas.map(l => [l.id, l]));
+          pedido.lineas = lineas.map(l => ({
+            ...l,
+            id:                  l.id || uuidv4(),
+            estadoLinea:         l.estadoLinea || 'PENDIENTE',
+            autoAprobado:        l.autoAprobado || false,
+            comentarioAprobador: l.comentarioAprobador || '',
+            estadoAtencion:      l.estadoAtencion || 'PENDIENTE',
+            loteCompra:          l.loteCompra || 0,
+            costoUnitario:       existingMap[l.id]?.costoUnitario ?? l.costoUnitario  // #10
+          }));
         }
       }
-      if (resubmit && pedido.estado === 'REVISAR') pedido.estado = 'SOLICITADO';
+      if (resubmit && pedido.estado === 'REVISAR') {
+        const cfg = await getConfig();
+        // Re-aplicar auto-aprobación a líneas PENDIENTE/REVISAR
+        const lineasParaAprobar = pedido.lineas.filter(l => !['APROBADO', 'RECHAZADO'].includes(l.estadoLinea));
+        aplicarAutoAprobacion(lineasParaAprobar, cfg.maxVariacion);
+        pedido.estado = 'SOLICITADO';
+        const todosAprobados = pedido.lineas.every(l => l.estadoLinea === 'APROBADO');
+        if (todosAprobados) {
+          pedido.estado = 'APROBADO';
+          pedido.aprobadoPorId = req.user.id;
+          pedido.aprobadoPorNombre = 'Auto-aprobado';
+        }
+      }
 
     } else if (role === 'OPERADOR_APROBACION' || role === 'ADMIN') {
       if (!lineas?.length) return res.status(400).json({ error: 'Se requieren las líneas con estados' });
@@ -98,15 +186,15 @@ router.put('/:id', async (req, res) => {
       if (invalid) return res.status(400).json({ error: 'Todas las líneas deben tener un estado asignado' });
 
       pedido.lineas = pedido.lineas.map(existing => {
+        // Líneas auto-aprobadas: el aprobador no puede cambiarlas (#6)
+        if (existing.autoAprobado) return existing;
         const upd = lineas.find(l => l.id === existing.id);
-        return upd ? { ...existing.toObject(), estadoLinea: upd.estadoLinea, comentarioAprobador: upd.comentarioAprobador || '' } : existing;
+        return upd
+          ? { ...existing.toObject(), estadoLinea: upd.estadoLinea, comentarioAprobador: upd.comentarioAprobador || '' }
+          : existing;
       });
 
-      const lineaEstados = pedido.lineas.map(l => l.estadoLinea || 'PENDIENTE');
-      if (lineaEstados.some(e => e === 'REVISAR')) pedido.estado = 'REVISAR';
-      else if (lineaEstados.every(e => e === 'RECHAZADO')) pedido.estado = 'RECHAZADO';
-      else pedido.estado = 'APROBADO';
-
+      pedido.estado = calcEstadoPedido(pedido.lineas);
       pedido.aprobadoPorId = req.user.id;
       pedido.aprobadoPorNombre = req.user.username;
 
@@ -119,8 +207,14 @@ router.put('/:id', async (req, res) => {
       pedido.lineas = pedido.lineas.map(existing => {
         if ((existing.gestion || 'COMPRAS') !== gestionRol) return existing;
         const upd = lineaMap[existing.id];
-        return upd ? { ...existing.toObject(), estadoAtencion: upd.estadoAtencion || existing.estadoAtencion || 'PENDIENTE' } : existing;
+        if (!upd) return existing;
+        // No se puede des-atender (#7)
+        const nuevoEstado = existing.estadoAtencion === 'ATENDIDO'
+          ? 'ATENDIDO'
+          : (upd.estadoAtencion || existing.estadoAtencion || 'PENDIENTE');
+        return { ...existing.toObject(), estadoAtencion: nuevoEstado };
       });
+
       const lineasAprobadas = pedido.lineas.filter(l => l.estadoLinea === 'APROBADO');
       const todasAtendidas = lineasAprobadas.length > 0 && lineasAprobadas.every(l => l.estadoAtencion === 'ATENDIDO');
       pedido.estado = todasAtendidas ? 'ATENDIDO' : 'APROBADO';

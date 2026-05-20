@@ -219,6 +219,7 @@ async function viewSolicitar(container, params = {}) {
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">${editId ? '✏️ Editar Pedido' : '📝 Nueva Solicitud'}</div>
+      <div style="margin-left:auto"><button class="btn btn-outline btn-sm" id="btn-resumen">📊 Resumen</button></div>
     </div>
     <div class="page-body">
       <div class="card mb-16">
@@ -270,6 +271,7 @@ async function viewSolicitar(container, params = {}) {
   `;
 
   setupSolicitarEvents(container, editId);
+  document.getElementById('btn-resumen')?.addEventListener('click', showResumenModal);
 }
 
 function gestionIcon(gestion) {
@@ -299,8 +301,9 @@ function renderTableHeader(mode = 'edit') {
         <th rowspan="2">Grupo</th>
         <th class="group-header" colspan="4">Semana Anterior</th>
         <th class="group-header" colspan="4">Semana Actual</th>
+        <th rowspan="2" class="col-sugerido col-num" title="Variación sem. ant. redondeada al lote de compra/producción">Sugerido</th>
         <th rowspan="2" class="col-auto col-num">Saldo</th>
-        <th rowspan="2" class="col-auto col-num">Costo U.</th>
+        <th rowspan="2" class="col-auto col-num">🔒 Costo U.</th>
         <th rowspan="2" class="col-auto col-num">Cantidad</th>
         <th rowspan="2" class="col-auto col-num">Costo Total</th>
         <th rowspan="2" style="min-width:160px">Comentarios</th>
@@ -319,13 +322,22 @@ function renderTableHeader(mode = 'edit') {
     </thead>`;
 }
 
+function calcSugerido(linea) {
+  const varA = (linea.semanaAnterior || {}).variacion || 0;
+  if (varA <= 0) return null;
+  const lote = linea.loteCompra || 0;
+  return lote > 0 ? Math.ceil(varA / lote) * lote : varA;
+}
+
 function renderLineaRow(l, idx, editable = true, mode = 'edit') {
   const sa = l.semanaAnterior || {};
   const sc = l.semanaActual || {};
   const ct = (l.cantidadSolicitada || 0) * (l.costoUnitario || 0);
   const varA = sa.variacion || 0;
   const varC = sc.variacion || 0;
-  const lid = esc(l.id || '');
+  const lid  = esc(l.id || '');
+  const sugerido = calcSugerido(l);
+  const isAutoAprobado = !!l.autoAprobado;
 
   // En modo edit-revisar, las líneas APROBADO/RECHAZADO son de solo lectura
   const isLocked = mode === 'edit-revisar' && (l.estadoLinea === 'APROBADO' || l.estadoLinea === 'RECHAZADO');
@@ -334,24 +346,31 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit') {
   let lastCells;
   if (mode === 'approve') {
     const cur = l.estadoLinea || '';
-    lastCells = `
-      <td>
-        <select class="tbl-input apr-linea-estado" data-linea-id="${lid}" style="min-width:120px">
-          <option value="">— Estado —</option>
-          <option value="APROBADO" ${cur==='APROBADO'?'selected':''}>✅ Aprobado</option>
-          <option value="RECHAZADO" ${cur==='RECHAZADO'?'selected':''}>❌ Rechazado</option>
-          <option value="REVISAR" ${cur==='REVISAR'?'selected':''}>🔄 Revisar</option>
-        </select>
-      </td>
-      <td><input type="text" class="tbl-input apr-linea-comentario" data-linea-id="${lid}" value="${esc(l.comentarioAprobador||'')}" placeholder="Comentario..."></td>`;
+    // Líneas auto-aprobadas (#6): el aprobador no puede cambiarlas
+    if (isAutoAprobado) {
+      lastCells = `
+        <td><span class="auto-lock-badge">🔒 Auto-aprobado</span></td>
+        <td style="font-size:12px;color:#6b7280">${esc(l.comentarioAprobador || '')}</td>`;
+    } else {
+      lastCells = `
+        <td>
+          <select class="tbl-input apr-linea-estado" data-linea-id="${lid}" style="min-width:120px">
+            <option value="">— Estado —</option>
+            <option value="APROBADO"  ${cur==='APROBADO' ?'selected':''}>✅ Aprobado</option>
+            <option value="RECHAZADO" ${cur==='RECHAZADO'?'selected':''}>❌ Rechazado</option>
+            <option value="REVISAR"   ${cur==='REVISAR'  ?'selected':''}>🔄 Revisar</option>
+          </select>
+        </td>
+        <td><input type="text" class="tbl-input apr-linea-comentario" data-linea-id="${lid}" value="${esc(l.comentarioAprobador||'')}" placeholder="Comentario..."></td>`;
+    }
   } else if (mode === 'approved') {
     const el = l.estadoLinea;
     lastCells = `
-      <td>${el ? `<span class="badge badge-${el}">${el}</span>` : '—'}</td>
+      <td>${isAutoAprobado ? `<span class="auto-lock-badge">🔒 Auto</span>` : (el ? `<span class="badge badge-${el}">${el}</span>` : '—')}</td>
       <td style="font-size:13px">${esc(l.comentarioAprobador || '')}</td>`;
   } else if (mode === 'edit-revisar') {
     const el = l.estadoLinea;
-    const badge = el ? `<span class="badge badge-${el}">${el}</span>` : '—';
+    const badge = isAutoAprobado ? `<span class="auto-lock-badge">🔒 Auto</span>` : (el ? `<span class="badge badge-${el}">${el}</span>` : '—');
     lastCells = `
       <td>${badge}</td>
       <td style="font-size:13px">${esc(l.comentarioAprobador || '')}</td>
@@ -359,25 +378,26 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit') {
   } else if (mode === 'atender' || mode === 'atendido') {
     const el = l.estadoLinea;
     const rechazado = el === 'RECHAZADO';
-    const atendido = l.estadoAtencion === 'ATENDIDO';
-    const readonly = mode === 'atendido';
+    const atendido  = l.estadoAtencion === 'ATENDIDO';
+    const readonly  = mode === 'atendido' || atendido;  // #7: no des-atender
     lastCells = `
-      <td>${el ? `<span class="badge badge-${el}">${el}</span>` : '—'}</td>
+      <td>${isAutoAprobado ? `<span class="auto-lock-badge">🔒 Auto</span>` : (el ? `<span class="badge badge-${el}">${el}</span>` : '—')}</td>
       <td style="text-align:center">
         ${rechazado
           ? `<span style="color:#9ca3af;font-size:12px">N/A</span>`
           : readonly
             ? `<span class="badge badge-APROBADO">✔ Atendido</span>`
             : `<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px">
-                 <input type="checkbox" class="atn-linea-check" data-linea-id="${lid}" ${atendido ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--success)">
-                 ${atendido ? '<span style="color:var(--success);font-weight:600">Atendido</span>' : ''}
+                 <input type="checkbox" class="atn-linea-check" data-linea-id="${lid}" ${atendido?'checked':''} style="width:16px;height:16px;accent-color:var(--success)">
                </label>`}
       </td>`;
   } else {
     lastCells = `<td class="col-actions">${editable ? `<button class="btn btn-xs btn-danger delete-linea" data-idx="${idx}">✕</button>` : ''}</td>`;
   }
 
-  return `<tr data-idx="${idx}" data-linea-id="${lid}"${isLocked ? ' style="opacity:.7;background:#f9fafb"' : ''}>
+  const rowClass = isAutoAprobado ? ' class="auto-aprobado-row"' : '';
+
+  return `<tr data-idx="${idx}" data-linea-id="${lid}"${isLocked ? ' style="opacity:.7;background:#f9fafb"' : ''}${rowClass}>
     <td class="col-item">
       ${(rowEditable && mode !== 'edit-revisar') ? `
         <div class="ac-wrap">
@@ -396,6 +416,7 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit') {
     <td class="col-num"><span class="auto-rvC-${idx}">${l.semanaActual ? fmt(sc.consumoRealVenta) : '...'}</span></td>
     <td class="col-num"><span class="auto-rtC-${idx}">${l.semanaActual ? fmt(sc.consumoRealTransformacion) : '...'}</span></td>
     <td class="col-num"><span class="auto-vC-${idx} ${varC>=0?'variacion-pos':'variacion-neg'}">${l.semanaActual ? fmt(varC) : '...'}</span></td>
+    <td class="col-sugerido col-num"><span class="auto-sug-${idx}">${sugerido != null ? fmt(sugerido) : '—'}</span></td>
     <td class="col-num"><span class="auto-saldo-${idx}">${l.saldo != null ? fmt(l.saldo) : '...'}</span></td>
     <td class="col-num"><span class="auto-cu-${idx}">${l.costoUnitario != null ? fmtMoney(l.costoUnitario) : '...'}</span></td>
     <td class="col-num">
@@ -619,7 +640,8 @@ async function fetchItemData(itemCode, idx) {
   try {
     const data = await GET(`/datos/item-data?item=${encodeURIComponent(itemCode)}&operacion=${encodeURIComponent(S.form.operacion)}&fecha=${S.form.fecha}`);
     linea.grupoCompra = data.grupoCompra;
-    linea.gestion = data.gestion || 'COMPRAS';
+    linea.gestion     = data.gestion || 'COMPRAS';
+    linea.loteCompra  = data.loteCompra || 0;
     linea.costoUnitario = data.costoUnitario;
     linea.saldo = data.saldo;
     linea.semanaAnterior = data.semanaAnterior;
@@ -644,6 +666,12 @@ async function fetchItemData(itemCode, idx) {
     set(`.auto-cu-${idx}`, fmtMoney(data.costoUnitario));
     const gEl = document.querySelector(`.auto-gestion-${idx}`);
     if (gEl) gEl.innerHTML = gestionIcon(data.gestion || 'COMPRAS');
+    // Actualizar sugerido
+    const sugEl = document.querySelector(`.auto-sug-${idx}`);
+    if (sugEl) {
+      const sug = calcSugerido(linea);
+      sugEl.textContent = sug != null ? fmt(sug) : '—';
+    }
 
     // Update costo total
     const ct = (linea.cantidadSolicitada || 0) * (linea.costoUnitario || 0);
@@ -821,6 +849,9 @@ function renderPedidosList(container, pedidos, opts = {}) {
       btn.addEventListener('click', e => { e.stopPropagation(); navigate('solicitar', { editId: btn.dataset.id }); });
     });
   }
+  container.querySelectorAll('.btn-comentarios').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); showComentariosModal(btn.dataset.id, btn.dataset.op, btn.dataset.fecha); });
+  });
 }
 
 function pedidoCard(p, opts = {}) {
@@ -838,6 +869,7 @@ function pedidoCard(p, opts = {}) {
         </div>
         <div class="pedido-actions" onclick="event.stopPropagation()">
           ${canEdit ? `<button class="btn btn-sm btn-outline btn-edit-pedido" data-id="${p.id}">✏️ Editar</button>` : ''}
+          <button class="btn btn-sm btn-ghost btn-comentarios" data-id="${p.id}" data-op="${esc(p.operacion)}" data-fecha="${esc(p.fechaPedido)}" title="Comentarios">💬</button>
           <span style="color:var(--text-muted);font-size:12px">▼</span>
         </div>
       </div>
@@ -874,7 +906,10 @@ function renderPedidosAprobar(container, pedidos) {
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}</div>
         </div>
-        <span style="color:var(--text-muted);font-size:12px">▼</span>
+        <div class="pedido-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-sm btn-ghost btn-comentarios" data-id="${p.id}" data-op="${esc(p.operacion)}" data-fecha="${esc(p.fechaPedido)}" title="Comentarios">💬</button>
+          <span style="color:var(--text-muted);font-size:12px">▼</span>
+        </div>
       </div>
       <div class="pedido-card-body open">
         <div class="table-wrap">
@@ -917,6 +952,9 @@ function renderPedidosAprobar(container, pedidos) {
         btn.disabled = false; btn.textContent = '💾 Guardar aprobación';
       }
     });
+  });
+  container.querySelectorAll('.btn-comentarios').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); showComentariosModal(btn.dataset.id, btn.dataset.op, btn.dataset.fecha); });
   });
 }
 
@@ -966,7 +1004,10 @@ function renderPedidosAtender(container, pedidos) {
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)} &nbsp;·&nbsp; ✅ ${esc(p.aprobadoPorNombre||'')}</div>
         </div>
-        <span style="color:var(--text-muted);font-size:12px">▼</span>
+        <div class="pedido-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-sm btn-ghost btn-comentarios" data-id="${p.id}" data-op="${esc(p.operacion)}" data-fecha="${esc(p.fechaPedido)}" title="Comentarios">💬</button>
+          <span style="color:var(--text-muted);font-size:12px">▼</span>
+        </div>
       </div>
       <div class="pedido-card-body open">
         <div class="table-wrap">
@@ -1020,6 +1061,9 @@ function renderPedidosAtender(container, pedidos) {
       btn.disabled = false; btn.textContent = '💾 Guardar atención';
     });
   });
+  container.querySelectorAll('.btn-comentarios').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); showComentariosModal(btn.dataset.id, btn.dataset.op, btn.dataset.fecha); });
+  });
 }
 
 function renderPedidosAtendidos(container, pedidos) {
@@ -1053,6 +1097,136 @@ function renderPedidosAtendidos(container, pedidos) {
   container.appendChild(wrap);
 }
 
+// ─── Modal: Comentarios ───────────────────────────────────────────
+async function showComentariosModal(pedidoId, operacion, fecha) {
+  // Crear overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'comentarios-modal-overlay';
+  overlay.innerHTML = `
+    <div class="comentarios-modal">
+      <div class="comentarios-modal-header">
+        <strong>💬 Comentarios — ${esc(operacion)} / ${fmtDate(fecha)}</strong>
+        <button class="btn btn-xs btn-ghost" id="cm-close">✕</button>
+      </div>
+      <div class="comentarios-list" id="cm-list">
+        <div class="loading-overlay"><span class="spinner spinner-dark"></span></div>
+      </div>
+      <div class="comentarios-input-row">
+        <textarea id="cm-texto" placeholder="Escribe un comentario..."></textarea>
+        <button class="btn btn-primary" id="cm-send">Enviar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  document.getElementById('cm-close').onclick = close;
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  async function loadComments() {
+    const list = document.getElementById('cm-list');
+    if (!list) return;
+    try {
+      const comentarios = await GET(`/comentarios?pedidoId=${encodeURIComponent(pedidoId)}`);
+      if (!list) return;
+      if (!comentarios.length) {
+        list.innerHTML = `<p class="text-muted" style="text-align:center;padding:20px">Sin comentarios aún</p>`;
+      } else {
+        list.innerHTML = comentarios.map(c => {
+          const isOwn = c.userId === S.user.id;
+          const rol = ROLE_LABELS[c.role] || c.role;
+          const dt  = new Date(c.createdAt).toLocaleString('es-CL');
+          return `<div class="comentario-item${isOwn?' own':''}">
+            <div class="comentario-meta">${esc(c.username)} <span class="badge" style="background:#e0e7ff;color:#3730a3;font-size:10px">${esc(rol)}</span> &nbsp;·&nbsp; ${dt}</div>
+            <div class="comentario-texto">${esc(c.texto)}</div>
+          </div>`;
+        }).join('');
+        list.scrollTop = list.scrollHeight;
+      }
+    } catch (err) {
+      if (list) list.innerHTML = `<p style="color:var(--danger)">Error: ${err.message}</p>`;
+    }
+  }
+
+  await loadComments();
+
+  document.getElementById('cm-send')?.addEventListener('click', async () => {
+    const texto = document.getElementById('cm-texto')?.value?.trim();
+    if (!texto) return;
+    try {
+      await POST('/comentarios', { pedidoId, texto });
+      document.getElementById('cm-texto').value = '';
+      await loadComments();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+// ─── Resumen de adicionales ───────────────────────────────────────
+async function showResumenModal() {
+  let pedidos = [];
+  try { pedidos = await GET('/pedidos'); } catch (err) { toast(err.message, 'error'); return; }
+
+  // Agrupar por semana y mes
+  function semanaISO(fecha) {
+    const d = new Date(fecha + 'T12:00:00');
+    const day = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - day);
+    const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+    const w = 1 + Math.round(((d - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
+    return `${d.getUTCFullYear()}-S${String(w).padStart(2,'0')}`;
+  }
+  function mesLabel(fecha) {
+    const d = new Date(fecha + 'T12:00:00');
+    return d.toLocaleDateString('es-CL', { year: 'numeric', month: 'long' });
+  }
+
+  const bySem = {}, byMes = {};
+  for (const p of pedidos) {
+    const f   = p.fechaPedido || p.createdAt?.split('T')[0] || '';
+    const sem = f ? semanaISO(f) : '—';
+    const mes = f ? mesLabel(f) : '—';
+    const totalLineas = (p.lineas || []).filter(l => l.estadoLinea === 'APROBADO');
+    const totalVal = totalLineas.reduce((s, l) => s + (l.cantidadSolicitada || 0) * (l.costoUnitario || 0), 0);
+
+    if (!bySem[sem]) bySem[sem] = { pedidos: 0, lineas: 0, total: 0 };
+    bySem[sem].pedidos++;
+    bySem[sem].lineas += totalLineas.length;
+    bySem[sem].total  += totalVal;
+
+    if (!byMes[mes]) byMes[mes] = { pedidos: 0, lineas: 0, total: 0 };
+    byMes[mes].pedidos++;
+    byMes[mes].lineas += totalLineas.length;
+    byMes[mes].total  += totalVal;
+  }
+
+  const rowsSem = Object.entries(bySem).sort((a,b) => a[0].localeCompare(b[0])).map(([k,v]) =>
+    `<tr><td>${k}</td><td>${v.pedidos}</td><td>${v.lineas}</td><td class="col-num">${fmtMoney(v.total)}</td></tr>`
+  ).join('');
+  const rowsMes = Object.entries(byMes).map(([k,v]) =>
+    `<tr><td>${k}</td><td>${v.pedidos}</td><td>${v.lineas}</td><td class="col-num">${fmtMoney(v.total)}</td></tr>`
+  ).join('');
+
+  const totalGlobal = pedidos.reduce((s, p) =>
+    s + (p.lineas || []).filter(l => l.estadoLinea === 'APROBADO').reduce((ss, l) => ss + (l.cantidadSolicitada || 0) * (l.costoUnitario || 0), 0), 0
+  );
+
+  openModal('📊 Resumen de Adicionales', `
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Total global aprobado: <strong>${fmtMoney(totalGlobal)}</strong> — ${pedidos.length} pedidos</p>
+    <h4 style="font-size:13px;font-weight:700;margin-bottom:8px">Por Semana</h4>
+    <div class="table-wrap">
+      <table class="resumen-table">
+        <thead><tr><th>Semana</th><th># Pedidos</th><th># Items Apr.</th><th>Total S/</th></tr></thead>
+        <tbody>${rowsSem || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Sin datos</td></tr>'}</tbody>
+      </table>
+    </div>
+    <h4 style="font-size:13px;font-weight:700;margin:16px 0 8px">Por Mes</h4>
+    <div class="table-wrap">
+      <table class="resumen-table">
+        <thead><tr><th>Mes</th><th># Pedidos</th><th># Items Apr.</th><th>Total S/</th></tr></thead>
+        <tbody>${rowsMes || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Sin datos</td></tr>'}</tbody>
+      </table>
+    </div>`);
+}
+
 // ─── View: Admin ──────────────────────────────────────────────────
 async function viewAdmin(container) {
   container.innerHTML = `
@@ -1060,14 +1234,18 @@ async function viewAdmin(container) {
     <div class="page-body">
       <div class="tabs">
         <button class="tab-btn active" data-tab="usuarios">👥 Usuarios</button>
+        <button class="tab-btn" data-tab="items">📦 Maestro Items</button>
         <button class="tab-btn" data-tab="archivos">📁 Archivos Excel</button>
         <button class="tab-btn" data-tab="pedidos-admin">📋 Todos los Pedidos</button>
         <button class="tab-btn" data-tab="database">🗄️ Base de Datos</button>
+        <button class="tab-btn" data-tab="config">⚙️ Configuración</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
+      <div id="tab-items" class="tab-panel"></div>
       <div id="tab-archivos" class="tab-panel"></div>
       <div id="tab-pedidos-admin" class="tab-panel"></div>
       <div id="tab-database" class="tab-panel"></div>
+      <div id="tab-config" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1080,9 +1258,143 @@ async function viewAdmin(container) {
   });
 
   renderAdminUsuarios(document.getElementById('tab-usuarios'));
+  renderAdminItems(document.getElementById('tab-items'));
   renderAdminArchivos(document.getElementById('tab-archivos'));
   renderAdminPedidos(document.getElementById('tab-pedidos-admin'));
   renderAdminDatabase(document.getElementById('tab-database'));
+  renderAdminConfig(document.getElementById('tab-config'));
+}
+
+// ─── Admin: Configuración ─────────────────────────────────────────
+async function renderAdminConfig(container) {
+  container.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
+  let cfg = {};
+  try { cfg = await GET('/config'); } catch (err) { toast(err.message, 'error'); }
+
+  container.innerHTML = `
+    <div class="section-title mb-16">Parámetros del sistema</div>
+    <div class="card" style="max-width:500px">
+      <div class="card-body">
+        <div class="form-group">
+          <label>Máxima variación permitida para auto-aprobación (%)</label>
+          <input type="number" id="cfg-maxvar" class="form-control" value="${cfg.maxVariacion ?? 10}" min="0" max="100" step="1" style="width:120px">
+          <p class="text-muted" style="font-size:12px;margin-top:4px">
+            Si la cantidad solicitada ≤ sugerido × (1 + este %), la línea se auto-aprueba y no puede ser modificada.
+          </p>
+        </div>
+        <button class="btn btn-primary" id="cfg-save">💾 Guardar configuración</button>
+        <span id="cfg-status" style="margin-left:12px;font-size:13px"></span>
+      </div>
+    </div>`;
+
+  document.getElementById('cfg-save').addEventListener('click', async () => {
+    const val = Number(document.getElementById('cfg-maxvar').value);
+    const btn = document.getElementById('cfg-save');
+    const status = document.getElementById('cfg-status');
+    btn.disabled = true; btn.textContent = '⏳';
+    try {
+      await PUT('/config', { maxVariacion: val });
+      status.innerHTML = `<span style="color:var(--success)">✔ Guardado</span>`;
+    } catch (err) {
+      status.innerHTML = `<span style="color:var(--danger)">✕ ${err.message}</span>`;
+    }
+    btn.disabled = false; btn.textContent = '💾 Guardar configuración';
+    setTimeout(() => { if (status) status.innerHTML = ''; }, 3000);
+  });
+}
+
+// ─── Admin: Maestro Items ─────────────────────────────────────────
+async function renderAdminItems(container) {
+  container.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
+  let selectedOp = ALL_OPS[0];
+  let items = [];
+
+  async function load() {
+    container.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
+    try { items = await GET(`/items/all?operacion=${encodeURIComponent(selectedOp)}`); }
+    catch (err) { toast(err.message, 'error'); items = []; }
+    render();
+  }
+
+  function render() {
+    container.innerHTML = `
+      <div class="items-filter-bar">
+        <select id="items-op-select">
+          ${ALL_OPS.map(o => `<option value="${o}" ${o===selectedOp?'selected':''}>${o}</option>`).join('')}
+        </select>
+        <button class="btn btn-sm btn-outline" id="items-sync-btn">🔄 Sincronizar desde Excel</button>
+        <span id="items-sync-status" style="font-size:13px"></span>
+        <span class="text-muted" style="font-size:12px;margin-left:auto">${items.length} items</span>
+      </div>
+      ${items.length === 0
+        ? `<div class="empty-state"><div class="empty-icon">📦</div><p>No hay items cargados para ${selectedOp}.<br>Usa el botón "Sincronizar" para importar desde el Excel.</p></div>`
+        : `<div class="table-wrap"><table class="items-table">
+          <thead><tr>
+            <th>Código</th><th>Nombre</th><th>Grupo</th>
+            <th>Gestión</th><th>Lote Compra</th><th>Activo</th><th>Guardar</th>
+          </tr></thead>
+          <tbody>
+            ${items.map(it => `
+              <tr data-iid="${it._id}" class="${it.activo?'':'inactive-row'}">
+                <td><strong>${esc(it.item)}</strong></td>
+                <td style="font-size:12px">${esc(it.nombre)}</td>
+                <td style="font-size:12px">${esc(it.grupoCompra)}</td>
+                <td>
+                  <select class="it-gestion" style="padding:4px 6px;border:1.5px solid var(--border);border-radius:4px;font-size:12px">
+                    <option value="COMPRAS" ${it.gestion==='COMPRAS'?'selected':''}>🛒 Compras</option>
+                    <option value="PLANTA"  ${it.gestion==='PLANTA' ?'selected':''}>🏭 Planta</option>
+                  </select>
+                </td>
+                <td><input type="number" class="it-lote" value="${it.loteCompra||0}" min="0" step="1"></td>
+                <td style="text-align:center">
+                  <input type="checkbox" class="it-activo" ${it.activo?'checked':''} style="width:16px;height:16px">
+                </td>
+                <td>
+                  <button class="btn btn-xs btn-outline it-save-btn">💾</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table></div>`}`;
+
+    document.getElementById('items-op-select').addEventListener('change', e => {
+      selectedOp = e.target.value;
+      load();
+    });
+
+    document.getElementById('items-sync-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('items-sync-btn');
+      const status = document.getElementById('items-sync-status');
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const r = await POST(`/items/sync?operacion=${encodeURIComponent(selectedOp)}`, {});
+        status.innerHTML = `<span style="color:var(--success)">✔ ${r.insertados} nuevos de ${r.total} total</span>`;
+        await load();
+      } catch (err) {
+        status.innerHTML = `<span style="color:var(--danger)">✕ ${err.message}</span>`;
+        btn.disabled = false; btn.textContent = '🔄 Sincronizar desde Excel';
+      }
+      setTimeout(() => { if (document.getElementById('items-sync-status')) document.getElementById('items-sync-status').innerHTML = ''; }, 4000);
+    });
+
+    container.querySelectorAll('.it-save-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const row = btn.closest('tr');
+        const id = row.dataset.iid;
+        const gestion   = row.querySelector('.it-gestion').value;
+        const loteCompra = Number(row.querySelector('.it-lote').value) || 0;
+        const activo    = row.querySelector('.it-activo').checked;
+        btn.disabled = true;
+        try {
+          await PUT(`/items/${id}`, { gestion, loteCompra, activo });
+          toast('Item actualizado', 'success');
+          row.classList.toggle('inactive-row', !activo);
+        } catch (err) { toast(err.message, 'error'); }
+        btn.disabled = false;
+      });
+    });
+  }
+
+  await load();
 }
 
 async function renderAdminUsuarios(container) {

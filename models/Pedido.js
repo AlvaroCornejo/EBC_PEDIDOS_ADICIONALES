@@ -11,10 +11,12 @@ const lineaSchema = new mongoose.Schema({
   semanaActual: mongoose.Schema.Types.Mixed,
   saldo: Number,
   costoUnitario: Number,
-  gestion: { type: String, default: 'COMPRAS' },
-  estadoLinea: { type: String, default: 'PENDIENTE' },
+  gestion:             { type: String, default: 'COMPRAS' },
+  loteCompra:          { type: Number, default: 0 },
+  autoAprobado:        { type: Boolean, default: false },
+  estadoLinea:         { type: String, default: 'PENDIENTE' },
   comentarioAprobador: { type: String, default: '' },
-  estadoAtencion: { type: String, default: 'PENDIENTE' }
+  estadoAtencion:      { type: String, default: 'PENDIENTE' }
 }, { _id: false });
 
 const pedidoSchema = new mongoose.Schema({

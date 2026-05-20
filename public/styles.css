@@ -96,6 +96,8 @@ input, select, textarea { font: inherit; }
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-secondary { background: #e5e7eb; color: var(--text); }
 .btn-outline { background: transparent; color: var(--accent); border: 1.5px solid var(--accent); }
+.btn-ghost   { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--accent-light); color: var(--accent); }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .btn-xs { padding: 3px 8px; font-size: 11px; }
 .btn-full { width: 100%; justify-content: center; }
@@ -108,11 +110,42 @@ input, select, textarea { font: inherit; }
 .badge-RECHAZADO  { background: #fee2e2; color: #991b1b; }
 .badge-REVISAR    { background: #fef3c7; color: #92400e; }
 .badge-ATENDIDO   { background: #0d9488; color: #ffffff; }
+.badge-AUTO       { background: #7c3aed; color: #ffffff; }
 
 /* ─── Gestión badges ─────────────────────────────────────────── */
 .gestion-badge { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; cursor: default; flex-shrink: 0; }
-.gestion-compras { background: #d1fae5; border: 1px solid #6ee7b7; title: "Compras"; }
+.gestion-compras { background: #d1fae5; border: 1px solid #6ee7b7; }
 .gestion-planta  { background: #dbeafe; border: 1px solid #93c5fd; }
+
+/* ─── Sugerido column ───────────────────────────────────────── */
+.col-sugerido { background: #fffbeb !important; color: #92400e; font-weight: 700; }
+th.col-sugerido { background: #fef3c7 !important; color: #92400e; font-size: 10px; white-space: nowrap; }
+
+/* ─── Auto-aprobado row ─────────────────────────────────────── */
+tr.auto-aprobado-row td { background: #f0fdf4; }
+.auto-lock-badge { display: inline-flex; align-items: center; gap: 4px; background: #7c3aed; color: #fff; border-radius: 50px; padding: 3px 10px; font-size: 11px; font-weight: 700; }
+
+/* ─── Comentarios modal ─────────────────────────────────────── */
+.comentarios-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 9000; display: flex; align-items: center; justify-content: center; }
+.comentarios-modal { background: #fff; border-radius: 12px; width: 520px; max-width: 95vw; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.comentarios-modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.comentarios-list { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.comentario-item { padding: 10px 14px; border-radius: 8px; background: #f8f9fc; border-left: 3px solid var(--accent); }
+.comentario-item.own { background: #eef0fd; border-left-color: var(--accent); }
+.comentario-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.comentario-texto { font-size: 13px; }
+.comentarios-input-row { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+.comentarios-input-row textarea { flex: 1; padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px; font: inherit; font-size: 13px; resize: none; height: 60px; }
+
+/* ─── Resumen modal ─────────────────────────────────────────── */
+.resumen-table th { font-size: 11px; }
+.resumen-table td { font-size: 13px; }
+
+/* ─── Items admin table ─────────────────────────────────────── */
+.items-filter-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.items-table input[type="number"] { width: 80px; padding: 4px 8px; border: 1.5px solid var(--border); border-radius: 4px; font: inherit; font-size: 12px; text-align: right; }
+.items-table select { padding: 4px 6px; border: 1.5px solid var(--border); border-radius: 4px; font: inherit; font-size: 12px; }
+.items-table .inactive-row { opacity: .5; }
 
 /* ─── Tables ─────────────────────────────────────────────────── */
 .table-wrap { overflow-x: auto; }
