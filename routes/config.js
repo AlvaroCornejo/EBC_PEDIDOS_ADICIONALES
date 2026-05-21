@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 const authMiddleware = require('../middleware/auth');
 const Config = require('../models/Config');
 const User   = require('../models/User');
-const { getSmtpConfig, resolveEmails } = require('../utils/sendEmail');
+const { getSmtpConfig, buildTransport, resolveEmails } = require('../utils/sendEmail');
 const router = express.Router();
 router.use(authMiddleware);
 
@@ -37,15 +37,9 @@ router.put('/', async (req, res) => {
 router.post('/smtp-test', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'No autorizado' });
-    const { smtpHost, smtpPort, smtpUser, smtpPass } = req.body;
+    const { smtpHost, smtpPort, smtpUser, smtpPass, smtpAuthMethod } = req.body;
     if (!smtpHost || !smtpUser || !smtpPass) return res.status(400).json({ error: 'Faltan credenciales SMTP' });
-    const transporter = nodemailer.createTransport({
-      host:   smtpHost,
-      port:   parseInt(smtpPort, 10) || 587,
-      secure: (parseInt(smtpPort, 10) || 587) === 465,
-      auth:   { user: smtpUser, pass: smtpPass },
-      tls:    { rejectUnauthorized: false }
-    });
+    const transporter = buildTransport({ smtpHost, smtpPort, smtpUser, smtpPass, smtpAuthMethod });
     await transporter.verify();
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -64,12 +58,13 @@ router.post('/smtp-diagnose', async (req, res) => {
     // 1. Leer config de la BD
     const cfg = await getSmtpConfig();
     ok('Config leída de BD', {
-      smtpEnabled: cfg.smtpEnabled,
-      smtpHost:    cfg.smtpHost    || '(vacío)',
-      smtpPort:    cfg.smtpPort    || '(vacío)',
-      smtpUser:    cfg.smtpUser    || '(vacío)',
-      smtpPass:    cfg.smtpPass    ? '●●●●●●' : '(vacío)',
-      smtpFrom:    cfg.smtpFrom    || '(vacío)',
+      smtpEnabled:    cfg.smtpEnabled,
+      smtpHost:       cfg.smtpHost       || '(vacío)',
+      smtpPort:       cfg.smtpPort       || '(vacío)',
+      smtpUser:       cfg.smtpUser       || '(vacío)',
+      smtpPass:       cfg.smtpPass       ? '●●●●●●' : '(vacío)',
+      smtpFrom:       cfg.smtpFrom       || '(vacío)',
+      smtpAuthMethod: cfg.smtpAuthMethod || 'LOGIN (default)',
     });
 
     // 2. Verificar habilitado
@@ -85,13 +80,7 @@ router.post('/smtp-diagnose', async (req, res) => {
 
       // 4. Probar conexión
       try {
-        const transporter = nodemailer.createTransport({
-          host:   cfg.smtpHost,
-          port:   parseInt(cfg.smtpPort, 10) || 587,
-          secure: (parseInt(cfg.smtpPort, 10) || 587) === 465,
-          auth:   { user: cfg.smtpUser, pass: cfg.smtpPass },
-          tls:    { rejectUnauthorized: false }
-        });
+        const transporter = buildTransport(cfg);
         await transporter.verify();
         ok('Conexión SMTP exitosa', `${cfg.smtpHost}:${cfg.smtpPort || 587}`);
 

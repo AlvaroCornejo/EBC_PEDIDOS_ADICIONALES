@@ -1771,6 +1771,14 @@ async function renderAdminConfig(container) {
           <label>Remitente (From)</label>
           <input type="text" id="cfg-smtp-from" class="form-control" value="${esc(cfg.smtpFrom || '')}" placeholder="Pedidos Adicionales &lt;usuario@empresa.com&gt;">
         </div>
+        <div class="form-group">
+          <label>Método de autenticación</label>
+          <select id="cfg-smtp-authmethod" class="form-control" style="width:auto">
+            <option value="LOGIN" ${(cfg.smtpAuthMethod||'LOGIN')==='LOGIN'?'selected':''}>LOGIN (Exchange / servidores propios)</option>
+            <option value="PLAIN" ${cfg.smtpAuthMethod==='PLAIN'?'selected':''}>PLAIN (Office 365 / Gmail)</option>
+          </select>
+          <p class="text-muted" style="font-size:12px;margin-top:4px">Si ves error 535, cambia entre LOGIN y PLAIN.</p>
+        </div>
         <button class="btn btn-primary" id="cfg-smtp-save">💾 Guardar configuración SMTP</button>
         <button class="btn btn-secondary" id="cfg-smtp-test" style="margin-left:8px">🔌 Probar conexión</button>
         <button class="btn btn-outline" id="cfg-smtp-diagnose" style="margin-left:8px">🩺 Diagnosticar</button>
@@ -1801,12 +1809,13 @@ async function renderAdminConfig(container) {
     btn.disabled = true; btn.textContent = '⏳';
     try {
       await PUT('/config', {
-        smtpEnabled: document.getElementById('cfg-smtp-enabled').checked ? 'true' : 'false',
-        smtpHost:    document.getElementById('cfg-smtp-host').value.trim(),
-        smtpPort:    document.getElementById('cfg-smtp-port').value.trim(),
-        smtpUser:    document.getElementById('cfg-smtp-user').value.trim(),
-        smtpPass:    document.getElementById('cfg-smtp-pass').value,
-        smtpFrom:    document.getElementById('cfg-smtp-from').value.trim()
+        smtpEnabled:    document.getElementById('cfg-smtp-enabled').checked ? 'true' : 'false',
+        smtpHost:       document.getElementById('cfg-smtp-host').value.trim(),
+        smtpPort:       document.getElementById('cfg-smtp-port').value.trim(),
+        smtpUser:       document.getElementById('cfg-smtp-user').value.trim(),
+        smtpPass:       document.getElementById('cfg-smtp-pass').value,
+        smtpFrom:       document.getElementById('cfg-smtp-from').value.trim(),
+        smtpAuthMethod: document.getElementById('cfg-smtp-authmethod').value
       });
       status.innerHTML = `<span style="color:var(--success)">✔ Guardado</span>`;
     } catch (err) {
@@ -1823,11 +1832,12 @@ async function renderAdminConfig(container) {
     btn.disabled = true; btn.textContent = '⏳ Probando...';
     try {
       await POST('/config/smtp-test', {
-        smtpHost: document.getElementById('cfg-smtp-host').value.trim(),
-        smtpPort: document.getElementById('cfg-smtp-port').value.trim(),
-        smtpUser: document.getElementById('cfg-smtp-user').value.trim(),
-        smtpPass: document.getElementById('cfg-smtp-pass').value,
-        smtpFrom: document.getElementById('cfg-smtp-from').value.trim()
+        smtpHost:       document.getElementById('cfg-smtp-host').value.trim(),
+        smtpPort:       document.getElementById('cfg-smtp-port').value.trim(),
+        smtpUser:       document.getElementById('cfg-smtp-user').value.trim(),
+        smtpPass:       document.getElementById('cfg-smtp-pass').value,
+        smtpFrom:       document.getElementById('cfg-smtp-from').value.trim(),
+        smtpAuthMethod: document.getElementById('cfg-smtp-authmethod').value
       });
       status.innerHTML = `<span style="color:var(--success)">✔ Conexión exitosa</span>`;
     } catch (err) {
