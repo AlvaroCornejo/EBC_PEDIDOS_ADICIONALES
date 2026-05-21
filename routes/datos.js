@@ -114,7 +114,7 @@ function readCostos(wb) {
   return map;
 }
 
-/** Requisiciones sheet: col1=Item, col2=CONSUMO PROY SEM ANT, col3=CONSUMO PROY SEM ACT */
+/** Requisiciones sheet: col1=Item, col2=CONSUMO PROY SEM ANT, col3=CONSUMO PROY SEM ACT, col4=AJUSTE SEM ACT, col5=AJUSTE SEM ANT */
 function readRequisiciones(wb) {
   const sh = wb.getWorksheet('Requisiciones');
   if (!sh) return {};
@@ -122,7 +122,12 @@ function readRequisiciones(wb) {
   sh.eachRow((row, rn) => {
     if (rn === 1) return;
     const item = str(row, 1);
-    if (item) map[item] = { semAnt: num(row, 2), semAct: num(row, 3) };
+    if (item) map[item] = {
+      semAnt:      num(row, 2),
+      semAct:      num(row, 3),
+      ajusteSemAct: num(row, 4),
+      ajusteSemAnt: num(row, 5)
+    };
   });
   return map;
 }
@@ -182,7 +187,7 @@ router.get('/item-data', async (req, res) => {
     const costoUnitario = costosMap[itemKey] || 0;
 
     // Consumos estimados de Requisiciones
-    const rq = reqMap[itemKey] || { semAnt: 0, semAct: 0 };
+    const rq = reqMap[itemKey] || { semAnt: 0, semAct: 0, ajusteSemAnt: 0, ajusteSemAct: 0 };
 
     // Consumos reales del Kardex por semana
     function kardexSem(añosem) {
@@ -215,6 +220,7 @@ router.get('/item-data', async (req, res) => {
         consumoEstimado:  rq.semAnt,
         consumoRealVenta: kAnt.vta,
         consumoReal:      kAnt.consumo,
+        ajuste:           rq.ajusteSemAnt,
         variacion: (kAnt.vta + kAnt.consumo) - rq.semAnt
       },
       semanaActual: {
@@ -222,6 +228,7 @@ router.get('/item-data', async (req, res) => {
         consumoEstimado:  rq.semAct,
         consumoRealVenta: kAct.vta,
         consumoReal:      kAct.consumo,
+        ajuste:           rq.ajusteSemAct,
         variacion: (kAct.vta + kAct.consumo) - rq.semAct
       },
       saldo
