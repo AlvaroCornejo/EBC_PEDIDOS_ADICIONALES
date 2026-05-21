@@ -33,6 +33,16 @@ async function api(method, path, body) {
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(API + path, opts);
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    // Token expirado o inválido → cerrar sesión y volver al login
+    S.user = null; S.token = null;
+    localStorage.removeItem('pedidos_token');
+    localStorage.removeItem('pedidos_user');
+    document.getElementById('app').classList.add('hidden');
+    document.getElementById('login-screen').classList.remove('hidden');
+    toast('Tu sesión expiró. Por favor vuelve a iniciar sesión.', 'error');
+    throw new Error('Sesión expirada');
+  }
   if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
   return data;
 }
@@ -984,6 +994,15 @@ async function viewMisPedidos(container) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${S.token}` },
         body: JSON.stringify({ ids: [...selected] })
       });
+      if (res.status === 401) {
+        S.user = null; S.token = null;
+        localStorage.removeItem('pedidos_token');
+        localStorage.removeItem('pedidos_user');
+        document.getElementById('app').classList.add('hidden');
+        document.getElementById('login-screen').classList.remove('hidden');
+        toast('Tu sesión expiró. Por favor vuelve a iniciar sesión.', 'error');
+        return;
+      }
       if (!res.ok) { const d = await res.json().catch(()=>{}); throw new Error(d?.error || 'Error al exportar'); }
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
