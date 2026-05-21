@@ -871,7 +871,7 @@ async function viewMisPedidos(container) {
       <button class="btn btn-primary" onclick="navigate('solicitar')">+ Nuevo Pedido</button>
     </div>
     <div class="page-body">
-      <div class="filter-bar mb-16">
+      <div class="filter-bar mb-8" style="flex-wrap:wrap;gap:8px">
         <select id="filter-estado">
           <option value="">Todos los estados</option>
           ${ESTADOS.map(e => `<option value="${e}">${e}</option>`).join('')}
@@ -880,6 +880,23 @@ async function viewMisPedidos(container) {
           <option value="">Todas las operaciones</option>
           ${(S.user.operations || []).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
         </select>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted)">
+          Desde <input type="date" id="filter-desde" class="form-control" style="width:140px;padding:6px 8px;font-size:13px">
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted)">
+          Hasta <input type="date" id="filter-hasta" class="form-control" style="width:140px;padding:6px 8px;font-size:13px">
+        </label>
+        <button class="btn btn-sm btn-outline" id="filter-clear" title="Limpiar filtros">✕ Limpiar</button>
+      </div>
+      <div class="mp-toolbar mb-8" style="display:flex;align-items:center;gap:10px;min-height:34px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none">
+          <input type="checkbox" id="sel-all" style="width:16px;height:16px;accent-color:var(--primary)">
+          Seleccionar todos
+        </label>
+        <span id="sel-count" style="font-size:13px;color:var(--text-muted)"></span>
+        <button class="btn btn-sm btn-success hidden" id="btn-export" style="margin-left:auto">
+          ⬇️ Descargar Excel (<span id="export-count">0</span>)
+        </button>
       </div>
       <div id="pedidos-list"><div class="loading-overlay"><span class="spinner spinner-dark"></span> Cargando...</div></div>
     </div>`;
@@ -887,15 +904,159 @@ async function viewMisPedidos(container) {
   let pedidos = [];
   try { pedidos = await GET('/pedidos'); } catch (err) { toast(err.message, 'error'); }
 
-  function render() {
-    const est = document.getElementById('filter-estado').value;
-    const op  = document.getElementById('filter-op').value;
-    const filtered = pedidos.filter(p => (!est || p.estado === est) && (!op || p.operacion === op));
-    renderPedidosList(document.getElementById('pedidos-list'), filtered, { canEdit: true });
+  // Set de IDs seleccionados
+  const selected = new Set();
+
+  function getFiltered() {
+    const est   = document.getElementById('filter-estado').value;
+    const op    = document.getElementById('filter-op').value;
+    const desde = document.getElementById('filter-desde').value;
+    const hasta = document.getElementById('filter-hasta').value;
+    return pedidos.filter(p => {
+      if (est  && p.estado !== est) return false;
+      if (op   && p.operacion !== op) return false;
+      const f = (p.fechaPedido || '').slice(0, 10);
+      if (desde && f < desde) return false;
+      if (hasta && f > hasta) return false;
+      return true;
+    });
   }
-  document.getElementById('filter-estado').addEventListener('change', render);
-  document.getElementById('filter-op').addEventListener('change', render);
+
+  function updateToolbar(filtered) {
+    const selInView = filtered.filter(p => selected.has(p.id));
+    const count = selected.size;
+    document.getElementById('sel-count').textContent = count ? `${count} seleccionado${count !== 1 ? 's' : ''}` : '';
+    const exportBtn = document.getElementById('btn-export');
+    if (count > 0) {
+      exportBtn.classList.remove('hidden');
+      document.getElementById('export-count').textContent = count;
+    } else {
+      exportBtn.classList.add('hidden');
+    }
+    // Sync select-all checkbox
+    const selAll = document.getElementById('sel-all');
+    if (selAll) {
+      selAll.indeterminate = selInView.length > 0 && selInView.length < filtered.length;
+      selAll.checked = filtered.length > 0 && selInView.length === filtered.length;
+    }
+  }
+
+  function render() {
+    const filtered = getFiltered();
+    renderPedidosListConCheck(document.getElementById('pedidos-list'), filtered, selected, onToggle);
+    updateToolbar(filtered);
+  }
+
+  function onToggle(id, checked) {
+    if (checked) selected.add(id); else selected.delete(id);
+    updateToolbar(getFiltered());
+  }
+
+  // Filtros
+  ['filter-estado', 'filter-op', 'filter-desde', 'filter-hasta'].forEach(id => {
+    document.getElementById(id).addEventListener('change', render);
+  });
+
+  document.getElementById('filter-clear').addEventListener('click', () => {
+    document.getElementById('filter-estado').value = '';
+    document.getElementById('filter-op').value = '';
+    document.getElementById('filter-desde').value = '';
+    document.getElementById('filter-hasta').value = '';
+    render();
+  });
+
+  // Seleccionar todos
+  document.getElementById('sel-all').addEventListener('change', e => {
+    const filtered = getFiltered();
+    if (e.target.checked) filtered.forEach(p => selected.add(p.id));
+    else filtered.forEach(p => selected.delete(p.id));
+    render();
+  });
+
+  // Exportar Excel
+  document.getElementById('btn-export').addEventListener('click', async () => {
+    if (!selected.size) return;
+    const btn = document.getElementById('btn-export');
+    btn.disabled = true; btn.textContent = '⏳ Generando...';
+    try {
+      const res = await fetch(`${API}/pedidos/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${S.token}` },
+        body: JSON.stringify({ ids: [...selected] })
+      });
+      if (!res.ok) { const d = await res.json().catch(()=>{}); throw new Error(d?.error || 'Error al exportar'); }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `pedidos-${today()}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast(`✅ Descargando ${selected.size} pedido${selected.size!==1?'s':''}`, 'success');
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    }
+    btn.disabled = false;
+    btn.innerHTML = `⬇️ Descargar Excel (<span id="export-count">${selected.size}</span>)`;
+  });
+
   render();
+}
+
+// Variante de renderPedidosList con checkboxes de selección
+function renderPedidosListConCheck(container, pedidos, selected, onToggle) {
+  if (!pedidos.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>No hay pedidos</p></div>`;
+    return;
+  }
+  container.innerHTML = pedidos.map(p => pedidoCardConCheck(p, selected.has(p.id))).join('');
+
+  // Expand/collapse
+  container.querySelectorAll('.pedido-card-header').forEach(h => {
+    h.addEventListener('click', e => {
+      if (e.target.closest('.mp-check-wrap')) return; // no colapsar al hacer click en checkbox
+      h.nextElementSibling.classList.toggle('open');
+    });
+  });
+
+  // Editar
+  container.querySelectorAll('.btn-edit-pedido').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); navigate('solicitar', { editId: btn.dataset.id }); });
+  });
+
+  // Checkboxes
+  container.querySelectorAll('.mp-pedido-check').forEach(chk => {
+    chk.addEventListener('change', e => { e.stopPropagation(); onToggle(chk.dataset.id, chk.checked); });
+  });
+}
+
+function pedidoCardConCheck(p, isChecked) {
+  const canEdit = ['SOLICITADO', 'REVISAR'].includes(p.estado);
+  return `
+    <div class="pedido-card ${isChecked ? 'pedido-card-selected' : ''}" data-id="${p.id}">
+      <div class="pedido-card-header">
+        <div class="mp-check-wrap" onclick="event.stopPropagation()" style="display:flex;align-items:center;padding-right:10px">
+          <input type="checkbox" class="mp-pedido-check" data-id="${p.id}" ${isChecked ? 'checked' : ''}
+            style="width:17px;height:17px;accent-color:var(--primary);cursor:pointer">
+        </div>
+        <div class="pedido-meta" style="flex:1">
+          <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
+          <div class="pedido-info">
+            📅 ${fmtDate(p.fechaPedido)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}
+            ${p.aprobadoPorNombre ? ` &nbsp;·&nbsp; ✅ ${esc(p.aprobadoPorNombre)}` : ''}
+            ${p.atendidoPorNombre ? ` &nbsp;·&nbsp; 🚚 ${esc(p.atendidoPorNombre)}` : ''}
+          </div>
+        </div>
+        <div class="pedido-actions" onclick="event.stopPropagation()">
+          ${canEdit ? `<button class="btn btn-sm btn-outline btn-edit-pedido" data-id="${p.id}">✏️ Editar</button>` : ''}
+          <span style="color:var(--text-muted);font-size:12px">▼</span>
+        </div>
+      </div>
+      <div class="pedido-card-body">
+        ${renderLineasReadOnly(p.lineas, p.operacion)}
+        <div class="mt-8 text-right font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
+      </div>
+    </div>`;
 }
 
 // ─── View: Kardex ────────────────────────────────────────────────

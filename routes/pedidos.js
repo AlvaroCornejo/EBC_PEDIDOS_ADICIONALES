@@ -1,4 +1,5 @@
-const express = require('express');
+const express  = require('express');
+const ExcelJS  = require('exceljs');
 const { v4: uuidv4 } = require('uuid');
 const authMiddleware = require('../middleware/auth');
 const Pedido = require('../models/Pedido');
@@ -304,6 +305,170 @@ router.put('/:id', async (req, res) => {
           { subject: `📦 Pedido atendido — ${op}`, body: `<p>Tu solicitud de <strong>${op}</strong> fue atendida.</p><p><a href="/#mis-pedidos">Ver mis pedidos</a></p>` });
       }
     }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/pedidos/export — descarga Excel con pedidos seleccionados
+router.post('/export', async (req, res) => {
+  try {
+    const { role, id: userId, operations } = req.user;
+    const { ids } = req.body;
+    if (!ids?.length) return res.status(400).json({ error: 'Se requieren IDs de pedidos' });
+
+    // Cargar pedidos autorizados
+    let query = { id: { $in: ids } };
+    if (role === 'OPERADOR_SOLICITUD') query.solicitadoPorId = userId;
+    else if (['OPERADOR_APROBACION', 'OPERADOR_ATENCION', 'OPERADOR_PLANTA'].includes(role)) {
+      query.operacion = { $in: operations };
+    }
+    const pedidos = await Pedido.find(query).lean();
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Pedidos Adicionales';
+    wb.created = new Date();
+
+    const ws = wb.addWorksheet('Pedidos', { views: [{ state: 'frozen', ySplit: 2 }] });
+
+    // ── Estilo helpers ──
+    const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4361EE' } };
+    const subFill    = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6E0FF' } };
+    const boldWhite  = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+    const boldBlue   = { bold: true, color: { argb: 'FF1E3A8A' }, size: 10 };
+    const thin = { style: 'thin', color: { argb: 'FFB0B8D0' } };
+    const border = { top: thin, left: thin, bottom: thin, right: thin };
+
+    // ── Columnas ──
+    ws.columns = [
+      { key: 'pedidoId',     width: 14 },
+      { key: 'operacion',    width: 10 },
+      { key: 'fecha',        width: 12 },
+      { key: 'estado',       width: 12 },
+      { key: 'solicitado',   width: 20 },
+      { key: 'aprobado',     width: 20 },
+      // Semana Anterior (5 cols)
+      { key: 'ceA',  width: 11 },
+      { key: 'rvA',  width: 11 },
+      { key: 'rcA',  width: 11 },
+      { key: 'varA', width: 11 },
+      { key: 'ajA',  width: 11 },
+      // Semana Actual (5 cols)
+      { key: 'ceC',  width: 11 },
+      { key: 'rvC',  width: 11 },
+      { key: 'rcC',  width: 11 },
+      { key: 'varC', width: 11 },
+      { key: 'ajC',  width: 11 },
+      // Item
+      { key: 'item',         width: 14 },
+      { key: 'itemNombre',   width: 30 },
+      { key: 'grupo',        width: 14 },
+      { key: 'gestion',      width: 10 },
+      { key: 'saldo',        width: 11 },
+      { key: 'costoU',       width: 12 },
+      { key: 'cantidad',     width: 11 },
+      { key: 'despacho',     width: 13 },
+      { key: 'oportunidad',  width: 13 },
+      { key: 'costoTotal',   width: 13 },
+      { key: 'comentarios',  width: 30 },
+      { key: 'estadoLinea',  width: 12 },
+      { key: 'comentApr',    width: 30 },
+    ];
+
+    // ── Fila 1: grupos de cabecera ──
+    const r1 = ws.getRow(1);
+    const baseHeaders = [
+      { label: 'Pedido',          span: 5 },
+      { label: 'Semana Anterior', span: 5 },
+      { label: 'Semana Actual',   span: 5 },
+      { label: 'Ítem',            span: 4 },
+      { label: 'Cantidades',      span: 5 },
+      { label: 'Detalle',         span: 4 },
+    ];
+    let col = 1;
+    for (const h of baseHeaders) {
+      const cell = r1.getCell(col);
+      cell.value = h.label;
+      cell.fill  = headerFill;
+      cell.font  = boldWhite;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = border;
+      if (h.span > 1) ws.mergeCells(1, col, 1, col + h.span - 1);
+      col += h.span;
+    }
+    r1.height = 22;
+
+    // ── Fila 2: sub-cabeceras ──
+    const subHeaders = [
+      'ID Pedido','Operación','Fecha','Estado','Solicitado por',
+      'Cons. Est.','Real Venta','Real Consumo','Variación','Ajuste',
+      'Cons. Est.','Real Venta','Real Consumo','Variación','Ajuste',
+      'Item','Nombre','Grupo','Gestión',
+      'Saldo','Costo U.','Cantidad','Despacho Exceso','Compra Oport.','Costo Total',
+      'Comentarios','Estado Línea','Coment. Aprobador'
+    ];
+    const r2 = ws.getRow(2);
+    subHeaders.forEach((h, i) => {
+      const cell = r2.getCell(i + 1);
+      cell.value = h;
+      cell.fill  = subFill;
+      cell.font  = boldBlue;
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = border;
+    });
+    r2.height = 30;
+
+    // ── Filas de datos ──
+    const numFmt = '#,##0.00';
+    let rowIdx = 3;
+    for (const p of pedidos) {
+      const startRow = rowIdx;
+      const lineas = p.lineas || [];
+      for (const l of lineas) {
+        const sa = l.semanaAnterior || {};
+        const sc = l.semanaActual   || {};
+        const row = ws.getRow(rowIdx);
+        const vals = [
+          p.id, p.operacion, p.fechaPedido ? p.fechaPedido.slice(0,10) : '', p.estado,
+          p.solicitadoPorNombre || '',
+          // sem anterior
+          sa.consumoEstimado  || 0, sa.consumoRealVenta || 0, sa.consumoReal || 0, sa.variacion || 0, sa.ajuste || 0,
+          // sem actual
+          sc.consumoEstimado  || 0, sc.consumoRealVenta || 0, sc.consumoReal || 0, sc.variacion || 0, sc.ajuste || 0,
+          // item
+          l.item || '', l.itemNombre || '', l.grupoCompra || '', l.gestion || 'COMPRAS',
+          // cantidades
+          l.saldo || 0, l.costoUnitario || 0, l.cantidadSolicitada || 0,
+          l.despachoEnExceso ? 'Sí' : '', l.compraOportunidad ? 'Sí' : '',
+          (l.cantidadSolicitada || 0) * (l.costoUnitario || 0),
+          // detalle
+          l.comentarios || '', l.estadoLinea || '', l.comentarioAprobador || ''
+        ];
+        vals.forEach((v, i) => {
+          const cell = row.getCell(i + 1);
+          cell.value = v;
+          cell.border = border;
+          cell.font   = { size: 10 };
+          // Aplicar formato numérico a columnas de cantidades/costo (cols 6-15 + 21-26)
+          const numCols = new Set([6,7,8,9,10,11,12,13,14,15,21,22,23,26]);
+          if (numCols.has(i + 1) && typeof v === 'number') cell.numFmt = numFmt;
+        });
+        row.height = 16;
+        rowIdx++;
+      }
+      // Merge celdas del pedido (cols 1-5) si hay > 1 línea
+      if (lineas.length > 1) {
+        for (let c = 1; c <= 5; c++) {
+          ws.mergeCells(startRow, c, rowIdx - 1, c);
+          ws.getCell(startRow, c).alignment = { vertical: 'top', wrapText: true };
+        }
+      }
+    }
+
+    // Responder con el archivo
+    const fecha = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type',        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="pedidos-${fecha}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
