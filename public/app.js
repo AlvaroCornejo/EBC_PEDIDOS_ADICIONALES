@@ -434,7 +434,8 @@ function renderTableHeader(mode = 'edit') {
         <th rowspan="2" class="col-auto col-num">Saldo</th>
         <th rowspan="2" class="col-auto col-num">🔒 Costo U.</th>
         <th rowspan="2" class="col-auto col-num">Cantidad</th>
-        <th rowspan="2" class="col-auto" style="text-align:center;min-width:80px">Desp. Exceso</th>
+        <th rowspan="2" class="col-auto" style="text-align:center;min-width:90px">DESPACHO<br>EN EXCESO</th>
+        <th rowspan="2" class="col-auto" style="text-align:center;min-width:90px">COMPRA<br>OPORTUNIDAD</th>
         <th rowspan="2" class="col-auto col-num">Costo Total</th>
         <th rowspan="2" style="min-width:160px">Comentarios</th>
         ${lastCols}
@@ -443,13 +444,13 @@ function renderTableHeader(mode = 'edit') {
         <th class="sub-header col-num">Cons. Est.</th>
         <th class="sub-header col-num">Real Venta</th>
         <th class="sub-header col-num">Real Consumo</th>
-        <th class="sub-header col-num">Ajuste</th>
         <th class="sub-header col-num">Variación</th>
+        <th class="sub-header col-num">Ajuste</th>
         <th class="sub-header col-num">Cons. Est.</th>
         <th class="sub-header col-num">Real Venta</th>
         <th class="sub-header col-num">Real Consumo</th>
-        <th class="sub-header col-num">Ajuste</th>
         <th class="sub-header col-num">Variación</th>
+        <th class="sub-header col-num">Ajuste</th>
       </tr>
     </thead>`;
 }
@@ -542,13 +543,13 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
     <td class="col-num"><span class="auto-ceA-${idx} ${!l.semanaAnterior?'cell-loading':''}">${l.semanaAnterior ? fmt(sa.consumoEstimado) : '...'}</span></td>
     <td class="col-num"><span class="auto-rvA-${idx}">${l.semanaAnterior ? fmt(sa.consumoRealVenta) : '...'}</span></td>
     <td class="col-num"><span class="auto-rcA-${idx}">${l.semanaAnterior ? fmt(sa.consumoReal) : '...'}</span></td>
-    <td class="col-num"><span class="auto-ajA-${idx}">${l.semanaAnterior ? fmt(sa.ajuste) : '...'}</span></td>
     <td class="col-num"><span class="auto-vA-${idx} ${varA>=0?'variacion-pos':'variacion-neg'}">${l.semanaAnterior ? fmt(varA) : '...'}</span></td>
+    <td class="col-num"><span class="auto-ajA-${idx}">${l.semanaAnterior ? fmt(sa.ajuste) : '...'}</span></td>
     <td class="col-num"><span class="auto-ceC-${idx}">${l.semanaActual ? fmt(sc.consumoEstimado) : '...'}</span></td>
     <td class="col-num"><span class="auto-rvC-${idx}">${l.semanaActual ? fmt(sc.consumoRealVenta) : '...'}</span></td>
     <td class="col-num"><span class="auto-rcC-${idx}">${l.semanaActual ? fmt(sc.consumoReal) : '...'}</span></td>
-    <td class="col-num"><span class="auto-ajC-${idx}">${l.semanaActual ? fmt(sc.ajuste) : '...'}</span></td>
     <td class="col-num"><span class="auto-vC-${idx} ${varC>=0?'variacion-pos':'variacion-neg'}">${l.semanaActual ? fmt(varC) : '...'}</span></td>
+    <td class="col-num"><span class="auto-ajC-${idx}">${l.semanaActual ? fmt(sc.ajuste) : '...'}</span></td>
     <td class="col-num"><span class="auto-saldo-${idx}">${l.saldo != null ? fmt(l.saldo) : '...'}</span></td>
     <td class="col-num"><span class="auto-cu-${idx}">${l.costoUnitario != null ? fmtMoney(l.costoUnitario) : '...'}</span></td>
     <td class="col-num">
@@ -560,6 +561,11 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
       ${rowEditable
         ? `<input type="checkbox" class="despacho-check" data-idx="${idx}" ${l.despachoEnExceso ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer">`
         : (l.despachoEnExceso ? '<span style="color:var(--primary);font-size:16px">✔</span>' : '')}
+    </td>
+    <td style="text-align:center">
+      ${rowEditable
+        ? `<input type="checkbox" class="compra-op-check" data-idx="${idx}" ${l.compraOportunidad ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--success);cursor:pointer">`
+        : (l.compraOportunidad ? '<span style="color:var(--success);font-size:16px">✔</span>' : '')}
     </td>
     <td class="col-num"><span class="auto-ct-${idx}">${fmtMoney(ct || 0)}</span></td>
     <td>
@@ -649,6 +655,10 @@ function setupRowEvents(tr, idx) {
   const despachoCheck = tr.querySelector('.despacho-check');
   if (despachoCheck) {
     despachoCheck.addEventListener('change', e => { S.form.lineas[idx].despachoEnExceso = e.target.checked; });
+  }
+  const compraOpCheck = tr.querySelector('.compra-op-check');
+  if (compraOpCheck) {
+    compraOpCheck.addEventListener('change', e => { S.form.lineas[idx].compraOportunidad = e.target.checked; });
   }
 }
 
@@ -1531,22 +1541,63 @@ async function renderAdminConfig(container) {
   let cfg = {};
   try { cfg = await GET('/config'); } catch (err) { toast(err.message, 'error'); }
 
+  const smtpEnabled = cfg.smtpEnabled === 'true' || cfg.smtpEnabled === true;
+
   container.innerHTML = `
     <div class="section-title mb-16">Parámetros del sistema</div>
-    <div class="card" style="max-width:500px">
+
+    <div class="card" style="max-width:520px;margin-bottom:20px">
       <div class="card-body">
+        <h3 style="margin:0 0 14px;font-size:15px">⚙️ Auto-aprobación</h3>
         <div class="form-group">
           <label>Máxima variación permitida para auto-aprobación (%)</label>
           <input type="number" id="cfg-maxvar" class="form-control" value="${cfg.maxVariacion ?? 10}" min="0" max="100" step="1" style="width:120px">
           <p class="text-muted" style="font-size:12px;margin-top:4px">
-            Si la cantidad solicitada ≤ sugerido × (1 + este %), la línea se auto-aprueba y no puede ser modificada.
+            Si la cantidad solicitada ≤ sugerido × (1 + este %), la línea se auto-aprueba.
           </p>
         </div>
-        <button class="btn btn-primary" id="cfg-save">💾 Guardar configuración</button>
+        <button class="btn btn-primary" id="cfg-save">💾 Guardar</button>
         <span id="cfg-status" style="margin-left:12px;font-size:13px"></span>
+      </div>
+    </div>
+
+    <div class="card" style="max-width:520px">
+      <div class="card-body">
+        <h3 style="margin:0 0 4px;font-size:15px">📧 Correo (SMTP — Outlook)</h3>
+        <p class="text-muted" style="font-size:12px;margin:0 0 14px">
+          Los correos se envían a los mismos destinatarios que las notificaciones push.
+        </p>
+        <div class="form-group" style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <label style="margin:0;font-weight:600">Habilitado</label>
+          <input type="checkbox" id="cfg-smtp-enabled" ${smtpEnabled ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--primary)">
+        </div>
+        <div class="form-group">
+          <label>Servidor SMTP (ej: smtp.office365.com)</label>
+          <input type="text" id="cfg-smtp-host" class="form-control" value="${esc(cfg.smtpHost || '')}" placeholder="smtp.office365.com">
+        </div>
+        <div class="form-group">
+          <label>Puerto (587 para TLS, 465 para SSL)</label>
+          <input type="number" id="cfg-smtp-port" class="form-control" value="${cfg.smtpPort || 587}" style="width:100px">
+        </div>
+        <div class="form-group">
+          <label>Usuario (correo de Outlook)</label>
+          <input type="text" id="cfg-smtp-user" class="form-control" value="${esc(cfg.smtpUser || '')}" placeholder="usuario@empresa.com">
+        </div>
+        <div class="form-group">
+          <label>Contraseña</label>
+          <input type="password" id="cfg-smtp-pass" class="form-control" value="${esc(cfg.smtpPass || '')}" placeholder="••••••••">
+        </div>
+        <div class="form-group">
+          <label>Remitente (From)</label>
+          <input type="text" id="cfg-smtp-from" class="form-control" value="${esc(cfg.smtpFrom || '')}" placeholder="Pedidos Adicionales &lt;usuario@empresa.com&gt;">
+        </div>
+        <button class="btn btn-primary" id="cfg-smtp-save">💾 Guardar configuración SMTP</button>
+        <button class="btn btn-secondary" id="cfg-smtp-test" style="margin-left:8px">🔌 Probar conexión</button>
+        <span id="cfg-smtp-status" style="margin-left:12px;font-size:13px"></span>
       </div>
     </div>`;
 
+  // Guardar auto-aprobación
   document.getElementById('cfg-save').addEventListener('click', async () => {
     const val = Number(document.getElementById('cfg-maxvar').value);
     const btn = document.getElementById('cfg-save');
@@ -1558,8 +1609,51 @@ async function renderAdminConfig(container) {
     } catch (err) {
       status.innerHTML = `<span style="color:var(--danger)">✕ ${err.message}</span>`;
     }
-    btn.disabled = false; btn.textContent = '💾 Guardar configuración';
+    btn.disabled = false; btn.textContent = '💾 Guardar';
     setTimeout(() => { if (status) status.innerHTML = ''; }, 3000);
+  });
+
+  // Guardar SMTP
+  document.getElementById('cfg-smtp-save').addEventListener('click', async () => {
+    const btn    = document.getElementById('cfg-smtp-save');
+    const status = document.getElementById('cfg-smtp-status');
+    btn.disabled = true; btn.textContent = '⏳';
+    try {
+      await PUT('/config', {
+        smtpEnabled: document.getElementById('cfg-smtp-enabled').checked ? 'true' : 'false',
+        smtpHost:    document.getElementById('cfg-smtp-host').value.trim(),
+        smtpPort:    document.getElementById('cfg-smtp-port').value.trim(),
+        smtpUser:    document.getElementById('cfg-smtp-user').value.trim(),
+        smtpPass:    document.getElementById('cfg-smtp-pass').value,
+        smtpFrom:    document.getElementById('cfg-smtp-from').value.trim()
+      });
+      status.innerHTML = `<span style="color:var(--success)">✔ Guardado</span>`;
+    } catch (err) {
+      status.innerHTML = `<span style="color:var(--danger)">✕ ${err.message}</span>`;
+    }
+    btn.disabled = false; btn.textContent = '💾 Guardar configuración SMTP';
+    setTimeout(() => { if (status) status.innerHTML = ''; }, 3000);
+  });
+
+  // Probar conexión SMTP
+  document.getElementById('cfg-smtp-test').addEventListener('click', async () => {
+    const btn    = document.getElementById('cfg-smtp-test');
+    const status = document.getElementById('cfg-smtp-status');
+    btn.disabled = true; btn.textContent = '⏳ Probando...';
+    try {
+      const res = await POST('/config/smtp-test', {
+        smtpHost: document.getElementById('cfg-smtp-host').value.trim(),
+        smtpPort: document.getElementById('cfg-smtp-port').value.trim(),
+        smtpUser: document.getElementById('cfg-smtp-user').value.trim(),
+        smtpPass: document.getElementById('cfg-smtp-pass').value,
+        smtpFrom: document.getElementById('cfg-smtp-from').value.trim()
+      });
+      status.innerHTML = `<span style="color:var(--success)">✔ Conexión exitosa</span>`;
+    } catch (err) {
+      status.innerHTML = `<span style="color:var(--danger)">✕ ${err.message}</span>`;
+    }
+    btn.disabled = false; btn.textContent = '🔌 Probar conexión';
+    setTimeout(() => { if (status) status.innerHTML = ''; }, 5000);
   });
 }
 

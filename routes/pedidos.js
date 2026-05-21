@@ -3,7 +3,8 @@ const { v4: uuidv4 } = require('uuid');
 const authMiddleware = require('../middleware/auth');
 const Pedido = require('../models/Pedido');
 const Config = require('../models/Config');
-const { sendPush } = require('../utils/sendPush');
+const { sendPush }  = require('../utils/sendPush');
+const { sendEmail } = require('../utils/sendEmail');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -114,13 +115,22 @@ router.post('/', async (req, res) => {
 
     // Notificar aprobadores si el pedido no fue auto-aprobado totalmente
     if (pedido.estado === 'SOLICITADO') {
+      const pushBody = `${operacion} — ${req.user.username} (${lineasMapped.length} línea${lineasMapped.length !== 1 ? 's' : ''})`;
       sendPush(
         { role: 'OPERADOR_APROBACION', operations: operacion },
-        { title: '📝 Nueva solicitud pendiente', body: `${operacion} — ${req.user.username} (${lineasMapped.length} línea${lineasMapped.length !== 1 ? 's' : ''})`, url: '/#aprobar' }
+        { title: '📝 Nueva solicitud pendiente', body: pushBody, url: '/#aprobar' }
       );
       sendPush(
         { role: 'ADMIN' },
         { title: '📝 Nueva solicitud pendiente', body: `${operacion} — ${req.user.username}`, url: '/#aprobar' }
+      );
+      sendEmail(
+        { role: 'OPERADOR_APROBACION', operations: operacion },
+        { subject: `📝 Nueva solicitud pendiente — ${operacion}`, body: `<p>${pushBody}</p><p>Ingresa al sistema para revisar y aprobar: <a href="/#aprobar">Ver solicitudes</a></p>` }
+      );
+      sendEmail(
+        { role: 'ADMIN' },
+        { subject: `📝 Nueva solicitud pendiente — ${operacion}`, body: `<p>${operacion} — ${req.user.username}</p><p><a href="/#aprobar">Ver solicitudes</a></p>` }
       );
     }
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -258,28 +268,40 @@ router.put('/:id', async (req, res) => {
         // Al solicitante
         sendPush({ userId: solId },
           { title: '✅ Pedido aprobado', body: `Tu solicitud de ${op} fue aprobada`, url: '/#mis-pedidos' });
+        sendEmail({ userId: solId },
+          { subject: `✅ Pedido aprobado — ${op}`, body: `<p>Tu solicitud de <strong>${op}</strong> fue aprobada.</p><p><a href="/#mis-pedidos">Ver mis pedidos</a></p>` });
         // A compras — solo si hay ítems gestionados por compras
         if (tieneCompras) {
           sendPush({ role: 'OPERADOR_ATENCION', operations: op },
             { title: '🛒 Pedido listo para atender', body: `${op} — tiene ítems de Compras`, url: '/#atender' });
+          sendEmail({ role: 'OPERADOR_ATENCION', operations: op },
+            { subject: `🛒 Pedido listo para atender — ${op}`, body: `<p>Hay un pedido de <strong>${op}</strong> con ítems de Compras listo para atender.</p><p><a href="/#atender">Ver pedidos a atender</a></p>` });
         }
         // A planta — solo si hay ítems gestionados por planta
         if (tienePlanta) {
           sendPush({ role: 'OPERADOR_PLANTA', operations: op },
             { title: '🏭 Pedido listo para atender', body: `${op} — tiene ítems de Planta`, url: '/#atender' });
+          sendEmail({ role: 'OPERADOR_PLANTA', operations: op },
+            { subject: `🏭 Pedido listo para atender — ${op}`, body: `<p>Hay un pedido de <strong>${op}</strong> con ítems de Planta listo para atender.</p><p><a href="/#atender">Ver pedidos a atender</a></p>` });
         }
       } else if (nuevoEstado === 'RECHAZADO') {
         sendPush({ userId: solId },
           { title: '❌ Pedido rechazado', body: `Tu solicitud de ${op} fue rechazada`, url: '/#mis-pedidos' });
+        sendEmail({ userId: solId },
+          { subject: `❌ Pedido rechazado — ${op}`, body: `<p>Tu solicitud de <strong>${op}</strong> fue rechazada.</p><p><a href="/#mis-pedidos">Ver mis pedidos</a></p>` });
       } else if (nuevoEstado === 'REVISAR') {
         sendPush({ userId: solId },
           { title: '🔄 Pedido a revisar', body: `Tu solicitud de ${op} necesita ajustes`, url: '/#solicitar' });
+        sendEmail({ userId: solId },
+          { subject: `🔄 Pedido a revisar — ${op}`, body: `<p>Tu solicitud de <strong>${op}</strong> necesita ajustes. Por favor revisa y re-envía.</p><p><a href="/#solicitar">Ir a mis solicitudes</a></p>` });
       }
     // 3. Compras/Planta atiende → notificar al solicitante
     } else if (role === 'OPERADOR_ATENCION' || role === 'OPERADOR_PLANTA') {
       if (pedido.estado === 'ATENDIDO') {
         sendPush({ userId: solId },
           { title: '📦 Pedido atendido', body: `Tu solicitud de ${op} fue atendida`, url: '/#mis-pedidos' });
+        sendEmail({ userId: solId },
+          { subject: `📦 Pedido atendido — ${op}`, body: `<p>Tu solicitud de <strong>${op}</strong> fue atendida.</p><p><a href="/#mis-pedidos">Ver mis pedidos</a></p>` });
       }
     }
   } catch (err) { res.status(500).json({ error: err.message }); }
