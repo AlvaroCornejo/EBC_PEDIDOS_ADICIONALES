@@ -1773,6 +1773,7 @@ async function renderAdminConfig(container) {
         </div>
         <button class="btn btn-primary" id="cfg-smtp-save">💾 Guardar configuración SMTP</button>
         <button class="btn btn-secondary" id="cfg-smtp-test" style="margin-left:8px">🔌 Probar conexión</button>
+        <button class="btn btn-outline" id="cfg-smtp-diagnose" style="margin-left:8px">🩺 Diagnosticar</button>
         <span id="cfg-smtp-status" style="margin-left:12px;font-size:13px"></span>
       </div>
     </div>`;
@@ -1821,7 +1822,7 @@ async function renderAdminConfig(container) {
     const status = document.getElementById('cfg-smtp-status');
     btn.disabled = true; btn.textContent = '⏳ Probando...';
     try {
-      const res = await POST('/config/smtp-test', {
+      await POST('/config/smtp-test', {
         smtpHost: document.getElementById('cfg-smtp-host').value.trim(),
         smtpPort: document.getElementById('cfg-smtp-port').value.trim(),
         smtpUser: document.getElementById('cfg-smtp-user').value.trim(),
@@ -1834,6 +1835,34 @@ async function renderAdminConfig(container) {
     }
     btn.disabled = false; btn.textContent = '🔌 Probar conexión';
     setTimeout(() => { if (status) status.innerHTML = ''; }, 5000);
+  });
+
+  // Diagnóstico completo de correo
+  document.getElementById('cfg-smtp-diagnose').addEventListener('click', async () => {
+    const emailDestino = prompt('¿A qué correo enviar el mensaje de prueba? (deja vacío para solo verificar config)') ?? '';
+    const btn = document.getElementById('cfg-smtp-diagnose');
+    btn.disabled = true; btn.textContent = '⏳ Diagnosticando...';
+    try {
+      const { pasos } = await POST('/config/smtp-diagnose', { emailDestino: emailDestino.trim() });
+      const iconMap = { ok: '✅', error: '❌', warn: '⚠️' };
+      const colorMap = { ok: '#166534', error: '#991b1b', warn: '#92400e' };
+      const bgMap    = { ok: '#f0fdf4', error: '#fef2f2', warn: '#fffbeb' };
+      const html = `
+        <div style="font-size:13px">
+          ${pasos.map(p => `
+            <div style="display:flex;gap:10px;padding:8px 10px;border-radius:6px;margin-bottom:6px;background:${bgMap[p.estado]}">
+              <span>${iconMap[p.estado]}</span>
+              <div>
+                <div style="font-weight:600;color:${colorMap[p.estado]}">${esc(p.msg)}</div>
+                ${p.detail ? `<div style="color:#374151;margin-top:2px;font-size:12px;white-space:pre-wrap">${esc(String(p.detail))}</div>` : ''}
+              </div>
+            </div>`).join('')}
+        </div>`;
+      openModal('🩺 Diagnóstico de correo SMTP', html);
+    } catch (err) {
+      toast('Error: ' + err.message, 'error');
+    }
+    btn.disabled = false; btn.textContent = '🩺 Diagnosticar';
   });
 }
 

@@ -1,7 +1,9 @@
-const express  = require('express');
+const express    = require('express');
 const nodemailer = require('nodemailer');
 const authMiddleware = require('../middleware/auth');
 const Config = require('../models/Config');
+const User   = require('../models/User');
+const { getSmtpConfig, resolveEmails } = require('../utils/sendEmail');
 const router = express.Router();
 router.use(authMiddleware);
 
@@ -31,11 +33,11 @@ router.put('/', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/config/smtp-test  (ADMIN only) — prueba conexión SMTP sin guardar
+// POST /api/config/smtp-test  — prueba conexión SMTP (con credenciales del form)
 router.post('/smtp-test', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'No autorizado' });
-    const { smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom } = req.body;
+    const { smtpHost, smtpPort, smtpUser, smtpPass } = req.body;
     if (!smtpHost || !smtpUser || !smtpPass) return res.status(400).json({ error: 'Faltan credenciales SMTP' });
     const transporter = nodemailer.createTransport({
       host:   smtpHost,
@@ -47,6 +49,88 @@ router.post('/smtp-test', async (req, res) => {
     await transporter.verify();
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/config/smtp-diagnose  — diagnóstico completo + envío de prueba real
+router.post('/smtp-diagnose', async (req, res) => {
+  if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'No autorizado' });
+  const { emailDestino } = req.body;
+  const pasos = [];
+  const ok  = (msg, detail) => pasos.push({ estado: 'ok',    msg, detail: detail ?? null });
+  const err = (msg, detail) => pasos.push({ estado: 'error', msg, detail: detail ?? null });
+  const warn = (msg, detail) => pasos.push({ estado: 'warn', msg, detail: detail ?? null });
+
+  try {
+    // 1. Leer config de la BD
+    const cfg = await getSmtpConfig();
+    ok('Config leída de BD', {
+      smtpEnabled: cfg.smtpEnabled,
+      smtpHost:    cfg.smtpHost    || '(vacío)',
+      smtpPort:    cfg.smtpPort    || '(vacío)',
+      smtpUser:    cfg.smtpUser    || '(vacío)',
+      smtpPass:    cfg.smtpPass    ? '●●●●●●' : '(vacío)',
+      smtpFrom:    cfg.smtpFrom    || '(vacío)',
+    });
+
+    // 2. Verificar habilitado
+    const enabled = cfg.smtpEnabled === true || cfg.smtpEnabled === 'true';
+    if (!enabled) warn('smtpEnabled = false — el envío automático está desactivado', 'Actívalo en Admin → Configuración → SMTP');
+    else ok('smtpEnabled = true');
+
+    // 3. Verificar credenciales
+    if (!cfg.smtpHost || !cfg.smtpUser || !cfg.smtpPass) {
+      err('Credenciales incompletas', 'Falta host, usuario o contraseña');
+    } else {
+      ok('Credenciales presentes');
+
+      // 4. Probar conexión
+      try {
+        const transporter = nodemailer.createTransport({
+          host:   cfg.smtpHost,
+          port:   parseInt(cfg.smtpPort, 10) || 587,
+          secure: (parseInt(cfg.smtpPort, 10) || 587) === 465,
+          auth:   { user: cfg.smtpUser, pass: cfg.smtpPass },
+          tls:    { rejectUnauthorized: false }
+        });
+        await transporter.verify();
+        ok('Conexión SMTP exitosa', `${cfg.smtpHost}:${cfg.smtpPort || 587}`);
+
+        // 5. Enviar correo de prueba si se proporcionó destino
+        if (emailDestino) {
+          try {
+            const info = await transporter.sendMail({
+              from:    cfg.smtpFrom || cfg.smtpUser,
+              to:      emailDestino,
+              subject: '🧪 Prueba de correo — Pedidos Adicionales',
+              html:    `<p>Este es un correo de prueba enviado desde <strong>Pedidos Adicionales</strong>.</p>
+                        <p>Si ves este mensaje, el sistema de correo está funcionando correctamente.</p>
+                        <p style="color:#6b7280;font-size:12px">Enviado: ${new Date().toLocaleString('es-CL')}</p>`
+            });
+            ok(`Correo de prueba enviado a ${emailDestino}`, `messageId: ${info.messageId}`);
+          } catch (e) {
+            err(`Error al enviar correo de prueba a ${emailDestino}`, e.message);
+          }
+        } else {
+          warn('No se especificó email de destino — sin envío de prueba');
+        }
+      } catch (e) {
+        err('Error de conexión SMTP', e.message);
+      }
+    }
+
+    // 6. Usuarios sin email
+    const allUsers = await User.find({}).lean();
+    const sinEmail = allUsers.filter(u => !u.email).map(u => `${u.username} (${u.role})`);
+    const conEmail = allUsers.filter(u => u.email).map(u => `${u.username} → ${u.email}`);
+    if (sinEmail.length) warn(`${sinEmail.length} usuario(s) sin correo configurado`, sinEmail.join(', '));
+    else ok('Todos los usuarios tienen correo');
+    ok(`Usuarios con correo (${conEmail.length})`, conEmail.join(' | ') || '—');
+
+    res.json({ pasos });
+  } catch (e) {
+    err('Error inesperado', e.message);
+    res.json({ pasos });
+  }
 });
 
 module.exports = { router, getConfigObj };

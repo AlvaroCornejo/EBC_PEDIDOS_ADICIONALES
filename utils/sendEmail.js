@@ -1,35 +1,16 @@
-/**
- * sendEmail.js — envía correos usando configuración SMTP almacenada en Config (Outlook/SMTP).
- *
- * Uso:
- *   const { sendEmail } = require('./sendEmail');
- *   await sendEmail(
- *     { role: 'OPERADOR_APROBACION', operations: 'AASI' },   // mismo filtro que sendPush
- *     { subject: '...', body: '...' }
- *   );
- *
- * filter puede tener:
- *   { role, operations }   → todos los usuarios con ese role cuyas operaciones intersecan
- *   { userId }             → un usuario específico
- *   { role: 'ADMIN' }      → todos los admins
- */
-
 const nodemailer = require('nodemailer');
 const User       = require('../models/User');
 const Config     = require('../models/Config');
 
-/** Lee la config SMTP desde MongoDB */
 async function getSmtpConfig() {
-  const docs = await Config.find({ key: { $in: ['smtpHost', 'smtpPort', 'smtpUser', 'smtpPass', 'smtpFrom', 'smtpEnabled'] } }).lean();
+  const docs = await Config.find({ key: { $in: ['smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','smtpEnabled'] } }).lean();
   const cfg = {};
   docs.forEach(d => { cfg[d.key] = d.value; });
   return cfg;
 }
 
-/** Resuelve emails de destinatarios con el mismo esquema de filtro que sendPush */
 async function resolveEmails(filter) {
   const query = {};
-
   if (filter.userId) {
     query.id = filter.userId;
   } else if (filter.role) {
@@ -39,50 +20,51 @@ async function resolveEmails(filter) {
       query.operations = { $in: ops };
     }
   }
-
   const users = await User.find(query).lean();
   return users.map(u => u.email).filter(Boolean);
 }
 
-/**
- * Envía un correo a todos los destinatarios que coinciden con el filtro.
- * Es fire-and-forget: no lanza excepciones al caller.
- *
- * @param {object} filter  - { role?, operations?, userId? }
- * @param {object} payload - { subject, body }
- */
 async function sendEmail(filter, payload) {
   try {
     const cfg = await getSmtpConfig();
+    const enabled = cfg.smtpEnabled === true || cfg.smtpEnabled === 'true';
 
-    // Si no está habilitado, salir silenciosamente
-    if (!cfg.smtpEnabled || cfg.smtpEnabled === 'false' || !cfg.smtpHost || !cfg.smtpUser || !cfg.smtpPass) return;
+    if (!enabled) {
+      console.log('[sendEmail] Saltando — smtpEnabled=false');
+      return;
+    }
+    if (!cfg.smtpHost || !cfg.smtpUser || !cfg.smtpPass) {
+      console.log('[sendEmail] Saltando — credenciales SMTP incompletas');
+      return;
+    }
 
     const emails = await resolveEmails(filter);
-    if (!emails.length) return;
+    if (!emails.length) {
+      console.log('[sendEmail] Sin destinatarios para filtro:', JSON.stringify(filter));
+      return;
+    }
+
+    console.log(`[sendEmail] Enviando "${payload.subject}" → ${emails.join(', ')}`);
 
     const transporter = nodemailer.createTransport({
       host:   cfg.smtpHost,
       port:   parseInt(cfg.smtpPort, 10) || 587,
       secure: (parseInt(cfg.smtpPort, 10) || 587) === 465,
-      auth: {
-        user: cfg.smtpUser,
-        pass: cfg.smtpPass
-      },
-      tls: { rejectUnauthorized: false }  // Outlook a veces tiene cert issues
+      auth:   { user: cfg.smtpUser, pass: cfg.smtpPass },
+      tls:    { rejectUnauthorized: false }
     });
 
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from:    cfg.smtpFrom || cfg.smtpUser,
       to:      emails.join(', '),
       subject: payload.subject || 'Pedidos Adicionales',
-      html:    payload.body    || payload.subject || ''
+      html:    payload.body   || payload.subject || ''
     });
 
+    console.log(`[sendEmail] OK — messageId: ${info.messageId}`);
   } catch (err) {
-    // Fire-and-forget: loguear sin relanzar
-    console.error('[sendEmail] Error:', err.message);
+    console.error('[sendEmail] ERROR:', err.message);
   }
 }
 
-module.exports = { sendEmail };
+module.exports = { sendEmail, getSmtpConfig, resolveEmails };
