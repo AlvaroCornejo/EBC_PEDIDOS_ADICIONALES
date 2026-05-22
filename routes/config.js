@@ -4,6 +4,8 @@ const authMiddleware = require('../middleware/auth');
 const Config = require('../models/Config');
 const User   = require('../models/User');
 const { getSmtpConfig, buildTransport, resolveEmails } = require('../utils/sendEmail');
+const { buildEmailHtml } = require('../utils/emailTemplate');
+const APP_URL = process.env.APP_URL || '';
 const router = express.Router();
 router.use(authMiddleware);
 
@@ -91,9 +93,12 @@ router.post('/smtp-diagnose', async (req, res) => {
               from:    cfg.smtpFrom || cfg.smtpUser,
               to:      emailDestino,
               subject: '🧪 Prueba de correo — Pedidos Adicionales',
-              html:    `<p>Este es un correo de prueba enviado desde <strong>Pedidos Adicionales</strong>.</p>
-                        <p>Si ves este mensaje, el sistema de correo está funcionando correctamente.</p>
-                        <p style="color:#6b7280;font-size:12px">Enviado: ${new Date().toLocaleString('es-CL')}</p>`
+              html:    buildEmailHtml({
+                tipo: 'nueva', appUrl: APP_URL,
+                titulo: 'Correo de prueba',
+                mensaje: `Este es un correo de prueba enviado desde el sistema <strong>Pedidos Adicionales</strong>.<br><br>Si recibes este mensaje, la configuración SMTP está funcionando correctamente.<br><br><span style="color:#6b7280;font-size:12px">Enviado: ${new Date().toLocaleString('es-CL')}</span>`,
+                pedido: null, linkUrl: '/', linkLabel: 'Ir al sistema'
+              })
             });
             ok(`Correo de prueba enviado a ${emailDestino}`, `messageId: ${info.messageId}`);
           } catch (e) {

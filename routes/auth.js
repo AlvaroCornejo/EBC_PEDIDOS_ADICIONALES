@@ -55,4 +55,18 @@ router.put('/change-password', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/auth/refresh — renueva el token si todavía es válido
+router.get('/refresh', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findOne({ id: req.user.id }).lean();
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role, operations: user.operations },
+      SECRET,
+      { expiresIn: '24h' }
+    );
+    res.json({ token });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

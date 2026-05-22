@@ -4,8 +4,10 @@ const { v4: uuidv4 } = require('uuid');
 const authMiddleware = require('../middleware/auth');
 const Pedido = require('../models/Pedido');
 const Config = require('../models/Config');
-const { sendPush }  = require('../utils/sendPush');
-const { sendEmail } = require('../utils/sendEmail');
+const { sendPush }       = require('../utils/sendPush');
+const { sendEmail }      = require('../utils/sendEmail');
+const { buildEmailHtml } = require('../utils/emailTemplate');
+const APP_URL = process.env.APP_URL || '';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -125,13 +127,20 @@ router.post('/', async (req, res) => {
         { role: 'ADMIN' },
         { title: '📝 Nueva solicitud pendiente', body: `${operacion} — ${req.user.username}`, url: '/#aprobar' }
       );
+      const emailNueva = buildEmailHtml({
+        tipo: 'nueva', appUrl: APP_URL,
+        titulo: `Nueva solicitud de ${req.user.username}`,
+        mensaje: `Se ha generado una nueva solicitud de pedido adicional para la operación <strong>${operacion}</strong> con ${lineasMapped.length} línea${lineasMapped.length !== 1 ? 's' : ''}. Por favor revisa y aprueba a la brevedad.`,
+        pedido: pedido.toObject(),
+        linkUrl: '/#aprobar', linkLabel: 'Ver solicitudes pendientes'
+      });
       sendEmail(
         { role: 'OPERADOR_APROBACION', operations: operacion },
-        { subject: `📝 Nueva solicitud pendiente — ${operacion}`, body: `<p>${pushBody}</p><p>Ingresa al sistema para revisar y aprobar: <a href="/#aprobar">Ver solicitudes</a></p>` }
+        { subject: `📝 Nueva solicitud pendiente — ${operacion}`, body: emailNueva }
       );
       sendEmail(
         { role: 'ADMIN' },
-        { subject: `📝 Nueva solicitud pendiente — ${operacion}`, body: `<p>${operacion} — ${req.user.username}</p><p><a href="/#aprobar">Ver solicitudes</a></p>` }
+        { subject: `📝 Nueva solicitud pendiente — ${operacion}`, body: emailNueva }
       );
     }
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -265,44 +274,92 @@ router.put('/:id', async (req, res) => {
     // 2. Aprobador actúa → notificar solicitante + compras/planta según gestión
     if (role === 'OPERADOR_APROBACION' || (role === 'ADMIN' && req.body.lineas?.[0]?.estadoLinea)) {
       const nuevoEstado = pedido.estado;
+      const pedidoObj   = pedido.toObject();
+
       if (nuevoEstado === 'APROBADO') {
         // Al solicitante
         sendPush({ userId: solId },
           { title: '✅ Pedido aprobado', body: `Tu solicitud de ${op} fue aprobada`, url: '/#mis-pedidos' });
-        sendEmail({ userId: solId },
-          { subject: `✅ Pedido aprobado — ${op}`, body: `<p>Tu solicitud de <strong>${op}</strong> fue aprobada.</p><p><a href="/#mis-pedidos">Ver mis pedidos</a></p>` });
-        // A compras — solo si hay ítems gestionados por compras
+        sendEmail({ userId: solId }, {
+          subject: `✅ Pedido aprobado — ${op}`,
+          body: buildEmailHtml({
+            tipo: 'aprobado', appUrl: APP_URL,
+            titulo: `Tu solicitud de ${op} fue aprobada`,
+            mensaje: `Nos complace informarte que tu pedido adicional para la operación <strong>${op}</strong> ha sido <strong>aprobado</strong>. A continuación el detalle de las líneas aprobadas.`,
+            pedido: pedidoObj, linkUrl: '/#mis-pedidos', linkLabel: 'Ver mis pedidos'
+          })
+        });
+        // A compras
         if (tieneCompras) {
           sendPush({ role: 'OPERADOR_ATENCION', operations: op },
             { title: '🛒 Pedido listo para atender', body: `${op} — tiene ítems de Compras`, url: '/#atender' });
-          sendEmail({ role: 'OPERADOR_ATENCION', operations: op },
-            { subject: `🛒 Pedido listo para atender — ${op}`, body: `<p>Hay un pedido de <strong>${op}</strong> con ítems de Compras listo para atender.</p><p><a href="/#atender">Ver pedidos a atender</a></p>` });
+          sendEmail({ role: 'OPERADOR_ATENCION', operations: op }, {
+            subject: `🛒 Pedido listo para atender — ${op}`,
+            body: buildEmailHtml({
+              tipo: 'atender', appUrl: APP_URL,
+              titulo: `Pedido de ${op} aprobado — requiere atención de Compras`,
+              mensaje: `Se ha aprobado un pedido adicional de la operación <strong>${op}</strong> que contiene ítems gestionados por <strong>Compras</strong>. Por favor procede a atenderlos.`,
+              pedido: pedidoObj, linkUrl: '/#atender', linkLabel: 'Ver pedidos a atender'
+            })
+          });
         }
-        // A planta — solo si hay ítems gestionados por planta
+        // A planta
         if (tienePlanta) {
           sendPush({ role: 'OPERADOR_PLANTA', operations: op },
             { title: '🏭 Pedido listo para atender', body: `${op} — tiene ítems de Planta`, url: '/#atender' });
-          sendEmail({ role: 'OPERADOR_PLANTA', operations: op },
-            { subject: `🏭 Pedido listo para atender — ${op}`, body: `<p>Hay un pedido de <strong>${op}</strong> con ítems de Planta listo para atender.</p><p><a href="/#atender">Ver pedidos a atender</a></p>` });
+          sendEmail({ role: 'OPERADOR_PLANTA', operations: op }, {
+            subject: `🏭 Pedido listo para atender — ${op}`,
+            body: buildEmailHtml({
+              tipo: 'planta', appUrl: APP_URL,
+              titulo: `Pedido de ${op} aprobado — requiere atención de Planta`,
+              mensaje: `Se ha aprobado un pedido adicional de la operación <strong>${op}</strong> que contiene ítems gestionados por <strong>Planta</strong>. Por favor procede a atenderlos.`,
+              pedido: pedidoObj, linkUrl: '/#atender', linkLabel: 'Ver pedidos a atender'
+            })
+          });
         }
+
       } else if (nuevoEstado === 'RECHAZADO') {
         sendPush({ userId: solId },
           { title: '❌ Pedido rechazado', body: `Tu solicitud de ${op} fue rechazada`, url: '/#mis-pedidos' });
-        sendEmail({ userId: solId },
-          { subject: `❌ Pedido rechazado — ${op}`, body: `<p>Tu solicitud de <strong>${op}</strong> fue rechazada.</p><p><a href="/#mis-pedidos">Ver mis pedidos</a></p>` });
+        sendEmail({ userId: solId }, {
+          subject: `❌ Pedido rechazado — ${op}`,
+          body: buildEmailHtml({
+            tipo: 'rechazado', appUrl: APP_URL,
+            titulo: `Tu solicitud de ${op} fue rechazada`,
+            mensaje: `Lamentablemente tu pedido adicional para la operación <strong>${op}</strong> ha sido <strong>rechazado</strong>. Revisa los comentarios del aprobador para más detalle.`,
+            pedido: pedidoObj, linkUrl: '/#mis-pedidos', linkLabel: 'Ver mis pedidos'
+          })
+        });
+
       } else if (nuevoEstado === 'REVISAR') {
         sendPush({ userId: solId },
           { title: '🔄 Pedido a revisar', body: `Tu solicitud de ${op} necesita ajustes`, url: '/#solicitar' });
-        sendEmail({ userId: solId },
-          { subject: `🔄 Pedido a revisar — ${op}`, body: `<p>Tu solicitud de <strong>${op}</strong> necesita ajustes. Por favor revisa y re-envía.</p><p><a href="/#solicitar">Ir a mis solicitudes</a></p>` });
+        sendEmail({ userId: solId }, {
+          subject: `🔄 Pedido a revisar — ${op}`,
+          body: buildEmailHtml({
+            tipo: 'revisar', appUrl: APP_URL,
+            titulo: `Tu solicitud de ${op} necesita ajustes`,
+            mensaje: `Tu pedido adicional para la operación <strong>${op}</strong> ha sido enviado a <strong>revisión</strong>. Por favor revisa los comentarios del aprobador, realiza los ajustes necesarios y re-envía.`,
+            pedido: pedidoObj, linkUrl: '/#solicitar', linkLabel: 'Ir a mis solicitudes'
+          })
+        });
       }
+
     // 3. Compras/Planta atiende → notificar al solicitante
     } else if (role === 'OPERADOR_ATENCION' || role === 'OPERADOR_PLANTA') {
       if (pedido.estado === 'ATENDIDO') {
+        const pedidoObj = pedido.toObject();
         sendPush({ userId: solId },
           { title: '📦 Pedido atendido', body: `Tu solicitud de ${op} fue atendida`, url: '/#mis-pedidos' });
-        sendEmail({ userId: solId },
-          { subject: `📦 Pedido atendido — ${op}`, body: `<p>Tu solicitud de <strong>${op}</strong> fue atendida.</p><p><a href="/#mis-pedidos">Ver mis pedidos</a></p>` });
+        sendEmail({ userId: solId }, {
+          subject: `📦 Pedido atendido — ${op}`,
+          body: buildEmailHtml({
+            tipo: 'atendido', appUrl: APP_URL,
+            titulo: `Tu solicitud de ${op} fue atendida`,
+            mensaje: `Tu pedido adicional para la operación <strong>${op}</strong> ha sido completamente <strong>atendido</strong>. A continuación el resumen final.`,
+            pedido: pedidoObj, linkUrl: '/#mis-pedidos', linkLabel: 'Ver mis pedidos'
+          })
+        });
       }
     }
   } catch (err) { res.status(500).json({ error: err.message }); }

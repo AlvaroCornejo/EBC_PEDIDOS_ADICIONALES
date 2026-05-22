@@ -194,9 +194,29 @@ function logout() {
 
 function restoreSession() {
   const token = localStorage.getItem('pedidos_token');
-  const user = localStorage.getItem('pedidos_user');
+  const user  = localStorage.getItem('pedidos_user');
   if (token && user) { S.token = token; S.user = JSON.parse(user); return true; }
   return false;
+}
+
+// Renueva el token silenciosamente (sin cerrar sesión)
+async function refreshToken() {
+  if (!S.token) return;
+  try {
+    const data = await GET('/auth/refresh');
+    if (data.token) {
+      S.token = data.token;
+      localStorage.setItem('pedidos_token', data.token);
+    }
+  } catch {
+    // Si falla (401) el api() helper ya gestiona el logout automático
+  }
+}
+
+// Renueva al arrancar y luego cada 30 minutos
+async function startTokenRefresh() {
+  await refreshToken();
+  setInterval(refreshToken, 30 * 60 * 1000);
 }
 
 // ─── Navigation ──────────────────────────────────────────────────
@@ -2354,6 +2374,8 @@ function showApp() {
   else if (role === ROLES.ATE || role === ROLES.PLT) navigate('atender');
   // Inicializar push notifications (sin bloquear)
   initPush().catch(() => {});
+  // Renovar token al arrancar y cada 30 minutos
+  startTokenRefresh();
 }
 
 // ─── PWA: Install prompt ─────────────────────────────────────────
