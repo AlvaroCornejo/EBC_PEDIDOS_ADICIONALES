@@ -463,7 +463,7 @@ function renderTableHeader(mode = 'edit') {
   return `
     <thead>
       <tr>
-        <th class="col-item" rowspan="2">Item</th>
+        <th class="col-item" rowspan="2">Código / Descripción</th>
         <th rowspan="2">Grupo</th>
         <th class="group-header" colspan="5">Semana Anterior</th>
         <th class="group-header" colspan="5">Semana Actual</th>
@@ -569,9 +569,12 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
           ${gestionIcon(l.gestion)}
           ${l.item ? `<button class="btn-kardex" data-item="${esc(l.item)}" data-nombre="${esc(l.itemNombre||l.item)}" data-op="${esc(operacion||S.form?.operacion||'')}" title="Ver Kardex">📊</button>` : ''}
         </div>` : `
-        <div style="display:flex;align-items:center;gap:6px">
+        <div style="display:flex;align-items:flex-start;gap:6px">
           ${gestionIcon(l.gestion)}
-          <strong>${esc(l.itemNombre || l.item || '')}</strong>
+          <div>
+            ${l.item ? `<div style="font-size:11px;color:#6b7280;font-family:monospace;font-weight:600;line-height:1.2">${esc(l.item)}</div>` : ''}
+            <strong style="font-size:13px;line-height:1.3">${esc(l.itemNombre || l.item || '')}</strong>
+          </div>
           ${l.item ? `<button class="btn-kardex" data-item="${esc(l.item)}" data-nombre="${esc(l.itemNombre||l.item)}" data-op="${esc(operacion||S.form?.operacion||'')}" title="Ver Kardex">📊</button>` : ''}
         </div>`}
     </td>
@@ -1368,6 +1371,11 @@ async function viewAtender(container) {
         <select id="filter-op"><option value="">Todas las operaciones</option>
           ${(S.user.operations || []).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
         </select>
+        <select id="filter-gestion">
+          <option value="">Compras y Planta</option>
+          <option value="COMPRAS">Solo Compras</option>
+          <option value="PLANTA">Solo Planta</option>
+        </select>
       </div>
       <div id="pedidos-list"><div class="loading-overlay"><span class="spinner spinner-dark"></span> Cargando...</div></div>
     </div>`;
@@ -1376,21 +1384,23 @@ async function viewAtender(container) {
   try { pedidos = await GET('/pedidos?vista=atender'); } catch (err) { toast(err.message, 'error'); }
 
   function render() {
-    const op = document.getElementById('filter-op').value;
+    const op      = document.getElementById('filter-op').value;
+    const gestion = document.getElementById('filter-gestion').value;
     const filtered = pedidos.filter(p => !op || p.operacion === op);
     const activos   = filtered.filter(p => p.estado === 'APROBADO');
     const atendidos = filtered.filter(p => p.estado === 'ATENDIDO');
     const list = document.getElementById('pedidos-list');
     list.innerHTML = '';
-    renderPedidosAtender(list, activos);
+    renderPedidosAtender(list, activos, gestion);
     if (atendidos.length) {
       const sep = document.createElement('div');
       sep.innerHTML = `<div class="section-title mt-8 mb-16" style="margin-top:32px;color:var(--text-muted)">✔ Atendidos</div>`;
       list.appendChild(sep);
-      renderPedidosAtendidos(list, atendidos);
+      renderPedidosAtendidos(list, atendidos, gestion);
     }
   }
   document.getElementById('filter-op').addEventListener('change', render);
+  document.getElementById('filter-gestion').addEventListener('change', render);
   render();
 }
 
@@ -1543,7 +1553,61 @@ function renderPedidosProcesados(container, pedidos) {
   container.appendChild(wrap);
 }
 
-function renderPedidosAtender(container, pedidos) {
+// ─── Tabla simplificada para Atender ─────────────────────────────
+// Columnas: Código | Descripción | Grupo | Cantidad | Comentarios | Coment. Aprobador | [Atendido]
+function renderLineasAtenderSimple(lineas, gestionFilter, gestionRol, readonly) {
+  const visible = gestionFilter
+    ? lineas.filter(l => (l.gestion || 'COMPRAS') === gestionFilter)
+    : lineas;
+
+  if (!visible.length) {
+    return `<p class="text-muted" style="padding:8px 0">Sin líneas para esta gestión</p>`;
+  }
+
+  const rows = visible.map(l => {
+    const esPropia  = S.user.role === 'ADMIN' || (l.gestion || 'COMPRAS') === gestionRol;
+    const atendido  = l.estadoAtencion === 'ATENDIDO';
+    const rechazado = l.estadoLinea    === 'RECHAZADO';
+    const rowRO     = readonly || !esPropia || atendido;
+    const lid       = esc(l.id || '');
+
+    let atencionCell;
+    if (rechazado) {
+      atencionCell = `<span style="color:#9ca3af;font-size:12px">N/A</span>`;
+    } else if (rowRO) {
+      atencionCell = atendido ? `<span class="badge badge-APROBADO">✔ Atendido</span>` : '';
+    } else {
+      atencionCell = `<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px">
+        <input type="checkbox" class="atn-linea-check" data-linea-id="${lid}" ${atendido?'checked':''} style="width:16px;height:16px;accent-color:var(--success)">
+      </label>`;
+    }
+
+    return `<tr>
+      <td style="font-family:monospace;font-size:12px;white-space:nowrap;color:#374151">${esc(l.item || '—')}</td>
+      <td><strong style="font-size:13px">${esc(l.itemNombre || l.item || '—')}</strong></td>
+      <td style="font-size:13px">${esc(l.grupoCompra || '—')}</td>
+      <td class="col-num" style="font-weight:600">${fmt(l.cantidadSolicitada)}</td>
+      <td style="font-size:12px">${esc(l.comentarios || '')}</td>
+      <td style="font-size:12px;color:#374151">${esc(l.comentarioAprobador || '')}</td>
+      ${!readonly ? `<td style="text-align:center">${atencionCell}</td>` : `<td style="text-align:center">${atencionCell}</td>`}
+    </tr>`;
+  }).join('');
+
+  return `<div class="table-wrap"><table>
+    <thead><tr>
+      <th style="min-width:90px">Código</th>
+      <th style="min-width:180px">Descripción</th>
+      <th style="min-width:80px">Grupo</th>
+      <th class="col-num" style="min-width:80px">Cantidad</th>
+      <th style="min-width:160px">Comentarios</th>
+      <th style="min-width:160px">Coment. Aprobador</th>
+      <th style="min-width:90px;text-align:center">Atendido</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function renderPedidosAtender(container, pedidos, gestionFilter = '') {
   if (!pedidos.length) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">🚚</div><p>No hay pedidos aprobados pendientes</p></div>`;
     return;
@@ -1560,18 +1624,7 @@ function renderPedidosAtender(container, pedidos) {
         <span style="color:var(--text-muted);font-size:12px">▼</span>
       </div>
       <div class="pedido-card-body open">
-        <div class="table-wrap">
-          <table>
-            ${renderTableHeader('atender')}
-            <tbody>
-              ${p.lineas.map((l, i) => {
-                const lineaGestion = l.gestion || 'COMPRAS';
-                const esPropia = S.user.role === 'ADMIN' || lineaGestion === gestionRol;
-                return renderLineaRow(l, i, false, esPropia ? 'atender' : 'atendido', p.operacion);
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
+        ${renderLineasAtenderSimple(p.lineas, gestionFilter, gestionRol, false)}
         <div class="flex gap-8 mt-8 justify-between items-center">
           <div class="font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
           <button class="btn btn-success ate-save-btn" data-id="${p.id}">💾 Guardar atención</button>
@@ -1613,7 +1666,7 @@ function renderPedidosAtender(container, pedidos) {
   });
 }
 
-function renderPedidosAtendidos(container, pedidos) {
+function renderPedidosAtendidos(container, pedidos, gestionFilter = '') {
   const wrap = document.createElement('div');
   wrap.innerHTML = pedidos.map(p => `
     <div class="pedido-card">
@@ -1627,14 +1680,7 @@ function renderPedidosAtendidos(container, pedidos) {
         <span style="color:var(--text-muted);font-size:12px">▼</span>
       </div>
       <div class="pedido-card-body">
-        <div class="table-wrap">
-          <table>
-            ${renderTableHeader('atendido')}
-            <tbody>
-              ${p.lineas.map((l, i) => renderLineaRow(l, i, false, 'atendido', p.operacion)).join('')}
-            </tbody>
-          </table>
-        </div>
+        ${renderLineasAtenderSimple(p.lineas, gestionFilter, '', true)}
         <div class="mt-8 text-right font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
       </div>
     </div>`).join('');
