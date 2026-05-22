@@ -297,7 +297,10 @@ async function viewSolicitar(container, params = {}) {
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">${editId ? '✏️ Editar Pedido' : '📝 Nueva Solicitud'}</div>
-      <div style="margin-left:auto"><button class="btn btn-outline btn-sm" id="btn-resumen">📊 Resumen</button></div>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-outline btn-sm" id="btn-resumen">📊 Resumen</button>
+        <button class="btn btn-outline btn-sm" onclick="showHelp('solicitar')">❓ Ayuda</button>
+      </div>
     </div>
     <div class="page-body">
       <div class="card mb-16">
@@ -901,7 +904,10 @@ async function viewMisPedidos(container) {
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">📋 Mis Pedidos</div>
-      <button class="btn btn-primary" onclick="navigate('solicitar')">+ Nuevo Pedido</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="showHelp('mis-pedidos')">❓ Ayuda</button>
+        <button class="btn btn-primary" onclick="navigate('solicitar')">+ Nuevo Pedido</button>
+      </div>
     </div>
     <div class="page-body">
       <div class="filter-bar mb-8" style="flex-wrap:wrap;gap:8px">
@@ -1108,7 +1114,10 @@ async function viewKardex(container) {
   let allItems = [];
 
   container.innerHTML = `
-    <div class="page-header"><div class="page-title">📊 Kardex</div></div>
+    <div class="page-header">
+      <div class="page-title">📊 Kardex</div>
+      <button class="btn btn-outline btn-sm" onclick="showHelp('kardex')">❓ Ayuda</button>
+    </div>
     <div class="page-body">
       <div class="tab-bar">
         ${ops.map(o => `<button class="tab-btn${o===activeOp?' active':''}" data-op="${o}">${o}</button>`).join('')}
@@ -1305,6 +1314,7 @@ async function viewAprobar(container) {
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">✅ Aprobar Pedidos</div>
+      <button class="btn btn-outline btn-sm" onclick="showHelp('aprobar')">❓ Ayuda</button>
     </div>
     <div class="page-body">
       <div class="filter-bar mb-16">
@@ -1351,6 +1361,7 @@ async function viewAtender(container) {
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">🚚 Atender Pedidos</div>
+      <button class="btn btn-outline btn-sm" onclick="showHelp('atender')">❓ Ayuda</button>
     </div>
     <div class="page-body">
       <div class="filter-bar mb-16">
@@ -1703,7 +1714,10 @@ async function showResumenModal() {
 // ─── View: Admin ──────────────────────────────────────────────────
 async function viewAdmin(container) {
   container.innerHTML = `
-    <div class="page-header"><div class="page-title">⚙️ Administración</div></div>
+    <div class="page-header">
+      <div class="page-title">⚙️ Administración</div>
+      <button class="btn btn-outline btn-sm" onclick="showHelp('admin')">❓ Ayuda</button>
+    </div>
     <div class="page-body">
       <div class="tabs">
         <button class="tab-btn active" data-tab="usuarios">👥 Usuarios</button>
@@ -2360,6 +2374,241 @@ function renderAdminDatabase(container) {
     }
   });
 }
+
+// ─── Ayuda contextual ─────────────────────────────────────────────
+function showHelp(view) {
+  const h = helpContent[view];
+  if (!h) return;
+
+  // CSS reutilizable dentro del modal
+  const css = `
+    <style>
+      .help-section { margin-bottom:18px }
+      .help-banner { padding:8px 14px; border-radius:6px; font-weight:700; font-size:13px; margin-bottom:10px }
+      .help-step { display:flex; gap:10px; align-items:flex-start; margin-bottom:8px }
+      .help-num { min-width:26px; height:26px; border-radius:50%; background:#4361ee; color:#fff;
+                  font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center }
+      .help-body { font-size:13px; color:#1f2937; line-height:1.5 }
+      .help-body strong { color:#1a1f3a }
+      .help-note { background:#fef3c7; border:1px solid #fbbf24; border-radius:6px;
+                   padding:7px 12px; font-size:12px; color:#92400e; margin-top:6px }
+      .help-tip  { background:#f0fdf4; border:1px solid #86efac; border-radius:6px;
+                   padding:7px 12px; font-size:12px; color:#166534; margin-top:6px }
+      .help-badges { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px }
+      .hb { padding:3px 10px; border-radius:20px; font-size:12px; font-weight:700 }
+      .help-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px }
+      .help-table th { background:#1a1f3a; color:#fff; padding:6px 10px; text-align:left }
+      .help-table td { padding:6px 10px; border-bottom:1px solid #e5e7eb; vertical-align:top }
+      .help-table tr:nth-child(even) td { background:#f8faff }
+    </style>`;
+
+  openModal(h.title, css + h.body, null, { wide: true });
+}
+
+const helpContent = {
+
+  'solicitar': {
+    title: '📝 Guía — Crear solicitud de pedido',
+    body: `
+      <div class="help-section">
+        <div class="help-banner" style="background:#eef2ff;color:#3730a3">
+          Esta vista te permite crear una solicitud de pedido adicional para tu operación.
+        </div>
+        <div class="help-step"><div class="help-num">1</div><div class="help-body">
+          <strong>Selecciona la Operación y Fecha</strong><br>
+          Elige la operación y la fecha del pedido en la parte superior. La fecha determina qué semana se usa para los datos de consumo.
+        </div></div>
+        <div class="help-step"><div class="help-num">2</div><div class="help-body">
+          <strong>Agrega líneas</strong><br>
+          Haz clic en <em>"+ Agregar línea"</em> y escribe el código o nombre del ítem para buscarlo. Al seleccionarlo se cargan automáticamente los datos de consumo y costo.
+        </div></div>
+        <div class="help-step"><div class="help-num">3</div><div class="help-body">
+          <strong>Interpreta las columnas de consumo</strong>
+          <table class="help-table">
+            <tr><th>Columna</th><th>Qué significa</th></tr>
+            <tr><td><strong>Cons. Est.</strong></td><td>Consumo estimado de la semana (de la hoja Requisiciones)</td></tr>
+            <tr><td><strong>Real Venta</strong></td><td>Consumo real por ventas registradas en el Kardex</td></tr>
+            <tr><td><strong>Real Consumo</strong></td><td>Consumo real por producción/transformación en el Kardex</td></tr>
+            <tr><td><strong>Variación</strong></td><td>Diferencia entre consumo real y estimado. En <span style="color:#dc2626">rojo</span> si hay exceso.</td></tr>
+            <tr><td><strong>Ajuste</strong></td><td>Ajuste manual incluido en la requisición</td></tr>
+            <tr><td><strong>Saldo</strong></td><td>Saldo actual del ítem en el sistema</td></tr>
+          </table>
+        </div></div>
+        <div class="help-step"><div class="help-num">4</div><div class="help-body">
+          <strong>Ingresa la cantidad solicitada</strong><br>
+          Escribe la cantidad que necesitas. Si existe un lote de compra, considera pedirlo en múltiplos.
+        </div></div>
+        <div class="help-step"><div class="help-num">5</div><div class="help-body">
+          <strong>Opciones adicionales</strong><br>
+          Marca <strong>Despacho en Exceso</strong> si es una entrega que supera lo normal.<br>
+          Marca <strong>Compra Oportunidad</strong> si es una compra aprovechando precio o disponibilidad.
+        </div></div>
+        <div class="help-step"><div class="help-num">6</div><div class="help-body">
+          <strong>Guarda el pedido</strong><br>
+          Haz clic en <em>"Guardar Pedido"</em>. El sistema notificará automáticamente a los aprobadores.<br>
+          Si todas las líneas cumplen la regla de auto-aprobación, el pedido queda aprobado de inmediato.
+        </div></div>
+        <div class="help-tip">💡 Usa el botón 📊 junto al ítem para ver su Kardex completo antes de decidir la cantidad.</div>
+      </div>`
+  },
+
+  'mis-pedidos': {
+    title: '📋 Guía — Mis Pedidos',
+    body: `
+      <div class="help-section">
+        <div class="help-banner" style="background:#eef2ff;color:#3730a3">
+          Aquí puedes ver, filtrar y descargar todos tus pedidos.
+        </div>
+        <div style="margin-bottom:12px">
+          <strong style="font-size:13px">Estados del pedido:</strong>
+          <div class="help-badges" style="margin-top:8px">
+            <span class="hb" style="background:#fef9c3;color:#713f12">SOLICITADO — Esperando aprobación</span>
+            <span class="hb" style="background:#dcfce7;color:#14532d">APROBADO — Listo para ser atendido</span>
+            <span class="hb" style="background:#fee2e2;color:#7f1d1d">RECHAZADO — No fue aprobado</span>
+            <span class="hb" style="background:#fff7ed;color:#7c2d12">REVISAR — El aprobador pide ajustes</span>
+            <span class="hb" style="background:#dbeafe;color:#1e3a8a">ATENDIDO — Completamente atendido</span>
+          </div>
+        </div>
+        <div class="help-step"><div class="help-num">✏</div><div class="help-body">
+          <strong>Editar un pedido</strong><br>
+          Solo puedes editar pedidos en estado <strong>SOLICITADO</strong> o <strong>REVISAR</strong>. Usa el botón <em>"✏️ Editar"</em> en la cabecera del pedido.
+        </div></div>
+        <div class="help-step"><div class="help-num">🔍</div><div class="help-body">
+          <strong>Filtrar pedidos</strong><br>
+          Usa los filtros de <strong>Estado</strong>, <strong>Operación</strong>, <strong>Desde</strong> y <strong>Hasta</strong> para encontrar pedidos por rango de fechas. El botón <em>"✕ Limpiar"</em> restablece todos los filtros.
+        </div></div>
+        <div class="help-step"><div class="help-num">☑</div><div class="help-body">
+          <strong>Seleccionar y descargar a Excel</strong><br>
+          Marca el checkbox de cada pedido que quieras exportar (o usa <em>"Seleccionar todos"</em>). Aparece el botón <strong>⬇️ Descargar Excel</strong> con el detalle completo de las líneas.
+        </div></div>
+        <div class="help-note">⚠ Un pedido en REVISAR aún puede ser editado y re-enviado. Las líneas ya aprobadas o rechazadas por el aprobador no se pueden modificar.</div>
+      </div>`
+  },
+
+  'aprobar': {
+    title: '✅ Guía — Aprobar Pedidos',
+    body: `
+      <div class="help-section">
+        <div class="help-banner" style="background:#f0fdf4;color:#14532d">
+          Aquí revisas y decides el estado de cada línea de los pedidos solicitados.
+        </div>
+        <div class="help-step"><div class="help-num">1</div><div class="help-body">
+          <strong>Revisar las líneas</strong><br>
+          Cada pedido muestra sus ítems con los datos de consumo estimado vs real, variación, saldo y costo. Analiza si la cantidad solicitada es justificada.
+        </div></div>
+        <div class="help-step"><div class="help-num">2</div><div class="help-body">
+          <strong>Asignar estado a cada línea</strong><br>
+          Usa el selector de cada línea para elegir:
+          <div class="help-badges" style="margin-top:6px">
+            <span class="hb" style="background:#dcfce7;color:#14532d">✅ APROBADO</span>
+            <span class="hb" style="background:#fee2e2;color:#7f1d1d">❌ RECHAZADO</span>
+            <span class="hb" style="background:#fff7ed;color:#7c2d12">🔄 REVISAR</span>
+          </div>
+        </div></div>
+        <div class="help-step"><div class="help-num">3</div><div class="help-body">
+          <strong>Agregar comentario (opcional pero recomendado)</strong><br>
+          Si rechazas o envías a revisión, escribe el motivo en el campo de comentario. El solicitante lo verá y recibirá una notificación.
+        </div></div>
+        <div class="help-step"><div class="help-num">4</div><div class="help-body">
+          <strong>Guardar la decisión</strong><br>
+          Haz clic en <em>"Guardar aprobación"</em>. El sistema notificará al solicitante y, si el pedido queda aprobado, también a Compras y/o Planta según la gestión de cada ítem.
+        </div></div>
+        <table class="help-table">
+          <tr><th>Resultado final</th><th>Cuándo ocurre</th></tr>
+          <tr><td><strong>APROBADO</strong></td><td>Todas las líneas aprobadas (incluye auto-aprobadas)</td></tr>
+          <tr><td><strong>RECHAZADO</strong></td><td>Todas las líneas rechazadas</td></tr>
+          <tr><td><strong>REVISAR</strong></td><td>Al menos una línea en estado REVISAR</td></tr>
+        </table>
+        <div class="help-note">⚠ Las líneas marcadas como <strong>🔒 Auto-aprobado</strong> no pueden ser modificadas — fueron aprobadas automáticamente por el sistema.</div>
+      </div>`
+  },
+
+  'atender': {
+    title: '🚚 Guía — Atender Pedidos',
+    body: `
+      <div class="help-section">
+        <div class="help-banner" style="background:#f0f9ff;color:#0c4a6e">
+          Aquí ves los pedidos aprobados y marcas cada ítem de tu gestión como atendido.
+        </div>
+        <div class="help-step"><div class="help-num">1</div><div class="help-body">
+          <strong>Ver solo tus ítems</strong><br>
+          Solo ves y puedes marcar las líneas de tu gestión:<br>
+          • <strong>Compras</strong> → ítems con gestión COMPRAS<br>
+          • <strong>Planta</strong> → ítems con gestión PLANTA<br>
+          Las líneas de la otra gestión aparecen en gris (solo lectura).
+        </div></div>
+        <div class="help-step"><div class="help-num">2</div><div class="help-body">
+          <strong>Marcar como atendido</strong><br>
+          Marca el checkbox <em>"Atendido"</em> de cada línea que hayas despachado o gestionado. Haz clic en <em>"Guardar atención"</em> al terminar.
+        </div></div>
+        <div class="help-step"><div class="help-num">3</div><div class="help-body">
+          <strong>El pedido se cierra automáticamente</strong><br>
+          Cuando todas las líneas aprobadas estén marcadas como atendidas (tanto Compras como Planta), el pedido pasa a estado <strong>ATENDIDO</strong> y el solicitante recibe una notificación.
+        </div></div>
+        <div class="help-note">⚠ Una línea marcada como <strong>Atendido</strong> no puede desmarcarse. Verifica antes de guardar.</div>
+        <div class="help-tip">💡 Puedes atender parcialmente: guardar algunas líneas hoy y el resto después. El pedido permanece en APROBADO hasta que todas estén atendidas.</div>
+      </div>`
+  },
+
+  'admin': {
+    title: '⚙️ Guía — Administración',
+    body: `
+      <div class="help-section">
+        <table class="help-table">
+          <tr><th>Pestaña</th><th>Qué puedes hacer</th></tr>
+          <tr><td><strong>👥 Usuarios</strong></td><td>Crear, editar y desactivar usuarios. Asignar rol y operaciones. Ingresar el correo para que reciban notificaciones por email.</td></tr>
+          <tr><td><strong>📦 Maestro Items</strong></td><td>Ver y editar el lote de compra y la gestión (Compras/Planta) de cada ítem por operación. Estos datos complementan el Excel.</td></tr>
+          <tr><td><strong>📁 Archivos Excel</strong></td><td>Subir los archivos <em>{OPERACION} - ADICIONALES.xlsx</em> con las hojas Items, Kardex, Costos y Requisiciones.</td></tr>
+          <tr><td><strong>📋 Todos los Pedidos</strong></td><td>Ver, filtrar y eliminar cualquier pedido del sistema (solo Admin).</td></tr>
+          <tr><td><strong>🗄️ Base de Datos</strong></td><td>Exportar e importar backup completo de usuarios y pedidos.</td></tr>
+          <tr><td><strong>⚙️ Configuración</strong></td><td>Ajustar el % de variación para auto-aprobación y configurar el servidor SMTP para envío de correos.</td></tr>
+        </table>
+        <div style="margin-top:14px">
+          <strong style="font-size:13px">Roles del sistema:</strong>
+          <table class="help-table" style="margin-top:6px">
+            <tr><th>Rol</th><th>Qué puede hacer</th></tr>
+            <tr><td><strong>ADMIN</strong></td><td>Acceso total. Puede aprobar, atender y gestionar todo.</td></tr>
+            <tr><td><strong>Solicitador</strong></td><td>Crea pedidos y ve solo los suyos.</td></tr>
+            <tr><td><strong>Aprobador</strong></td><td>Aprueba o rechaza pedidos de sus operaciones.</td></tr>
+            <tr><td><strong>Compras</strong></td><td>Atiende líneas de gestión COMPRAS.</td></tr>
+            <tr><td><strong>Planta</strong></td><td>Atiende líneas de gestión PLANTA.</td></tr>
+          </table>
+        </div>
+        <div class="help-note">⚠ El formato del Excel debe tener exactamente las hojas: <strong>Items, Kardex, Costos, Requisiciones</strong> con las columnas en el orden correcto.</div>
+      </div>`
+  },
+
+  'kardex': {
+    title: '📊 Guía — Kardex',
+    body: `
+      <div class="help-section">
+        <div class="help-banner" style="background:#eef2ff;color:#3730a3">
+          Consulta el movimiento histórico de cualquier ítem semana a semana.
+        </div>
+        <div class="help-step"><div class="help-num">1</div><div class="help-body">
+          <strong>Selecciona la operación</strong><br>
+          Haz clic en la pestaña de la operación que quieres consultar.
+        </div></div>
+        <div class="help-step"><div class="help-num">2</div><div class="help-body">
+          <strong>Busca el ítem</strong><br>
+          Escribe el código o nombre del ítem en el buscador. Selecciónalo de la lista desplegable.
+        </div></div>
+        <div class="help-step"><div class="help-num">3</div><div class="help-body">
+          <strong>Interpreta la tabla</strong><br>
+          Cada columna es una semana (formato AAAA-SS). Las filas muestran:
+          <table class="help-table" style="margin-top:6px">
+            <tr><th>Fila</th><th>Significado</th></tr>
+            <tr><td><strong>SALDO INICIAL</strong></td><td>Stock acumulado al inicio de esa semana</td></tr>
+            <tr><td>COMPRA, PRODUCCION…</td><td>Entradas al inventario</td></tr>
+            <tr><td>VENTA, CONSUMO…</td><td>Salidas del inventario</td></tr>
+            <tr><td>SOBRANTE / FALTANTE</td><td>Ajustes de inventario</td></tr>
+            <tr><td><strong>SALDO FINAL</strong></td><td>Stock al cierre de esa semana</td></tr>
+          </table>
+        </div></div>
+        <div class="help-tip">💡 También puedes ver el Kardex de un ítem directamente desde la pantalla de Solicitar, haciendo clic en el botón 📊 junto a cada línea.</div>
+      </div>`
+  }
+};
 
 // ─── App Init ─────────────────────────────────────────────────────
 function showApp() {
