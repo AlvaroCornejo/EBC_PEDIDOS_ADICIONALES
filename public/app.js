@@ -34,14 +34,17 @@ async function api(method, path, body) {
   const res = await fetch(API + path, opts);
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
-    // Token expirado o inválido → cerrar sesión y volver al login
-    S.user = null; S.token = null;
-    localStorage.removeItem('pedidos_token');
-    localStorage.removeItem('pedidos_user');
-    document.getElementById('app').classList.add('hidden');
-    document.getElementById('login-screen').classList.remove('hidden');
-    toast('Tu sesión expiró. Por favor vuelve a iniciar sesión.', 'error');
-    throw new Error('Sesión expirada');
+    // Solo hacer auto-logout si la petición llevaba token (ruta protegida)
+    // Si no llevaba token (ej: /auth/login con contraseña incorrecta), mostrar el error normal
+    if (S.token) {
+      S.user = null; S.token = null;
+      localStorage.removeItem('pedidos_token');
+      localStorage.removeItem('pedidos_user');
+      document.getElementById('app').classList.add('hidden');
+      document.getElementById('login-screen').classList.remove('hidden');
+      toast('Tu sesión expiró. Por favor vuelve a iniciar sesión.', 'error');
+      throw new Error('Sesión expirada');
+    }
   }
   if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
   return data;
