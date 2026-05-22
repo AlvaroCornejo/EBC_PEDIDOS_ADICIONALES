@@ -929,6 +929,10 @@ async function viewMisPedidos(container) {
           Hasta <input type="date" id="filter-hasta" class="form-control" style="width:140px;padding:6px 8px;font-size:13px">
         </label>
         <button class="btn btn-sm btn-outline" id="filter-clear" title="Limpiar filtros">✕ Limpiar</button>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-sm btn-outline" id="btn-print-all">🖨️ Imprimir</button>
+          <button class="btn btn-sm btn-outline" id="btn-export-all">📥 Excel</button>
+        </div>
       </div>
       <div class="mp-toolbar mb-8" style="display:flex;align-items:center;gap:10px;min-height:34px">
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none">
@@ -937,7 +941,7 @@ async function viewMisPedidos(container) {
         </label>
         <span id="sel-count" style="font-size:13px;color:var(--text-muted)"></span>
         <button class="btn btn-sm btn-success hidden" id="btn-export" style="margin-left:auto">
-          ⬇️ Descargar Excel (<span id="export-count">0</span>)
+          ⬇️ Excel seleccionados (<span id="export-count">0</span>)
         </button>
       </div>
       <div id="pedidos-list"><div class="loading-overlay"><span class="spinner spinner-dark"></span> Cargando...</div></div>
@@ -1015,40 +1019,21 @@ async function viewMisPedidos(container) {
     render();
   });
 
-  // Exportar Excel
+  // Imprimir / Excel sobre lo filtrado
+  document.getElementById('btn-print-all').addEventListener('click', () => {
+    imprimirPedidos(getFiltered(), 'Mis Pedidos');
+  });
+  document.getElementById('btn-export-all').addEventListener('click', () => {
+    exportarExcel(getFiltered());
+  });
+
+  // Exportar seleccionados
   document.getElementById('btn-export').addEventListener('click', async () => {
     if (!selected.size) return;
-    const btn = document.getElementById('btn-export');
-    btn.disabled = true; btn.textContent = '⏳ Generando...';
-    try {
-      const res = await fetch(`${API}/pedidos/export`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${S.token}` },
-        body: JSON.stringify({ ids: [...selected] })
-      });
-      if (res.status === 401) {
-        S.user = null; S.token = null;
-        localStorage.removeItem('pedidos_token');
-        localStorage.removeItem('pedidos_user');
-        document.getElementById('app').classList.add('hidden');
-        document.getElementById('login-screen').classList.remove('hidden');
-        toast('Tu sesión expiró. Por favor vuelve a iniciar sesión.', 'error');
-        return;
-      }
-      if (!res.ok) { const d = await res.json().catch(()=>{}); throw new Error(d?.error || 'Error al exportar'); }
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `pedidos-${today()}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast(`✅ Descargando ${selected.size} pedido${selected.size!==1?'s':''}`, 'success');
-    } catch (err) {
-      toast('Error: ' + err.message, 'error');
-    }
-    btn.disabled = false;
-    btn.innerHTML = `⬇️ Descargar Excel (<span id="export-count">${selected.size}</span>)`;
+    await exportarExcel(pedidos.filter(p => selected.has(p.id)));
+    // Restaurar label con count
+    const b = document.getElementById('btn-export');
+    if (b) b.innerHTML = `⬇️ Excel seleccionados (<span id="export-count">${selected.size}</span>)`;
   });
 
   render();
@@ -1328,6 +1313,10 @@ async function viewAprobar(container) {
           <option value="">Todos los estados</option>
           ${ESTADOS.map(e => `<option value="${e}">${e}</option>`).join('')}
         </select>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-sm btn-outline" id="btn-print-apr">🖨️ Imprimir</button>
+          <button class="btn btn-sm btn-outline" id="btn-export-apr">📥 Excel</button>
+        </div>
       </div>
       <div id="pedidos-list"><div class="loading-overlay"><span class="spinner spinner-dark"></span> Cargando...</div></div>
     </div>`;
@@ -1335,15 +1324,17 @@ async function viewAprobar(container) {
   let pedidos = [];
   try { pedidos = await GET('/pedidos'); } catch (err) { toast(err.message, 'error'); }
 
+  let filteredApr = [];
+
   function render() {
     const op  = document.getElementById('filter-op').value;
     const est = document.getElementById('filter-estado').value;
-    const filtered = pedidos.filter(p =>
+    filteredApr = pedidos.filter(p =>
       (!op  || p.operacion === op) &&
       (!est || p.estado === est)
     );
-    const pendientes  = filtered.filter(p => ['SOLICITADO','REVISAR'].includes(p.estado));
-    const procesados  = filtered.filter(p => !['SOLICITADO','REVISAR'].includes(p.estado));
+    const pendientes  = filteredApr.filter(p => ['SOLICITADO','REVISAR'].includes(p.estado));
+    const procesados  = filteredApr.filter(p => !['SOLICITADO','REVISAR'].includes(p.estado));
     const list = document.getElementById('pedidos-list');
     list.innerHTML = '';
     renderPedidosAprobar(list, pendientes);
@@ -1356,6 +1347,12 @@ async function viewAprobar(container) {
   }
   document.getElementById('filter-op').addEventListener('change', render);
   document.getElementById('filter-estado').addEventListener('change', render);
+  document.getElementById('btn-print-apr').addEventListener('click', () => {
+    imprimirPedidos(filteredApr, 'Aprobar Pedidos');
+  });
+  document.getElementById('btn-export-apr').addEventListener('click', () => {
+    exportarExcel(filteredApr);
+  });
   render();
 }
 
@@ -1376,6 +1373,10 @@ async function viewAtender(container) {
           <option value="COMPRAS">Solo Compras</option>
           <option value="PLANTA">Solo Planta</option>
         </select>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-sm btn-outline" id="btn-print-ate">🖨️ Imprimir</button>
+          <button class="btn btn-sm btn-outline" id="btn-export-ate">📥 Excel</button>
+        </div>
       </div>
       <div id="pedidos-list"><div class="loading-overlay"><span class="spinner spinner-dark"></span> Cargando...</div></div>
     </div>`;
@@ -1383,24 +1384,33 @@ async function viewAtender(container) {
   let pedidos = [];
   try { pedidos = await GET('/pedidos?vista=atender'); } catch (err) { toast(err.message, 'error'); }
 
+  let filteredAte = [];
+  let currentGestion = '';
+
   function render() {
     const op      = document.getElementById('filter-op').value;
-    const gestion = document.getElementById('filter-gestion').value;
-    const filtered = pedidos.filter(p => !op || p.operacion === op);
-    const activos   = filtered.filter(p => p.estado === 'APROBADO');
-    const atendidos = filtered.filter(p => p.estado === 'ATENDIDO');
+    currentGestion = document.getElementById('filter-gestion').value;
+    filteredAte = pedidos.filter(p => !op || p.operacion === op);
+    const activos   = filteredAte.filter(p => p.estado === 'APROBADO');
+    const atendidos = filteredAte.filter(p => p.estado === 'ATENDIDO');
     const list = document.getElementById('pedidos-list');
     list.innerHTML = '';
-    renderPedidosAtender(list, activos, gestion);
+    renderPedidosAtender(list, activos, currentGestion);
     if (atendidos.length) {
       const sep = document.createElement('div');
       sep.innerHTML = `<div class="section-title mt-8 mb-16" style="margin-top:32px;color:var(--text-muted)">✔ Atendidos</div>`;
       list.appendChild(sep);
-      renderPedidosAtendidos(list, atendidos, gestion);
+      renderPedidosAtendidos(list, atendidos, currentGestion);
     }
   }
   document.getElementById('filter-op').addEventListener('change', render);
   document.getElementById('filter-gestion').addEventListener('change', render);
+  document.getElementById('btn-print-ate').addEventListener('click', () => {
+    imprimirPedidos(filteredAte, 'Atender Pedidos', currentGestion);
+  });
+  document.getElementById('btn-export-ate').addEventListener('click', () => {
+    exportarExcel(filteredAte, currentGestion);
+  });
   render();
 }
 
@@ -2655,6 +2665,104 @@ const helpContent = {
       </div>`
   }
 };
+
+// ─── Export / Print helpers ───────────────────────────────────────
+
+async function exportarExcel(pedidos, gestion = '') {
+  if (!pedidos.length) { toast('No hay datos para exportar', 'error'); return; }
+  const btn = document.getElementById('btn-export-all') || document.getElementById('btn-export');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const res = await fetch(`${API}/pedidos/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${S.token}` },
+      body: JSON.stringify({ ids: pedidos.map(p => p.id), gestion: gestion || undefined })
+    });
+    if (res.status === 401) {
+      S.user = null; S.token = null;
+      localStorage.removeItem('pedidos_token'); localStorage.removeItem('pedidos_user');
+      document.getElementById('app').classList.add('hidden');
+      document.getElementById('login-screen').classList.remove('hidden');
+      toast('Tu sesión expiró.', 'error'); return;
+    }
+    if (!res.ok) { const d = await res.json().catch(() => {}); throw new Error(d?.error || 'Error al exportar'); }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `pedidos-${today()}.xlsx`; a.click();
+    URL.revokeObjectURL(url);
+    toast(`✅ Exportando ${pedidos.length} pedido${pedidos.length !== 1 ? 's' : ''}`, 'success');
+  } catch (err) { toast('Error: ' + err.message, 'error'); }
+  if (btn) { btn.disabled = false; btn.textContent = '📥 Excel'; }
+}
+
+function imprimirPedidos(pedidos, titulo = 'Pedidos Adicionales', gestion = '') {
+  if (!pedidos.length) { toast('No hay datos para imprimir', 'error'); return; }
+
+  const filas = pedidos.flatMap(p => {
+    const lineas = gestion
+      ? (p.lineas || []).filter(l => (l.gestion || 'COMPRAS') === gestion)
+      : (p.lineas || []);
+    if (!lineas.length) return [];
+    return lineas.map((l, i) => `
+      <tr>
+        ${i === 0
+          ? `<td rowspan="${lineas.length}" style="vertical-align:top;border-top:2px solid #c7d2fe">
+               <strong>${esc(fmtDate(p.fechaPedido))}</strong><br>
+               <span style="font-size:10px">${esc(p.operacion)}</span><br>
+               <span style="font-size:10px;color:#6b7280">${esc(p.solicitadoPorNombre||'')}</span><br>
+               <span class="badge">${p.estado}</span>
+             </td>`
+          : ''}
+        <td style="font-family:monospace;font-size:10px;white-space:nowrap">${esc(l.item || '')}</td>
+        <td><strong style="font-size:11px">${esc(l.itemNombre || '')}</strong></td>
+        <td style="font-size:11px">${esc(l.grupoCompra || '')}</td>
+        <td style="text-align:right;font-weight:600">${l.cantidadSolicitada != null ? l.cantidadSolicitada : ''}</td>
+        <td style="font-size:10px">${esc(l.comentarios || '')}</td>
+        <td style="font-size:10px;color:#374151">${esc(l.comentarioAprobador || '')}</td>
+        <td style="font-size:10px">${l.estadoLinea ? `<span class="badge">${l.estadoLinea}</span>` : ''}</td>
+      </tr>`);
+  }).join('');
+
+  const html = `<!DOCTYPE html><html><head>
+    <meta charset="utf-8">
+    <title>${titulo}</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 16px; }
+      h2 { font-size: 16px; color: #1a1f3a; margin-bottom: 4px; }
+      .meta { font-size: 11px; color: #6b7280; margin-bottom: 14px; }
+      table { width: 100%; border-collapse: collapse; }
+      th { background: #1a1f3a; color: white; padding: 6px 8px; text-align: left; font-size: 10px; white-space: nowrap; }
+      td { padding: 5px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
+      tr:nth-child(even) td { background: #f9fafb; }
+      .badge { display:inline-block; padding:1px 5px; border-radius:3px; font-size:9px;
+               background:#e0e7ff; color:#3730a3; font-weight:600; }
+      @media print { @page { margin: 1cm; } body { padding: 0; } }
+    </style>
+  </head><body>
+    <h2>${titulo}</h2>
+    <div class="meta">
+      Generado: ${new Date().toLocaleString('es-CL')}
+      ${gestion ? ` &nbsp;·&nbsp; Gestión: <strong>${gestion}</strong>` : ''}
+      &nbsp;·&nbsp; ${pedidos.length} pedido${pedidos.length !== 1 ? 's' : ''}
+    </div>
+    <table>
+      <thead><tr>
+        <th>Pedido</th><th>Código</th><th>Descripción</th>
+        <th>Grupo</th><th>Cantidad</th>
+        <th>Comentarios</th><th>Coment. Aprobador</th><th>Estado Línea</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+  </body></html>`;
+
+  const win = window.open('', '_blank', 'width=1050,height=750');
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 400);
+}
 
 // ─── App Init ─────────────────────────────────────────────────────
 function showApp() {

@@ -369,7 +369,7 @@ router.put('/:id', async (req, res) => {
 router.post('/export', async (req, res) => {
   try {
     const { role, id: userId, operations } = req.user;
-    const { ids } = req.body;
+    const { ids, gestion } = req.body;
     if (!ids?.length) return res.status(400).json({ error: 'Se requieren IDs de pedidos' });
 
     // Cargar pedidos autorizados
@@ -378,7 +378,15 @@ router.post('/export', async (req, res) => {
     else if (['OPERADOR_APROBACION', 'OPERADOR_ATENCION', 'OPERADOR_PLANTA'].includes(role)) {
       query.operacion = { $in: operations };
     }
-    const pedidos = await Pedido.find(query).lean();
+    let pedidos = await Pedido.find(query).lean();
+
+    // Filtrar líneas por gestión si se especifica
+    if (gestion) {
+      pedidos = pedidos.map(p => ({
+        ...p,
+        lineas: (p.lineas || []).filter(l => (l.gestion || 'COMPRAS') === gestion)
+      })).filter(p => p.lineas.length > 0);
+    }
 
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Pedidos Adicionales';
