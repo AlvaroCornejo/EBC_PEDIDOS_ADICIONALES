@@ -1858,7 +1858,12 @@ async function renderAdminConfig(container) {
         </div>
         <div class="form-group">
           <label>Contraseña</label>
-          <input type="password" id="cfg-smtp-pass" class="form-control" value="${esc(cfg.smtpPass || '')}" placeholder="••••••••">
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="password" id="cfg-smtp-pass" class="form-control" value="${esc(cfg.smtpPass || '')}" placeholder="••••••••" style="flex:1">
+            <button type="button" id="btn-toggle-pass" title="Mostrar/ocultar contraseña"
+              style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);cursor:pointer;font-size:15px;line-height:1;flex-shrink:0"
+              onclick="(function(){const i=document.getElementById('cfg-smtp-pass');const b=document.getElementById('btn-toggle-pass');if(i.type==='password'){i.type='text';b.textContent='🙈';}else{i.type='password';b.textContent='👁️';}})()">👁️</button>
+          </div>
         </div>
         <div class="form-group">
           <label>Remitente (From)</label>
