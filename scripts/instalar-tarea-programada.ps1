@@ -8,7 +8,7 @@
 # ============================================================
 
 $TaskName   = "ImportarComprasEBC"
-$ScriptPath = "C:\Users\CORP.PROCESOS\pedidos-app\scripts\ejecutar-importacion.bat"
+$ScriptPath = "C:\pedidos-app\scripts\ejecutar-importacion.bat"
 $LogPath    = Join-Path $PSScriptRoot "importacion.log"
 
 # Verificar que el bat existe

@@ -4,7 +4,7 @@
 ::  Se ejecuta automáticamente cada lunes a las 6:00 AM
 :: ============================================================
 
-set APP_DIR=C:\Users\CORP.PROCESOS\pedidos-app
+set APP_DIR=C:\pedidos-app
 set LOG_FILE=%APP_DIR%\scripts\importacion.log
 set EXCEL_FILE=C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC COMPRAS\EBC COMPRAS HISTORICAS.xlsx
 
