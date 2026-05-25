@@ -48,7 +48,8 @@ app.use('/api/admin',       require('./routes/admin'));
 app.use('/api/config',      require('./routes/config').router);
 app.use('/api/items',       require('./routes/items'));
 app.use('/api/comentarios', require('./routes/comentarios'));
-app.use('/api/push',       require('./routes/push'));
+app.use('/api/push',        require('./routes/push'));
+app.use('/api/compras',     require('./routes/compras'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

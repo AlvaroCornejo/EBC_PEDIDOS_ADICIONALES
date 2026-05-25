@@ -4,8 +4,8 @@
 
 // ─── Config ──────────────────────────────────────────────────────
 const API = '/api';
-const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA' };
-const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta' };
+const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA', CPR: 'CONSULTA_PRECIO' };
+const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta', CONSULTA_PRECIO: 'Consulta Precio' };
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28'];
 
@@ -224,20 +224,27 @@ async function startTokenRefresh() {
 
 // ─── Navigation ──────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { id: 'solicitar',    label: 'Solicitar',    icon: '📝', roles: [ROLES.ADMIN, ROLES.SOL] },
-  { id: 'mis-pedidos',  label: 'Mis Pedidos',  icon: '📋', roles: [ROLES.ADMIN, ROLES.SOL] },
-  { id: 'kardex',       label: 'Kardex',       icon: '📊', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
-  { id: 'comentarios',  label: 'Comentarios',  icon: '💬', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
-  { id: 'aprobar',      label: 'Aprobar',      icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
-  { id: 'atender',      label: 'Atender',      icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
-  { id: 'admin',        label: 'Admin',        icon: '⚙️', roles: [ROLES.ADMIN] }
+  { id: 'solicitar',      label: 'Solicitar',       icon: '📝', roles: [ROLES.ADMIN, ROLES.SOL] },
+  { id: 'mis-pedidos',    label: 'Mis Pedidos',     icon: '📋', roles: [ROLES.ADMIN, ROLES.SOL] },
+  { id: 'kardex',         label: 'Kardex',          icon: '📊', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
+  { id: 'comentarios',    label: 'Comentarios',     icon: '💬', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
+  { id: 'aprobar',        label: 'Aprobar',         icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
+  { id: 'atender',        label: 'Atender',         icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
+  { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN, ROLES.CPR], extraPerm: 'puedeConsultarPrecios' },
+  { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
-function renderNav() {
+function canSeeNav(n) {
   const role = S.user.role;
+  if (n.roles.includes(role)) return true;
+  if (n.extraPerm && S.user[n.extraPerm]) return true;
+  return false;
+}
+
+function renderNav() {
   const nav = document.getElementById('sidebar-nav');
   nav.innerHTML = NAV_ITEMS
-    .filter(n => n.roles.includes(role))
+    .filter(canSeeNav)
     .map(n => `<a href="#" class="nav-item" data-view="${n.id}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`)
     .join('');
   nav.querySelectorAll('.nav-item').forEach(el => {
@@ -257,7 +264,7 @@ function navigate(view, params = {}) {
   setActiveNav(view);
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -2167,6 +2174,13 @@ function showUserModal(user, onSave) {
           </label>`).join('')}
         </div>
       </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+          <input type="checkbox" id="um-consultar-precios" ${user?.puedeConsultarPrecios?'checked':''}
+            style="width:16px;height:16px;accent-color:var(--primary)">
+          <span>Puede consultar <strong>Precios de Compra</strong> (además de su rol principal)</span>
+        </label>
+      </div>
       <div id="um-error" class="msg-error hidden"></div>
     </form>
     <div class="modal-footer">
@@ -2183,7 +2197,8 @@ function showUserModal(user, onSave) {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
       role: document.getElementById('um-role').value,
-      operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value)
+      operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
+      puedeConsultarPrecios: document.getElementById('um-consultar-precios').checked,
     };
     const pwd = document.getElementById('um-password').value;
     if (pwd) data.password = pwd;
@@ -2668,8 +2683,262 @@ const helpContent = {
         </div></div>
         <div class="help-tip">💡 También puedes ver el Kardex de un ítem directamente desde la pantalla de Solicitar, haciendo clic en el botón 📊 junto a cada línea.</div>
       </div>`
+  },
+
+  'precios': {
+    title: '💰 Guía — Consulta de Precios',
+    body: `
+      <div class="help-section">
+        <div class="help-banner" style="background:#f0fdf4;color:#166534">
+          Consulta el histórico de precios de compra por ítem, filtrado por grupo y análisis Pareto.
+        </div>
+        <div class="help-step"><div class="help-num">1</div><div class="help-body">
+          <strong>Selecciona la Sociedad</strong><br>
+          Elige la empresa (100, 500 o 700) para la que quieres ver precios.
+        </div></div>
+        <div class="help-step"><div class="help-num">2</div><div class="help-body">
+          <strong>Filtra por Grupo de Compra</strong><br>
+          Opcional. Muestra solo los ítems de esa categoría (ABARROTES, LIMPIEZA, etc.).
+        </div></div>
+        <div class="help-step"><div class="help-num">3</div><div class="help-body">
+          <strong>Ajusta el % Pareto</strong><br>
+          El slider define qué ítems son "clave". Por ejemplo, al 80% verás solo los ítems que representan el 80% del gasto del grupo. El resto aparece resumido como "Otros".
+        </div></div>
+        <div class="help-step"><div class="help-num">4</div><div class="help-body">
+          <strong>Define las últimas N compras</strong><br>
+          Cuántas compras históricas ver al hacer clic en un ítem (5, 10, 20, 50 o 100).
+        </div></div>
+        <div class="help-step"><div class="help-num">5</div><div class="help-body">
+          <strong>Haz clic en un ítem</strong><br>
+          Se despliega el detalle con: Fecha · Operación · Almacén · Cantidad · Importe · <strong>Precio Unitario</strong>
+        </div></div>
+        <div class="help-note">⚠ El Precio Unitario se calcula como <strong>Importe ÷ Cantidad</strong>. Si la cantidad es 0, el precio aparece como —.</div>
+      </div>`
   }
 };
+
+// ─── View: Precios de Compra ──────────────────────────────────────
+async function viewPrecios(container) {
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">💰 Precios de Compra</div>
+      <button class="btn btn-outline btn-sm" onclick="showHelp('precios')">❓ Ayuda</button>
+    </div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:16px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Sociedad</label>
+            <select id="pr-sociedad" class="form-control" style="width:130px"></select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Grupo Compra</label>
+            <select id="pr-grupo" class="form-control" style="width:180px">
+              <option value="">Todos los grupos</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:200px">
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">
+              Pareto: items que representan el <strong id="pr-pct-label">80</strong>% de las compras del grupo
+            </label>
+            <input type="range" id="pr-pareto" min="50" max="100" step="5" value="80"
+              style="width:100%;accent-color:var(--primary)">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Últimas N compras</label>
+            <select id="pr-n" class="form-control" style="width:100px">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="pr-buscar">🔍 Consultar</button>
+        </div>
+      </div>
+      <div id="pr-result"></div>
+    </div>`;
+
+  // Cargar sociedades y grupos
+  try {
+    const [socs, grupos] = await Promise.all([
+      GET('/compras/sociedades'),
+      GET('/compras/grupos'),
+    ]);
+    const selSoc = document.getElementById('pr-sociedad');
+    socs.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = `Sociedad ${s}`;
+      selSoc.appendChild(opt);
+    });
+    const selGrp = document.getElementById('pr-grupo');
+    grupos.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g; opt.textContent = g;
+      selGrp.appendChild(opt);
+    });
+  } catch (err) {
+    toast('Error cargando filtros: ' + err.message, 'error');
+  }
+
+  // Slider label
+  document.getElementById('pr-pareto').addEventListener('input', e => {
+    document.getElementById('pr-pct-label').textContent = e.target.value;
+  });
+
+  // Buscar
+  document.getElementById('pr-buscar').addEventListener('click', () => buscarPrecios());
+
+  async function buscarPrecios() {
+    const sociedad = document.getElementById('pr-sociedad').value;
+    const grupo    = document.getElementById('pr-grupo').value;
+    const pareto   = document.getElementById('pr-pareto').value;
+    const n        = document.getElementById('pr-n').value;
+    const res      = document.getElementById('pr-result');
+
+    res.innerHTML = `<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span> Consultando...</div>`;
+
+    try {
+      const data = await GET(`/compras/items?sociedad=${sociedad}&grupo=${encodeURIComponent(grupo)}&pareto=${pareto}`);
+      renderPreciosResult(res, data, sociedad, n, pareto);
+    } catch (err) {
+      res.innerHTML = `<div class="empty-state"><p style="color:var(--danger)">Error: ${esc(err.message)}</p></div>`;
+    }
+  }
+
+  function renderPreciosResult(container, data, sociedad, n, pareto) {
+    const { items, otros } = data;
+    if (!items.length && !otros.count) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos para los filtros seleccionados</p></div>`;
+      return;
+    }
+
+    const pct2 = v => (v * 100).toFixed(1) + '%';
+
+    const rows = items.map(it => `
+      <tr class="pr-item-row" data-item="${it.item}" data-sociedad="${sociedad}" data-n="${n}" style="cursor:pointer">
+        <td style="font-family:monospace;font-size:12px;white-space:nowrap">${it.item}</td>
+        <td><strong style="font-size:13px">${esc(it.nombre || '')}</strong></td>
+        <td style="font-size:12px">${esc(it.grupoCompra || '')}</td>
+        <td style="font-size:12px">${esc(it.grupoFamilia || '')}</td>
+        <td style="text-align:right;font-size:12px">${pct2(it.pctGrupo)}</td>
+        <td style="text-align:right">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="flex:1;height:8px;background:#e5e7eb;border-radius:4px;min-width:60px">
+              <div style="height:8px;background:var(--primary);border-radius:4px;width:${Math.min(it.pctGrupoAcum*100,100).toFixed(1)}%"></div>
+            </div>
+            <span style="font-size:11px;width:36px;text-align:right">${pct2(it.pctGrupoAcum)}</span>
+          </div>
+        </td>
+        <td style="text-align:center"><span style="font-size:11px;color:var(--text-muted)">▼ Ver</span></td>
+      </tr>
+      <tr class="pr-detail-row hidden" id="pr-detail-${it.item}">
+        <td colspan="7" style="padding:0;background:#f8fafc">
+          <div class="pr-detail-inner" style="padding:12px 16px">
+            <div class="loading-overlay" style="position:relative;height:50px"><span class="spinner spinner-dark"></span></div>
+          </div>
+        </td>
+      </tr>`).join('');
+
+    const otrosRow = otros.count > 0 ? `
+      <tr style="background:#f9fafb;color:var(--text-muted)">
+        <td colspan="4" style="font-style:italic;font-size:12px;padding:10px 12px">
+          Otros (${otros.count} items — fuera del ${pareto}% Pareto)
+        </td>
+        <td style="text-align:right;font-size:12px">${pct2(otros.pct)}</td>
+        <td colspan="2"></td>
+      </tr>` : '';
+
+    container.innerHTML = `
+      <div style="margin-bottom:8px;font-size:13px;color:var(--text-muted)">
+        ${items.length} items dentro del ${pareto}% Pareto · haz clic en un item para ver sus últimas ${n} compras
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="min-width:80px">Código</th>
+            <th style="min-width:200px">Descripción</th>
+            <th style="min-width:120px">Grupo Compra</th>
+            <th style="min-width:110px">Familia</th>
+            <th style="text-align:right;min-width:80px">% Grupo</th>
+            <th style="min-width:140px">% Acumulado</th>
+            <th style="min-width:60px"></th>
+          </tr></thead>
+          <tbody>${rows}${otrosRow}</tbody>
+        </table>
+      </div>`;
+
+    // Click para expandir detalle
+    container.querySelectorAll('.pr-item-row').forEach(row => {
+      row.addEventListener('click', async () => {
+        const itemId   = row.dataset.item;
+        const soc      = row.dataset.sociedad;
+        const nVal     = row.dataset.n;
+        const detailRow = document.getElementById(`pr-detail-${itemId}`);
+        const inner     = detailRow.querySelector('.pr-detail-inner');
+
+        if (!detailRow.classList.contains('hidden')) {
+          detailRow.classList.add('hidden');
+          row.querySelector('td:last-child span').textContent = '▼ Ver';
+          return;
+        }
+        // Cerrar otros abiertos
+        container.querySelectorAll('.pr-detail-row:not(.hidden)').forEach(r => {
+          r.classList.add('hidden');
+          const idx = r.id.replace('pr-detail-', '');
+          const prev = container.querySelector(`.pr-item-row[data-item="${idx}"] td:last-child span`);
+          if (prev) prev.textContent = '▼ Ver';
+        });
+
+        detailRow.classList.remove('hidden');
+        row.querySelector('td:last-child span').textContent = '▲ Cerrar';
+        inner.innerHTML = `<div class="loading-overlay" style="position:relative;height:50px"><span class="spinner spinner-dark"></span></div>`;
+
+        try {
+          const compras = await GET(`/compras/precios/${itemId}?sociedad=${soc}&n=${nVal}`);
+          renderDetalleCompras(inner, compras);
+        } catch (err) {
+          inner.innerHTML = `<p style="color:var(--danger);font-size:13px">Error: ${esc(err.message)}</p>`;
+        }
+      });
+    });
+  }
+
+  function renderDetalleCompras(container, compras) {
+    if (!compras.length) {
+      container.innerHTML = `<p style="font-size:13px;color:var(--text-muted);padding:8px 0">Sin compras registradas</p>`;
+      return;
+    }
+    const fmt2 = v => v == null ? '—' : Number(v).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtS = v => v == null ? '—' : 'S/ ' + fmt2(v);
+
+    const rows = compras.map(c => `
+      <tr>
+        <td style="font-size:12px;white-space:nowrap">${fmtDate(c.fecha)}</td>
+        <td style="font-size:12px">${esc(c.operacion || '')}</td>
+        <td style="font-size:12px">${esc(c.almacen || '')}</td>
+        <td style="text-align:right;font-size:12px">${fmt2(c.cantidad)}</td>
+        <td style="text-align:right;font-size:12px">${fmtS(c.importe)}</td>
+        <td style="text-align:right;font-size:13px;font-weight:700;color:var(--primary)">${fmtS(c.precioUnitario)}</td>
+      </tr>`).join('');
+
+    container.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#e0e7ff">
+            <th style="padding:6px 10px;text-align:left;font-size:11px">Fecha</th>
+            <th style="padding:6px 10px;text-align:left;font-size:11px">Operación</th>
+            <th style="padding:6px 10px;text-align:left;font-size:11px">Almacén</th>
+            <th style="padding:6px 10px;text-align:right;font-size:11px">Cantidad</th>
+            <th style="padding:6px 10px;text-align:right;font-size:11px">Importe</th>
+            <th style="padding:6px 10px;text-align:right;font-size:11px">Precio Unit.</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+}
 
 // ─── Export / Print helpers ───────────────────────────────────────
 
@@ -2783,6 +3052,7 @@ function showApp() {
   if ([ROLES.SOL, ROLES.ADMIN].includes(role)) navigate('solicitar');
   else if (role === ROLES.APR) navigate('aprobar');
   else if (role === ROLES.ATE || role === ROLES.PLT) navigate('atender');
+  else if (role === ROLES.CPR) navigate('precios');
   // Inicializar push notifications (sin bloquear)
   initPush().catch(() => {});
   // Renovar token al arrancar y cada 30 minutos

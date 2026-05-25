@@ -15,7 +15,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     }
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, operations: user.operations },
+      { id: user.id, username: user.username, role: user.role, operations: user.operations, puedeConsultarPrecios: !!user.puedeConsultarPrecios },
       SECRET,
       { expiresIn: '24h' }
     );
@@ -61,7 +61,7 @@ router.get('/refresh', authMiddleware, async (req, res) => {
     const user = await User.findOne({ id: req.user.id }).lean();
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, operations: user.operations },
+      { id: user.id, username: user.username, role: user.role, operations: user.operations, puedeConsultarPrecios: !!user.puedeConsultarPrecios },
       SECRET,
       { expiresIn: '24h' }
     );

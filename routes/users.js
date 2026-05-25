@@ -19,10 +19,10 @@ router.get('/', adminOnly, async (req, res) => {
 
 router.post('/', adminOnly, async (req, res) => {
   try {
-    const { username, email, password, role, operations } = req.body;
+    const { username, email, password, role, operations, puedeConsultarPrecios } = req.body;
     const exists = await User.findOne({ username });
     if (exists) return res.status(400).json({ error: 'El usuario ya existe' });
-    const user = new User({ id: uuidv4(), username, email: email || '', password: await bcrypt.hash(password, 10), role, operations: operations || [] });
+    const user = new User({ id: uuidv4(), username, email: email || '', password: await bcrypt.hash(password, 10), role, operations: operations || [], puedeConsultarPrecios: !!puedeConsultarPrecios });
     await user.save();
     res.json(strip(user));
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -30,13 +30,14 @@ router.post('/', adminOnly, async (req, res) => {
 
 router.put('/:id', adminOnly, async (req, res) => {
   try {
-    const { username, email, password, role, operations } = req.body;
+    const { username, email, password, role, operations, puedeConsultarPrecios } = req.body;
     const update = {
       ...(username !== undefined && { username }),
       ...(email !== undefined && { email }),
       ...(role !== undefined && { role }),
       ...(operations !== undefined && { operations }),
-      ...(password && { password: await bcrypt.hash(password, 10) })
+      ...(password && { password: await bcrypt.hash(password, 10) }),
+      ...(puedeConsultarPrecios !== undefined && { puedeConsultarPrecios: !!puedeConsultarPrecios }),
     };
     const user = await User.findOneAndUpdate({ id: req.params.id }, update, { new: true });
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
