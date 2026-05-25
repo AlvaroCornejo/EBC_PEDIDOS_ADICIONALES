@@ -29,8 +29,8 @@ router.get('/grupos', async (req, res) => {
 router.get('/sociedades', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const socs = await CompraPareto.distinct('sociedad');
-    res.json(socs.map(Number).sort((a, b) => a - b));
+    const socs = await CompraRoc.distinct('sociedad');
+    res.json(socs.map(Number).filter(Boolean).sort((a, b) => a - b));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

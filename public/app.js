@@ -2729,7 +2729,9 @@ async function viewPrecios(container) {
         <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
           <div>
             <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Sociedad</label>
-            <select id="pr-sociedad" class="form-control" style="width:130px"></select>
+            <select id="pr-sociedad" class="form-control" style="width:160px">
+              <option value="">Cargando...</option>
+            </select>
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Grupo Compra</label>
@@ -2766,19 +2768,33 @@ async function viewPrecios(container) {
       GET('/compras/sociedades'),
       GET('/compras/grupos'),
     ]);
+
+    // Sociedades
     const selSoc = document.getElementById('pr-sociedad');
-    socs.forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s; opt.textContent = `Sociedad ${s}`;
-      selSoc.appendChild(opt);
-    });
+    selSoc.innerHTML = '<option value="">Todas las sociedades</option>';
+    if (socs.length === 0) {
+      selSoc.innerHTML = '<option value="">Sin datos</option>';
+    } else {
+      socs.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = String(s);
+        selSoc.appendChild(opt);
+      });
+      // Seleccionar la primera automáticamente
+      selSoc.selectedIndex = 1;
+    }
+
+    // Grupos
     const selGrp = document.getElementById('pr-grupo');
+    selGrp.innerHTML = '<option value="">Todos los grupos</option>';
     grupos.forEach(g => {
       const opt = document.createElement('option');
       opt.value = g; opt.textContent = g;
       selGrp.appendChild(opt);
     });
   } catch (err) {
+    document.getElementById('pr-sociedad').innerHTML = '<option value="">Error al cargar</option>';
     toast('Error cargando filtros: ' + err.message, 'error');
   }
 
