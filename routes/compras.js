@@ -123,21 +123,24 @@ router.get('/items', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/precios/:item?sociedad=100&n=10
-// Últimas N compras del item (precio unitario = importe / cantidad)
+// GET /api/compras/precios/:item?sociedad=100&desde=2025-01-01
+// Compras del item desde una fecha dada (precio unitario = importe / cantidad)
 router.get('/precios/:item', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { sociedad, n = '10' } = req.query;
+    const { sociedad, desde } = req.query;
     const itemId = parseInt(req.params.item);
-    const limit  = Math.min(parseInt(n) || 10, 200);
 
     const query = { item: itemId };
     if (sociedad) query.sociedad = sociedad;
+    if (desde) {
+      const desdeDate = new Date(desde);
+      if (!isNaN(desdeDate)) query.fecha = { $gte: desdeDate };
+    }
 
     const compras = await CompraRoc.find(query)
       .sort({ fecha: -1 })
-      .limit(limit)
+      .limit(5000)
       .lean();
 
     res.json(compras.map(c => ({

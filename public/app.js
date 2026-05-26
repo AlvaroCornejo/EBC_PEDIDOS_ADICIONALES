@@ -2753,13 +2753,13 @@ async function viewPrecios(container) {
               style="width:100%;accent-color:var(--primary)">
           </div>
           <div>
-            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Últimas N compras</label>
-            <select id="pr-n" class="form-control" style="width:100px">
-              <option value="5">5</option>
-              <option value="10" selected>10</option>
-              <option value="20">20</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Últimas N semanas</label>
+            <select id="pr-n" class="form-control" style="width:110px">
+              <option value="4">4 sem (1 mes)</option>
+              <option value="8" selected>8 sem (2 meses)</option>
+              <option value="13">13 sem (3 meses)</option>
+              <option value="26">26 sem (6 meses)</option>
+              <option value="52">52 sem (1 año)</option>
             </select>
           </div>
           <button class="btn btn-primary" id="pr-buscar">🔍 Consultar</button>
@@ -2874,7 +2874,9 @@ async function viewPrecios(container) {
       return;
     }
 
-    const nFetch = Math.max(parseInt(n) || 10, 10);
+    const nSemanas = Math.max(parseInt(n) || 8, 1);
+    const desdeDate = new Date(Date.now() - nSemanas * 7 * 24 * 60 * 60 * 1000);
+    const desdeISO  = desdeDate.toISOString();
     const nCols  = 10;
     const pct2   = v => (v * 100).toFixed(1) + '%';
     const fmtP   = v => v == null ? '—' : Number(v).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2933,7 +2935,7 @@ async function viewPrecios(container) {
         <td id="pr-tsem-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
         <td id="pr-prom-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
         <td style="text-align:center">
-          <button onclick="verComprasItem(${it.item},'${esc(it.nombre||'')}','${encodeURIComponent(sociedad)}')"
+          <button onclick="verComprasItem(${it.item},'${esc(it.nombre||'')}','${encodeURIComponent(sociedad)}',${nSemanas})"
             style="font-size:11px;padding:2px 7px;border:1px solid var(--primary);border-radius:4px;background:#fff;color:var(--primary);cursor:pointer">
             📋 Ver
           </button>
@@ -2992,11 +2994,11 @@ async function viewPrecios(container) {
     document.getElementById('pr-f-s1').addEventListener('change', applyFilters);
     document.getElementById('pr-f-s2').addEventListener('change', applyFilters);
 
-    // Cargar precios en paralelo
+    // Cargar precios en paralelo — compras de las últimas nSemanas semanas
     const hace7dias = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     items.forEach(async it => {
       try {
-        const compras = await GET(`/compras/precios/${it.item}?sociedad=${encodeURIComponent(sociedad)}&n=${nFetch}`);
+        const compras = await GET(`/compras/precios/${it.item}?sociedad=${encodeURIComponent(sociedad)}&desde=${encodeURIComponent(desdeISO)}`);
 
         // Columnas de precio
         for (let i = 0; i < nCols; i++) {
@@ -3049,8 +3051,9 @@ async function viewPrecios(container) {
   }
 
   // Modal: ver todas las compras de un item
-  window.verComprasItem = async function(itemId, nombre, socEnc) {
-    const sociedad = decodeURIComponent(socEnc);
+  window.verComprasItem = async function(itemId, nombre, socEnc, nSemanas = 8) {
+    const sociedad  = decodeURIComponent(socEnc);
+    const desdeModal = new Date(Date.now() - nSemanas * 7 * 24 * 60 * 60 * 1000).toISOString();
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
     overlay.innerHTML = `
@@ -3058,7 +3061,9 @@ async function viewPrecios(container) {
         <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between">
           <div>
             <div style="font-weight:700;font-size:15px">#${itemId} — ${esc(nombre)}</div>
-            <div style="font-size:12px;color:var(--text-muted)">${sociedad ? 'Sociedad: ' + esc(sociedad) : 'Todas las sociedades'}</div>
+            <div style="font-size:12px;color:var(--text-muted)">
+              ${sociedad ? 'Sociedad: ' + esc(sociedad) + ' · ' : ''}Últimas ${nSemanas} semanas
+            </div>
           </div>
           <button id="pr-modal-close" style="font-size:20px;background:none;border:none;cursor:pointer;color:#6b7280">✕</button>
         </div>
@@ -3071,12 +3076,12 @@ async function viewPrecios(container) {
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
 
     try {
-      const compras = await GET(`/compras/precios/${itemId}?sociedad=${encodeURIComponent(sociedad)}&n=500`);
+      const compras = await GET(`/compras/precios/${itemId}?sociedad=${encodeURIComponent(sociedad)}&desde=${encodeURIComponent(desdeModal)}`);
       const body = overlay.querySelector('#pr-modal-body');
       const fmtP2 = v => v == null ? '—' : Number(v).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      if (!compras.length) { body.innerHTML = '<p style="color:var(--text-muted)">Sin compras registradas</p>'; return; }
+      if (!compras.length) { body.innerHTML = '<p style="color:var(--text-muted)">Sin compras en las últimas ' + nSemanas + ' semanas</p>'; return; }
       body.innerHTML = `
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${compras.length} compras registradas</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${compras.length} compras en las últimas ${nSemanas} semanas</p>
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="background:#e0e7ff">
             <th style="padding:6px 10px;text-align:left">Fecha</th>
