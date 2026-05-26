@@ -2907,7 +2907,7 @@ async function viewPrecios(container) {
         <td style="font-family:monospace;font-size:12px;white-space:nowrap">${it.item}</td>
         <td><strong style="font-size:13px">${esc(it.nombre || '')}</strong></td>
         <td style="text-align:right;font-size:12px">${pct2(it.pctGrupo)}</td>
-        <td style="text-align:right;font-size:12px">${pct2(it.pctGrupoAcum)}</td>
+        <td style="font-size:12px">${esc(it.grupoCompra || '')}</td>
         <td id="pr-s1-${it.item}" style="text-align:center">·</td>
         <td id="pr-s2-${it.item}" style="text-align:center">·</td>
         ${priceCells}
