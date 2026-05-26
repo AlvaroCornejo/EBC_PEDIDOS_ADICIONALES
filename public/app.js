@@ -2210,10 +2210,13 @@ function showUserModal(user, onSave) {
   openModal(user ? 'Editar Usuario' : 'Nuevo Usuario', body);
 
   // Mostrar/ocultar secciones según el rol seleccionado
+  const ROLES_CON_CONSULTA = [ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS];
   function syncRoleUI() {
-    const isConsulta = document.getElementById('um-role').value === ROLES.CONS;
-    document.getElementById('um-consulta-perms').style.display = isConsulta ? 'block' : 'none';
-    document.getElementById('um-ops-section').style.display   = isConsulta ? 'none'  : 'block';
+    const role = document.getElementById('um-role').value;
+    const isConsulta  = role === ROLES.CONS;
+    const tieneConsulta = ROLES_CON_CONSULTA.includes(role);
+    document.getElementById('um-consulta-perms').style.display = tieneConsulta ? 'block' : 'none';
+    document.getElementById('um-ops-section').style.display   = isConsulta   ? 'none'  : 'block';
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
@@ -2221,14 +2224,15 @@ function showUserModal(user, onSave) {
   document.getElementById('um-save').addEventListener('click', async () => {
     const errEl = document.getElementById('um-error');
     errEl.classList.add('hidden');
-    const isConsulta = document.getElementById('um-role').value === ROLES.CONS;
+    const role = document.getElementById('um-role').value;
+    const isConsulta = role === ROLES.CONS;
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
-      role: document.getElementById('um-role').value,
+      role,
       operations: isConsulta ? [] : [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
-      puedeVerKardex: isConsulta ? document.getElementById('um-kardex').checked : false,
-      sociedadesCompra: isConsulta ? [...document.querySelectorAll('input[name="um-soc-compra"]:checked')].map(cb => cb.value) : [],
+      puedeVerKardex: document.getElementById('um-kardex')?.checked ?? false,
+      sociedadesCompra: [...document.querySelectorAll('input[name="um-soc-compra"]:checked')].map(cb => cb.value),
     };
     const pwd = document.getElementById('um-password').value;
     if (pwd) data.password = pwd;
