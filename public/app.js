@@ -605,7 +605,7 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
     <td class="col-num"><span class="auto-cu-${idx}">${l.costoUnitario != null ? fmtMoney(l.costoUnitario) : '...'}</span></td>
     <td class="col-num">
       ${rowEditable
-        ? `<input type="number" class="tbl-input tbl-input-num cantidad-input" data-idx="${idx}" value="${l.cantidadSolicitada || ''}" min="0" step="0.01" style="width:90px">`
+        ? `<input type="number" class="tbl-input tbl-input-num cantidad-input" data-idx="${idx}" value="${l.cantidadSolicitada || ''}" min="0.01" step="0.01" style="width:90px">`
         : fmt(l.cantidadSolicitada)}
     </td>
     <td style="text-align:center">
@@ -692,7 +692,16 @@ function setupRowEvents(tr, idx) {
   if (itemInput) setupAutocomplete(itemInput, idx);
   if (cantInput) {
     cantInput.addEventListener('input', e => {
-      S.form.lineas[idx].cantidadSolicitada = parseFloat(e.target.value) || null;
+      const val = parseFloat(e.target.value);
+      if (e.target.value !== '' && (isNaN(val) || val <= 0)) {
+        e.target.style.borderColor = 'var(--danger)';
+        e.target.title = 'La cantidad debe ser mayor a cero';
+        S.form.lineas[idx].cantidadSolicitada = null;
+      } else {
+        e.target.style.borderColor = '';
+        e.target.title = '';
+        S.form.lineas[idx].cantidadSolicitada = val > 0 ? val : null;
+      }
       const cu = S.form.lineas[idx].costoUnitario || 0;
       const ct = (S.form.lineas[idx].cantidadSolicitada || 0) * cu;
       const ctEl = tr.querySelector(`.auto-ct-${idx}`);
@@ -895,6 +904,8 @@ async function savePedido() {
   if (!S.form.fecha) return toast('Seleccione una fecha', 'error');
   const lineas = S.form.lineas.filter(l => l.item);
   if (!lineas.length) return toast('Agregue al menos una línea con item', 'error');
+  const lineaSinCantidad = lineas.find(l => !(l.cantidadSolicitada > 0));
+  if (lineaSinCantidad) return toast(`La cantidad de "${lineaSinCantidad.itemNombre || lineaSinCantidad.item}" debe ser mayor a cero`, 'error');
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Guardando...';
