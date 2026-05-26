@@ -2734,6 +2734,12 @@ async function viewPrecios(container) {
             </select>
           </div>
           <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Grupo</label>
+            <select id="pr-grupo-item" class="form-control" style="width:160px">
+              <option value="">Todos</option>
+            </select>
+          </div>
+          <div>
             <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Grupo Compra</label>
             <select id="pr-grupo" class="form-control" style="width:180px">
               <option value="">Todos los grupos</option>
@@ -2762,10 +2768,11 @@ async function viewPrecios(container) {
       <div id="pr-result"></div>
     </div>`;
 
-  // Cargar sociedades y grupos
+  // Cargar sociedades, grupos-item y grupos-compra
   try {
-    const [socs, grupos] = await Promise.all([
+    const [socs, gruposItem, gruposCompra] = await Promise.all([
       GET('/compras/sociedades'),
+      GET('/compras/grupos-item'),
       GET('/compras/grupos'),
     ]);
 
@@ -2777,24 +2784,38 @@ async function viewPrecios(container) {
     } else {
       socs.forEach(s => {
         const opt = document.createElement('option');
-        opt.value = s;
-        opt.textContent = String(s);
+        opt.value = s; opt.textContent = String(s);
         selSoc.appendChild(opt);
       });
-      // Seleccionar la primera automáticamente
       selSoc.selectedIndex = 1;
     }
 
-    // Grupos (iniciales, sin filtro de sociedad)
-    cargarGrupos(grupos);
+    cargarGruposItem(gruposItem);
+    cargarGrupos(gruposCompra);
 
-    // Al cambiar sociedad → recargar grupos filtrados
-    document.getElementById('pr-sociedad').addEventListener('change', async () => {
-      const soc = document.getElementById('pr-sociedad').value;
+    // Cascada: Sociedad → recarga Grupo y Grupo Compra
+    selSoc.addEventListener('change', async () => {
+      const soc = selSoc.value;
       try {
-        const url = soc ? `/compras/grupos?sociedad=${encodeURIComponent(soc)}` : '/compras/grupos';
-        const gs = await GET(url);
-        cargarGrupos(gs);
+        const [gi, gc] = await Promise.all([
+          GET(soc ? `/compras/grupos-item?sociedad=${encodeURIComponent(soc)}` : '/compras/grupos-item'),
+          GET(soc ? `/compras/grupos?sociedad=${encodeURIComponent(soc)}` : '/compras/grupos'),
+        ]);
+        cargarGruposItem(gi);
+        cargarGrupos(gc);
+      } catch (_) {}
+    });
+
+    // Cascada: Grupo → recarga Grupo Compra
+    document.getElementById('pr-grupo-item').addEventListener('change', async () => {
+      const soc  = selSoc.value;
+      const grp  = document.getElementById('pr-grupo-item').value;
+      try {
+        const params = new URLSearchParams();
+        if (soc) params.set('sociedad', soc);
+        if (grp) params.set('grupoItem', grp);
+        const gc = await GET(`/compras/grupos?${params}`);
+        cargarGrupos(gc);
       } catch (_) {}
     });
 
@@ -2803,14 +2824,16 @@ async function viewPrecios(container) {
     toast('Error cargando filtros: ' + err.message, 'error');
   }
 
-  function cargarGrupos(grupos) {
-    const selGrp = document.getElementById('pr-grupo');
-    selGrp.innerHTML = '<option value="">Todos los grupos</option>';
-    grupos.forEach(g => {
-      const opt = document.createElement('option');
-      opt.value = g; opt.textContent = g;
-      selGrp.appendChild(opt);
-    });
+  function cargarGruposItem(lista) {
+    const sel = document.getElementById('pr-grupo-item');
+    sel.innerHTML = '<option value="">Todos</option>';
+    lista.forEach(g => { const o = document.createElement('option'); o.value = g; o.textContent = g; sel.appendChild(o); });
+  }
+
+  function cargarGrupos(lista) {
+    const sel = document.getElementById('pr-grupo');
+    sel.innerHTML = '<option value="">Todos los grupos</option>';
+    lista.forEach(g => { const o = document.createElement('option'); o.value = g; o.textContent = g; sel.appendChild(o); });
   }
 
   // Slider label

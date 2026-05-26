@@ -16,18 +16,37 @@ function checkAccess(req, res) {
   return true;
 }
 
-// GET /api/compras/grupos?sociedad=ERSAC
-// Si se pasa sociedad, solo devuelve grupos que tienen items con datos Pareto para esa sociedad
-router.get('/grupos', async (req, res) => {
+// GET /api/compras/grupos-item?sociedad=ERSAC
+// Devuelve valores distintos del campo "grupo" (clasificación amplia), filtrado por sociedad
+router.get('/grupos-item', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
     const { sociedad } = req.query;
     let grupos;
     if (sociedad) {
       const itemsConPareto = await CompraPareto.distinct('item', { sociedad });
-      grupos = await CompraItem.distinct('grupoCompra', { item: { $in: itemsConPareto } });
+      grupos = await CompraItem.distinct('grupo', { item: { $in: itemsConPareto } });
     } else {
-      grupos = await CompraItem.distinct('grupoCompra');
+      grupos = await CompraItem.distinct('grupo');
+    }
+    res.json(grupos.filter(Boolean).sort());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/compras/grupos?sociedad=ERSAC&grupoItem=ALIMENTOS
+// Devuelve grupoCompra filtrado por sociedad y opcionalmente por grupo (campo "grupo")
+router.get('/grupos', async (req, res) => {
+  if (!checkAccess(req, res)) return;
+  try {
+    const { sociedad, grupoItem } = req.query;
+    let itemFilter = {};
+    if (grupoItem) itemFilter.grupo = grupoItem;
+    let grupos;
+    if (sociedad) {
+      const itemsConPareto = await CompraPareto.distinct('item', { sociedad });
+      grupos = await CompraItem.distinct('grupoCompra', { item: { $in: itemsConPareto }, ...itemFilter });
+    } else {
+      grupos = await CompraItem.distinct('grupoCompra', itemFilter);
     }
     res.json(grupos.filter(Boolean).sort());
   } catch (err) { res.status(500).json({ error: err.message }); }
