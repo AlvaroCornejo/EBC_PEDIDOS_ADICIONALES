@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const schema = new mongoose.Schema({
-  sociedad:   { type: Number, required: true },
+  sociedad:   { type: String, required: true },
   item:       { type: Number, required: true },
   basePareto: { type: Number, default: 0 },
 });

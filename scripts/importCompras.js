@@ -66,7 +66,7 @@ async function main() {
       const bp   = row.getCell(3).value;
       if (!soc || !item) return;
       pareto.push({
-        sociedad:   Number(typeof soc  === 'object' ? soc?.result  ?? soc  : soc),
+        sociedad:   String(typeof soc  === 'object' ? soc?.result  ?? soc  : soc).trim(),
         item:       Number(typeof item === 'object' ? item?.result ?? item : item),
         basePareto: Number(typeof bp   === 'object' ? bp?.result   ?? bp   : bp) || 0,
       });
@@ -96,7 +96,7 @@ async function main() {
       const fecha = fRaw instanceof Date ? fRaw : (fRaw ? new Date(fRaw) : null);
       if (!fecha || isNaN(fecha)) return;
       rows.push({
-        sociedad:  Number(typeof soc  === 'object' ? soc?.result  ?? soc  : soc),
+        sociedad:  String(typeof soc  === 'object' ? soc?.result  ?? soc  : soc).trim(),
         operacion: String(row.getCell(2).value || '').trim(),
         almacen:   String(row.getCell(3).value || '').trim(),
         item:      Number(typeof item === 'object' ? item?.result ?? item : item),

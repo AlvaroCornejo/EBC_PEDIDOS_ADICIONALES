@@ -30,7 +30,7 @@ router.get('/sociedades', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
     const socs = await CompraRoc.distinct('sociedad');
-    res.json(socs.map(Number).filter(Boolean).sort((a, b) => a - b));
+    res.json(socs.filter(Boolean).sort());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -44,7 +44,7 @@ router.get('/items', async (req, res) => {
 
     // Pareto data para la sociedad, ordenado de mayor a menor participación
     const paretoQuery = {};
-    if (sociedad) paretoQuery.sociedad = parseInt(sociedad);
+    if (sociedad) paretoQuery.sociedad = sociedad;
     const paretoData = await CompraPareto.find(paretoQuery).sort({ basePareto: -1 }).lean();
 
     // Maestro de items (con filtro de grupo si aplica)
@@ -105,7 +105,7 @@ router.get('/precios/:item', async (req, res) => {
     const limit  = Math.min(parseInt(n) || 10, 200);
 
     const query = { item: itemId };
-    if (sociedad) query.sociedad = parseInt(sociedad);
+    if (sociedad) query.sociedad = sociedad;
 
     const compras = await CompraRoc.find(query)
       .sort({ fecha: -1 })
