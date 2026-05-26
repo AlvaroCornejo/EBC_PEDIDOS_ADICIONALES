@@ -4,8 +4,8 @@
 
 // ─── Config ──────────────────────────────────────────────────────
 const API = '/api';
-const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA', CPR: 'CONSULTA_PRECIO' };
-const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta', CONSULTA_PRECIO: 'Consulta Precio' };
+const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA' };
+const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta' };
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB'];
@@ -3230,7 +3230,6 @@ function showApp() {
   if ([ROLES.SOL, ROLES.ADMIN].includes(role)) navigate('solicitar');
   else if (role === ROLES.APR) navigate('aprobar');
   else if (role === ROLES.ATE || role === ROLES.PLT) navigate('atender');
-  else if (role === ROLES.CPR) navigate('precios');
   // Inicializar push notifications (sin bloquear)
   initPush().catch(() => {});
   // Renovar token al arrancar y cada 30 minutos
