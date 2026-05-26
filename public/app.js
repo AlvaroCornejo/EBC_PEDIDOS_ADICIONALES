@@ -2882,42 +2882,33 @@ async function viewPrecios(container) {
       return                   { html: '<span style="font-size:18px" title="Aumento mayor al 10%">🔴</span>', code: 'r' };
     }
 
+    const fmtImp = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const selStyle = 'width:100%;font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:3px;background:#fff';
-    const inpStyle = selStyle + ';min-width:60px';
+
     const filterRow = `
       <tr style="background:#f0f4ff">
-        <td style="padding:3px 4px"></td>
-        <td style="padding:3px 4px">
-          <input id="pr-f-txt" placeholder="Descripción…" style="${inpStyle}" type="text">
+        <td></td>
+        <td style="padding:3px 6px">
+          <input id="pr-f-txt" placeholder="Descripción…" style="${selStyle}" type="text">
         </td>
-        <td style="padding:3px 4px"></td>
-        <td style="padding:3px 4px">
-          <input id="pr-f-acum" placeholder="Acum ≤%" style="${inpStyle};width:70px" type="number" min="0" max="100" step="1">
-        </td>
+        <td></td><td></td>
         <td style="padding:3px 4px">
           <select id="pr-f-s1" style="${selStyle}">
-            <option value="">🚦</option>
-            <option value="g">🟢</option>
-            <option value="y">🟡</option>
-            <option value="r">🔴</option>
+            <option value="">🚦</option><option value="g">🟢</option>
+            <option value="y">🟡</option><option value="r">🔴</option>
           </select>
         </td>
         <td style="padding:3px 4px">
           <select id="pr-f-s2" style="${selStyle}">
-            <option value="">🚦</option>
-            <option value="g">🟢</option>
-            <option value="y">🟡</option>
-            <option value="r">🔴</option>
+            <option value="">🚦</option><option value="g">🟢</option>
+            <option value="y">🟡</option><option value="r">🔴</option>
           </select>
         </td>
-        <td style="padding:3px 4px">
-          <input id="pr-f-ultimo" placeholder="≤ precio" style="${inpStyle};width:75px" type="number" min="0" step="0.01">
-        </td>
-        <td colspan="${nCols - 1}"></td>
+        <td colspan="${nCols + 3}"></td>
       </tr>`;
 
     const priceHeaders = Array.from({ length: nCols }, (_, i) =>
-      `<th style="text-align:right;min-width:80px;font-size:10px;white-space:nowrap">${i === 0 ? '★ Último' : 'P' + (i + 1)}</th>`
+      `<th style="text-align:right;min-width:85px;font-size:10px;white-space:nowrap">${i === 0 ? '★ Último' : 'P' + (i + 1)}</th>`
     ).join('');
 
     const rows = items.map(it => {
@@ -2926,24 +2917,31 @@ async function viewPrecios(container) {
       ).join('');
       const acumVal = (it.pctGrupoAcum * 100).toFixed(1);
       return `
-      <tr data-item="${it.item}" data-s1="" data-s2="" data-ultimo="" data-acum="${acumVal}" data-nombre="${esc((it.nombre||'').toLowerCase())}">
+      <tr data-item="${it.item}" data-s1="" data-s2="" data-nombre="${esc((it.nombre||'').toLowerCase())}">
         <td style="font-family:monospace;font-size:12px;white-space:nowrap">${it.item}</td>
         <td><strong style="font-size:13px">${esc(it.nombre || '')}</strong></td>
         <td style="text-align:right;font-size:12px">${pct2(it.pctGrupo)}</td>
         <td style="text-align:right;font-size:12px">${acumVal}%</td>
         <td id="pr-s1-${it.item}" style="text-align:center">·</td>
         <td id="pr-s2-${it.item}" style="text-align:center">·</td>
+        <td id="pr-tsem-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
+        <td id="pr-prom-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
+        <td style="text-align:center">
+          <button onclick="verComprasItem(${it.item},'${esc(it.nombre||'')}','${encodeURIComponent(sociedad)}')"
+            style="font-size:11px;padding:2px 7px;border:1px solid var(--primary);border-radius:4px;background:#fff;color:var(--primary);cursor:pointer">
+            📋 Ver
+          </button>
+        </td>
         ${priceCells}
       </tr>`;
     }).join('');
 
     const otrosRow = otros.count > 0 ? `
-      <tr class="pr-otros" style="background:#f9fafb;color:var(--text-muted)">
+      <tr style="background:#f9fafb;color:var(--text-muted)">
         <td colspan="4" style="font-style:italic;font-size:12px;padding:10px 12px">
           Otros (${otros.count} items — fuera del ${pareto}% Pareto)
         </td>
-        <td style="text-align:right;font-size:12px">${pct2(otros.pct)}</td>
-        <td colspan="${1 + nCols}"></td>
+        <td colspan="${5 + nCols}"></td>
       </tr>` : '';
 
     container.innerHTML = `
@@ -2952,7 +2950,7 @@ async function viewPrecios(container) {
         <span style="font-size:11px">🟢 igual/menor &nbsp; 🟡 +0–10% &nbsp; 🔴 +más de 10%</span>
       </div>
       <div class="table-wrap" style="overflow-x:auto">
-        <table style="min-width:900px">
+        <table style="min-width:1000px">
           <thead>
             <tr>
               <th style="min-width:80px">Código</th>
@@ -2961,6 +2959,9 @@ async function viewPrecios(container) {
               <th style="text-align:right;min-width:90px">% Acumulado</th>
               <th style="text-align:center;min-width:52px" title="Último precio vs precio anterior">🚦 Ant.</th>
               <th style="text-align:center;min-width:52px" title="Último precio vs promedio ponderado">🚦 Prom.</th>
+              <th style="text-align:right;min-width:100px">Tot. Últ. Sem.</th>
+              <th style="text-align:right;min-width:100px">Prom. Pond. (${n})</th>
+              <th style="min-width:60px"></th>
               ${priceHeaders}
             </tr>
             ${filterRow}
@@ -2969,68 +2970,64 @@ async function viewPrecios(container) {
         </table>
       </div>`;
 
-    // Función de filtrado de filas
+    // Filtrado
     function applyFilters() {
-      const txt    = (document.getElementById('pr-f-txt')?.value   || '').toLowerCase();
-      const fAcum  = document.getElementById('pr-f-acum')?.value   || '';
-      const fS1    = document.getElementById('pr-f-s1')?.value     || '';
-      const fS2    = document.getElementById('pr-f-s2')?.value     || '';
-      const fUlt   = document.getElementById('pr-f-ultimo')?.value || '';
-      const acumMax  = fAcum  !== '' ? parseFloat(fAcum)  : null;
-      const ultMax   = fUlt   !== '' ? parseFloat(fUlt)   : null;
+      const txt = (document.getElementById('pr-f-txt')?.value || '').toLowerCase();
+      const fS1 = document.getElementById('pr-f-s1')?.value || '';
+      const fS2 = document.getElementById('pr-f-s2')?.value || '';
       container.querySelectorAll('tr[data-item]').forEach(row => {
-        const ok = (!txt     || row.dataset.nombre.includes(txt) || row.dataset.item.includes(txt))
-                && (acumMax === null || parseFloat(row.dataset.acum  || '999') <= acumMax)
-                && (!fS1    || row.dataset.s1 === fS1)
-                && (!fS2    || row.dataset.s2 === fS2)
-                && (ultMax  === null || row.dataset.ultimo === '' || parseFloat(row.dataset.ultimo || '0') <= ultMax);
+        const ok = (!txt || row.dataset.nombre.includes(txt) || row.dataset.item.includes(txt))
+                && (!fS1 || row.dataset.s1 === fS1)
+                && (!fS2 || row.dataset.s2 === fS2);
         row.style.display = ok ? '' : 'none';
       });
     }
+    document.getElementById('pr-f-txt').addEventListener('input', applyFilters);
+    document.getElementById('pr-f-s1').addEventListener('change', applyFilters);
+    document.getElementById('pr-f-s2').addEventListener('change', applyFilters);
 
-    ['pr-f-s1','pr-f-s2'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('change', applyFilters);
-    });
-    ['pr-f-txt','pr-f-acum','pr-f-ultimo'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('input', applyFilters);
-    });
-
-    // Cargar precios de todos los items en paralelo
+    // Cargar precios en paralelo
+    const hace7dias = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     items.forEach(async it => {
       try {
         const compras = await GET(`/compras/precios/${it.item}?sociedad=${encodeURIComponent(sociedad)}&n=${nFetch}`);
 
+        // Columnas de precio
         for (let i = 0; i < nCols; i++) {
           const cell = document.getElementById(`pr-p${i}-${it.item}`);
           if (!cell) continue;
           const c = compras[i];
           if (c && c.precioUnitario != null) {
             cell.textContent = fmtP(c.precioUnitario);
-            cell.style.color = '';
-            if (i === 0) { cell.style.fontWeight = '700'; cell.style.color = 'var(--primary)'; }
-          } else {
-            cell.textContent = '—';
-            cell.style.color = '#d1d5db';
-          }
+            cell.style.color = i === 0 ? 'var(--primary)' : '';
+            if (i === 0) cell.style.fontWeight = '700';
+          } else { cell.textContent = '—'; cell.style.color = '#d1d5db'; }
         }
 
         const row      = container.querySelector(`tr[data-item="${it.item}"]`);
         const ultimo   = compras[0]?.precioUnitario ?? null;
         const anterior = compras[1]?.precioUnitario ?? null;
 
-        // Guardar último precio en data-attribute para filtro
-        if (row && ultimo != null) { row.dataset.ultimo = ultimo.toFixed(4); }
+        // Total última semana
+        const totSem = compras
+          .filter(c => new Date(c.fecha) >= hace7dias)
+          .reduce((s, c) => s + (c.importe || 0), 0);
+        const tSemCell = document.getElementById(`pr-tsem-${it.item}`);
+        if (tSemCell) { tSemCell.textContent = totSem > 0 ? fmtImp(totSem) : '—'; tSemCell.style.color = ''; }
 
-        const s1res = semaforo(ultimo, anterior);
-        const s1el  = document.getElementById(`pr-s1-${it.item}`);
-        if (s1el) s1el.innerHTML = s1res.html;
-        if (row)  { row.dataset.s1 = s1res.code; applyFilters(); }
-
+        // Promedio ponderado de las N compras
         let totImp = 0, totCant = 0;
         compras.forEach(c => { totImp += c.importe || 0; totCant += c.cantidad || 0; });
         const promPonderado = totCant > 0 ? totImp / totCant : null;
+        const promCell = document.getElementById(`pr-prom-${it.item}`);
+        if (promCell) { promCell.textContent = fmtP(promPonderado); promCell.style.color = ''; }
+
+        // Semáforos
+        const s1res = semaforo(ultimo, anterior);
+        const s1el  = document.getElementById(`pr-s1-${it.item}`);
+        if (s1el) s1el.innerHTML = s1res.html;
+        if (row)  { row.dataset.s1 = s1res.code; }
+
         const s2res = semaforo(ultimo, promPonderado);
         const s2el  = document.getElementById(`pr-s2-${it.item}`);
         if (s2el) s2el.innerHTML = s2res.html;
@@ -3044,6 +3041,61 @@ async function viewPrecios(container) {
       }
     });
   }
+
+  // Modal: ver todas las compras de un item
+  window.verComprasItem = async function(itemId, nombre, socEnc) {
+    const sociedad = decodeURIComponent(socEnc);
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:10px;width:90%;max-width:900px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+        <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-weight:700;font-size:15px">#${itemId} — ${esc(nombre)}</div>
+            <div style="font-size:12px;color:var(--text-muted)">${sociedad ? 'Sociedad: ' + esc(sociedad) : 'Todas las sociedades'}</div>
+          </div>
+          <button id="pr-modal-close" style="font-size:20px;background:none;border:none;cursor:pointer;color:#6b7280">✕</button>
+        </div>
+        <div id="pr-modal-body" style="overflow-y:auto;padding:16px">
+          <div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#pr-modal-close').onclick = () => overlay.remove();
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+    try {
+      const compras = await GET(`/compras/precios/${itemId}?sociedad=${encodeURIComponent(sociedad)}&n=500`);
+      const body = overlay.querySelector('#pr-modal-body');
+      const fmtP2 = v => v == null ? '—' : Number(v).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      if (!compras.length) { body.innerHTML = '<p style="color:var(--text-muted)">Sin compras registradas</p>'; return; }
+      body.innerHTML = `
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${compras.length} compras registradas</p>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#e0e7ff">
+            <th style="padding:6px 10px;text-align:left">Fecha</th>
+            <th style="padding:6px 10px;text-align:left">Operación</th>
+            <th style="padding:6px 10px;text-align:left">Almacén</th>
+            <th style="padding:6px 10px;text-align:right">Cantidad</th>
+            <th style="padding:6px 10px;text-align:right">Importe</th>
+            <th style="padding:6px 10px;text-align:right">Precio Unit.</th>
+          </tr></thead>
+          <tbody>
+            ${compras.map((c, i) => `
+              <tr style="background:${i%2?'#f9fafb':'#fff'}">
+                <td style="padding:5px 10px;white-space:nowrap">${fmtDate(c.fecha)}</td>
+                <td style="padding:5px 10px">${esc(c.operacion||'')}</td>
+                <td style="padding:5px 10px">${esc(c.almacen||'')}</td>
+                <td style="padding:5px 10px;text-align:right">${fmtP2(c.cantidad)}</td>
+                <td style="padding:5px 10px;text-align:right">S/ ${fmtP2(c.importe)}</td>
+                <td style="padding:5px 10px;text-align:right;font-weight:700;color:var(--primary)">S/ ${fmtP2(c.precioUnitario)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    } catch (err) {
+      overlay.querySelector('#pr-modal-body').innerHTML = `<p style="color:var(--danger)">Error: ${esc(err.message)}</p>`;
+    }
+  };
 }
 
 // ─── Export / Print helpers ───────────────────────────────────────
