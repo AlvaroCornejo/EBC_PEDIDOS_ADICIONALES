@@ -58,53 +58,68 @@ async function main() {
   console.log('Importando hoja BASE_PARETO...');
   const wsPareto = wb.getWorksheet('BASE_PARETO');
   const pareto = [];
-  wsPareto.eachRow((row, i) => {
-    if (i === 1) return;
-    const soc  = row.getCell(1).value;
-    const item = row.getCell(2).value;
-    const bp   = row.getCell(3).value;
-    if (!soc || !item) return;
-    pareto.push({
-      sociedad:   Number(typeof soc  === 'object' ? soc?.result  ?? soc  : soc),
-      item:       Number(typeof item === 'object' ? item?.result ?? item : item),
-      basePareto: Number(typeof bp   === 'object' ? bp?.result   ?? bp   : bp) || 0,
+  if (wsPareto) {
+    wsPareto.eachRow((row, i) => {
+      if (i === 1) return;
+      const soc  = row.getCell(1).value;
+      const item = row.getCell(2).value;
+      const bp   = row.getCell(3).value;
+      if (!soc || !item) return;
+      pareto.push({
+        sociedad:   Number(typeof soc  === 'object' ? soc?.result  ?? soc  : soc),
+        item:       Number(typeof item === 'object' ? item?.result ?? item : item),
+        basePareto: Number(typeof bp   === 'object' ? bp?.result   ?? bp   : bp) || 0,
+      });
     });
-  });
-  await CompraPareto.deleteMany({});
-  await CompraPareto.insertMany(pareto, { ordered: false });
-  console.log(`  ✓ ${pareto.length} registros Pareto importados.\n`);
+  }
+  // Solo reemplazar si el Excel trae datos — evita borrar datos existentes con un Excel incompleto
+  const paretoExistente = await CompraPareto.countDocuments();
+  if (pareto.length > 0) {
+    await CompraPareto.deleteMany({});
+    await CompraPareto.insertMany(pareto, { ordered: false });
+    console.log(`  ✓ ${pareto.length} registros Pareto importados.\n`);
+  } else {
+    console.log(`  ⚠ Hoja BASE_PARETO vacía — se conservan ${paretoExistente} registros existentes.\n`);
+  }
 
   // ── ROC (tabla grande) ───────────────────────────────────────────
   console.log('Importando hoja ROC (316K filas, paciencia)...');
   const wsRoc = wb.getWorksheet('ROC');
   const rows  = [];
-  wsRoc.eachRow((row, i) => {
-    if (i === 1) return;
-    const soc  = row.getCell(1).value;
-    const item = row.getCell(4).value;
-    const fRaw = row.getCell(5).value;
-    if (!soc || !item) return;
-    const fecha = fRaw instanceof Date ? fRaw : (fRaw ? new Date(fRaw) : null);
-    if (!fecha || isNaN(fecha)) return;
-    rows.push({
-      sociedad:  Number(typeof soc  === 'object' ? soc?.result  ?? soc  : soc),
-      operacion: String(row.getCell(2).value || '').trim(),
-      almacen:   String(row.getCell(3).value || '').trim(),
-      item:      Number(typeof item === 'object' ? item?.result ?? item : item),
-      fecha,
-      importe:   Number(row.getCell(6).value) || 0,
-      cantidad:  Number(row.getCell(7).value) || 0,
+  if (wsRoc) {
+    wsRoc.eachRow((row, i) => {
+      if (i === 1) return;
+      const soc  = row.getCell(1).value;
+      const item = row.getCell(4).value;
+      const fRaw = row.getCell(5).value;
+      if (!soc || !item) return;
+      const fecha = fRaw instanceof Date ? fRaw : (fRaw ? new Date(fRaw) : null);
+      if (!fecha || isNaN(fecha)) return;
+      rows.push({
+        sociedad:  Number(typeof soc  === 'object' ? soc?.result  ?? soc  : soc),
+        operacion: String(row.getCell(2).value || '').trim(),
+        almacen:   String(row.getCell(3).value || '').trim(),
+        item:      Number(typeof item === 'object' ? item?.result ?? item : item),
+        fecha,
+        importe:   Number(row.getCell(6).value) || 0,
+        cantidad:  Number(row.getCell(7).value) || 0,
+      });
     });
-  });
-
-  await CompraRoc.deleteMany({});
-  let imported = 0;
-  for (let i = 0; i < rows.length; i += BATCH) {
-    await CompraRoc.insertMany(rows.slice(i, i + BATCH), { ordered: false });
-    imported += Math.min(BATCH, rows.length - i);
-    process.stdout.write(`\r  ${imported.toLocaleString()} / ${rows.length.toLocaleString()} filas`);
   }
-  console.log(`\n  ✓ ${imported.toLocaleString()} transacciones ROC importadas.\n`);
+  // Solo reemplazar si el Excel trae datos — evita borrar datos existentes con un Excel incompleto
+  const rocExistente = await CompraRoc.countDocuments();
+  if (rows.length > 0) {
+    await CompraRoc.deleteMany({});
+    let imported = 0;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      await CompraRoc.insertMany(rows.slice(i, i + BATCH), { ordered: false });
+      imported += Math.min(BATCH, rows.length - i);
+      process.stdout.write(`\r  ${imported.toLocaleString()} / ${rows.length.toLocaleString()} filas`);
+    }
+    console.log(`\n  ✓ ${imported.toLocaleString()} transacciones ROC importadas.\n`);
+  } else {
+    console.log(`  ⚠ Hoja ROC vacía — se conservan ${rocExistente} registros existentes.\n`);
+  }
 
   await mongoose.disconnect();
   console.log('✅ Importación completada.\n');
