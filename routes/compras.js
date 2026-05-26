@@ -16,11 +16,19 @@ function checkAccess(req, res) {
   return true;
 }
 
-// GET /api/compras/grupos
+// GET /api/compras/grupos?sociedad=ERSAC
+// Si se pasa sociedad, solo devuelve grupos que tienen items con datos Pareto para esa sociedad
 router.get('/grupos', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const grupos = await CompraItem.distinct('grupoCompra');
+    const { sociedad } = req.query;
+    let grupos;
+    if (sociedad) {
+      const itemsConPareto = await CompraPareto.distinct('item', { sociedad });
+      grupos = await CompraItem.distinct('grupoCompra', { item: { $in: itemsConPareto } });
+    } else {
+      grupos = await CompraItem.distinct('grupoCompra');
+    }
     res.json(grupos.filter(Boolean).sort());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

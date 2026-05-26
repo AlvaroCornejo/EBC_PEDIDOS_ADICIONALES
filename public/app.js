@@ -2785,7 +2785,25 @@ async function viewPrecios(container) {
       selSoc.selectedIndex = 1;
     }
 
-    // Grupos
+    // Grupos (iniciales, sin filtro de sociedad)
+    cargarGrupos(grupos);
+
+    // Al cambiar sociedad → recargar grupos filtrados
+    document.getElementById('pr-sociedad').addEventListener('change', async () => {
+      const soc = document.getElementById('pr-sociedad').value;
+      try {
+        const url = soc ? `/compras/grupos?sociedad=${encodeURIComponent(soc)}` : '/compras/grupos';
+        const gs = await GET(url);
+        cargarGrupos(gs);
+      } catch (_) {}
+    });
+
+  } catch (err) {
+    document.getElementById('pr-sociedad').innerHTML = '<option value="">Error al cargar</option>';
+    toast('Error cargando filtros: ' + err.message, 'error');
+  }
+
+  function cargarGrupos(grupos) {
     const selGrp = document.getElementById('pr-grupo');
     selGrp.innerHTML = '<option value="">Todos los grupos</option>';
     grupos.forEach(g => {
@@ -2793,9 +2811,6 @@ async function viewPrecios(container) {
       opt.value = g; opt.textContent = g;
       selGrp.appendChild(opt);
     });
-  } catch (err) {
-    document.getElementById('pr-sociedad').innerHTML = '<option value="">Error al cargar</option>';
-    toast('Error cargando filtros: ' + err.message, 'error');
   }
 
   // Slider label
@@ -2830,31 +2845,65 @@ async function viewPrecios(container) {
       return;
     }
 
-    const nFetch = Math.max(parseInt(n) || 10, 10); // cuántas compras pedir (mín 10 para el promedio)
-    const nCols  = 10;                               // siempre 10 columnas de precio
+    const nFetch = Math.max(parseInt(n) || 10, 10);
+    const nCols  = 10;
     const pct2   = v => (v * 100).toFixed(1) + '%';
     const fmtP   = v => v == null ? '—' : Number(v).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+    // Devuelve {html, code} — code: 'g','y','r','n'
     function semaforo(ultimo, ref) {
-      if (ultimo == null || ref == null || ref === 0) return '<span style="color:#9ca3af">—</span>';
+      if (ultimo == null || ref == null || ref === 0) return { html: '<span style="color:#9ca3af">—</span>', code: 'n' };
       const diff = (ultimo - ref) / ref;
-      if (diff <= 0)    return '<span style="font-size:18px" title="Igual o menor">🟢</span>';
-      if (diff <= 0.10) return '<span style="font-size:18px" title="Aumento hasta 10%">🟡</span>';
-      return             '<span style="font-size:18px" title="Aumento mayor al 10%">🔴</span>';
+      if (diff <= 0)    return { html: '<span style="font-size:18px" title="Igual o menor">🟢</span>',        code: 'g' };
+      if (diff <= 0.10) return { html: '<span style="font-size:18px" title="Aumento hasta 10%">🟡</span>',    code: 'y' };
+      return                   { html: '<span style="font-size:18px" title="Aumento mayor al 10%">🔴</span>', code: 'r' };
     }
 
-    // Cabeceras de las 10 columnas de precio
+    // Grupos únicos de los items para el filtro
+    const gruposUnicos = [...new Set(items.map(it => it.grupoCompra || '').filter(Boolean))].sort();
+    const grupoOpts = gruposUnicos.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+
+    const selStyle = 'width:100%;font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:3px;background:#fff';
+    const filterRow = `
+      <tr style="background:#f0f4ff">
+        <td style="padding:3px 8px">
+          <input id="pr-f-txt" placeholder="Buscar…" style="${selStyle}" type="text">
+        </td>
+        <td></td><td></td>
+        <td style="padding:3px 4px">
+          <select id="pr-f-grupo" style="${selStyle}">
+            <option value="">Todos los grupos</option>${grupoOpts}
+          </select>
+        </td>
+        <td style="padding:3px 4px">
+          <select id="pr-f-s1" style="${selStyle}">
+            <option value="">🚦</option>
+            <option value="g">🟢</option>
+            <option value="y">🟡</option>
+            <option value="r">🔴</option>
+          </select>
+        </td>
+        <td style="padding:3px 4px">
+          <select id="pr-f-s2" style="${selStyle}">
+            <option value="">🚦</option>
+            <option value="g">🟢</option>
+            <option value="y">🟡</option>
+            <option value="r">🔴</option>
+          </select>
+        </td>
+        <td colspan="${nCols}"></td>
+      </tr>`;
+
     const priceHeaders = Array.from({ length: nCols }, (_, i) =>
       `<th style="text-align:right;min-width:80px;font-size:10px;white-space:nowrap">${i === 0 ? '★ Último' : 'P' + (i + 1)}</th>`
     ).join('');
 
-    // Filas con celdas en estado de carga
     const rows = items.map(it => {
       const priceCells = Array.from({ length: nCols }, (_, i) =>
         `<td id="pr-p${i}-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>`
       ).join('');
       return `
-      <tr>
+      <tr data-item="${it.item}" data-grupo="${esc(it.grupoCompra || '')}" data-s1="" data-s2="" data-nombre="${esc((it.nombre||'').toLowerCase())}">
         <td style="font-family:monospace;font-size:12px;white-space:nowrap">${it.item}</td>
         <td><strong style="font-size:13px">${esc(it.nombre || '')}</strong></td>
         <td style="text-align:right;font-size:12px">${pct2(it.pctGrupo)}</td>
@@ -2866,7 +2915,7 @@ async function viewPrecios(container) {
     }).join('');
 
     const otrosRow = otros.count > 0 ? `
-      <tr style="background:#f9fafb;color:var(--text-muted)">
+      <tr class="pr-otros" style="background:#f9fafb;color:var(--text-muted)">
         <td colspan="4" style="font-style:italic;font-size:12px;padding:10px 12px">
           Otros (${otros.count} items — fuera del ${pareto}% Pareto)
         </td>
@@ -2881,25 +2930,47 @@ async function viewPrecios(container) {
       </div>
       <div class="table-wrap" style="overflow-x:auto">
         <table style="min-width:900px">
-          <thead><tr>
-            <th style="min-width:80px">Código</th>
-            <th style="min-width:200px">Descripción</th>
-            <th style="text-align:right;min-width:70px">% Grupo</th>
-            <th style="min-width:120px">% Acumulado</th>
-            <th style="text-align:center;min-width:52px" title="Último precio vs precio anterior">🚦 Ant.</th>
-            <th style="text-align:center;min-width:52px" title="Último precio vs promedio ponderado">🚦 Prom.</th>
-            ${priceHeaders}
-          </tr></thead>
+          <thead>
+            <tr>
+              <th style="min-width:80px">Código</th>
+              <th style="min-width:200px">Descripción</th>
+              <th style="text-align:right;min-width:70px">% Grupo</th>
+              <th style="min-width:120px">Grupo Compra</th>
+              <th style="text-align:center;min-width:52px" title="Último precio vs precio anterior">🚦 Ant.</th>
+              <th style="text-align:center;min-width:52px" title="Último precio vs promedio ponderado">🚦 Prom.</th>
+              ${priceHeaders}
+            </tr>
+            ${filterRow}
+          </thead>
           <tbody>${rows}${otrosRow}</tbody>
         </table>
       </div>`;
+
+    // Función de filtrado de filas
+    function applyFilters() {
+      const txt    = (document.getElementById('pr-f-txt')?.value   || '').toLowerCase();
+      const fGrupo = document.getElementById('pr-f-grupo')?.value  || '';
+      const fS1    = document.getElementById('pr-f-s1')?.value     || '';
+      const fS2    = document.getElementById('pr-f-s2')?.value     || '';
+      container.querySelectorAll('tr[data-item]').forEach(row => {
+        const ok = (!txt    || row.dataset.nombre.includes(txt) || row.dataset.item.includes(txt))
+                && (!fGrupo || row.dataset.grupo === fGrupo)
+                && (!fS1    || row.dataset.s1 === fS1)
+                && (!fS2    || row.dataset.s2 === fS2);
+        row.style.display = ok ? '' : 'none';
+      });
+    }
+
+    ['pr-f-txt','pr-f-grupo','pr-f-s1','pr-f-s2'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener(id === 'pr-f-txt' ? 'input' : 'change', applyFilters);
+    });
 
     // Cargar precios de todos los items en paralelo
     items.forEach(async it => {
       try {
         const compras = await GET(`/compras/precios/${it.item}?sociedad=${encodeURIComponent(sociedad)}&n=${nFetch}`);
 
-        // Rellenar columnas de precio (index 0 = más reciente)
         for (let i = 0; i < nCols; i++) {
           const cell = document.getElementById(`pr-p${i}-${it.item}`);
           if (!cell) continue;
@@ -2914,18 +2985,22 @@ async function viewPrecios(container) {
           }
         }
 
-        // Semáforo 1: último vs anterior
-        const s1 = document.getElementById(`pr-s1-${it.item}`);
+        const row    = container.querySelector(`tr[data-item="${it.item}"]`);
         const ultimo  = compras[0]?.precioUnitario ?? null;
         const anterior = compras[1]?.precioUnitario ?? null;
-        if (s1) s1.innerHTML = semaforo(ultimo, anterior);
 
-        // Semáforo 2: último vs promedio ponderado (suma importe / suma cantidad)
-        const s2 = document.getElementById(`pr-s2-${it.item}`);
+        const s1res = semaforo(ultimo, anterior);
+        const s1el  = document.getElementById(`pr-s1-${it.item}`);
+        if (s1el) s1el.innerHTML = s1res.html;
+        if (row)  { row.dataset.s1 = s1res.code; applyFilters(); }
+
         let totImp = 0, totCant = 0;
         compras.forEach(c => { totImp += c.importe || 0; totCant += c.cantidad || 0; });
         const promPonderado = totCant > 0 ? totImp / totCant : null;
-        if (s2) s2.innerHTML = semaforo(ultimo, promPonderado);
+        const s2res = semaforo(ultimo, promPonderado);
+        const s2el  = document.getElementById(`pr-s2-${it.item}`);
+        if (s2el) s2el.innerHTML = s2res.html;
+        if (row)  { row.dataset.s2 = s2res.code; applyFilters(); }
 
       } catch (_) {
         for (let i = 0; i < nCols; i++) {
