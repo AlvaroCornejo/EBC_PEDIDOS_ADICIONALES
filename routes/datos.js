@@ -238,11 +238,12 @@ router.get('/item-data', async (req, res) => {
   }
 });
 
-/** GET /api/datos/kardex-item?item=ID&operacion=AASI */
+/** GET /api/datos/kardex-item?item=ID&operacion=AASI&semanas=8 */
 router.get('/kardex-item', async (req, res) => {
   try {
-    const { item, operacion } = req.query;
+    const { item, operacion, semanas: semQ } = req.query;
     if (!item || !operacion) return res.status(400).json({ error: 'item y operacion requeridos' });
+    const ultSemanas = Math.max(parseInt(semQ) || 8, 1);
 
     const fp = findFile(operacion);
     if (!fp) return res.status(404).json({ error: `No se encontró archivo para ${operacion}` });
@@ -262,7 +263,7 @@ router.get('/kardex-item', async (req, res) => {
       byWeek[r.añosem][r.trx] = (byWeek[r.añosem][r.trx] || 0) + r.cant;
     }
 
-    // Calcular saldo acumulado
+    // Calcular saldo acumulado sobre todas las semanas (para saldoInicial correcto)
     let saldoAcum = 0;
     const result = semanas.map(s => {
       const saldoInicial = saldoAcum;
@@ -273,7 +274,8 @@ router.get('/kardex-item', async (req, res) => {
       return { semana: s, saldoInicial, movimientos: movs, saldoFinal };
     });
 
-    res.json(result);
+    // Devolver solo las últimas N semanas (saldoInicial ya es correcto)
+    res.json(result.slice(-ultSemanas));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
