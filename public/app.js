@@ -2858,14 +2858,7 @@ async function viewPrecios(container) {
         <td style="font-family:monospace;font-size:12px;white-space:nowrap">${it.item}</td>
         <td><strong style="font-size:13px">${esc(it.nombre || '')}</strong></td>
         <td style="text-align:right;font-size:12px">${pct2(it.pctGrupo)}</td>
-        <td style="text-align:right">
-          <div style="display:flex;align-items:center;gap:4px">
-            <div style="flex:1;height:7px;background:#e5e7eb;border-radius:4px;min-width:40px">
-              <div style="height:7px;background:var(--primary);border-radius:4px;width:${Math.min(it.pctGrupoAcum*100,100).toFixed(1)}%"></div>
-            </div>
-            <span style="font-size:11px;width:34px;text-align:right">${pct2(it.pctGrupoAcum)}</span>
-          </div>
-        </td>
+        <td style="text-align:right;font-size:12px">${pct2(it.pctGrupoAcum)}</td>
         <td id="pr-s1-${it.item}" style="text-align:center">·</td>
         <td id="pr-s2-${it.item}" style="text-align:center">·</td>
         ${priceCells}
