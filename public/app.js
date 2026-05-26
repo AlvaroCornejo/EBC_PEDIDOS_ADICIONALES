@@ -3010,7 +3010,7 @@ async function viewPrecios(container) {
         <td id="pr-total-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
         <td id="pr-prom-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
         <td style="text-align:center">
-          <button onclick="verComprasItem(${it.item},'${esc(it.nombre||'')}','${encodeURIComponent(sociedad)}',${nSemanas})"
+          <button onclick="verComprasItem(${it.item},'${esc(it.nombre||'')}','${encodeURIComponent(sociedad)}')"
             style="font-size:11px;padding:2px 7px;border:1px solid var(--primary);border-radius:4px;background:#fff;color:var(--primary);cursor:pointer">
             📋 Ver
           </button>
@@ -3132,8 +3132,10 @@ async function viewPrecios(container) {
   }
 
   // Modal: ver todas las compras de un item
-  window.verComprasItem = async function(itemId, nombre, socEnc, nSemanas = 8) {
-    const sociedad  = decodeURIComponent(socEnc);
+  window.verComprasItem = async function(itemId, nombre, socEnc) {
+    const sociedad   = decodeURIComponent(socEnc);
+    // Leer N directamente del selector en la cabecera en el momento de abrir
+    const nSemanas   = Math.max(parseInt(document.getElementById('pr-n')?.value) || 8, 1);
     const desdeModal = new Date(Date.now() - nSemanas * 7 * 24 * 60 * 60 * 1000).toISOString();
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
