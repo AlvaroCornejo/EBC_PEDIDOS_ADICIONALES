@@ -8,6 +8,7 @@ const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBA
 const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta', CONSULTA_PRECIO: 'Consulta Precio' };
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28'];
+const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB'];
 
 // ─── State ───────────────────────────────────────────────────────
 let S = {
@@ -230,14 +231,18 @@ const NAV_ITEMS = [
   { id: 'comentarios',    label: 'Comentarios',     icon: '💬', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
   { id: 'aprobar',        label: 'Aprobar',         icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
   { id: 'atender',        label: 'Atender',         icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
-  { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN, ROLES.CPR], extraPerm: 'puedeConsultarPrecios' },
+  { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
 function canSeeNav(n) {
   const role = S.user.role;
   if (n.roles.includes(role)) return true;
-  if (n.extraPerm && S.user[n.extraPerm]) return true;
+  if (n.extraPerm) {
+    const val = S.user[n.extraPerm];
+    // Soporta tanto boolean como array (ej: sociedadesCompra)
+    if (Array.isArray(val) ? val.length > 0 : !!val) return true;
+  }
   return false;
 }
 
@@ -2175,11 +2180,15 @@ function showUserModal(user, onSave) {
         </div>
       </div>
       <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
-          <input type="checkbox" id="um-consultar-precios" ${user?.puedeConsultarPrecios?'checked':''}
-            style="width:16px;height:16px;accent-color:var(--primary)">
-          <span>Puede consultar <strong>Precios de Compra</strong> (además de su rol principal)</span>
-        </label>
+        <label style="display:block;margin-bottom:6px">Acceso a <strong>Precios de Compra</strong> — Sociedades permitidas</label>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
+          ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" name="um-soc-compra" value="${s}"
+              ${(user?.sociedadesCompra||[]).includes(s)?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            ${s}
+          </label>`).join('')}
+        </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
     </form>
@@ -2198,7 +2207,7 @@ function showUserModal(user, onSave) {
       email: document.getElementById('um-email').value.trim(),
       role: document.getElementById('um-role').value,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
-      puedeConsultarPrecios: document.getElementById('um-consultar-precios').checked,
+      sociedadesCompra: [...document.querySelectorAll('input[name="um-soc-compra"]:checked')].map(cb => cb.value),
     };
     const pwd = document.getElementById('um-password').value;
     if (pwd) data.password = pwd;

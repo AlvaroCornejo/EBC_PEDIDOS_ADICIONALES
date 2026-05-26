@@ -7,11 +7,10 @@ const CompraRoc    = require('../models/CompraRoc');
 const router = express.Router();
 router.use(authMiddleware);
 
-// Acceso: ADMIN, CONSULTA_PRECIO, o cualquier rol con puedeConsultarPrecios=true
+// Acceso: ADMIN, o usuario con al menos una sociedad asignada en sociedadesCompra
 function checkAccess(req, res) {
   const ok = req.user.role === 'ADMIN'
-    || req.user.role === 'CONSULTA_PRECIO'
-    || req.user.puedeConsultarPrecios === true;
+    || (Array.isArray(req.user.sociedadesCompra) && req.user.sociedadesCompra.length > 0);
   if (!ok) { res.status(403).json({ error: 'No autorizado para consultar precios' }); return false; }
   return true;
 }
@@ -52,11 +51,14 @@ router.get('/grupos', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/sociedades
+// GET /api/compras/sociedades — ADMIN ve todas; otros solo sus sociedades asignadas
 router.get('/sociedades', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const socs = await CompraRoc.distinct('sociedad');
+    const esAdmin = req.user.role === 'ADMIN';
+    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
+    const query = permitidas ? { sociedad: { $in: permitidas } } : {};
+    const socs = await CompraRoc.distinct('sociedad', query);
     res.json(socs.filter(Boolean).sort());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
