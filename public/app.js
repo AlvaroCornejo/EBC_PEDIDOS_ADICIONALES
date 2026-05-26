@@ -403,10 +403,10 @@ async function showKardexModal(item, nombre, operacion) {
 
   const fmtK = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 2);
 
-  function headerLabel(s, i) {
+  function headerLabel(s) {
+    if (s === 'HASTA') return `<span style="font-size:10px;line-height:1.4">Hist.<br>anterior</span>`;
     const yr = Math.floor(s / 100), wk = String(s % 100).padStart(2, '0');
-    const prefix = i === 0 ? 'Hasta' : 'Sem';
-    return `${prefix}<br><small>${yr}-${wk}</small>`;
+    return `Sem<br><small>${yr}-${wk}</small>`;
   }
 
   function buildRow(label, key, bold = false, color = '') {
@@ -420,7 +420,7 @@ async function showKardexModal(item, nombre, operacion) {
     return `<tr style="${style}"><td style="white-space:nowrap;padding:4px 10px;${bold?'font-weight:700':''}">${label}</td>${cells}</tr>`;
   }
 
-  const semanaCols = semanas.map((s, i) => `<th class="col-num" style="white-space:nowrap">${headerLabel(s, i)}</th>`).join('');
+  const semanaCols = semanas.map(s => `<th class="col-num" style="white-space:nowrap">${headerLabel(s)}</th>`).join('');
 
   const html = `
     <div style="overflow-x:auto;max-height:70vh;overflow-y:auto">
@@ -1160,8 +1160,12 @@ async function viewKardex(container) {
     const trxExtra2  = [...allTrx].filter(t => !TRX_MAIN.includes(t) && !TRX_BOTTOM.includes(t));
     const trxBottom2 = TRX_BOTTOM.filter(t => allTrx.has(t));
     const fmtK2 = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 2);
-    const hdr = (s, i) => { const yr=Math.floor(s/100), wk=String(s%100).padStart(2,'0'); return `${i===0?'Hasta':'Sem'}<br><small>${yr}-${wk}</small>`; };
-    const semanaCols = semanas.map((s,i) => `<th class="col-num" style="white-space:nowrap">${hdr(s,i)}</th>`).join('');
+    const hdr = s => {
+      if (s === 'HASTA') return `<span style="font-size:10px;line-height:1.4">Hist.<br>anterior</span>`;
+      const yr = Math.floor(s / 100), wk = String(s % 100).padStart(2, '0');
+      return `Sem<br><small>${yr}-${wk}</small>`;
+    };
+    const semanaCols = semanas.map(s => `<th class="col-num" style="white-space:nowrap">${hdr(s)}</th>`).join('');
     const buildRow = (label, key, bold=false) => {
       const cells = data.map(d => {
         const v = key==='__saldoInicial' ? d.saldoInicial : key==='__saldoFinal' ? d.saldoFinal : (d.movimientos[key]||0);

@@ -263,9 +263,24 @@ router.get('/kardex-item', async (req, res) => {
       byWeek[r.añosem][r.trx] = (byWeek[r.añosem][r.trx] || 0) + r.cant;
     }
 
-    // Calcular saldo acumulado sobre todas las semanas (para saldoInicial correcto)
-    let saldoAcum = 0;
-    const result = semanas.map(s => {
+    // Separar semanas anteriores a la ventana y semanas de la ventana
+    const semanasVentana = semanas.slice(-ultSemanas);
+    const semantesAntes  = semanas.slice(0, semanas.length - ultSemanas);
+
+    // Acumular movimientos y saldo de las semanas anteriores a la ventana
+    let saldoHasta = 0;
+    const movsHasta = {};
+    for (const s of semantesAntes) {
+      const movs = byWeek[s] || {};
+      for (const [trx, cant] of Object.entries(movs)) {
+        movsHasta[trx] = (movsHasta[trx] || 0) + cant;
+      }
+      saldoHasta += Object.values(movs).reduce((a, b) => a + b, 0);
+    }
+
+    // Calcular semanas de la ventana con saldoInicial correcto
+    let saldoAcum = saldoHasta;
+    const ventana = semanasVentana.map(s => {
       const saldoInicial = saldoAcum;
       const movs = byWeek[s] || {};
       const totalSem = Object.values(movs).reduce((a, b) => a + b, 0);
@@ -274,8 +289,12 @@ router.get('/kardex-item', async (req, res) => {
       return { semana: s, saldoInicial, movimientos: movs, saldoFinal };
     });
 
-    // Devolver solo las últimas N semanas (saldoInicial ya es correcto)
-    res.json(result.slice(-ultSemanas));
+    // Anteponer columna HASTA si hay historia previa a la ventana
+    const resultado = semantesAntes.length > 0
+      ? [{ semana: 'HASTA', saldoInicial: 0, movimientos: movsHasta, saldoFinal: saldoHasta }, ...ventana]
+      : ventana;
+
+    res.json(resultado);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
