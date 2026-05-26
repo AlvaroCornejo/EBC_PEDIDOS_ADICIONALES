@@ -2882,28 +2882,17 @@ async function viewPrecios(container) {
       return                   { html: '<span style="font-size:18px" title="Aumento mayor al 10%">🔴</span>', code: 'r' };
     }
 
-    // Valores únicos para filtros de Grupo y Grupo Compra
-    const gruposUnicos      = [...new Set(items.map(it => it.grupo      || '').filter(Boolean))].sort();
-    const gruposCompraUnicos = [...new Set(items.map(it => it.grupoCompra || '').filter(Boolean))].sort();
-    const grupoOpts       = gruposUnicos.map(g      => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
-    const grupoCompraOpts = gruposCompraUnicos.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
-
     const selStyle = 'width:100%;font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:3px;background:#fff';
+    const inpStyle = selStyle + ';min-width:60px';
     const filterRow = `
       <tr style="background:#f0f4ff">
-        <td style="padding:3px 8px">
-          <input id="pr-f-txt" placeholder="Buscar…" style="${selStyle}" type="text">
-        </td>
-        <td></td><td></td>
+        <td style="padding:3px 4px"></td>
         <td style="padding:3px 4px">
-          <select id="pr-f-grupo" style="${selStyle}">
-            <option value="">Todos</option>${grupoOpts}
-          </select>
+          <input id="pr-f-txt" placeholder="Descripción…" style="${inpStyle}" type="text">
         </td>
+        <td style="padding:3px 4px"></td>
         <td style="padding:3px 4px">
-          <select id="pr-f-grupocompra" style="${selStyle}">
-            <option value="">Todos</option>${grupoCompraOpts}
-          </select>
+          <input id="pr-f-acum" placeholder="Acum ≤%" style="${inpStyle};width:70px" type="number" min="0" max="100" step="1">
         </td>
         <td style="padding:3px 4px">
           <select id="pr-f-s1" style="${selStyle}">
@@ -2921,7 +2910,10 @@ async function viewPrecios(container) {
             <option value="r">🔴</option>
           </select>
         </td>
-        <td colspan="${nCols}"></td>
+        <td style="padding:3px 4px">
+          <input id="pr-f-ultimo" placeholder="≤ precio" style="${inpStyle};width:75px" type="number" min="0" step="0.01">
+        </td>
+        <td colspan="${nCols - 1}"></td>
       </tr>`;
 
     const priceHeaders = Array.from({ length: nCols }, (_, i) =>
@@ -2932,13 +2924,13 @@ async function viewPrecios(container) {
       const priceCells = Array.from({ length: nCols }, (_, i) =>
         `<td id="pr-p${i}-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>`
       ).join('');
+      const acumVal = (it.pctGrupoAcum * 100).toFixed(1);
       return `
-      <tr data-item="${it.item}" data-grupo="${esc(it.grupo || '')}" data-grupocompra="${esc(it.grupoCompra || '')}" data-s1="" data-s2="" data-nombre="${esc((it.nombre||'').toLowerCase())}">
+      <tr data-item="${it.item}" data-s1="" data-s2="" data-ultimo="" data-acum="${acumVal}" data-nombre="${esc((it.nombre||'').toLowerCase())}">
         <td style="font-family:monospace;font-size:12px;white-space:nowrap">${it.item}</td>
         <td><strong style="font-size:13px">${esc(it.nombre || '')}</strong></td>
         <td style="text-align:right;font-size:12px">${pct2(it.pctGrupo)}</td>
-        <td style="font-size:12px">${esc(it.grupo || '')}</td>
-        <td style="font-size:12px">${esc(it.grupoCompra || '')}</td>
+        <td style="text-align:right;font-size:12px">${acumVal}%</td>
         <td id="pr-s1-${it.item}" style="text-align:center">·</td>
         <td id="pr-s2-${it.item}" style="text-align:center">·</td>
         ${priceCells}
@@ -2966,8 +2958,7 @@ async function viewPrecios(container) {
               <th style="min-width:80px">Código</th>
               <th style="min-width:200px">Descripción</th>
               <th style="text-align:right;min-width:70px">% Grupo</th>
-              <th style="min-width:100px">Grupo</th>
-              <th style="min-width:120px">Grupo Compra</th>
+              <th style="text-align:right;min-width:90px">% Acumulado</th>
               <th style="text-align:center;min-width:52px" title="Último precio vs precio anterior">🚦 Ant.</th>
               <th style="text-align:center;min-width:52px" title="Último precio vs promedio ponderado">🚦 Prom.</th>
               ${priceHeaders}
@@ -2980,24 +2971,30 @@ async function viewPrecios(container) {
 
     // Función de filtrado de filas
     function applyFilters() {
-      const txt         = (document.getElementById('pr-f-txt')?.value         || '').toLowerCase();
-      const fGrupo      = document.getElementById('pr-f-grupo')?.value        || '';
-      const fGrupoC     = document.getElementById('pr-f-grupocompra')?.value  || '';
-      const fS1         = document.getElementById('pr-f-s1')?.value           || '';
-      const fS2         = document.getElementById('pr-f-s2')?.value           || '';
+      const txt    = (document.getElementById('pr-f-txt')?.value   || '').toLowerCase();
+      const fAcum  = document.getElementById('pr-f-acum')?.value   || '';
+      const fS1    = document.getElementById('pr-f-s1')?.value     || '';
+      const fS2    = document.getElementById('pr-f-s2')?.value     || '';
+      const fUlt   = document.getElementById('pr-f-ultimo')?.value || '';
+      const acumMax  = fAcum  !== '' ? parseFloat(fAcum)  : null;
+      const ultMax   = fUlt   !== '' ? parseFloat(fUlt)   : null;
       container.querySelectorAll('tr[data-item]').forEach(row => {
         const ok = (!txt     || row.dataset.nombre.includes(txt) || row.dataset.item.includes(txt))
-                && (!fGrupo  || row.dataset.grupo === fGrupo)
-                && (!fGrupoC || row.dataset.grupocompra === fGrupoC)
-                && (!fS1     || row.dataset.s1 === fS1)
-                && (!fS2     || row.dataset.s2 === fS2);
+                && (acumMax === null || parseFloat(row.dataset.acum  || '999') <= acumMax)
+                && (!fS1    || row.dataset.s1 === fS1)
+                && (!fS2    || row.dataset.s2 === fS2)
+                && (ultMax  === null || row.dataset.ultimo === '' || parseFloat(row.dataset.ultimo || '0') <= ultMax);
         row.style.display = ok ? '' : 'none';
       });
     }
 
-    ['pr-f-txt','pr-f-grupo','pr-f-grupocompra','pr-f-s1','pr-f-s2'].forEach(id => {
+    ['pr-f-s1','pr-f-s2'].forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.addEventListener(id === 'pr-f-txt' ? 'input' : 'change', applyFilters);
+      if (el) el.addEventListener('change', applyFilters);
+    });
+    ['pr-f-txt','pr-f-acum','pr-f-ultimo'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', applyFilters);
     });
 
     // Cargar precios de todos los items en paralelo
@@ -3019,9 +3016,12 @@ async function viewPrecios(container) {
           }
         }
 
-        const row    = container.querySelector(`tr[data-item="${it.item}"]`);
-        const ultimo  = compras[0]?.precioUnitario ?? null;
+        const row      = container.querySelector(`tr[data-item="${it.item}"]`);
+        const ultimo   = compras[0]?.precioUnitario ?? null;
         const anterior = compras[1]?.precioUnitario ?? null;
+
+        // Guardar último precio en data-attribute para filtro
+        if (row && ultimo != null) { row.dataset.ultimo = ultimo.toFixed(4); }
 
         const s1res = semaforo(ultimo, anterior);
         const s1el  = document.getElementById(`pr-s1-${it.item}`);
