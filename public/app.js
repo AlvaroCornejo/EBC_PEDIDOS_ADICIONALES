@@ -7,7 +7,7 @@ const API = '/api';
 const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA', CONS: 'OPERADOR_CONSULTA' };
 const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta', OPERADOR_CONSULTA: 'Consultas' };
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
-const ALL_OPS = ['AASI', 'CDLAO', 'CDL28'];
+const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GB'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB'];
 
 // ─── State ───────────────────────────────────────────────────────
@@ -2182,11 +2182,13 @@ function showUserModal(user, onSave) {
       <div id="um-consulta-perms" class="form-group" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px;display:none">
         <label style="display:block;font-weight:600;margin-bottom:10px;color:#0369a1">🔍 Permisos de Consulta</label>
         <div style="display:flex;flex-direction:column;gap:10px">
-          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
-            <input type="checkbox" id="um-kardex" ${user?.puedeVerKardex?'checked':''}
-              style="width:15px;height:15px;accent-color:var(--primary)">
-            <span>📊 <strong>Kardex</strong></span>
-          </label>
+          <div id="um-perm-kardex" style="display:none">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+              <input type="checkbox" id="um-kardex" ${user?.puedeVerKardex?'checked':''}
+                style="width:15px;height:15px;accent-color:var(--primary)">
+              <span>📊 <strong>Kardex</strong></span>
+            </label>
+          </div>
           <div>
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">💰 <strong>Precios de Compra</strong> — Sociedades permitidas</div>
             <div style="display:flex;gap:16px;flex-wrap:wrap;padding-left:4px">
@@ -2210,13 +2212,14 @@ function showUserModal(user, onSave) {
   openModal(user ? 'Editar Usuario' : 'Nuevo Usuario', body);
 
   // Mostrar/ocultar secciones según el rol seleccionado
-  const ROLES_CON_CONSULTA = [ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS];
+  const ROLES_CON_PRECIOS  = [ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS];
   function syncRoleUI() {
     const role = document.getElementById('um-role').value;
-    const isConsulta  = role === ROLES.CONS;
-    const tieneConsulta = ROLES_CON_CONSULTA.includes(role);
-    document.getElementById('um-consulta-perms').style.display = tieneConsulta ? 'block' : 'none';
-    document.getElementById('um-ops-section').style.display   = isConsulta   ? 'none'  : 'block';
+    const isConsulta    = role === ROLES.CONS;
+    const tienePrecios  = ROLES_CON_PRECIOS.includes(role);
+    document.getElementById('um-consulta-perms').style.display  = tienePrecios  ? 'block' : 'none';
+    document.getElementById('um-perm-kardex').style.display     = isConsulta    ? 'block' : 'none';
+    document.getElementById('um-ops-section').style.display     = isConsulta    ? 'none'  : 'block';
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);

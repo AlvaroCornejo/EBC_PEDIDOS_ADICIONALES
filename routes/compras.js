@@ -139,6 +139,9 @@ router.get('/precios/:item', async (req, res) => {
       const desdeDate = new Date(desde);
       if (!isNaN(desdeDate)) query.fecha = { $gte: desdeDate };
     }
+    // Usuarios no-ADMIN con operaciones asignadas: filtrar por sus operaciones
+    const ops = req.user.operations || [];
+    if (req.user.role !== 'ADMIN' && ops.length > 0) query.operacion = { $in: ops };
 
     const compras = await CompraRoc.find(query)
       .sort({ fecha: -1 })
@@ -165,6 +168,8 @@ router.get('/total/:item', async (req, res) => {
     const { sociedad } = req.query;
     const match = { item: itemId };
     if (sociedad) match.sociedad = sociedad;
+    const ops = req.user.operations || [];
+    if (req.user.role !== 'ADMIN' && ops.length > 0) match.operacion = { $in: ops };
     const agg = await CompraRoc.aggregate([
       { $match: match },
       { $group: { _id: null, total: { $sum: '$importe' } } },
