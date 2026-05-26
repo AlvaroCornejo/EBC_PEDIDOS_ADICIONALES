@@ -157,6 +157,22 @@ router.get('/precios/:item', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/compras/total/:item?sociedad= — importe total histórico del item
+router.get('/total/:item', async (req, res) => {
+  if (!checkAccess(req, res)) return;
+  try {
+    const itemId = parseInt(req.params.item);
+    const { sociedad } = req.query;
+    const match = { item: itemId };
+    if (sociedad) match.sociedad = sociedad;
+    const agg = await CompraRoc.aggregate([
+      { $match: match },
+      { $group: { _id: null, total: { $sum: '$importe' } } },
+    ]);
+    res.json({ total: agg[0]?.total || 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/compras/status — cuántos registros hay importados
 router.get('/status', async (req, res) => {
   if (!checkAccess(req, res)) return;

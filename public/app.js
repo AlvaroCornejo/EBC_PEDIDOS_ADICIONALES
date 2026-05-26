@@ -2942,7 +2942,7 @@ async function viewPrecios(container) {
             <option value="y">🟡</option><option value="r">🔴</option>
           </select>
         </td>
-        <td colspan="${nCols + 3}"></td>
+        <td colspan="${nCols + 4}"></td>
       </tr>`;
 
     const priceHeaders = Array.from({ length: nCols }, (_, i) =>
@@ -2963,6 +2963,7 @@ async function viewPrecios(container) {
         <td id="pr-s1-${it.item}" style="text-align:center">·</td>
         <td id="pr-s2-${it.item}" style="text-align:center">·</td>
         <td id="pr-tsem-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
+        <td id="pr-total-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
         <td id="pr-prom-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
         <td style="text-align:center">
           <button onclick="verComprasItem(${it.item},'${esc(it.nombre||'')}','${encodeURIComponent(sociedad)}',${nSemanas})"
@@ -2979,7 +2980,7 @@ async function viewPrecios(container) {
         <td colspan="4" style="font-style:italic;font-size:12px;padding:10px 12px">
           Otros (${otros.count} items — fuera del ${pareto}% Pareto)
         </td>
-        <td colspan="${5 + nCols}"></td>
+        <td colspan="${6 + nCols}"></td>
       </tr>` : '';
 
     container.innerHTML = `
@@ -2997,8 +2998,9 @@ async function viewPrecios(container) {
               <th style="text-align:right;min-width:90px">% Acumulado</th>
               <th style="text-align:center;min-width:52px" title="Último precio vs precio anterior">🚦 Ant.</th>
               <th style="text-align:center;min-width:52px" title="Último precio vs promedio ponderado">🚦 Prom.</th>
-              <th style="text-align:right;min-width:100px">Tot. Últ. Sem.</th>
-              <th style="text-align:right;min-width:100px">Prom. Pond. (${n})</th>
+              <th style="text-align:right;min-width:100px">Últ. Compra</th>
+              <th style="text-align:right;min-width:110px">Total Histórico</th>
+              <th style="text-align:right;min-width:100px">Prom. Pond. (${n}sem.)</th>
               <th style="min-width:60px"></th>
               ${priceHeaders}
             </tr>
@@ -3025,10 +3027,13 @@ async function viewPrecios(container) {
     document.getElementById('pr-f-s2').addEventListener('change', applyFilters);
 
     // Cargar precios en paralelo — compras de las últimas nSemanas semanas
-    const hace7dias = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     items.forEach(async it => {
       try {
-        const compras = await GET(`/compras/precios/${it.item}?sociedad=${encodeURIComponent(sociedad)}&desde=${encodeURIComponent(desdeISO)}`);
+        const socParam = encodeURIComponent(sociedad);
+        const [compras, totData] = await Promise.all([
+          GET(`/compras/precios/${it.item}?sociedad=${socParam}&desde=${encodeURIComponent(desdeISO)}`),
+          GET(`/compras/total/${it.item}?sociedad=${socParam}`),
+        ]);
 
         // Columnas de precio
         for (let i = 0; i < nCols; i++) {
@@ -3046,14 +3051,16 @@ async function viewPrecios(container) {
         const ultimo   = compras[0]?.precioUnitario ?? null;
         const anterior = compras[1]?.precioUnitario ?? null;
 
-        // Total última semana
-        const totSem = compras
-          .filter(c => new Date(c.fecha) >= hace7dias)
-          .reduce((s, c) => s + (c.importe || 0), 0);
+        // Importe de la última compra
+        const ultImporte = compras[0]?.importe ?? null;
         const tSemCell = document.getElementById(`pr-tsem-${it.item}`);
-        if (tSemCell) { tSemCell.textContent = totSem > 0 ? fmtImp(totSem) : '—'; tSemCell.style.color = ''; }
+        if (tSemCell) { tSemCell.textContent = ultImporte != null ? fmtImp(ultImporte) : '—'; tSemCell.style.color = ''; }
 
-        // Promedio ponderado de las N compras
+        // Total histórico
+        const totalCell = document.getElementById(`pr-total-${it.item}`);
+        if (totalCell) { totalCell.textContent = totData.total > 0 ? fmtImp(totData.total) : '—'; totalCell.style.color = ''; }
+
+        // Promedio ponderado de las N semanas
         let totImp = 0, totCant = 0;
         compras.forEach(c => { totImp += c.importe || 0; totCant += c.cantidad || 0; });
         const promPonderado = totCant > 0 ? totImp / totCant : null;
