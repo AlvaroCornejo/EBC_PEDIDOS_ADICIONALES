@@ -2859,9 +2859,11 @@ async function viewPrecios(container) {
       return                   { html: '<span style="font-size:18px" title="Aumento mayor al 10%">🔴</span>', code: 'r' };
     }
 
-    // Grupos únicos de los items para el filtro
-    const gruposUnicos = [...new Set(items.map(it => it.grupoCompra || '').filter(Boolean))].sort();
-    const grupoOpts = gruposUnicos.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+    // Valores únicos para filtros de Grupo y Grupo Compra
+    const gruposUnicos      = [...new Set(items.map(it => it.grupo      || '').filter(Boolean))].sort();
+    const gruposCompraUnicos = [...new Set(items.map(it => it.grupoCompra || '').filter(Boolean))].sort();
+    const grupoOpts       = gruposUnicos.map(g      => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+    const grupoCompraOpts = gruposCompraUnicos.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
 
     const selStyle = 'width:100%;font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:3px;background:#fff';
     const filterRow = `
@@ -2872,7 +2874,12 @@ async function viewPrecios(container) {
         <td></td><td></td>
         <td style="padding:3px 4px">
           <select id="pr-f-grupo" style="${selStyle}">
-            <option value="">Todos los grupos</option>${grupoOpts}
+            <option value="">Todos</option>${grupoOpts}
+          </select>
+        </td>
+        <td style="padding:3px 4px">
+          <select id="pr-f-grupocompra" style="${selStyle}">
+            <option value="">Todos</option>${grupoCompraOpts}
           </select>
         </td>
         <td style="padding:3px 4px">
@@ -2903,10 +2910,11 @@ async function viewPrecios(container) {
         `<td id="pr-p${i}-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>`
       ).join('');
       return `
-      <tr data-item="${it.item}" data-grupo="${esc(it.grupoCompra || '')}" data-s1="" data-s2="" data-nombre="${esc((it.nombre||'').toLowerCase())}">
+      <tr data-item="${it.item}" data-grupo="${esc(it.grupo || '')}" data-grupocompra="${esc(it.grupoCompra || '')}" data-s1="" data-s2="" data-nombre="${esc((it.nombre||'').toLowerCase())}">
         <td style="font-family:monospace;font-size:12px;white-space:nowrap">${it.item}</td>
         <td><strong style="font-size:13px">${esc(it.nombre || '')}</strong></td>
         <td style="text-align:right;font-size:12px">${pct2(it.pctGrupo)}</td>
+        <td style="font-size:12px">${esc(it.grupo || '')}</td>
         <td style="font-size:12px">${esc(it.grupoCompra || '')}</td>
         <td id="pr-s1-${it.item}" style="text-align:center">·</td>
         <td id="pr-s2-${it.item}" style="text-align:center">·</td>
@@ -2935,6 +2943,7 @@ async function viewPrecios(container) {
               <th style="min-width:80px">Código</th>
               <th style="min-width:200px">Descripción</th>
               <th style="text-align:right;min-width:70px">% Grupo</th>
+              <th style="min-width:100px">Grupo</th>
               <th style="min-width:120px">Grupo Compra</th>
               <th style="text-align:center;min-width:52px" title="Último precio vs precio anterior">🚦 Ant.</th>
               <th style="text-align:center;min-width:52px" title="Último precio vs promedio ponderado">🚦 Prom.</th>
@@ -2948,20 +2957,22 @@ async function viewPrecios(container) {
 
     // Función de filtrado de filas
     function applyFilters() {
-      const txt    = (document.getElementById('pr-f-txt')?.value   || '').toLowerCase();
-      const fGrupo = document.getElementById('pr-f-grupo')?.value  || '';
-      const fS1    = document.getElementById('pr-f-s1')?.value     || '';
-      const fS2    = document.getElementById('pr-f-s2')?.value     || '';
+      const txt         = (document.getElementById('pr-f-txt')?.value         || '').toLowerCase();
+      const fGrupo      = document.getElementById('pr-f-grupo')?.value        || '';
+      const fGrupoC     = document.getElementById('pr-f-grupocompra')?.value  || '';
+      const fS1         = document.getElementById('pr-f-s1')?.value           || '';
+      const fS2         = document.getElementById('pr-f-s2')?.value           || '';
       container.querySelectorAll('tr[data-item]').forEach(row => {
-        const ok = (!txt    || row.dataset.nombre.includes(txt) || row.dataset.item.includes(txt))
-                && (!fGrupo || row.dataset.grupo === fGrupo)
-                && (!fS1    || row.dataset.s1 === fS1)
-                && (!fS2    || row.dataset.s2 === fS2);
+        const ok = (!txt     || row.dataset.nombre.includes(txt) || row.dataset.item.includes(txt))
+                && (!fGrupo  || row.dataset.grupo === fGrupo)
+                && (!fGrupoC || row.dataset.grupocompra === fGrupoC)
+                && (!fS1     || row.dataset.s1 === fS1)
+                && (!fS2     || row.dataset.s2 === fS2);
         row.style.display = ok ? '' : 'none';
       });
     }
 
-    ['pr-f-txt','pr-f-grupo','pr-f-s1','pr-f-s2'].forEach(id => {
+    ['pr-f-txt','pr-f-grupo','pr-f-grupocompra','pr-f-s1','pr-f-s2'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener(id === 'pr-f-txt' ? 'input' : 'change', applyFilters);
     });
