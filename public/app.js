@@ -2202,18 +2202,6 @@ function showUserModal(user, onSave) {
             <span>📊 <strong>Kardex</strong></span>
           </label>
 
-          <!-- Operaciones para Kardex — solo rol Consultas -->
-          <div id="um-ops-consulta" style="display:none;padding-left:23px">
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Operaciones disponibles en Kardex:</div>
-            <div style="display:flex;gap:14px;flex-wrap:wrap">
-              ${ALL_OPS.map(op => `<label style="display:flex;align-items:center;gap:5px;font-weight:normal;cursor:pointer">
-                <input type="checkbox" name="um-op-cons" value="${op}"
-                  ${(user?.operations||[]).includes(op)?'checked':''}
-                  style="width:14px;height:14px;accent-color:var(--primary)">
-                <span style="font-size:13px">${op}</span>
-              </label>`).join('')}
-            </div>
-          </div>
 
           <!-- Precios: un solo check para roles operativos (SOL/APR/ATE/PLT) -->
           <div id="um-precios-simple-wrap">
@@ -2258,10 +2246,9 @@ function showUserModal(user, onSave) {
     const isConsulta  = role === ROLES.CONS;
     const tienePerms  = ROLES_CON_PERMISOS.includes(role);
     document.getElementById('um-consulta-perms').style.display     = tienePerms  ? 'block' : 'none';
-    document.getElementById('um-ops-consulta').style.display        = isConsulta ? 'block' : 'none';
     document.getElementById('um-precios-simple-wrap').style.display = isConsulta ? 'none'  : 'block';
     document.getElementById('um-precios-socs-wrap').style.display   = isConsulta ? 'block' : 'none';
-    document.getElementById('um-ops-section').style.display         = isConsulta ? 'none'  : 'block';
+    document.getElementById('um-ops-section').style.display         = 'block'; // siempre visible (ops son generales)
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
@@ -2279,9 +2266,7 @@ function showUserModal(user, onSave) {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
       role,
-      operations: isConsulta
-        ? [...document.querySelectorAll('input[name="um-op-cons"]:checked')].map(cb => cb.value)
-        : [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
+      operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       puedeVerKardex: document.getElementById('um-kardex')?.checked ?? false,
       sociedadesCompra,
     };
