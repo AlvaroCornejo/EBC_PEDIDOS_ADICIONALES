@@ -2847,16 +2847,20 @@ async function viewPrecios(container) {
   document.getElementById('pr-buscar').addEventListener('click', () => buscarPrecios());
 
   async function buscarPrecios() {
-    const sociedad = document.getElementById('pr-sociedad').value;
-    const grupo    = document.getElementById('pr-grupo').value;
-    const pareto   = document.getElementById('pr-pareto').value;
-    const n        = document.getElementById('pr-n').value;
-    const res      = document.getElementById('pr-result');
+    const sociedad   = document.getElementById('pr-sociedad').value;
+    const grupoItem  = document.getElementById('pr-grupo-item').value;
+    const grupo      = document.getElementById('pr-grupo').value;
+    const pareto     = document.getElementById('pr-pareto').value;
+    const n          = document.getElementById('pr-n').value;
+    const res        = document.getElementById('pr-result');
 
     res.innerHTML = `<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span> Consultando...</div>`;
 
     try {
-      const data = await GET(`/compras/items?sociedad=${sociedad}&grupo=${encodeURIComponent(grupo)}&pareto=${pareto}`);
+      const params = new URLSearchParams({ sociedad, pareto });
+      if (grupoItem) params.set('grupoItem', grupoItem);
+      if (grupo)     params.set('grupo', grupo);
+      const data = await GET(`/compras/items?${params}`);
       renderPreciosResult(res, data, sociedad, n, pareto);
     } catch (err) {
       res.innerHTML = `<div class="empty-state"><p style="color:var(--danger)">Error: ${esc(err.message)}</p></div>`;

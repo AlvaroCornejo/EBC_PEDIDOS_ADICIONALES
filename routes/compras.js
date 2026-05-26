@@ -61,12 +61,12 @@ router.get('/sociedades', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/items?sociedad=100&grupo=ABARROTES&pareto=80
+// GET /api/compras/items?sociedad=100&grupoItem=ALIMENTOS&grupo=ABARROTES&pareto=80
 // Devuelve items ordenados por participación desc, con flag isPareto y resumen "otros"
 router.get('/items', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { sociedad, grupo, pareto = '80' } = req.query;
+    const { sociedad, grupo, grupoItem, pareto = '80' } = req.query;
     const pct = Math.min(Math.max(parseFloat(pareto) / 100, 0), 1);
 
     // Pareto data para la sociedad, ordenado de mayor a menor participación
@@ -76,7 +76,8 @@ router.get('/items', async (req, res) => {
 
     // Maestro de items (con filtro de grupo si aplica)
     const itemQuery = {};
-    if (grupo) itemQuery.grupoCompra = grupo;
+    if (grupoItem) itemQuery.grupo = grupoItem;   // clasificación amplia (ALIMENTOS, etc.)
+    if (grupo)     itemQuery.grupoCompra = grupo;  // subgrupo (ABARROTES, etc.)
     const itemsArr = await CompraItem.find(itemQuery).lean();
     const itemMap = {};
     itemsArr.forEach(i => { itemMap[i.item] = i; });
