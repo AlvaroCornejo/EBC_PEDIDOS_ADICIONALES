@@ -2830,32 +2830,47 @@ async function viewPrecios(container) {
       return;
     }
 
-    const pct2 = v => (v * 100).toFixed(1) + '%';
+    const nFetch = Math.max(parseInt(n) || 10, 10); // cuántas compras pedir (mín 10 para el promedio)
+    const nCols  = 10;                               // siempre 10 columnas de precio
+    const pct2   = v => (v * 100).toFixed(1) + '%';
+    const fmtP   = v => v == null ? '—' : Number(v).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    const rows = items.map(it => `
-      <tr class="pr-item-row" data-item="${it.item}" data-sociedad="${sociedad}" data-n="${n}" style="cursor:pointer">
+    function semaforo(ultimo, ref) {
+      if (ultimo == null || ref == null || ref === 0) return '<span style="color:#9ca3af">—</span>';
+      const diff = (ultimo - ref) / ref;
+      if (diff <= 0)    return '<span style="font-size:18px" title="Igual o menor">🟢</span>';
+      if (diff <= 0.10) return '<span style="font-size:18px" title="Aumento hasta 10%">🟡</span>';
+      return             '<span style="font-size:18px" title="Aumento mayor al 10%">🔴</span>';
+    }
+
+    // Cabeceras de las 10 columnas de precio
+    const priceHeaders = Array.from({ length: nCols }, (_, i) =>
+      `<th style="text-align:right;min-width:80px;font-size:10px;white-space:nowrap">${i === 0 ? '★ Último' : 'P' + (i + 1)}</th>`
+    ).join('');
+
+    // Filas con celdas en estado de carga
+    const rows = items.map(it => {
+      const priceCells = Array.from({ length: nCols }, (_, i) =>
+        `<td id="pr-p${i}-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>`
+      ).join('');
+      return `
+      <tr>
         <td style="font-family:monospace;font-size:12px;white-space:nowrap">${it.item}</td>
         <td><strong style="font-size:13px">${esc(it.nombre || '')}</strong></td>
-        <td style="font-size:12px">${esc(it.grupoCompra || '')}</td>
-        <td style="font-size:12px">${esc(it.grupoFamilia || '')}</td>
         <td style="text-align:right;font-size:12px">${pct2(it.pctGrupo)}</td>
         <td style="text-align:right">
-          <div style="display:flex;align-items:center;gap:6px">
-            <div style="flex:1;height:8px;background:#e5e7eb;border-radius:4px;min-width:60px">
-              <div style="height:8px;background:var(--primary);border-radius:4px;width:${Math.min(it.pctGrupoAcum*100,100).toFixed(1)}%"></div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <div style="flex:1;height:7px;background:#e5e7eb;border-radius:4px;min-width:40px">
+              <div style="height:7px;background:var(--primary);border-radius:4px;width:${Math.min(it.pctGrupoAcum*100,100).toFixed(1)}%"></div>
             </div>
-            <span style="font-size:11px;width:36px;text-align:right">${pct2(it.pctGrupoAcum)}</span>
+            <span style="font-size:11px;width:34px;text-align:right">${pct2(it.pctGrupoAcum)}</span>
           </div>
         </td>
-        <td style="text-align:center"><span style="font-size:11px;color:var(--text-muted)">▼ Ver</span></td>
-      </tr>
-      <tr class="pr-detail-row hidden" id="pr-detail-${it.item}">
-        <td colspan="7" style="padding:0;background:#f8fafc">
-          <div class="pr-detail-inner" style="padding:12px 16px">
-            <div class="loading-overlay" style="position:relative;height:50px"><span class="spinner spinner-dark"></span></div>
-          </div>
-        </td>
-      </tr>`).join('');
+        <td id="pr-s1-${it.item}" style="text-align:center">·</td>
+        <td id="pr-s2-${it.item}" style="text-align:center">·</td>
+        ${priceCells}
+      </tr>`;
+    }).join('');
 
     const otrosRow = otros.count > 0 ? `
       <tr style="background:#f9fafb;color:var(--text-muted)">
@@ -2863,96 +2878,69 @@ async function viewPrecios(container) {
           Otros (${otros.count} items — fuera del ${pareto}% Pareto)
         </td>
         <td style="text-align:right;font-size:12px">${pct2(otros.pct)}</td>
-        <td colspan="2"></td>
+        <td colspan="${1 + nCols}"></td>
       </tr>` : '';
 
     container.innerHTML = `
       <div style="margin-bottom:8px;font-size:13px;color:var(--text-muted)">
-        ${items.length} items dentro del ${pareto}% Pareto · haz clic en un item para ver sus últimas ${n} compras
+        ${items.length} items en el ${pareto}% Pareto &nbsp;·&nbsp;
+        <span style="font-size:11px">🟢 igual/menor &nbsp; 🟡 +0–10% &nbsp; 🔴 +más de 10%</span>
       </div>
-      <div class="table-wrap">
-        <table>
+      <div class="table-wrap" style="overflow-x:auto">
+        <table style="min-width:900px">
           <thead><tr>
             <th style="min-width:80px">Código</th>
             <th style="min-width:200px">Descripción</th>
-            <th style="min-width:120px">Grupo Compra</th>
-            <th style="min-width:110px">Familia</th>
-            <th style="text-align:right;min-width:80px">% Grupo</th>
-            <th style="min-width:140px">% Acumulado</th>
-            <th style="min-width:60px"></th>
+            <th style="text-align:right;min-width:70px">% Grupo</th>
+            <th style="min-width:120px">% Acumulado</th>
+            <th style="text-align:center;min-width:52px" title="Último precio vs precio anterior">🚦 Ant.</th>
+            <th style="text-align:center;min-width:52px" title="Último precio vs promedio ponderado">🚦 Prom.</th>
+            ${priceHeaders}
           </tr></thead>
           <tbody>${rows}${otrosRow}</tbody>
         </table>
       </div>`;
 
-    // Click para expandir detalle
-    container.querySelectorAll('.pr-item-row').forEach(row => {
-      row.addEventListener('click', async () => {
-        const itemId   = row.dataset.item;
-        const soc      = row.dataset.sociedad;
-        const nVal     = row.dataset.n;
-        const detailRow = document.getElementById(`pr-detail-${itemId}`);
-        const inner     = detailRow.querySelector('.pr-detail-inner');
+    // Cargar precios de todos los items en paralelo
+    items.forEach(async it => {
+      try {
+        const compras = await GET(`/compras/precios/${it.item}?sociedad=${encodeURIComponent(sociedad)}&n=${nFetch}`);
 
-        if (!detailRow.classList.contains('hidden')) {
-          detailRow.classList.add('hidden');
-          row.querySelector('td:last-child span').textContent = '▼ Ver';
-          return;
+        // Rellenar columnas de precio (index 0 = más reciente)
+        for (let i = 0; i < nCols; i++) {
+          const cell = document.getElementById(`pr-p${i}-${it.item}`);
+          if (!cell) continue;
+          const c = compras[i];
+          if (c && c.precioUnitario != null) {
+            cell.textContent = fmtP(c.precioUnitario);
+            cell.style.color = '';
+            if (i === 0) { cell.style.fontWeight = '700'; cell.style.color = 'var(--primary)'; }
+          } else {
+            cell.textContent = '—';
+            cell.style.color = '#d1d5db';
+          }
         }
-        // Cerrar otros abiertos
-        container.querySelectorAll('.pr-detail-row:not(.hidden)').forEach(r => {
-          r.classList.add('hidden');
-          const idx = r.id.replace('pr-detail-', '');
-          const prev = container.querySelector(`.pr-item-row[data-item="${idx}"] td:last-child span`);
-          if (prev) prev.textContent = '▼ Ver';
-        });
 
-        detailRow.classList.remove('hidden');
-        row.querySelector('td:last-child span').textContent = '▲ Cerrar';
-        inner.innerHTML = `<div class="loading-overlay" style="position:relative;height:50px"><span class="spinner spinner-dark"></span></div>`;
+        // Semáforo 1: último vs anterior
+        const s1 = document.getElementById(`pr-s1-${it.item}`);
+        const ultimo  = compras[0]?.precioUnitario ?? null;
+        const anterior = compras[1]?.precioUnitario ?? null;
+        if (s1) s1.innerHTML = semaforo(ultimo, anterior);
 
-        try {
-          const compras = await GET(`/compras/precios/${itemId}?sociedad=${soc}&n=${nVal}`);
-          renderDetalleCompras(inner, compras);
-        } catch (err) {
-          inner.innerHTML = `<p style="color:var(--danger);font-size:13px">Error: ${esc(err.message)}</p>`;
+        // Semáforo 2: último vs promedio ponderado (suma importe / suma cantidad)
+        const s2 = document.getElementById(`pr-s2-${it.item}`);
+        let totImp = 0, totCant = 0;
+        compras.forEach(c => { totImp += c.importe || 0; totCant += c.cantidad || 0; });
+        const promPonderado = totCant > 0 ? totImp / totCant : null;
+        if (s2) s2.innerHTML = semaforo(ultimo, promPonderado);
+
+      } catch (_) {
+        for (let i = 0; i < nCols; i++) {
+          const cell = document.getElementById(`pr-p${i}-${it.item}`);
+          if (cell) { cell.textContent = '!'; cell.style.color = 'var(--danger)'; }
         }
-      });
+      }
     });
-  }
-
-  function renderDetalleCompras(container, compras) {
-    if (!compras.length) {
-      container.innerHTML = `<p style="font-size:13px;color:var(--text-muted);padding:8px 0">Sin compras registradas</p>`;
-      return;
-    }
-    const fmt2 = v => v == null ? '—' : Number(v).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const fmtS = v => v == null ? '—' : 'S/ ' + fmt2(v);
-
-    const rows = compras.map(c => `
-      <tr>
-        <td style="font-size:12px;white-space:nowrap">${fmtDate(c.fecha)}</td>
-        <td style="font-size:12px">${esc(c.operacion || '')}</td>
-        <td style="font-size:12px">${esc(c.almacen || '')}</td>
-        <td style="text-align:right;font-size:12px">${fmt2(c.cantidad)}</td>
-        <td style="text-align:right;font-size:12px">${fmtS(c.importe)}</td>
-        <td style="text-align:right;font-size:13px;font-weight:700;color:var(--primary)">${fmtS(c.precioUnitario)}</td>
-      </tr>`).join('');
-
-    container.innerHTML = `
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead>
-          <tr style="background:#e0e7ff">
-            <th style="padding:6px 10px;text-align:left;font-size:11px">Fecha</th>
-            <th style="padding:6px 10px;text-align:left;font-size:11px">Operación</th>
-            <th style="padding:6px 10px;text-align:left;font-size:11px">Almacén</th>
-            <th style="padding:6px 10px;text-align:right;font-size:11px">Cantidad</th>
-            <th style="padding:6px 10px;text-align:right;font-size:11px">Importe</th>
-            <th style="padding:6px 10px;text-align:right;font-size:11px">Precio Unit.</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>`;
   }
 }
 
