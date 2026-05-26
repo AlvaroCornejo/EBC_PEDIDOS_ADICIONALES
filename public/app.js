@@ -2836,7 +2836,6 @@ async function viewPrecios(container) {
               <option value="52">52 sem (1 año)</option>
             </select>
           </div>
-          <button class="btn btn-primary" id="pr-buscar">🔍 Consultar</button>
         </div>
       </div>
       <div id="pr-result"></div>
@@ -2869,7 +2868,7 @@ async function viewPrecios(container) {
     cargarGruposItem(gruposItem);
     cargarGrupos(gruposCompra);
 
-    // Cascada: Sociedad → recarga Grupo y Grupo Compra
+    // Cascada: Sociedad → recarga Grupo y Grupo Compra, luego busca
     selSoc.addEventListener('change', async () => {
       const soc = selSoc.value;
       try {
@@ -2880,9 +2879,10 @@ async function viewPrecios(container) {
         cargarGruposItem(gi);
         cargarGrupos(gc);
       } catch (_) {}
+      buscarPrecios();
     });
 
-    // Cascada: Grupo → recarga Grupo Compra
+    // Cascada: Grupo → recarga Grupo Compra, luego busca
     document.getElementById('pr-grupo-item').addEventListener('change', async () => {
       const soc  = selSoc.value;
       const grp  = document.getElementById('pr-grupo-item').value;
@@ -2893,6 +2893,7 @@ async function viewPrecios(container) {
         const gc = await GET(`/compras/grupos?${params}`);
         cargarGrupos(gc);
       } catch (_) {}
+      buscarPrecios();
     });
 
   } catch (err) {
@@ -2912,13 +2913,18 @@ async function viewPrecios(container) {
     lista.forEach(g => { const o = document.createElement('option'); o.value = g; o.textContent = g; sel.appendChild(o); });
   }
 
-  // Slider label
+  // Slider label + debounce al soltar
+  let _paretoTimer = null;
   document.getElementById('pr-pareto').addEventListener('input', e => {
     document.getElementById('pr-pct-label').textContent = e.target.value;
+    clearTimeout(_paretoTimer);
+    _paretoTimer = setTimeout(() => buscarPrecios(), 600);
   });
 
-  // Buscar
-  document.getElementById('pr-buscar').addEventListener('click', () => buscarPrecios());
+  // Auto-buscar al cambiar cualquier selector
+  ['pr-sociedad', 'pr-grupo-item', 'pr-grupo', 'pr-n'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => buscarPrecios());
+  });
 
   async function buscarPrecios() {
     const sociedad   = document.getElementById('pr-sociedad').value;
