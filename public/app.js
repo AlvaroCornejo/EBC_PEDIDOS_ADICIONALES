@@ -2768,13 +2768,9 @@ async function viewPrecios(container) {
       <div id="pr-result"></div>
     </div>`;
 
-  // Cargar sociedades, grupos-item y grupos-compra
+  // Cargar sociedades y luego grupos filtrados por la sociedad por omisión
   try {
-    const [socs, gruposItem, gruposCompra] = await Promise.all([
-      GET('/compras/sociedades'),
-      GET('/compras/grupos-item'),
-      GET('/compras/grupos'),
-    ]);
+    const socs = await GET('/compras/sociedades');
 
     // Sociedades
     const selSoc = document.getElementById('pr-sociedad');
@@ -2790,6 +2786,12 @@ async function viewPrecios(container) {
       selSoc.selectedIndex = 1;
     }
 
+    // Cargar grupos filtrados por la sociedad seleccionada por omisión
+    const socDefault = selSoc.value;
+    const [gruposItem, gruposCompra] = await Promise.all([
+      GET(socDefault ? `/compras/grupos-item?sociedad=${encodeURIComponent(socDefault)}` : '/compras/grupos-item'),
+      GET(socDefault ? `/compras/grupos?sociedad=${encodeURIComponent(socDefault)}` : '/compras/grupos'),
+    ]);
     cargarGruposItem(gruposItem);
     cargarGrupos(gruposCompra);
 
