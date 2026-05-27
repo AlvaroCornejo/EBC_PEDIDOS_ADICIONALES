@@ -101,15 +101,20 @@ function readKardex(wb) {
   return rows;
 }
 
-/** Costos sheet: col1=ITEM, col2=COSTO */
+/** Costos sheet: col1=ITEM, col?=COSTO (detectado desde cabecera — col2 o col3 según operación) */
 function readCostos(wb) {
   const sh = wb.getWorksheet('Costos');
   if (!sh) return {};
+  // Detectar columna COSTO desde fila de cabecera (varía según operación GB* vs otras)
+  let costoCol = 2;
+  sh.getRow(1).eachCell((cell, col) => {
+    if (String(cell.value || '').trim().toUpperCase() === 'COSTO') costoCol = col;
+  });
   const map = {};
   sh.eachRow((row, rn) => {
     if (rn === 1) return;
     const item = str(row, 1);
-    if (item) map[item] = num(row, 2);
+    if (item) map[item] = num(row, costoCol);
   });
   return map;
 }
