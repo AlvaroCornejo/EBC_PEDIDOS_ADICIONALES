@@ -247,18 +247,32 @@ function canSeeNav(n) {
 }
 
 function renderNav() {
+  const visibles = NAV_ITEMS.filter(canSeeNav);
+
+  // Sidebar (desktop)
   const nav = document.getElementById('sidebar-nav');
-  nav.innerHTML = NAV_ITEMS
-    .filter(canSeeNav)
+  nav.innerHTML = visibles
     .map(n => `<a href="#" class="nav-item" data-view="${n.id}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`)
     .join('');
   nav.querySelectorAll('.nav-item').forEach(el => {
     el.addEventListener('click', e => { e.preventDefault(); navigate(el.dataset.view); });
   });
+
+  // Bottom nav (mobile)
+  const bn = document.getElementById('bottom-nav');
+  bn.innerHTML = visibles
+    .map(n => `<button class="bn-item" data-view="${n.id}"><span class="bn-icon">${n.icon}</span><span class="bn-label">${n.label}</span></button>`)
+    .join('');
+  bn.querySelectorAll('.bn-item').forEach(el => {
+    el.addEventListener('click', () => navigate(el.dataset.view));
+  });
 }
 
 function setActiveNav(view) {
   document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  document.querySelectorAll('.bn-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
 }
