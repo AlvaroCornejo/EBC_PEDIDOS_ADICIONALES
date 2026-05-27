@@ -289,9 +289,72 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .filter-bar select, .filter-bar input { padding: 7px 10px; border: 1.5px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 13px; }
 
+/* ─── Bottom Nav (mobile only) ───────────────────────────────── */
+.bottom-nav { display: none; }
+
 /* ─── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 768px) {
   :root { --sidebar-w: 0px; }
   .sidebar { display: none; }
-  .main-content { margin-left: 0; }
+  .main-content { margin-left: 0; padding-bottom: 64px; }
+
+  /* Bottom nav */
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 52px; /* deja espacio al botón refresh */
+    height: 60px;
+    background: var(--sidebar);
+    border-top: 1px solid rgba(255,255,255,.1);
+    z-index: 200;
+    align-items: stretch;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .bottom-nav::-webkit-scrollbar { display: none; }
+
+  /* Botón hard-refresh fijo a la derecha del bottom nav */
+  .bn-refresh {
+    display: flex;
+    position: fixed;
+    bottom: 0; right: 0;
+    width: 52px; height: 60px;
+    background: var(--sidebar);
+    border: none;
+    border-top: 1px solid rgba(255,255,255,.1);
+    border-left: 1px solid rgba(255,255,255,.1);
+    color: #8892b0;
+    font-size: 22px;
+    cursor: pointer;
+    z-index: 201;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    transition: color .15s, background .15s;
+  }
+  .bn-refresh:hover, .bn-refresh:active { background: var(--sidebar-hover); color: #fff; }
+
+  .bn-item {
+    flex: 1;
+    min-width: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    color: #8892b0;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    background: none;
+    padding: 6px 4px;
+    transition: color .15s, background .15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .bn-item:hover { background: var(--sidebar-hover); color: #fff; }
+  .bn-item.active { color: #fff; background: rgba(67,97,238,.25); }
+  .bn-item.active .bn-icon { color: var(--sidebar-active); }
+  .bn-icon { font-size: 20px; line-height: 1; }
+  .bn-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64px; }
 }

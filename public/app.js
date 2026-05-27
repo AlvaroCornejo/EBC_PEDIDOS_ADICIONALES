@@ -7,7 +7,7 @@ const API = '/api';
 const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA', CONS: 'OPERADOR_CONSULTA' };
 const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta', OPERADOR_CONSULTA: 'Consultas' };
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
-const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GB'];
+const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'PREP'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB'];
 
 // ─── State ───────────────────────────────────────────────────────
@@ -247,18 +247,32 @@ function canSeeNav(n) {
 }
 
 function renderNav() {
+  const visibles = NAV_ITEMS.filter(canSeeNav);
+
+  // Sidebar (desktop)
   const nav = document.getElementById('sidebar-nav');
-  nav.innerHTML = NAV_ITEMS
-    .filter(canSeeNav)
+  nav.innerHTML = visibles
     .map(n => `<a href="#" class="nav-item" data-view="${n.id}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`)
     .join('');
   nav.querySelectorAll('.nav-item').forEach(el => {
     el.addEventListener('click', e => { e.preventDefault(); navigate(el.dataset.view); });
   });
+
+  // Bottom nav (mobile)
+  const bn = document.getElementById('bottom-nav');
+  bn.innerHTML = visibles
+    .map(n => `<button class="bn-item" data-view="${n.id}"><span class="bn-icon">${n.icon}</span><span class="bn-label">${n.label}</span></button>`)
+    .join('');
+  bn.querySelectorAll('.bn-item').forEach(el => {
+    el.addEventListener('click', () => navigate(el.dataset.view));
+  });
 }
 
 function setActiveNav(view) {
   document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  document.querySelectorAll('.bn-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
 }
@@ -3304,6 +3318,10 @@ function showApp() {
   document.getElementById('sb-role').textContent = ROLE_LABELS[S.user.role] || S.user.role;
   // Si el prompt ya estaba listo antes del login, mostrar el botón ahora
   if (_installPrompt) document.getElementById('install-btn').classList.remove('hidden');
+  // Botón Comentarios en sidebar footer: visible solo si el rol tiene acceso
+  const sbComentarios = document.getElementById('sb-comentarios-btn');
+  const puedeComentarios = canSeeNav(NAV_ITEMS.find(n => n.id === 'comentarios'));
+  sbComentarios.style.display = puedeComentarios ? '' : 'none';
   renderNav();
   // Navigate to default view
   const role = S.user.role;
@@ -3426,9 +3444,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Comentarios (acceso rápido desde footer sidebar)
+  document.getElementById('sb-comentarios-btn').addEventListener('click', () => navigate('comentarios'));
+
   // Cambiar contraseña
   document.getElementById('chpwd-btn-sidebar').addEventListener('click', showCambiarPasswordModal);
 
   // Logout
   document.getElementById('logout-btn').addEventListener('click', logout);
+
+  // Hard refresh (bottom nav mobile)
+  document.getElementById('bn-refresh-btn').addEventListener('click', () => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        Promise.all(regs.map(r => r.unregister())).then(() => location.reload(true));
+      });
+    } else {
+      location.reload(true);
+    }
+  });
 });
