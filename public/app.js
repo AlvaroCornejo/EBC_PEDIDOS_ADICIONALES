@@ -2275,43 +2275,29 @@ function showUserModal(user, onSave) {
           </label>`).join('')}
         </div>
       </div>
+      <div class="form-group" id="um-socs-section"><label>Sociedades de Compra</label>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
+          ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" name="um-soc-compra" value="${s}"
+              ${(user?.sociedadesCompra||[]).includes(s)?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            ${s}
+          </label>`).join('')}
+        </div>
+      </div>
       <div id="um-consulta-perms" class="form-group" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px;display:none">
         <label style="display:block;font-weight:600;margin-bottom:10px;color:#0369a1">🔍 Permisos de Consulta</label>
         <div style="display:flex;flex-direction:column;gap:10px">
-
-          <!-- Kardex (común a todos) -->
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-kardex" ${user?.puedeVerKardex?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>📊 <strong>Kardex</strong></span>
           </label>
-
-
-          <!-- Precios: un solo check para roles operativos (SOL/APR/ATE/PLT) -->
-          <div id="um-precios-simple-wrap">
-            <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
-              <input type="checkbox" id="um-precios-simple" ${(user?.sociedadesCompra||[]).length>0?'checked':''}
-                style="width:15px;height:15px;accent-color:var(--primary)">
-              <span>💰 <strong>Precios de Compra</strong></span>
-            </label>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:3px;padding-left:23px">
-              Solo verá precios de sus operaciones asignadas
-            </div>
-          </div>
-
-          <!-- Precios: checkboxes por sociedad para rol Consultas -->
-          <div id="um-precios-socs-wrap" style="display:none">
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">💰 <strong>Precios de Compra</strong> — Sociedades permitidas</div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;padding-left:4px">
-              ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-                <input type="checkbox" name="um-soc-compra" value="${s}"
-                  ${(user?.sociedadesCompra||[]).includes(s)?'checked':''}
-                  style="width:15px;height:15px;accent-color:var(--primary)">
-                ${s}
-              </label>`).join('')}
-            </div>
-          </div>
-
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-precios" ${(user?.sociedadesCompra||[]).length>0?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>💰 <strong>Precios de Compra</strong></span>
+          </label>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -2324,15 +2310,13 @@ function showUserModal(user, onSave) {
   openModal(user ? 'Editar Usuario' : 'Nuevo Usuario', body);
 
   // Mostrar/ocultar secciones según el rol seleccionado
-  const ROLES_CON_PERMISOS = [ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS];
   function syncRoleUI() {
-    const role        = document.getElementById('um-role').value;
-    const isConsulta  = role === ROLES.CONS;
-    const tienePerms  = ROLES_CON_PERMISOS.includes(role);
-    document.getElementById('um-consulta-perms').style.display     = tienePerms  ? 'block' : 'none';
-    document.getElementById('um-precios-simple-wrap').style.display = isConsulta ? 'none'  : 'block';
-    document.getElementById('um-precios-socs-wrap').style.display   = isConsulta ? 'block' : 'none';
-    document.getElementById('um-ops-section').style.display         = 'block'; // siempre visible (ops son generales)
+    const role       = document.getElementById('um-role').value;
+    const isAdmin    = role === ROLES.ADMIN;
+    const isConsulta = role === ROLES.CONS;
+    document.getElementById('um-ops-section').style.display      = isAdmin ? 'none' : 'block';
+    document.getElementById('um-socs-section').style.display     = isAdmin ? 'none' : 'block';
+    document.getElementById('um-consulta-perms').style.display   = isConsulta ? 'block' : 'none';
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
@@ -2342,16 +2326,17 @@ function showUserModal(user, onSave) {
     errEl.classList.add('hidden');
     const role = document.getElementById('um-role').value;
     const isConsulta = role === ROLES.CONS;
-    // sociedadesCompra: para CONS, checkboxes por sociedad; para otros, si marcó el check simple → todas
+    // Sociedades siempre del selector top-level; para CONS además requiere perm de Precios activado
+    const selectedSocs = [...document.querySelectorAll('input[name="um-soc-compra"]:checked')].map(cb => cb.value);
     const sociedadesCompra = isConsulta
-      ? [...document.querySelectorAll('input[name="um-soc-compra"]:checked')].map(cb => cb.value)
-      : (document.getElementById('um-precios-simple')?.checked ? [...ALL_SOCS_COMPRA] : []);
+      ? (document.getElementById('um-precios')?.checked ? selectedSocs : [])
+      : selectedSocs;
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
       role,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
-      puedeVerKardex: document.getElementById('um-kardex')?.checked ?? false,
+      puedeVerKardex: isConsulta ? (document.getElementById('um-kardex')?.checked ?? false) : false,
       sociedadesCompra,
     };
     const pwd = document.getElementById('um-password').value;
