@@ -317,8 +317,8 @@ async function viewSolicitar(container, params = {}) {
   try { S.items = await GET(`/datos/items?operacion=${encodeURIComponent(S.form.operacion)}`); } catch { S.items = []; }
 
   const ops = S.user.role === ROLES.ADMIN
-    ? (S.user.operations?.length ? S.user.operations : ['AASI'])
-    : (S.user.operations || []);
+    ? ALL_OPS
+    : (S.user.operations?.length ? S.user.operations : []);
 
   container.innerHTML = `
     <div class="page-header">
