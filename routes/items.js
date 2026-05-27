@@ -48,17 +48,23 @@ router.post('/sync', async (req, res) => {
 
     if (!excelItems.length) return res.status(400).json({ error: 'No se encontraron items en la hoja "Items"' });
 
-    // Solo inserta items que no existen aún
-    let insertados = 0;
-    for (const it of excelItems) {
-      const exists = await Item.findOne({ operacion: it.operacion, item: it.item });
-      if (!exists) {
-        await Item.create(it);
-        insertados++;
+    // Bulk upsert: inserta nuevos, actualiza nombre/grupoCompra/gestion de existentes
+    // Preserva loteCompra si ya fue configurado manualmente (solo pone default en nuevos)
+    const ops = excelItems.map(it => ({
+      updateOne: {
+        filter: { operacion: it.operacion, item: it.item },
+        update: {
+          $set:         { nombre: it.nombre, grupoCompra: it.grupoCompra, gestion: it.gestion, activo: true },
+          $setOnInsert: { loteCompra: 1 }
+        },
+        upsert: true
       }
-    }
+    }));
+    const result = await Item.bulkWrite(ops, { ordered: false });
+    const insertados  = result.upsertedCount  || 0;
+    const actualizados = result.modifiedCount || 0;
 
-    res.json({ total: excelItems.length, insertados, existentes: excelItems.length - insertados });
+    res.json({ total: excelItems.length, insertados, actualizados, existentes: excelItems.length - insertados });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
