@@ -3445,4 +3445,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Logout
   document.getElementById('logout-btn').addEventListener('click', logout);
+
+  // Hard refresh (bottom nav mobile)
+  document.getElementById('bn-refresh-btn').addEventListener('click', () => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        Promise.all(regs.map(r => r.unregister())).then(() => location.reload(true));
+      });
+    } else {
+      location.reload(true);
+    }
+  });
 });
