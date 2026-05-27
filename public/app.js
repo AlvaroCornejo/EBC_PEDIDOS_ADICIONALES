@@ -228,7 +228,7 @@ const NAV_ITEMS = [
   { id: 'solicitar',      label: 'Solicitar',       icon: '📝', roles: [ROLES.ADMIN, ROLES.SOL] },
   { id: 'mis-pedidos',    label: 'Mis Pedidos',     icon: '📋', roles: [ROLES.ADMIN, ROLES.SOL] },
   { id: 'kardex',         label: 'Kardex',          icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'puedeVerKardex' },
-  { id: 'comentarios',    label: 'Comentarios',     icon: '💬', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS] },
+  // comentarios solo en footer sidebar, no en nav principal
   { id: 'aprobar',        label: 'Aprobar',         icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
   { id: 'atender',        label: 'Atender',         icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
   { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
@@ -3369,10 +3369,8 @@ function showApp() {
   document.getElementById('sb-role').textContent = ROLE_LABELS[S.user.role] || S.user.role;
   // Si el prompt ya estaba listo antes del login, mostrar el botón ahora
   if (_installPrompt) document.getElementById('install-btn').classList.remove('hidden');
-  // Botón Comentarios en sidebar footer: visible solo si el rol tiene acceso
-  const sbComentarios = document.getElementById('sb-comentarios-btn');
-  const puedeComentarios = canSeeNav(NAV_ITEMS.find(n => n.id === 'comentarios'));
-  sbComentarios.style.display = puedeComentarios ? '' : 'none';
+  // Botón Comentarios en sidebar footer: visible para todos los roles
+  document.getElementById('sb-comentarios-btn').style.display = '';
   renderNav();
   // Navigate to default view
   const role = S.user.role;
