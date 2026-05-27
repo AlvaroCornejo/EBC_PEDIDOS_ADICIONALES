@@ -3318,6 +3318,10 @@ function showApp() {
   document.getElementById('sb-role').textContent = ROLE_LABELS[S.user.role] || S.user.role;
   // Si el prompt ya estaba listo antes del login, mostrar el botón ahora
   if (_installPrompt) document.getElementById('install-btn').classList.remove('hidden');
+  // Botón Comentarios en sidebar footer: visible solo si el rol tiene acceso
+  const sbComentarios = document.getElementById('sb-comentarios-btn');
+  const puedeComentarios = canSeeNav(NAV_ITEMS.find(n => n.id === 'comentarios'));
+  sbComentarios.style.display = puedeComentarios ? '' : 'none';
   renderNav();
   // Navigate to default view
   const role = S.user.role;
@@ -3439,6 +3443,9 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('install-btn').classList.add('hidden');
     }
   });
+
+  // Comentarios (acceso rápido desde footer sidebar)
+  document.getElementById('sb-comentarios-btn').addEventListener('click', () => navigate('comentarios'));
 
   // Cambiar contraseña
   document.getElementById('chpwd-btn-sidebar').addEventListener('click', showCambiarPasswordModal);
