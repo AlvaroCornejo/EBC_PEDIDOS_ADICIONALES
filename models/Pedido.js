@@ -18,7 +18,8 @@ const lineaSchema = new mongoose.Schema({
   comentarioAprobador: { type: String, default: '' },
   estadoAtencion:      { type: String, default: 'PENDIENTE' },
   despachoEnExceso:    { type: Boolean, default: false },
-  compraOportunidad:   { type: Boolean, default: false }
+  compraOportunidad:   { type: Boolean, default: false },
+  esItemNuevo:         { type: Boolean, default: false }
 }, { _id: false });
 
 const pedidoSchema = new mongoose.Schema({

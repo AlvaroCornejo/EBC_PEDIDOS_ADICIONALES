@@ -366,6 +366,7 @@ async function viewSolicitar(container, params = {}) {
         </div>
         <div class="add-line-row flex gap-8 items-center">
           <button class="btn btn-outline btn-sm" id="add-linea-btn">+ Agregar línea</button>
+          <button class="btn btn-outline btn-sm" id="add-nuevo-item-btn" style="border-color:#f59e0b;color:#92400e" title="Item que no está en el catálogo">✨ Item no catalogado</button>
           <div class="ml-auto flex gap-8">
             <button class="btn btn-secondary" onclick="navigate('mis-pedidos')">Cancelar</button>
             <button class="btn btn-primary" id="save-pedido-btn">
@@ -584,9 +585,16 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
 
   const rowClass = isAutoAprobado ? ' class="auto-aprobado-row"' : '';
 
-  return `<tr data-idx="${idx}" data-linea-id="${lid}"${isLocked ? ' style="opacity:.7;background:#f9fafb"' : ''}${rowClass}>
-    <td class="col-item">
-      ${(rowEditable && mode !== 'edit-revisar') ? `
+  // ── Celdas que varían según si es item nuevo (no catalogado) ──
+  const esNuevo = !!l.esItemNuevo;
+  const itemCell = esNuevo
+    ? `<div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:1px 7px;border-radius:9px;white-space:nowrap">✨ NUEVO</span>
+          ${rowEditable ? `<input type="text" class="tbl-input nuevo-nombre-input" data-idx="${idx}" value="${esc(l.itemNombre||'')}" placeholder="Descripción del item..." style="min-width:180px">` : `<strong style="font-size:13px">${esc(l.itemNombre||'—')}</strong>`}
+        </div>
+      </div>`
+    : ((rowEditable && mode !== 'edit-revisar') ? `
         <div class="ac-wrap">
           <input type="text" class="tbl-input item-input" data-idx="${idx}" value="${esc(l.itemNombre || l.item || '')}" placeholder="Buscar item..." autocomplete="off">
           <div class="ac-dropdown hidden"></div>
@@ -602,21 +610,33 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
             <strong style="font-size:13px;line-height:1.3">${esc(l.itemNombre || l.item || '')}</strong>
           </div>
           ${l.item ? `<button class="btn-kardex" data-item="${esc(l.item)}" data-nombre="${esc(l.itemNombre||l.item)}" data-op="${esc(operacion||S.form?.operacion||'')}" title="Ver Kardex">📊</button>` : ''}
-        </div>`}
-    </td>
-    <td><span class="auto-grupo-${idx}">${esc(l.grupoCompra || '—')}</span></td>
-    <td class="col-num"><span class="auto-ceA-${idx} ${!l.semanaAnterior?'cell-loading':''}">${l.semanaAnterior ? fmt(sa.consumoEstimado) : '...'}</span></td>
-    <td class="col-num"><span class="auto-rvA-${idx}">${l.semanaAnterior ? fmt(sa.consumoRealVenta) : '...'}</span></td>
-    <td class="col-num"><span class="auto-rcA-${idx}">${l.semanaAnterior ? fmt(sa.consumoReal) : '...'}</span></td>
-    <td class="col-num"><span class="auto-vA-${idx} ${varA>=0?'variacion-pos':'variacion-neg'}">${l.semanaAnterior ? fmt(varA) : '...'}</span></td>
-    <td class="col-num"><span class="auto-ajA-${idx}">${l.semanaAnterior ? fmt(sa.ajuste) : '...'}</span></td>
-    <td class="col-num"><span class="auto-ceC-${idx}">${l.semanaActual ? fmt(sc.consumoEstimado) : '...'}</span></td>
-    <td class="col-num"><span class="auto-rvC-${idx}">${l.semanaActual ? fmt(sc.consumoRealVenta) : '...'}</span></td>
-    <td class="col-num"><span class="auto-rcC-${idx}">${l.semanaActual ? fmt(sc.consumoReal) : '...'}</span></td>
-    <td class="col-num"><span class="auto-vC-${idx} ${varC>=0?'variacion-pos':'variacion-neg'}">${l.semanaActual ? fmt(varC) : '...'}</span></td>
-    <td class="col-num"><span class="auto-ajC-${idx}">${l.semanaActual ? fmt(sc.ajuste) : '...'}</span></td>
-    <td class="col-num"><span class="auto-saldo-${idx}">${l.saldo != null ? fmt(l.saldo) : '...'}</span></td>
-    <td class="col-num"><span class="auto-cu-${idx}">${l.costoUnitario != null ? fmtMoney(l.costoUnitario) : '...'}</span></td>
+        </div>`);
+
+  const grupoCell = esNuevo && rowEditable
+    ? `<input type="text" class="tbl-input nuevo-grupo-input" data-idx="${idx}" value="${esc(l.grupoCompra||'')}" placeholder="Grupo..." style="width:100px">`
+    : `<span class="auto-grupo-${idx}">${esc(l.grupoCompra || '—')}</span>`;
+
+  const costoCell = esNuevo && rowEditable
+    ? `<input type="number" class="tbl-input tbl-input-num nuevo-cu-input" data-idx="${idx}" value="${l.costoUnitario != null ? l.costoUnitario : ''}" min="0" step="0.01" style="width:80px" placeholder="0.00">`
+    : `<span class="auto-cu-${idx}">${l.costoUnitario != null ? fmtMoney(l.costoUnitario) : (esNuevo ? '—' : '...')}</span>`;
+
+  const dash = `<span style="color:#9ca3af">—</span>`;
+
+  return `<tr data-idx="${idx}" data-linea-id="${lid}"${isLocked ? ' style="opacity:.7;background:#f9fafb"' : ''}${esNuevo ? ' style="background:#fffdf0"' : ''}${rowClass}>
+    <td class="col-item">${itemCell}</td>
+    <td>${grupoCell}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-ceA-${idx} ${!l.semanaAnterior?'cell-loading':''}">${l.semanaAnterior ? fmt(sa.consumoEstimado) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-rvA-${idx}">${l.semanaAnterior ? fmt(sa.consumoRealVenta) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-rcA-${idx}">${l.semanaAnterior ? fmt(sa.consumoReal) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-vA-${idx} ${varA>=0?'variacion-pos':'variacion-neg'}">${l.semanaAnterior ? fmt(varA) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-ajA-${idx}">${l.semanaAnterior ? fmt(sa.ajuste) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-ceC-${idx}">${l.semanaActual ? fmt(sc.consumoEstimado) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-rvC-${idx}">${l.semanaActual ? fmt(sc.consumoRealVenta) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-rcC-${idx}">${l.semanaActual ? fmt(sc.consumoReal) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-vC-${idx} ${varC>=0?'variacion-pos':'variacion-neg'}">${l.semanaActual ? fmt(varC) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-ajC-${idx}">${l.semanaActual ? fmt(sc.ajuste) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-saldo-${idx}">${l.saldo != null ? fmt(l.saldo) : '...'}</span>`}</td>
+    <td class="col-num">${costoCell}</td>
     <td class="col-num">
       ${rowEditable
         ? `<input type="number" class="tbl-input tbl-input-num cantidad-input" data-idx="${idx}" value="${l.cantidadSolicitada || ''}" min="0.01" step="0.01" style="width:90px">`
@@ -660,6 +680,20 @@ function addLinea() {
   setupRowEvents(tbody.lastElementChild, idx);
 }
 
+function addLineaNuevo() {
+  const { v4: uuidv4 } = { v4: () => Date.now().toString(36) + Math.random().toString(36).slice(2) };
+  S.form.lineas.push({ id: uuidv4(), item: '', itemNombre: '', grupoCompra: '', cantidadSolicitada: null, comentarios: '', semanaAnterior: null, semanaActual: null, saldo: null, costoUnitario: null, esItemNuevo: true });
+  const idx = S.form.lineas.length - 1;
+  const tbody = document.getElementById('lineas-tbody');
+  tbody.insertAdjacentHTML('beforeend', renderLineaRow(S.form.lineas[idx], idx, true, S.form.editMode || 'edit'));
+  setupRowEvents(tbody.lastElementChild, idx);
+  // Focus el input del nombre
+  setTimeout(() => {
+    const inp = tbody.lastElementChild?.querySelector('.nuevo-nombre-input');
+    if (inp) inp.focus();
+  }, 50);
+}
+
 function setupSolicitarEvents(container) {
   // Operación / fecha change
   document.getElementById('f-op').addEventListener('change', async e => {
@@ -675,6 +709,11 @@ function setupSolicitarEvents(container) {
   // Add line
   document.getElementById('add-linea-btn').addEventListener('click', () => {
     addLinea();
+  });
+
+  // Add non-catalogued item line
+  document.getElementById('add-nuevo-item-btn').addEventListener('click', () => {
+    addLineaNuevo();
   });
 
   // Save
@@ -733,6 +772,28 @@ function setupRowEvents(tr, idx) {
   const compraOpCheck = tr.querySelector('.compra-op-check');
   if (compraOpCheck) {
     compraOpCheck.addEventListener('change', e => { S.form.lineas[idx].compraOportunidad = e.target.checked; });
+  }
+
+  // Inputs exclusivos de item no catalogado
+  const nuevoNombre = tr.querySelector('.nuevo-nombre-input');
+  if (nuevoNombre) {
+    nuevoNombre.addEventListener('input', e => { S.form.lineas[idx].itemNombre = e.target.value; });
+  }
+  const nuevoCu = tr.querySelector('.nuevo-cu-input');
+  if (nuevoCu) {
+    nuevoCu.addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      S.form.lineas[idx].costoUnitario = val > 0 ? val : null;
+      const cu = S.form.lineas[idx].costoUnitario || 0;
+      const ct = (S.form.lineas[idx].cantidadSolicitada || 0) * cu;
+      const ctEl = tr.querySelector(`.auto-ct-${idx}`);
+      if (ctEl) ctEl.textContent = fmtMoney(ct);
+      updateTotal();
+    });
+  }
+  const nuevoGrupo = tr.querySelector('.nuevo-grupo-input');
+  if (nuevoGrupo) {
+    nuevoGrupo.addEventListener('input', e => { S.form.lineas[idx].grupoCompra = e.target.value; });
   }
 }
 
@@ -916,8 +977,13 @@ async function savePedido() {
   const btn = document.getElementById('save-pedido-btn');
   if (!S.form.operacion) return toast('Seleccione una operación', 'error');
   if (!S.form.fecha) return toast('Seleccione una fecha', 'error');
-  const lineas = S.form.lineas.filter(l => l.item);
+  const lineas = S.form.lineas.filter(l => l.item || l.esItemNuevo);
   if (!lineas.length) return toast('Agregue al menos una línea con item', 'error');
+  // Validar items nuevos: descripción y costo requeridos
+  const nuevoSinNombre = lineas.find(l => l.esItemNuevo && !l.itemNombre?.trim());
+  if (nuevoSinNombre) return toast('Los items no catalogados deben tener una descripción', 'error');
+  const nuevoSinCosto = lineas.find(l => l.esItemNuevo && !(l.costoUnitario > 0));
+  if (nuevoSinCosto) return toast(`El item "${nuevoSinCosto.itemNombre || 'nuevo'}" debe tener costo unitario mayor a cero`, 'error');
   const lineaSinCantidad = lineas.find(l => !(l.cantidadSolicitada > 0));
   if (lineaSinCantidad) return toast(`La cantidad de "${lineaSinCantidad.itemNombre || lineaSinCantidad.item}" debe ser mayor a cero`, 'error');
 
