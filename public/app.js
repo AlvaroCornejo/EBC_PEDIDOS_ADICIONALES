@@ -1227,7 +1227,7 @@ async function viewKardex(container) {
     </div>`;
 
   async function loadItems() {
-    try { allItems = await GET(`/items?operacion=${activeOp}`); } catch { allItems = []; }
+    try { allItems = await GET(`/datos/items?operacion=${activeOp}`); } catch { allItems = []; }
   }
 
   function renderKardexTable(data, item, nombre) {
