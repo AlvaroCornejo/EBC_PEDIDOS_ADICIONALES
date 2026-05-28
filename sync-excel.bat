@@ -40,6 +40,9 @@ if %errorlevel%==0 (echo OK: GBSRQ) else (echo ERROR: GBSRQ)
 copy /Y "%SRC%\PREP - ADICIONALES.xlsx"      "%DST%\PREP - ADICIONALES.xlsx"
 if %errorlevel%==0 (echo OK: PREP) else (echo ERROR: PREP)
 
+copy /Y "%SRC%\GBPLANTA - ADICIONALES.xlsx"  "%DST%\GBPLANTA - ADICIONALES.xlsx"
+if %errorlevel%==0 (echo OK: GBPLANTA) else (echo ERROR: GBPLANTA)
+
 echo.
 echo Sincronizacion completada.
 
