@@ -2195,10 +2195,12 @@ async function viewVentasTip(container) {
     { key: 'pctTip',      label: '% TIP (TIP/V.Bruta)', color: '#8b5cf6', isPct: true  },
     { key: 'todos',       label: 'Ver todo',            color: '',        isPct: false }
   ];
+  // Importes sin decimales para la vista de ventas; % con 1 decimal
+  const fmtV = v => v == null ? '—' : 'S/ ' + Math.round(v).toLocaleString('es-CL');
   const fmtMetrica = (key, val) => {
     const m = METRICAS.find(m => m.key === key);
     if (!m || val == null) return '—';
-    return m.isPct ? val.toFixed(1) + '%' : fmtMoney(val);
+    return m.isPct ? val.toFixed(1) + '%' : fmtV(val);
   };
   const addPct = row => ({
     ...row,
@@ -2246,7 +2248,7 @@ async function viewVentasTip(container) {
           <div>
             <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Métrica</label>
             <select id="vt-metrica" class="form-control" style="width:190px">
-              ${METRICAS.map(m => `<option value="${m.key}"${m.key==='tipTotal'?' selected':''}>${m.label}</option>`).join('')}
+              ${METRICAS.map(m => `<option value="${m.key}"${m.key==='todos'?' selected':''}>${m.label}</option>`).join('')}
             </select>
           </div>
           <button class="btn btn-primary" id="vt-buscar" style="align-self:flex-end">🔍 Buscar</button>
@@ -2321,12 +2323,12 @@ async function viewVentasTip(container) {
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
         <div class="card" style="padding:12px">
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Venta Neta (últ. 4 sem)</div>
-          <div style="font-size:20px;font-weight:700">${fmtMoney(vNeta)}</div>
+          <div style="font-size:20px;font-weight:700">${fmtV(vNeta)}</div>
           <div style="font-size:12px;margin-top:4px">${arrow(pctV)} vs 4 sem. anteriores</div>
         </div>
         <div class="card" style="padding:12px">
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">TIP Total (últ. 4 sem)</div>
-          <div style="font-size:20px;font-weight:700">${fmtMoney(tTot)}</div>
+          <div style="font-size:20px;font-weight:700">${fmtV(tTot)}</div>
           <div style="font-size:12px;margin-top:4px">${arrow(pctT)} vs 4 sem. anteriores</div>
         </div>
         <div class="card" style="padding:12px">
@@ -2334,7 +2336,7 @@ async function viewVentasTip(container) {
           <div style="font-size:20px;font-weight:700;color:#8b5cf6">
             ${bTot > 0 ? (tTot / bTot * 100).toFixed(1) + '%' : '—'}
           </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Efe: ${fmtMoney(ult4.reduce((s,r)=>s+r.tipEfectivo,0))} / TC: ${fmtMoney(ult4.reduce((s,r)=>s+r.tipTC,0))}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Efe: ${fmtV(ult4.reduce((s,r)=>s+r.tipEfectivo,0))} / TC: ${fmtV(ult4.reduce((s,r)=>s+r.tipTC,0))}</div>
         </div>
         <div class="card" style="padding:12px">
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Semanas con datos</div>
@@ -2383,7 +2385,7 @@ async function viewVentasTip(container) {
           <div style="flex:1;height:6px;background:#f3f4f6;border-radius:3px;max-width:60px">
             <div style="width:${w}%;height:100%;background:${col.color};border-radius:3px"></div>
           </div>
-          <span style="font-size:12px;min-width:56px;text-align:right">${fmtMoney(val)}</span>
+          <span style="font-size:12px;min-width:56px;text-align:right">${fmtV(val)}</span>
         </div></td>`;
     }
     function renderBody() {
