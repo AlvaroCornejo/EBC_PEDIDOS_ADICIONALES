@@ -232,6 +232,7 @@ const NAV_ITEMS = [
   { id: 'aprobar',        label: 'Aprobar',         icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
   { id: 'atender',        label: 'Atender',         icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
   { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
+  { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS] },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -283,7 +284,7 @@ function navigate(view, params = {}) {
   setActiveNav(view);
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -1873,6 +1874,255 @@ async function showResumenModal() {
         <tbody>${rowsMes || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Sin datos</td></tr>'}</tbody>
       </table>
     </div>`);
+}
+
+// ─── View: Comparativo OC ─────────────────────────────────────────
+
+async function viewComparativo(container) {
+  // Operaciones accesibles para este usuario
+  const userOps = S.user.role === ROLES.ADMIN ? ALL_OPS : (S.user.operations || ALL_OPS);
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">📈 Comparativo OC vs Ingresos</div>
+    </div>
+    <div class="page-body">
+      <!-- Filtros -->
+      <div class="card mb-16" style="padding:16px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Operación</label>
+            <select id="cmp-op" class="form-control" style="width:160px">
+              ${userOps.map(o => `<option value="${o}">${o}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Grupo Compra</label>
+            <select id="cmp-grupo" class="form-control" style="width:180px">
+              <option value="">Todos los grupos</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Semanas</label>
+            <select id="cmp-sems" class="form-control" style="width:130px">
+              <option value="4">4 sem (1 mes)</option>
+              <option value="8" selected>8 sem (2 meses)</option>
+              <option value="13">13 sem (3 meses)</option>
+              <option value="26">26 sem (6 meses)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Vista</label>
+            <select id="cmp-vista" class="form-control" style="width:160px">
+              <option value="resumen">Resumen por ítem</option>
+              <option value="evolucion">Evolución semanal</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="cmp-buscar" style="align-self:flex-end">🔍 Buscar</button>
+        </div>
+      </div>
+      <!-- Leyenda eficiencia -->
+      <div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#10b981;margin-right:4px"></span>90–110% (en rango)</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f59e0b;margin-right:4px"></span>70–90% o 110–130% (desviación leve)</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:4px"></span>&lt;70% o &gt;130% (crítico)</span>
+      </div>
+      <div id="cmp-result"></div>
+    </div>`;
+
+  // Cargar grupos al cambiar operación
+  async function cargarGrupos() {
+    const op = document.getElementById('cmp-op').value;
+    try {
+      const grupos = await GET(`/comparativo/grupos?operacion=${op}`);
+      const sel = document.getElementById('cmp-grupo');
+      sel.innerHTML = '<option value="">Todos los grupos</option>';
+      grupos.forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g; opt.textContent = g;
+        sel.appendChild(opt);
+      });
+    } catch {}
+  }
+
+  document.getElementById('cmp-op').addEventListener('change', cargarGrupos);
+  await cargarGrupos();
+
+  document.getElementById('cmp-buscar').addEventListener('click', buscarComparativo);
+  document.getElementById('cmp-sems').addEventListener('change', buscarComparativo);
+  document.getElementById('cmp-vista').addEventListener('change', buscarComparativo);
+
+  async function buscarComparativo() {
+    const op     = document.getElementById('cmp-op').value;
+    const grupo  = document.getElementById('cmp-grupo').value;
+    const sems   = document.getElementById('cmp-sems').value;
+    const vista  = document.getElementById('cmp-vista').value;
+    const res    = document.getElementById('cmp-result');
+    res.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+    try {
+      if (vista === 'resumen') {
+        const data = await GET(`/comparativo/resumen?operacion=${op}&grupoCompra=${encodeURIComponent(grupo)}&semanas=${sems}`);
+        renderResumen(res, data, op, sems);
+      } else {
+        const data = await GET(`/comparativo/evolucion?operacion=${op}&grupoCompra=${encodeURIComponent(grupo)}&semanas=${sems}`);
+        renderEvolucion(res, data, op);
+      }
+    } catch (err) {
+      res.innerHTML = `<div class="msg-error">${err.message}</div>`;
+    }
+  }
+
+  // ── Render resumen por ítem ──────────────────────────────────────
+  function pctColor(pct) {
+    if (pct == null) return '#9ca3af';
+    if (pct >= 90 && pct <= 110) return '#10b981';
+    if (pct >= 70 && pct <= 130) return '#f59e0b';
+    return '#ef4444';
+  }
+  function pctBadge(pct) {
+    if (pct == null) return '<span style="color:#9ca3af">—</span>';
+    const color = pctColor(pct);
+    return `<span style="background:${color}22;color:${color};padding:2px 8px;border-radius:10px;font-weight:600;font-size:11px">${pct.toFixed(1)}%</span>`;
+  }
+
+  function renderResumen(container, data, op, sems) {
+    if (!data.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos para ${op} en las últimas ${sems} semanas.</p></div>`;
+      return;
+    }
+    // Totales
+    const totReal  = data.reduce((s,r) => s + r.importeReal, 0);
+    const totOC    = data.reduce((s,r) => s + r.impOCTotal, 0);
+    const pctGlobal = totOC > 0 ? (totReal / totOC * 100) : null;
+
+    // Clasificación
+    const enRango  = data.filter(r => r.pctCumplimiento != null && r.pctCumplimiento >= 90 && r.pctCumplimiento <= 110).length;
+    const leve     = data.filter(r => r.pctCumplimiento != null && ((r.pctCumplimiento >= 70 && r.pctCumplimiento < 90) || (r.pctCumplimiento > 110 && r.pctCumplimiento <= 130))).length;
+    const critico  = data.filter(r => r.pctCumplimiento != null && (r.pctCumplimiento < 70 || r.pctCumplimiento > 130)).length;
+
+    container.innerHTML = `
+      <!-- KPIs -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px">
+        <div class="card" style="padding:12px;text-align:center">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Cumplimiento global</div>
+          <div style="font-size:22px;font-weight:700;color:${pctColor(pctGlobal)}">${pctGlobal != null ? pctGlobal.toFixed(1)+'%' : '—'}</div>
+        </div>
+        <div class="card" style="padding:12px;text-align:center">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Importe OC</div>
+          <div style="font-size:18px;font-weight:700">${fmtMoney(totOC)}</div>
+        </div>
+        <div class="card" style="padding:12px;text-align:center">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Importe Real</div>
+          <div style="font-size:18px;font-weight:700">${fmtMoney(totReal)}</div>
+        </div>
+        <div class="card" style="padding:12px;text-align:center">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Diferencia</div>
+          <div style="font-size:18px;font-weight:700;color:${totReal-totOC >= 0 ? '#10b981' : '#ef4444'}">${fmtMoney(totReal - totOC)}</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Items por eficiencia</div>
+          <div style="font-size:12px;display:flex;flex-direction:column;gap:3px">
+            <span style="color:#10b981">● En rango: <strong>${enRango}</strong></span>
+            <span style="color:#f59e0b">● Desviación leve: <strong>${leve}</strong></span>
+            <span style="color:#ef4444">● Crítico: <strong>${critico}</strong></span>
+          </div>
+        </div>
+      </div>
+      <!-- Tabla -->
+      <div class="card">
+        <div style="padding:12px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+          ${data.length} ítems — últimas ${sems} semanas
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Ítem</th>
+                <th>Descripción</th>
+                <th>Grupo</th>
+                <th class="text-right">Cant. OC</th>
+                <th class="text-right">Cant. Real</th>
+                <th class="text-right">% Cumpl.</th>
+                <th class="text-right">Importe OC</th>
+                <th class="text-right">Importe Real</th>
+                <th class="text-right">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(r => `<tr style="cursor:pointer" onclick="cmpVerEvolucion('${r.item}','${esc(r.nombre)}')">
+                <td><code style="font-size:11px">${esc(r.item)}</code></td>
+                <td style="font-size:12px">${esc(r.nombre)}</td>
+                <td><span style="font-size:11px;background:var(--bg-secondary);padding:1px 6px;border-radius:4px">${esc(r.grupoCompra)}</span></td>
+                <td class="text-right">${fmt(r.ocTotal, 1)}</td>
+                <td class="text-right">${fmt(r.cantidadReal, 1)}</td>
+                <td class="text-right">${pctBadge(r.pctCumplimiento)}</td>
+                <td class="text-right text-muted">${fmtMoney(r.impOCTotal)}</td>
+                <td class="text-right">${fmtMoney(r.importeReal)}</td>
+                <td class="text-right" style="color:${r.diferencia >= 0 ? '#10b981' : '#ef4444'};font-weight:600">${fmtMoney(r.diferencia)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    // Función global para drill-down desde fila
+    window.cmpVerEvolucion = async (item, nombre) => {
+      const op   = document.getElementById('cmp-op').value;
+      const sems = document.getElementById('cmp-sems').value;
+      try {
+        const data = await GET(`/comparativo/evolucion?operacion=${op}&item=${item}&semanas=${sems}`);
+        renderEvolucion(container, data, op, nombre);
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  }
+
+  // ── Render evolución semanal ─────────────────────────────────────
+  function renderEvolucion(container, data, op, titulo) {
+    if (!data.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos de evolución.</p></div>`;
+      return;
+    }
+    container.innerHTML = `
+      <div class="card">
+        <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border)">
+          ${titulo ? `📈 Evolución: ${esc(titulo)}` : `📈 Evolución semanal — ${op}`}
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Semana</th>
+                <th class="text-right">Cant. OC</th>
+                <th class="text-right">Cant. Real</th>
+                <th class="text-right">% Cumpl.</th>
+                <th class="text-right">Importe OC</th>
+                <th class="text-right">Importe Real</th>
+                <th class="text-right">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(r => `<tr>
+                <td><strong>${esc(r.label)}</strong></td>
+                <td class="text-right">${fmt(r.cantidadOC, 1)}</td>
+                <td class="text-right">${fmt(r.cantidadReal, 1)}</td>
+                <td class="text-right">${pctBadge(r.pctCumplimiento)}</td>
+                <td class="text-right text-muted">${fmtMoney(r.importeOC)}</td>
+                <td class="text-right">${fmtMoney(r.importeReal)}</td>
+                <td class="text-right" style="color:${(r.importeReal-r.importeOC)>=0?'#10b981':'#ef4444'};font-weight:600">${fmtMoney(r.importeReal - r.importeOC)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="padding:10px 16px">
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('cmp-vista').value='resumen';document.getElementById('cmp-buscar').click()">
+            ← Volver al resumen
+          </button>
+        </div>
+      </div>`;
+  }
+
+  // Cargar al inicio
+  await buscarComparativo();
 }
 
 // ─── View: Admin ──────────────────────────────────────────────────

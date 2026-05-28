@@ -50,6 +50,7 @@ app.use('/api/items',       require('./routes/items'));
 app.use('/api/comentarios', require('./routes/comentarios'));
 app.use('/api/push',        require('./routes/push'));
 app.use('/api/compras',     require('./routes/compras'));
+app.use('/api/comparativo', require('./routes/comparativo'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
