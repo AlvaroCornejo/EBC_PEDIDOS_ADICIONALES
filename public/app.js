@@ -233,6 +233,7 @@ const NAV_ITEMS = [
   { id: 'atender',        label: 'Atender',         icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
   { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS] },
+  { id: 'ventas',         label: 'Venta / TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -284,7 +285,7 @@ function navigate(view, params = {}) {
   setActiveNav(view);
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -2179,6 +2180,202 @@ async function viewComparativo(container) {
   await buscarComparativo();
 }
 
+// ─── View: Venta / TIP por Operación ─────────────────────────────
+async function viewVentasTip(container) {
+  // Cargar operaciones con datos reales
+  let opsConDatos = [];
+  try { opsConDatos = await GET('/ventas/operaciones'); } catch {}
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">🛒 Venta / TIP por Operación</div>
+    </div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:16px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Operación</label>
+            <select id="vt-op" class="form-control" style="width:160px">
+              <option value="">Todas</option>
+              ${opsConDatos.map(o => `<option value="${o}">${o}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Semanas</label>
+            <select id="vt-sems" class="form-control" style="width:140px">
+              <option value="8">8 sem (2 meses)</option>
+              <option value="13" selected>13 sem (3 meses)</option>
+              <option value="26">26 sem (6 meses)</option>
+              <option value="52">52 sem (1 año)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Métrica</label>
+            <select id="vt-metrica" class="form-control" style="width:180px">
+              <option value="ventaNeta">Venta Neta</option>
+              <option value="ventaBruta">Venta Bruta</option>
+              <option value="tipTotal" selected>TIP Total (Efe + TC)</option>
+              <option value="tipEfectivo">TIP Efectivo</option>
+              <option value="tipTC">TIP TC</option>
+              <option value="todos">Ver todo</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="vt-buscar" style="align-self:flex-end">🔍 Buscar</button>
+        </div>
+      </div>
+      <div id="vt-result"></div>
+    </div>`;
+
+  document.getElementById('vt-buscar').addEventListener('click', buscarVentas);
+  document.getElementById('vt-sems').addEventListener('change', buscarVentas);
+  document.getElementById('vt-op').addEventListener('change', buscarVentas);
+  document.getElementById('vt-metrica').addEventListener('change', buscarVentas);
+
+  async function buscarVentas() {
+    const op      = document.getElementById('vt-op').value;
+    const sems    = document.getElementById('vt-sems').value;
+    const metrica = document.getElementById('vt-metrica').value;
+    const res     = document.getElementById('vt-result');
+    res.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+    try {
+      const data = await GET(`/ventas/evolucion?operacion=${op}&semanas=${sems}`);
+      renderVentas(res, data, metrica, op);
+    } catch (err) {
+      res.innerHTML = `<div class="msg-error">${err.message}</div>`;
+    }
+  }
+
+  function fmtV(v) { return v == null ? '—' : (v >= 1000 ? (v/1000).toFixed(1)+'K' : v.toFixed(0)); }
+
+  function renderVentas(container, data, metrica, op) {
+    if (!data.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos disponibles.</p></div>`;
+      return;
+    }
+
+    // ── KPIs: últimas 4 semanas vs 4 anteriores ──────────────────────
+    const ult4  = data.slice(-4);
+    const ant4  = data.slice(-8, -4);
+    const sumV  = arr => arr.reduce((s,r) => s + r.ventaNeta, 0);
+    const sumT  = arr => arr.reduce((s,r) => s + r.tipTotal, 0);
+    const vNeta   = sumV(ult4), vAnt = sumV(ant4);
+    const tTotal  = sumT(ult4), tAnt = sumT(ant4);
+    const pctV = vAnt > 0 ? ((vNeta - vAnt) / vAnt * 100) : null;
+    const pctT = tAnt > 0 ? ((tTotal - tAnt) / tAnt * 100) : null;
+    const arrow = v => v == null ? '' : (v >= 0 ? `<span style="color:#10b981">▲ ${v.toFixed(1)}%</span>` : `<span style="color:#ef4444">▼ ${Math.abs(v).toFixed(1)}%</span>`);
+
+    // ── Columnas a mostrar ────────────────────────────────────────────
+    const COLS_TODAS = [
+      { key: 'ventaBruta',  label: 'V. Bruta',   color: '#6366f1' },
+      { key: 'ventaNeta',   label: 'V. Neta',    color: '#3b82f6' },
+      { key: 'tipEfectivo', label: 'TIP Efe.',   color: '#10b981' },
+      { key: 'tipTC',       label: 'TIP TC',     color: '#f59e0b' },
+      { key: 'tipTotal',    label: 'TIP Total',  color: '#ef4444' }
+    ];
+    const cols = metrica === 'todos' ? COLS_TODAS
+      : COLS_TODAS.filter(c => c.key === metrica);
+
+    // ── Estado ordenamiento tabla ─────────────────────────────────────
+    let sortKey = 'añosem', sortDir = -1;
+
+    container.innerHTML = `
+      <!-- KPIs -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Venta Neta (últ. 4 sem)</div>
+          <div style="font-size:20px;font-weight:700">${fmtMoney(vNeta)}</div>
+          <div style="font-size:12px;margin-top:4px">${arrow(pctV)} vs 4 sem. anteriores</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">TIP Total (últ. 4 sem)</div>
+          <div style="font-size:20px;font-weight:700">${fmtMoney(tTotal)}</div>
+          <div style="font-size:12px;margin-top:4px">${arrow(pctT)} vs 4 sem. anteriores</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">% TIP / Venta (últ. 4 sem)</div>
+          <div style="font-size:20px;font-weight:700;color:${vNeta > 0 ? (tTotal/vNeta > 0.05 ? '#10b981' : '#f59e0b') : '#9ca3af'}">
+            ${vNeta > 0 ? (tTotal / vNeta * 100).toFixed(1) + '%' : '—'}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">TIP Efe: ${fmtMoney(ult4.reduce((s,r)=>s+r.tipEfectivo,0))} / TC: ${fmtMoney(ult4.reduce((s,r)=>s+r.tipTC,0))}</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Semanas con datos</div>
+          <div style="font-size:20px;font-weight:700">${data.length}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${data[0]?.label} → ${data[data.length-1]?.label}</div>
+        </div>
+      </div>
+
+      <!-- Tabla con barras integradas -->
+      <div class="card">
+        <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+          ${op || 'Todas las operaciones'} — evolución semanal${cols.length < 5 ? ` (${cols[0]?.label})` : ''}
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table" id="vt-tabla">
+            <thead id="vt-head"></thead>
+            <tbody id="vt-body"></tbody>
+          </table>
+        </div>
+      </div>`;
+
+    // Máximos para barras
+    const maxVenta = Math.max(...data.map(r => r.ventaNeta));
+    const maxTip   = Math.max(...data.map(r => r.tipTotal));
+
+    function sortData(rows) {
+      return [...rows].sort((a, b) => {
+        const va = a[sortKey] ?? 0, vb = b[sortKey] ?? 0;
+        return typeof va === 'string' ? sortDir * va.localeCompare(vb) : sortDir * (va - vb);
+      });
+    }
+
+    function renderHead() {
+      const allCols = [{ key: 'añosem', label: 'Semana', align: 'left' },
+        ...cols.map(c => ({ key: c.key, label: c.label, align: 'right' }))];
+      document.getElementById('vt-head').innerHTML = `<tr>${allCols.map(c => {
+        const isActive = c.key === sortKey;
+        const ind = isActive ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
+        return `<th style="cursor:pointer;user-select:none;${c.align==='right'?'text-align:right':''}"
+                    onclick="vtSort('${c.key}')">${c.label}<span style="color:${isActive?'var(--primary)':'#9ca3af'};font-size:10px">${ind || ' ⇅'}</span></th>`;
+      }).join('')}</tr>`;
+    }
+
+    function renderBody() {
+      document.getElementById('vt-body').innerHTML = sortData(data).map(r => {
+        const pctBarra = v => Math.max(2, Math.round(v / (Math.max(maxVenta, maxTip) || 1) * 100));
+        const celdaBar = (val, color) => {
+          const pct = Math.max(2, Math.round(val / (maxVenta || 1) * 80));
+          return `<td class="text-right" style="min-width:90px">
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px">
+              <div style="flex:1;height:6px;background:#f3f4f6;border-radius:3px;max-width:60px">
+                <div style="width:${pct}%;height:100%;background:${color};border-radius:3px"></div>
+              </div>
+              <span style="font-size:12px;min-width:52px;text-align:right">${fmtMoney(val)}</span>
+            </div>
+          </td>`;
+        };
+        return `<tr>
+          <td><strong>${esc(r.label)}</strong></td>
+          ${cols.map(c => celdaBar(r[c.key] || 0, c.color)).join('')}
+        </tr>`;
+      }).join('');
+    }
+
+    renderHead();
+    renderBody();
+
+    window.vtSort = (key) => {
+      if (sortKey === key) sortDir *= -1;
+      else { sortKey = key; sortDir = key === 'label' ? 1 : -1; }
+      renderHead();
+      renderBody();
+    };
+  }
+
+  // Carga inicial
+  await buscarVentas();
+}
+
 // ─── View: Admin ──────────────────────────────────────────────────
 async function viewAdmin(container) {
   container.innerHTML = `
@@ -2607,6 +2804,11 @@ function showUserModal(user, onSave) {
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>📈 <strong>OC / Ingresos al Almacén</strong></span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-ventas" ${user?.puedeVerVentas?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🛒 <strong>Venta / TIP por Operación</strong></span>
+          </label>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -2647,6 +2849,7 @@ function showUserModal(user, onSave) {
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       puedeVerKardex:      isConsulta ? (document.getElementById('um-kardex')?.checked      ?? false) : false,
       puedeVerComparativo: isConsulta ? (document.getElementById('um-comparativo')?.checked ?? false) : false,
+      puedeVerVentas:      isConsulta ? (document.getElementById('um-ventas')?.checked      ?? false) : false,
       sociedadesCompra,
     };
     const pwd = document.getElementById('um-password').value;
