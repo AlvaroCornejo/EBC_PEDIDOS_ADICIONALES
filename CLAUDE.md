@@ -12,11 +12,12 @@
 ## Proyecto relacionado: payment_app
 
 - Ruta local: `C:\Users\alvar\payment_app\`
-- Flask/Python/SQLite, corre localmente con `iniciar.bat`
+- Flask/Python/SQLite, corre localmente con `iniciar.bat` (puerto 5000)
 - Repo: https://github.com/AlvaroCornejo/payment_app
-- Acceso al servidor donde corre: RDP a CORPSERV-PRUEBA
+- Servidor donde corre: CORPSERV-PRUEBA (acceso por RDP)
+- Tiene su propio `CLAUDE.md` con detalle de ese proyecto
 
-## Operaciones disponibles (ALL_OPS)
+## Operaciones disponibles (ALL_OPS) — orden exacto
 
 ```javascript
 ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA']
@@ -45,13 +46,13 @@
 - Hoja **Kardex**: col1=ITEM, col2=TRX, col3=AÑOSEM (YYYYWW), col4=CANTIDAD
 - Hoja **Costos**: col1=ITEM, colX=COSTO (detectado dinámicamente desde cabecera)
 - Hoja **Requisiciones**: col1=ITEM, col2=SEM ANT, col3=SEM ACT, col4=AJUSTE ACT, col5=AJUSTE ANT
-- Ruta Box: `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC ADICIONALES\`
-- Destino servidor: `C:\pedidos-app\data\`
+- Ruta Box origen: `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC ADICIONALES\`
+- Destino en servidor sync: `C:\pedidos-app\data\`
 
-### MongoDB (ocasional — cuando hay items nuevos en el catálogo)
+### MongoDB (ocasional)
 - Colección **Item**: loteCompra, gestion por operación
 - Colección **CompraPareto** / **CompraRoc**: precios históricos de compra
-- Sync items: ejecutar desde consola del navegador (admin logueado):
+- Sync items desde consola del navegador (admin logueado):
 ```javascript
 (async () => {
   const ops = ['AASI','CDLAO','CDL28','CORP','DOSIMETRIA','PREP','GBADC','GBCFR','GBCFR2','GBCRP','GBGOL','GBSRQ','GBPLANTA'];
@@ -62,14 +63,15 @@
 })();
 ```
 - Import precios compra: `node scripts/importCompras.js "ruta\al\archivo.xlsx"`
+- Excel por defecto: `C:\Users\alvar\Box\EBC\EBC AI\EBC AI BASES\EBC COMPRAS\EBC COMPRAS HISTORICAS.xlsx`
 
 ## Flujo de sincronización Excel → DigitalOcean
 
-1. Correr `sync-excel.bat` en servidor (CORPSERV-PRUEBA, carpeta `C:\pedidos-app\`)
-2. El bat copia los xlsx de Box a `data\`, hace `git add data\`, `git commit`, `git push`
+1. Correr `sync-excel.bat` en servidor CORPSERV-PRUEBA (carpeta `C:\pedidos-app\`)
+2. El bat copia xlsx de Box a `data\`, hace `git add data\`, `git commit`, `git push`
 3. DigitalOcean detecta el push y redespliega en 1-2 minutos
 
-**Problema recurrente**: el servidor a veces tiene `sync-excel.bat` modificado localmente, lo que causa conflicto en `git pull`. Solución:
+**Problema recurrente**: el servidor tiene `sync-excel.bat` modificado localmente → conflicto en git pull. Solución:
 ```powershell
 cd C:\pedidos-app
 git checkout -- sync-excel.bat
@@ -80,20 +82,33 @@ git pull origin main --no-edit
 
 - **Sidebar** (desktop): nav items + footer con Comentarios / Cambiar contraseña / Salir
 - **Bottom nav** (móvil ≤768px): mismos nav items + botón ↺ (hard refresh) fijo a la derecha
-- **Comentarios**: solo en footer del sidebar, NO en nav principal
+- **Comentarios**: SOLO en footer del sidebar, NO aparece en el nav principal ni en bottom nav
 
-## Cambios importantes realizados (historial)
+## Form de mantenimiento de usuarios
 
+- **Operaciones asignadas**: checkboxes de las 13 operaciones (visible para todos los no-admin)
+- **Sociedades de Compra**: checkboxes ERSAC / FRQ1 / GB al mismo nivel que Operaciones
+- **Permisos de Consulta** (recuadro azul): SOLO visible para rol OPERADOR_CONSULTA
+  - Kardex ✅
+  - Precios de Compra ✅ (activa las sociedades seleccionadas arriba)
+- Para ADMIN: no se muestran Operaciones ni Sociedades ni Permisos
+
+## Cambios implementados (historial completo)
+
+### Sesión 1
 - Branding login: "EBC" / "EL BIEN COMÚN"
-- Bottom nav móvil con botón hard refresh
-- Item no catalogado en solicitar (flag `esItemNuevo`, requiere descripción y costo unitario)
-- `readCostos()` detecta columna COSTO dinámicamente desde cabecera (varía por operación)
-- Bulk upsert en `/api/items/sync` para evitar timeout 504
+- Bottom nav móvil con botón hard refresh (↺)
+- Botón Comentarios en footer sidebar (encima de Cambiar contraseña)
+- Item no catalogado en solicitar: flag `esItemNuevo`, requiere descripción y costo unitario
+- `readCostos()` detecta columna COSTO dinámicamente desde cabecera
+- Bulk upsert en `/api/items/sync` (evita timeout 504)
 - Kardex usa `/datos/items` (Excel) para autocomplete, no MongoDB
-- Form usuario: Sociedades de Compra al mismo nivel que Operaciones; Permisos de Consulta (Kardex + Precios) solo para rol CONS
-- GBPLANTA agregada como operación 13
+- 12 operaciones nuevas agregadas con su Excel y en sync-excel.bat
 
-## payment_app — cambios importantes
-
-- Campo `comentario_aprobador` en tabla `propuestas`
-- Fix paso3_detalle: grupo masivo visible al recargar (display:block + opción pre-inyectada desde servidor)
+### Sesión 2
+- Comentarios removido del nav principal, solo en footer sidebar
+- Form usuario rediseñado: Sociedades top-level, Permisos de Consulta solo para CONS
+- GBPLANTA agregada (operación 13), PREP movida después de DOSIMETRIA
+- Fix grupo masivo en paso3_detalle (payment_app): display:block + opción pre-inyectada
+- Fix sync-excel.bat en servidor: resolver conflicto con `git checkout -- sync-excel.bat`
+- CLAUDE.md creado para continuidad de sesiones
