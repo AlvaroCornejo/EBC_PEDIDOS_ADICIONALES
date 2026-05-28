@@ -139,9 +139,7 @@ router.get('/precios/:item', async (req, res) => {
       const desdeDate = new Date(desde);
       if (!isNaN(desdeDate)) query.fecha = { $gte: desdeDate };
     }
-    // Usuarios no-ADMIN con operaciones asignadas: filtrar por sus operaciones
-    const ops = req.user.operations || [];
-    if (req.user.role !== 'ADMIN' && ops.length > 0) query.operacion = { $in: ops };
+    // Nota: NO filtramos por operacion — los precios de compra aplican a toda la sociedad
 
     const compras = await CompraRoc.find(query)
       .sort({ fecha: -1 })
@@ -168,13 +166,28 @@ router.get('/total/:item', async (req, res) => {
     const { sociedad } = req.query;
     const match = { item: itemId };
     if (sociedad) match.sociedad = sociedad;
-    const ops = req.user.operations || [];
-    if (req.user.role !== 'ADMIN' && ops.length > 0) match.operacion = { $in: ops };
+    // Nota: NO filtramos por operacion — los precios de compra aplican a toda la sociedad
     const agg = await CompraRoc.aggregate([
       { $match: match },
-      { $group: { _id: null, total: { $sum: '$importe' } } },
+      { $group: { _id: null, total: { $sum: '$importe' }, cant: { $sum: 1 } } },
     ]);
-    res.json({ total: agg[0]?.total || 0 });
+    res.json({ total: agg[0]?.total ?? null, registros: agg[0]?.cant ?? 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/compras/muestra?sociedad=GB — muestra algunos registros reales para diagnóstico
+router.get('/muestra', async (req, res) => {
+  if (!checkAccess(req, res)) return;
+  try {
+    const { sociedad } = req.query;
+    const filter = sociedad ? { sociedad } : {};
+    const [socs, ops, muestra, totalRoc] = await Promise.all([
+      CompraRoc.distinct('sociedad'),
+      CompraRoc.distinct('operacion', filter),
+      CompraRoc.find(filter).sort({ fecha: -1 }).limit(5).lean(),
+      CompraRoc.countDocuments(filter),
+    ]);
+    res.json({ sociedades: socs, operaciones: ops.slice(0, 30), muestra, totalRoc });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -3850,7 +3850,7 @@ async function viewPrecios(container) {
 
         // Total histórico
         const totalCell = document.getElementById(`pr-total-${it.item}`);
-        if (totalCell) { totalCell.textContent = totData.total > 0 ? fmtImp(totData.total) : '—'; totalCell.style.color = ''; }
+        if (totalCell) { totalCell.textContent = totData.total != null ? fmtImp(totData.total) : '—'; totalCell.style.color = ''; }
 
         // Promedio ponderado de las N semanas
         let totImp = 0, totCant = 0;
