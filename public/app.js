@@ -1994,15 +1994,17 @@ async function viewComparativo(container) {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos para ${op}${semLabel ? ` — ${semLabel}` : ` en las últimas ${sems} semanas`}.</p></div>`;
       return;
     }
-    // Totales
-    const totReal  = data.reduce((s,r) => s + r.importeReal, 0);
-    const totOC    = data.reduce((s,r) => s + r.impOCTotal, 0);
-    const pctGlobal = totOC > 0 ? (totReal / totOC * 100) : null;
 
-    // Clasificación
-    const enRango  = data.filter(r => r.pctCumplimiento != null && r.pctCumplimiento >= 90 && r.pctCumplimiento <= 110).length;
-    const leve     = data.filter(r => r.pctCumplimiento != null && ((r.pctCumplimiento >= 70 && r.pctCumplimiento < 90) || (r.pctCumplimiento > 110 && r.pctCumplimiento <= 130))).length;
-    const critico  = data.filter(r => r.pctCumplimiento != null && (r.pctCumplimiento < 70 || r.pctCumplimiento > 130)).length;
+    // ── Estado de ordenamiento ──────────────────────────────────────
+    let sortKey = 'impOCTotal', sortDir = -1; // por defecto: Importe OC desc
+
+    // ── KPIs ────────────────────────────────────────────────────────
+    const totReal   = data.reduce((s,r) => s + r.importeReal, 0);
+    const totOC     = data.reduce((s,r) => s + r.impOCTotal, 0);
+    const pctGlobal = totOC > 0 ? (totReal / totOC * 100) : null;
+    const enRango   = data.filter(r => r.pctCumplimiento != null && r.pctCumplimiento >= 90 && r.pctCumplimiento <= 110).length;
+    const leve      = data.filter(r => r.pctCumplimiento != null && ((r.pctCumplimiento >= 70 && r.pctCumplimiento < 90) || (r.pctCumplimiento > 110 && r.pctCumplimiento <= 130))).length;
+    const critico   = data.filter(r => r.pctCumplimiento != null && (r.pctCumplimiento < 70 || r.pctCumplimiento > 130)).length;
 
     container.innerHTML = `
       <!-- KPIs -->
@@ -2039,44 +2041,79 @@ async function viewComparativo(container) {
           ${semLabel ? `<button class="btn btn-outline btn-sm" onclick="document.getElementById('cmp-buscar').click()">← Volver a evolución</button>` : ''}
         </div>
         <div style="overflow-x:auto">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Ítem</th>
-                <th>Descripción</th>
-                <th>Grupo</th>
-                <th class="text-right">Cant. OC</th>
-                <th class="text-right">Cant. Real</th>
-                <th class="text-right">% Cumpl.</th>
-                <th class="text-right">Importe OC</th>
-                <th class="text-right">Importe Real</th>
-                <th class="text-right">Diferencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.map(r => `<tr style="cursor:pointer" onclick="cmpVerEvolucion('${r.item}','${esc(r.nombre)}')">
-                <td><code style="font-size:11px">${esc(r.item)}</code></td>
-                <td style="font-size:12px">${esc(r.nombre)}</td>
-                <td><span style="font-size:11px;background:var(--bg-secondary);padding:1px 6px;border-radius:4px">${esc(r.grupoCompra)}</span></td>
-                <td class="text-right">${fmt(r.ocTotal, 1)}</td>
-                <td class="text-right">${fmt(r.cantidadReal, 1)}</td>
-                <td class="text-right">${pctBadge(r.pctCumplimiento)}</td>
-                <td class="text-right text-muted">${fmtMoney(r.impOCTotal)}</td>
-                <td class="text-right">${fmtMoney(r.importeReal)}</td>
-                <td class="text-right" style="color:${r.diferencia >= 0 ? '#10b981' : '#ef4444'};font-weight:600">${fmtMoney(r.diferencia)}</td>
-              </tr>`).join('')}
-            </tbody>
+          <table class="data-table" id="cmp-resumen-table">
+            <thead id="cmp-resumen-head"></thead>
+            <tbody id="cmp-resumen-body"></tbody>
           </table>
         </div>
       </div>`;
 
-    // Función global para drill-down desde fila
+    // ── Columnas con sus claves de ordenamiento ─────────────────────
+    const cols = [
+      { label: 'Ítem',        key: 'item',            align: 'left'  },
+      { label: 'Descripción', key: 'nombre',          align: 'left'  },
+      { label: 'Grupo',       key: 'grupoCompra',     align: 'left'  },
+      { label: 'Cant. OC',    key: 'ocTotal',         align: 'right' },
+      { label: 'Cant. Real',  key: 'cantidadReal',    align: 'right' },
+      { label: '% Cumpl.',    key: 'pctCumplimiento', align: 'right' },
+      { label: 'Imp. OC',     key: 'impOCTotal',      align: 'right' },
+      { label: 'Imp. Real',   key: 'importeReal',     align: 'right' },
+      { label: 'Diferencia',  key: 'diferencia',      align: 'right' },
+    ];
+
+    function sortData(rows) {
+      return [...rows].sort((a, b) => {
+        let va = a[sortKey], vb = b[sortKey];
+        if (va == null) va = sortDir === 1 ? Infinity : -Infinity;
+        if (vb == null) vb = sortDir === 1 ? Infinity : -Infinity;
+        if (typeof va === 'string') return sortDir * va.localeCompare(vb);
+        return sortDir * (va - vb);
+      });
+    }
+
+    function renderHead() {
+      document.getElementById('cmp-resumen-head').innerHTML = `<tr>${cols.map(c => {
+        const isActive = c.key === sortKey;
+        const indicator = isActive ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
+        const thAlign = c.align === 'right' ? 'text-align:right' : '';
+        return `<th style="cursor:pointer;user-select:none;white-space:nowrap;${thAlign}"
+                    onclick="cmpSortResumen('${c.key}')">${c.label}<span style="color:${isActive?'var(--primary)':'#9ca3af'};font-size:10px">${indicator || ' ⇅'}</span></th>`;
+      }).join('')}</tr>`;
+    }
+
+    function renderBody() {
+      document.getElementById('cmp-resumen-body').innerHTML = sortData(data).map(r => `
+        <tr style="cursor:pointer" onclick="cmpVerEvolucion('${r.item}','${esc(r.nombre)}')">
+          <td><code style="font-size:11px">${esc(r.item)}</code></td>
+          <td style="font-size:12px">${esc(r.nombre)}</td>
+          <td><span style="font-size:11px;background:var(--bg-secondary);padding:1px 6px;border-radius:4px">${esc(r.grupoCompra)}</span></td>
+          <td class="text-right">${fmt(r.ocTotal, 1)}</td>
+          <td class="text-right">${fmt(r.cantidadReal, 1)}</td>
+          <td class="text-right">${pctBadge(r.pctCumplimiento)}</td>
+          <td class="text-right text-muted">${fmtMoney(r.impOCTotal)}</td>
+          <td class="text-right">${fmtMoney(r.importeReal)}</td>
+          <td class="text-right" style="color:${r.diferencia >= 0 ? '#10b981' : '#ef4444'};font-weight:600">${fmtMoney(r.diferencia)}</td>
+        </tr>`).join('');
+    }
+
+    renderHead();
+    renderBody();
+
+    // Función global para ordenar al hacer clic en columna
+    window.cmpSortResumen = (key) => {
+      if (sortKey === key) sortDir *= -1;
+      else { sortKey = key; sortDir = typeof data[0]?.[key] === 'string' ? 1 : -1; }
+      renderHead();
+      renderBody();
+    };
+
+    // Función global para drill-down ítem → evolución
     window.cmpVerEvolucion = async (item, nombre) => {
       const op   = document.getElementById('cmp-op').value;
       const sems = document.getElementById('cmp-sems').value;
       try {
-        const data = await GET(`/comparativo/evolucion?operacion=${op}&item=${item}&semanas=${sems}`);
-        renderEvolucion(container, data, op, nombre);
+        const d = await GET(`/comparativo/evolucion?operacion=${op}&item=${item}&semanas=${sems}`);
+        renderEvolucion(container, d, op, nombre);
       } catch (err) { toast(err.message, 'error'); }
     };
   }
