@@ -39,6 +39,17 @@ function opsFilter(user, operacionParam) {
   return userOps ? { operacion: { $in: userOps } } : {};
 }
 
+// ── GET /api/comparativo/operaciones ─────────────────────────────────────────
+// Operaciones que tienen datos reales (filtrado por acceso del usuario)
+router.get('/operaciones', async (req, res) => {
+  try {
+    const filter = opsFilter(req.user, null);
+    if (!filter) return res.json([]);
+    const ops = await ComparativoOC.distinct('operacion', filter);
+    res.json(ops.filter(Boolean).sort());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── GET /api/comparativo/grupos?operacion=X ───────────────────────────────────
 // Grupos de compra disponibles
 router.get('/grupos', async (req, res) => {
@@ -55,16 +66,20 @@ router.get('/grupos', async (req, res) => {
 // ?operacion=GBPLANTA&grupoCompra=ABARROTES&semanas=8
 router.get('/resumen', async (req, res) => {
   try {
-    const { operacion, grupoCompra, semanas: semsQ } = req.query;
+    const { operacion, grupoCompra, semanas: semsQ, añosem: añosemExacto } = req.query;
     const filter = opsFilter(req.user, operacion);
     if (!filter) return res.status(403).json({ error: 'Sin acceso' });
 
-    const nSems = Math.min(parseInt(semsQ) || 8, 52);
-    const semsRango = ultimosAñoSem(nSems);
-    const desde = Math.min(...semsRango);
-    const hasta = Math.max(...semsRango);
-
-    const matchFilter = { ...filter, añosem: { $gte: desde, $lte: hasta } };
+    let matchFilter;
+    if (añosemExacto) {
+      matchFilter = { ...filter, añosem: parseInt(añosemExacto) };
+    } else {
+      const nSems = Math.min(parseInt(semsQ) || 8, 52);
+      const semsRango = ultimosAñoSem(nSems);
+      const desde = Math.min(...semsRango);
+      const hasta = Math.max(...semsRango);
+      matchFilter = { ...filter, añosem: { $gte: desde, $lte: hasta } };
+    }
     if (grupoCompra) matchFilter.grupoCompra = grupoCompra;
 
     const agg = await ComparativoOC.aggregate([

@@ -1879,8 +1879,9 @@ async function showResumenModal() {
 // ─── View: Comparativo OC ─────────────────────────────────────────
 
 async function viewComparativo(container) {
-  // Operaciones accesibles para este usuario
-  const userOps = S.user.role === ROLES.ADMIN ? ALL_OPS : (S.user.operations || ALL_OPS);
+  // Cargar operaciones con datos reales desde API
+  let opsConDatos = [];
+  try { opsConDatos = await GET('/comparativo/operaciones'); } catch {}
 
   container.innerHTML = `
     <div class="page-header">
@@ -1893,7 +1894,9 @@ async function viewComparativo(container) {
           <div>
             <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Operación</label>
             <select id="cmp-op" class="form-control" style="width:160px">
-              ${userOps.map(o => `<option value="${o}">${o}</option>`).join('')}
+              ${opsConDatos.length
+                ? opsConDatos.map(o => `<option value="${o}">${o}</option>`).join('')
+                : '<option value="">Sin datos</option>'}
             </select>
           </div>
           <div>
@@ -1915,7 +1918,7 @@ async function viewComparativo(container) {
             <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Vista</label>
             <select id="cmp-vista" class="form-control" style="width:160px">
               <option value="resumen">Resumen por ítem</option>
-              <option value="evolucion">Evolución semanal</option>
+              <option value="evolucion" selected>Evolución semanal</option>
             </select>
           </div>
           <button class="btn btn-primary" id="cmp-buscar" style="align-self:flex-end">🔍 Buscar</button>
@@ -1985,9 +1988,10 @@ async function viewComparativo(container) {
     return `<span style="background:${color}22;color:${color};padding:2px 8px;border-radius:10px;font-weight:600;font-size:11px">${pct.toFixed(1)}%</span>`;
   }
 
-  function renderResumen(container, data, op, sems) {
+  // sems puede ser número (últimas N semanas) o string (label de semana en drill-down)
+  function renderResumen(container, data, op, sems, semLabel) {
     if (!data.length) {
-      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos para ${op} en las últimas ${sems} semanas.</p></div>`;
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos para ${op}${semLabel ? ` — ${semLabel}` : ` en las últimas ${sems} semanas`}.</p></div>`;
       return;
     }
     // Totales
@@ -2030,8 +2034,9 @@ async function viewComparativo(container) {
       </div>
       <!-- Tabla -->
       <div class="card">
-        <div style="padding:12px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
-          ${data.length} ítems — últimas ${sems} semanas
+        <div style="padding:12px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+          <span>${data.length} ítems${semLabel ? ` — ${semLabel}` : ` — últimas ${sems} semanas`}</span>
+          ${semLabel ? `<button class="btn btn-outline btn-sm" onclick="document.getElementById('cmp-buscar').click()">← Volver a evolución</button>` : ''}
         </div>
         <div style="overflow-x:auto">
           <table class="data-table">
@@ -2082,10 +2087,15 @@ async function viewComparativo(container) {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos de evolución.</p></div>`;
       return;
     }
+    const esItemDrill = !!titulo; // viene de drill-down de ítem
     container.innerHTML = `
       <div class="card">
-        <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border)">
-          ${titulo ? `📈 Evolución: ${esc(titulo)}` : `📈 Evolución semanal — ${op}`}
+        <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+          <span>${esItemDrill ? `📈 Evolución: ${esc(titulo)}` : `📈 Evolución semanal — ${op}`}</span>
+          ${esItemDrill ? `<button class="btn btn-outline btn-sm" onclick="document.getElementById('cmp-buscar').click()">← Volver</button>` : ''}
+        </div>
+        <div style="padding:8px 16px;font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+          💡 Haz clic en una semana para ver el detalle de ítems
         </div>
         <div style="overflow-x:auto">
           <table class="data-table">
@@ -2101,8 +2111,8 @@ async function viewComparativo(container) {
               </tr>
             </thead>
             <tbody>
-              ${data.map(r => `<tr>
-                <td><strong>${esc(r.label)}</strong></td>
+              ${data.map(r => `<tr style="cursor:pointer" onclick="cmpVerDetalleSemana(${r.añosem},'${esc(r.label)}')">
+                <td><strong style="color:var(--primary)">${esc(r.label)}</strong></td>
                 <td class="text-right">${fmt(r.cantidadOC, 1)}</td>
                 <td class="text-right">${fmt(r.cantidadReal, 1)}</td>
                 <td class="text-right">${pctBadge(r.pctCumplimiento)}</td>
@@ -2113,12 +2123,19 @@ async function viewComparativo(container) {
             </tbody>
           </table>
         </div>
-        <div style="padding:10px 16px">
-          <button class="btn btn-outline btn-sm" onclick="document.getElementById('cmp-vista').value='resumen';document.getElementById('cmp-buscar').click()">
-            ← Volver al resumen
-          </button>
-        </div>
       </div>`;
+
+    // Drill-down: detalle de ítems de una semana específica
+    window.cmpVerDetalleSemana = async (añosem, label) => {
+      const op    = document.getElementById('cmp-op').value;
+      const grupo = document.getElementById('cmp-grupo').value;
+      const res   = document.getElementById('cmp-result');
+      res.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando detalle ${label}...</div>`;
+      try {
+        const items = await GET(`/comparativo/resumen?operacion=${op}&grupoCompra=${encodeURIComponent(grupo)}&añosem=${añosem}`);
+        renderResumen(res, items, op, 1, label);
+      } catch (err) { toast(err.message, 'error'); }
+    };
   }
 
   // Cargar al inicio
