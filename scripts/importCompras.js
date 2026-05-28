@@ -19,7 +19,7 @@ const CompraPareto = require('../models/CompraPareto');
 const CompraRoc    = require('../models/CompraRoc');
 
 const FILE_PATH = process.argv[2]
-  || 'C:\\Users\\alvar\\Box\\EBC\\EBC AI\\EBC AI BASES\\EBC COMPRAS\\EBC COMPRAS HISTORICAS.xlsx';
+  || 'C:\\Users\\CORP.PROCESOS\\Box\\EBC\\EBC AI\\EBC AI BASES\\EBC COMPRAS\\EBC COMPRAS HISTORICAS.xlsx';
 
 const BATCH = 5000; // filas por lote al insertar ROC
 
