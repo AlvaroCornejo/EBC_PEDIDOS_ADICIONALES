@@ -2182,9 +2182,28 @@ async function viewComparativo(container) {
 
 // ─── View: Venta / TIP por Operación ─────────────────────────────
 async function viewVentasTip(container) {
-  // Cargar operaciones con datos reales
   let opsConDatos = [];
   try { opsConDatos = await GET('/ventas/operaciones'); } catch {}
+
+  // ── Definición de métricas compartida ────────────────────────────
+  const METRICAS = [
+    { key: 'ventaNeta',   label: 'Venta Neta',        color: '#3b82f6', isPct: false },
+    { key: 'ventaBruta',  label: 'Venta Bruta',        color: '#6366f1', isPct: false },
+    { key: 'tipTotal',    label: 'TIP Total (Efe+TC)',  color: '#ef4444', isPct: false },
+    { key: 'tipEfectivo', label: 'TIP Efectivo',        color: '#10b981', isPct: false },
+    { key: 'tipTC',       label: 'TIP TC',              color: '#f59e0b', isPct: false },
+    { key: 'pctTip',      label: '% TIP (TIP/V.Bruta)', color: '#8b5cf6', isPct: true  },
+    { key: 'todos',       label: 'Ver todo',            color: '',        isPct: false }
+  ];
+  const fmtMetrica = (key, val) => {
+    const m = METRICAS.find(m => m.key === key);
+    if (!m || val == null) return '—';
+    return m.isPct ? val.toFixed(1) + '%' : fmtMoney(val);
+  };
+  const addPct = row => ({
+    ...row,
+    pctTip: row.ventaBruta > 0 ? (row.tipTotal / row.ventaBruta * 100) : 0
+  });
 
   container.innerHTML = `
     <div class="page-header">
@@ -2193,9 +2212,24 @@ async function viewVentasTip(container) {
     <div class="page-body">
       <div class="card mb-16" style="padding:16px">
         <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <!-- Tabs de vista -->
           <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Vista</label>
+            <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+              <button id="vt-tab-evol" onclick="vtCambiarVista('evolucion')"
+                style="padding:6px 14px;font-size:13px;border:none;cursor:pointer;background:var(--primary);color:#fff;font-weight:600">
+                📈 Evolución
+              </button>
+              <button id="vt-tab-sede" onclick="vtCambiarVista('sede')"
+                style="padding:6px 14px;font-size:13px;border:none;cursor:pointer;background:var(--bg-secondary);color:var(--text)">
+                🏪 Por Sede
+              </button>
+            </div>
+          </div>
+          <!-- Operación: solo en evolución -->
+          <div id="vt-op-wrap">
             <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Operación</label>
-            <select id="vt-op" class="form-control" style="width:160px">
+            <select id="vt-op" class="form-control" style="width:150px">
               <option value="">Todas</option>
               ${opsConDatos.map(o => `<option value="${o}">${o}</option>`).join('')}
             </select>
@@ -2211,13 +2245,8 @@ async function viewVentasTip(container) {
           </div>
           <div>
             <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Métrica</label>
-            <select id="vt-metrica" class="form-control" style="width:180px">
-              <option value="ventaNeta">Venta Neta</option>
-              <option value="ventaBruta">Venta Bruta</option>
-              <option value="tipTotal" selected>TIP Total (Efe + TC)</option>
-              <option value="tipEfectivo">TIP Efectivo</option>
-              <option value="tipTC">TIP TC</option>
-              <option value="todos">Ver todo</option>
+            <select id="vt-metrica" class="form-control" style="width:190px">
+              ${METRICAS.map(m => `<option value="${m.key}"${m.key==='tipTotal'?' selected':''}>${m.label}</option>`).join('')}
             </select>
           </div>
           <button class="btn btn-primary" id="vt-buscar" style="align-self:flex-end">🔍 Buscar</button>
@@ -2225,6 +2254,19 @@ async function viewVentasTip(container) {
       </div>
       <div id="vt-result"></div>
     </div>`;
+
+  let vistaActual = 'evolucion';
+
+  window.vtCambiarVista = (v) => {
+    vistaActual = v;
+    const isEvol = v === 'evolucion';
+    document.getElementById('vt-tab-evol').style.background = isEvol ? 'var(--primary)' : 'var(--bg-secondary)';
+    document.getElementById('vt-tab-evol').style.color      = isEvol ? '#fff' : 'var(--text)';
+    document.getElementById('vt-tab-sede').style.background = !isEvol ? 'var(--primary)' : 'var(--bg-secondary)';
+    document.getElementById('vt-tab-sede').style.color      = !isEvol ? '#fff' : 'var(--text)';
+    document.getElementById('vt-op-wrap').style.display     = isEvol ? '' : 'none';
+    buscarVentas();
+  };
 
   document.getElementById('vt-buscar').addEventListener('click', buscarVentas);
   document.getElementById('vt-sems').addEventListener('change', buscarVentas);
@@ -2238,48 +2280,44 @@ async function viewVentasTip(container) {
     const res     = document.getElementById('vt-result');
     res.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
     try {
-      const data = await GET(`/ventas/evolucion?operacion=${op}&semanas=${sems}`);
-      renderVentas(res, data, metrica, op);
-    } catch (err) {
-      res.innerHTML = `<div class="msg-error">${err.message}</div>`;
-    }
+      if (vistaActual === 'evolucion') {
+        const data = (await GET(`/ventas/evolucion?operacion=${op}&semanas=${sems}`)).map(addPct);
+        renderEvolucion(res, data, metrica, op);
+      } else {
+        const data = await GET(`/ventas/por-sede?semanas=${sems}`);
+        renderPorSede(res, data, metrica);
+      }
+    } catch (err) { res.innerHTML = `<div class="msg-error">${err.message}</div>`; }
   }
 
-  function fmtV(v) { return v == null ? '—' : (v >= 1000 ? (v/1000).toFixed(1)+'K' : v.toFixed(0)); }
-
-  function renderVentas(container, data, metrica, op) {
+  // ── Render: Evolución semanal ─────────────────────────────────────
+  function renderEvolucion(container, data, metrica, op) {
     if (!data.length) {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos disponibles.</p></div>`;
       return;
     }
+    const ult4  = data.slice(-4), ant4 = data.slice(-8, -4);
+    const sumV  = arr => arr.reduce((s,r) => s + r.ventaNeta,  0);
+    const sumT  = arr => arr.reduce((s,r) => s + r.tipTotal,   0);
+    const sumB  = arr => arr.reduce((s,r) => s + r.ventaBruta, 0);
+    const vNeta = sumV(ult4), vAnt = sumV(ant4);
+    const tTot  = sumT(ult4), tAnt = sumT(ant4);
+    const bTot  = sumB(ult4);
+    const pctV  = vAnt > 0 ? ((vNeta - vAnt) / vAnt * 100) : null;
+    const pctT  = tAnt > 0 ? ((tTot  - tAnt) / tAnt * 100) : null;
+    const arrow = v => v == null ? '' : (v >= 0
+      ? `<span style="color:#10b981">▲ ${v.toFixed(1)}%</span>`
+      : `<span style="color:#ef4444">▼ ${Math.abs(v).toFixed(1)}%</span>`);
 
-    // ── KPIs: últimas 4 semanas vs 4 anteriores ──────────────────────
-    const ult4  = data.slice(-4);
-    const ant4  = data.slice(-8, -4);
-    const sumV  = arr => arr.reduce((s,r) => s + r.ventaNeta, 0);
-    const sumT  = arr => arr.reduce((s,r) => s + r.tipTotal, 0);
-    const vNeta   = sumV(ult4), vAnt = sumV(ant4);
-    const tTotal  = sumT(ult4), tAnt = sumT(ant4);
-    const pctV = vAnt > 0 ? ((vNeta - vAnt) / vAnt * 100) : null;
-    const pctT = tAnt > 0 ? ((tTotal - tAnt) / tAnt * 100) : null;
-    const arrow = v => v == null ? '' : (v >= 0 ? `<span style="color:#10b981">▲ ${v.toFixed(1)}%</span>` : `<span style="color:#ef4444">▼ ${Math.abs(v).toFixed(1)}%</span>`);
+    const COLS_TODAS = METRICAS.filter(m => m.key !== 'todos');
+    const cols = metrica === 'todos' ? COLS_TODAS.filter(m => !m.isPct) : COLS_TODAS.filter(m => m.key === metrica);
 
-    // ── Columnas a mostrar ────────────────────────────────────────────
-    const COLS_TODAS = [
-      { key: 'ventaBruta',  label: 'V. Bruta',   color: '#6366f1' },
-      { key: 'ventaNeta',   label: 'V. Neta',    color: '#3b82f6' },
-      { key: 'tipEfectivo', label: 'TIP Efe.',   color: '#10b981' },
-      { key: 'tipTC',       label: 'TIP TC',     color: '#f59e0b' },
-      { key: 'tipTotal',    label: 'TIP Total',  color: '#ef4444' }
-    ];
-    const cols = metrica === 'todos' ? COLS_TODAS
-      : COLS_TODAS.filter(c => c.key === metrica);
-
-    // ── Estado ordenamiento tabla ─────────────────────────────────────
     let sortKey = 'añosem', sortDir = -1;
+    const maxVenta = Math.max(...data.map(r => r.ventaNeta), 1);
+    const maxTip   = Math.max(...data.map(r => r.tipTotal),  1);
+    const maxPct   = Math.max(...data.map(r => r.pctTip),    1);
 
     container.innerHTML = `
-      <!-- KPIs -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
         <div class="card" style="padding:12px">
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Venta Neta (últ. 4 sem)</div>
@@ -2288,15 +2326,15 @@ async function viewVentasTip(container) {
         </div>
         <div class="card" style="padding:12px">
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">TIP Total (últ. 4 sem)</div>
-          <div style="font-size:20px;font-weight:700">${fmtMoney(tTotal)}</div>
+          <div style="font-size:20px;font-weight:700">${fmtMoney(tTot)}</div>
           <div style="font-size:12px;margin-top:4px">${arrow(pctT)} vs 4 sem. anteriores</div>
         </div>
         <div class="card" style="padding:12px">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">% TIP / Venta (últ. 4 sem)</div>
-          <div style="font-size:20px;font-weight:700;color:${vNeta > 0 ? (tTotal/vNeta > 0.05 ? '#10b981' : '#f59e0b') : '#9ca3af'}">
-            ${vNeta > 0 ? (tTotal / vNeta * 100).toFixed(1) + '%' : '—'}
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">% TIP / V. Bruta (últ. 4 sem)</div>
+          <div style="font-size:20px;font-weight:700;color:#8b5cf6">
+            ${bTot > 0 ? (tTot / bTot * 100).toFixed(1) + '%' : '—'}
           </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">TIP Efe: ${fmtMoney(ult4.reduce((s,r)=>s+r.tipEfectivo,0))} / TC: ${fmtMoney(ult4.reduce((s,r)=>s+r.tipTC,0))}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Efe: ${fmtMoney(ult4.reduce((s,r)=>s+r.tipEfectivo,0))} / TC: ${fmtMoney(ult4.reduce((s,r)=>s+r.tipTC,0))}</div>
         </div>
         <div class="card" style="padding:12px">
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Semanas con datos</div>
@@ -2304,71 +2342,195 @@ async function viewVentasTip(container) {
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${data[0]?.label} → ${data[data.length-1]?.label}</div>
         </div>
       </div>
-
-      <!-- Tabla con barras integradas -->
       <div class="card">
         <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
-          ${op || 'Todas las operaciones'} — evolución semanal${cols.length < 5 ? ` (${cols[0]?.label})` : ''}
+          ${op || 'Todas las operaciones'} — evolución semanal
         </div>
         <div style="overflow-x:auto">
-          <table class="data-table" id="vt-tabla">
-            <thead id="vt-head"></thead>
-            <tbody id="vt-body"></tbody>
-          </table>
+          <table class="data-table"><thead id="vt-head"></thead><tbody id="vt-body"></tbody></table>
         </div>
       </div>`;
 
-    // Máximos para barras
-    const maxVenta = Math.max(...data.map(r => r.ventaNeta));
-    const maxTip   = Math.max(...data.map(r => r.tipTotal));
-
     function sortData(rows) {
-      return [...rows].sort((a, b) => {
+      return [...rows].sort((a,b) => {
         const va = a[sortKey] ?? 0, vb = b[sortKey] ?? 0;
         return typeof va === 'string' ? sortDir * va.localeCompare(vb) : sortDir * (va - vb);
       });
     }
-
     function renderHead() {
-      const allCols = [{ key: 'añosem', label: 'Semana', align: 'left' },
-        ...cols.map(c => ({ key: c.key, label: c.label, align: 'right' }))];
+      const allCols = [{ key: 'añosem', label: 'Semana', align: 'left' }, ...cols.map(c => ({ ...c, align: 'right' }))];
       document.getElementById('vt-head').innerHTML = `<tr>${allCols.map(c => {
-        const isActive = c.key === sortKey;
-        const ind = isActive ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
-        return `<th style="cursor:pointer;user-select:none;${c.align==='right'?'text-align:right':''}"
-                    onclick="vtSort('${c.key}')">${c.label}<span style="color:${isActive?'var(--primary)':'#9ca3af'};font-size:10px">${ind || ' ⇅'}</span></th>`;
+        const act = c.key === sortKey;
+        return `<th style="cursor:pointer;user-select:none;${c.align==='right'?'text-align:right':''}" onclick="vtSort('${c.key}')">${c.label}<span style="color:${act?'var(--primary)':'#9ca3af'};font-size:10px">${act?(sortDir===1?' ▲':' ▼'):' ⇅'}</span></th>`;
       }).join('')}</tr>`;
     }
-
-    function renderBody() {
-      document.getElementById('vt-body').innerHTML = sortData(data).map(r => {
-        const pctBarra = v => Math.max(2, Math.round(v / (Math.max(maxVenta, maxTip) || 1) * 100));
-        const celdaBar = (val, color) => {
-          const pct = Math.max(2, Math.round(val / (maxVenta || 1) * 80));
-          return `<td class="text-right" style="min-width:90px">
-            <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px">
-              <div style="flex:1;height:6px;background:#f3f4f6;border-radius:3px;max-width:60px">
-                <div style="width:${pct}%;height:100%;background:${color};border-radius:3px"></div>
-              </div>
-              <span style="font-size:12px;min-width:52px;text-align:right">${fmtMoney(val)}</span>
+    function celdaBar(col, r) {
+      const val = r[col.key] ?? 0;
+      if (col.isPct) {
+        const w = Math.max(2, Math.round(val / maxPct * 80));
+        return `<td class="text-right" style="min-width:80px">
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px">
+            <div style="flex:1;height:6px;background:#f3f4f6;border-radius:3px;max-width:60px">
+              <div style="width:${w}%;height:100%;background:${col.color};border-radius:3px"></div>
             </div>
-          </td>`;
-        };
-        return `<tr>
-          <td><strong>${esc(r.label)}</strong></td>
-          ${cols.map(c => celdaBar(r[c.key] || 0, c.color)).join('')}
-        </tr>`;
-      }).join('');
+            <span style="font-size:12px;min-width:44px;text-align:right;color:${col.color};font-weight:600">${val.toFixed(1)}%</span>
+          </div></td>`;
+      }
+      const maxRef = col.key.startsWith('tip') ? maxTip : maxVenta;
+      const w = Math.max(2, Math.round(val / (maxRef || 1) * 80));
+      return `<td class="text-right" style="min-width:90px">
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px">
+          <div style="flex:1;height:6px;background:#f3f4f6;border-radius:3px;max-width:60px">
+            <div style="width:${w}%;height:100%;background:${col.color};border-radius:3px"></div>
+          </div>
+          <span style="font-size:12px;min-width:56px;text-align:right">${fmtMoney(val)}</span>
+        </div></td>`;
+    }
+    function renderBody() {
+      document.getElementById('vt-body').innerHTML = sortData(data).map(r =>
+        `<tr><td><strong>${esc(r.label)}</strong></td>${cols.map(c => celdaBar(c, r)).join('')}</tr>`
+      ).join('');
+    }
+    renderHead(); renderBody();
+    window.vtSort = key => {
+      if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+      renderHead(); renderBody();
+    };
+  }
+
+  // ── Render: Por Sede (pivote expandible) ──────────────────────────
+  function renderPorSede(container, { semanas, sedes }, metrica) {
+    if (!sedes.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos disponibles.</p></div>`;
+      return;
     }
 
-    renderHead();
-    renderBody();
+    const DETALLE_KEYS = [
+      { key: 'ventaBruta',  label: 'V. Bruta' },
+      { key: 'ventaNeta',   label: 'V. Neta'  },
+      { key: 'tipEfectivo', label: 'TIP Efe.' },
+      { key: 'tipTC',       label: 'TIP TC'   },
+      { key: 'tipTotal',    label: 'TIP Total' },
+      { key: 'pctTip',      label: '% TIP'    }
+    ];
+    const expandidas = new Set();
+    const mostrarPct = metrica === 'pctTip';
 
-    window.vtSort = (key) => {
-      if (sortKey === key) sortDir *= -1;
-      else { sortKey = key; sortDir = key === 'label' ? 1 : -1; }
-      renderHead();
-      renderBody();
+    // Total por sede
+    function totalSede(sede) {
+      return semanas.reduce((acc, s) => {
+        const d = sede.datos[s.añosem] || {};
+        acc.ventaBruta  += d.ventaBruta  || 0;
+        acc.ventaNeta   += d.ventaNeta   || 0;
+        acc.tipEfectivo += d.tipEfectivo || 0;
+        acc.tipTC       += d.tipTC       || 0;
+        acc.tipTotal    += d.tipTotal    || 0;
+        return acc;
+      }, { ventaBruta:0, ventaNeta:0, tipEfectivo:0, tipTC:0, tipTotal:0, pctTip:0 });
+    }
+
+    function buildTable() {
+      // Grand total por semana y global
+      const grandSem = semanas.map(s => {
+        const vb = sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.ventaBruta || 0), 0);
+        const tip = sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.tipTotal  || 0), 0);
+        return { ...semanas, ventaBruta: vb, tipTotal: tip,
+          pctTip: vb > 0 ? (tip/vb*100) : 0,
+          ventaNeta:   sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.ventaNeta   || 0), 0),
+          tipEfectivo: sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.tipEfectivo || 0), 0),
+          tipTC:       sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.tipTC       || 0), 0)
+        };
+      });
+      const grandTot = grandSem.reduce((acc,g) => {
+        Object.keys(acc).forEach(k => { if(k !== 'pctTip') acc[k] += g[k] || 0; });
+        return acc;
+      }, { ventaBruta:0, ventaNeta:0, tipEfectivo:0, tipTC:0, tipTotal:0, pctTip:0 });
+      grandTot.pctTip = grandTot.ventaBruta > 0 ? (grandTot.tipTotal / grandTot.ventaBruta * 100) : 0;
+
+      const fmtCell = (key, val) => fmtMetrica(key === 'pctTip' ? 'pctTip' : (mostrarPct ? key : key), val);
+      const mainKey = metrica === 'todos' ? 'ventaNeta' : metrica;
+      const fmtMain = val => fmtMetrica(mainKey, val);
+
+      const pctColor = v => v >= 5 ? '#10b981' : v >= 2 ? '#f59e0b' : '#ef4444';
+
+      let rows = '';
+      for (const sede of sedes) {
+        const isExp = expandidas.has(sede.operacion);
+        const tot = totalSede(sede);
+        tot.pctTip = tot.ventaBruta > 0 ? (tot.tipTotal / tot.ventaBruta * 100) : 0;
+
+        // Fila principal
+        const celdas = semanas.map(s => {
+          const d = sede.datos[s.añosem] || {};
+          const v = d[mainKey] ?? 0;
+          const color = mainKey === 'pctTip' ? pctColor(v) : 'inherit';
+          return `<td class="text-right" style="font-size:12px;color:${color}">${fmtMain(v)}</td>`;
+        }).join('');
+
+        rows += `<tr style="cursor:pointer;background:var(--bg-secondary);font-weight:600" onclick="vtExpandSede('${sede.operacion}')">
+          <td style="white-space:nowrap;padding:8px 12px">
+            <span style="font-size:11px;margin-right:6px">${isExp ? '▼' : '▶'}</span>${esc(sede.operacion)}
+          </td>
+          ${celdas}
+          <td class="text-right" style="font-weight:700">${fmtMain(tot[mainKey] ?? 0)}</td>
+        </tr>`;
+
+        // Filas de detalle expandido
+        if (isExp) {
+          for (const dk of DETALLE_KEYS) {
+            const detCeldas = semanas.map(s => {
+              const d = sede.datos[s.añosem] || {};
+              const v = d[dk.key] ?? 0;
+              const color = dk.key === 'pctTip' ? pctColor(v) : 'var(--text-muted)';
+              return `<td class="text-right" style="font-size:11px;color:${color};background:#f9fafb">${fmtMetrica(dk.key === 'pctTip' ? 'pctTip' : dk.key, v)}</td>`;
+            }).join('');
+            const detTot = dk.key === 'pctTip'
+              ? fmtMetrica('pctTip', tot.pctTip)
+              : fmtMetrica(dk.key, tot[dk.key] ?? 0);
+            rows += `<tr>
+              <td style="font-size:11px;color:var(--text-muted);padding-left:28px;background:#f9fafb">${dk.label}</td>
+              ${detCeldas}
+              <td class="text-right" style="font-size:11px;color:var(--text-muted);background:#f9fafb">${detTot}</td>
+            </tr>`;
+          }
+        }
+      }
+
+      // Fila de totales globales
+      const grandCeldas = grandSem.map(g => {
+        const v = g[mainKey] ?? 0;
+        return `<td class="text-right" style="font-weight:700;font-size:12px">${fmtMain(v)}</td>`;
+      }).join('');
+      rows += `<tr style="border-top:2px solid var(--border);background:var(--bg-secondary)">
+        <td style="font-weight:700;padding:8px 12px">TOTAL</td>
+        ${grandCeldas}
+        <td class="text-right" style="font-weight:700">${fmtMain(grandTot[mainKey] ?? 0)}</td>
+      </tr>`;
+
+      const metricaLabel = METRICAS.find(m => m.key === metrica)?.label || metrica;
+      return `
+        <div class="card">
+          <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
+            <span>Por Sede — ${metricaLabel} · ${semanas.length} semanas · <em style="font-size:11px">Clic en sede para expandir</em></span>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="data-table">
+              <thead><tr>
+                <th style="min-width:120px">Sede</th>
+                ${semanas.map(s => `<th class="text-right" style="font-size:11px;white-space:nowrap">${s.label}</th>`).join('')}
+                <th class="text-right">Total</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+
+    container.innerHTML = buildTable();
+
+    window.vtExpandSede = op => {
+      if (expandidas.has(op)) expandidas.delete(op); else expandidas.add(op);
+      container.innerHTML = buildTable();
     };
   }
 

@@ -90,6 +90,64 @@ router.get('/evolucion', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /api/ventas/por-sede ──────────────────────────────────────────────────
+// Pivote: datos por (operacion, añosem) para la vista por sede
+// ?semanas=13
+router.get('/por-sede', async (req, res) => {
+  try {
+    const { semanas: semsQ } = req.query;
+    const filter = opsFilter(req.user, null);
+    if (!filter) return res.status(403).json({ error: 'Sin acceso' });
+
+    const nSems = Math.min(parseInt(semsQ) || 13, 104);
+    const semsRango = ultimosAñoSem(nSems);
+    const desde = Math.min(...semsRango);
+    const hasta = Math.max(...semsRango);
+
+    const agg = await VentasTip.aggregate([
+      { $match: { ...filter, añosem: { $gte: desde, $lte: hasta } } },
+      { $group: {
+          _id:         { operacion: '$operacion', añosem: '$añosem' },
+          año:         { $first: '$año' },
+          semana:      { $first: '$semana' },
+          ventaBruta:  { $sum: '$ventaBruta' },
+          ventaNeta:   { $sum: '$ventaNeta' },
+          tipEfectivo: { $sum: '$tipEfectivo' },
+          tipTC:       { $sum: '$tipTC' }
+      }},
+      { $sort: { '_id.operacion': 1, '_id.añosem': 1 } }
+    ]);
+
+    // Semanas únicas ordenadas
+    const semanasSet = [...new Set(agg.map(r => r._id.añosem))].sort();
+    const semanas = semanasSet.map(as => ({
+      añosem: as,
+      label: `S${as % 100}/${Math.floor(as / 100)}`
+    }));
+
+    // Agrupar por operación
+    const byOp = {};
+    for (const r of agg) {
+      const op = r._id.operacion;
+      if (!byOp[op]) byOp[op] = {};
+      const tipTotal = r.tipEfectivo + r.tipTC;
+      byOp[op][r._id.añosem] = {
+        ventaBruta:  r.ventaBruta,
+        ventaNeta:   r.ventaNeta,
+        tipEfectivo: r.tipEfectivo,
+        tipTC:       r.tipTC,
+        tipTotal,
+        pctTip:      r.ventaBruta > 0 ? (tipTotal / r.ventaBruta * 100) : 0
+      };
+    }
+
+    const sedes = Object.entries(byOp).sort(([a],[b]) => a.localeCompare(b))
+      .map(([operacion, datos]) => ({ operacion, datos }));
+
+    res.json({ semanas, sedes });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── GET /api/ventas/stats ─────────────────────────────────────────────────────
 router.get('/stats', async (req, res) => {
   try {
