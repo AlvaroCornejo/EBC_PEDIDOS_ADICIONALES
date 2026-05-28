@@ -30,7 +30,7 @@ function norm(s) {
     .replace(/\s+/g, '_');
 }
 
-/** Lee una hoja y devuelve array de {operacion, año, semana, añosem, ...campos} */
+/** Lee una hoja y devuelve array de {operacion, año, semana, añosem, añoN, mesN, añomes, ...campos} */
 async function leerHoja(wb, nombreHoja, camposExtra) {
   const sh = wb.getWorksheet(nombreHoja);
   if (!sh) throw new Error(`No se encontró hoja ${nombreHoja}`);
@@ -50,9 +50,11 @@ async function leerHoja(wb, nombreHoja, camposExtra) {
     return undefined;
   }
 
-  const cOp  = col('OPERACION');
-  const cAno = col('AÑO', 'ANO', 'YEAR');
-  const cSem = col('SEM', 'SEMANA', 'WEEK');
+  const cOp   = col('OPERACION');
+  const cAno  = col('AÑO', 'ANO', 'YEAR');
+  const cSem  = col('SEM', 'SEMANA', 'WEEK');
+  const cAnoN = col('AÑO_N', 'ANO_N', 'YEAR_N');
+  const cMesN = col('MES_N', 'MES', 'MONTH_N');
   if (!cOp || !cAno || !cSem) throw new Error(`Columnas base no encontradas en ${nombreHoja}`);
 
   // Resolver columnas extra
@@ -68,7 +70,10 @@ async function leerHoja(wb, nombreHoja, camposExtra) {
     const año       = num(row.getCell(cAno).value);
     const semana    = num(row.getCell(cSem).value);
     if (!operacion || !año || !semana) return;
-    const rec = { operacion, año, semana, añosem: año * 100 + semana };
+    const añoN   = cAnoN ? num(row.getCell(cAnoN).value) : año;
+    const mesN   = cMesN ? num(row.getCell(cMesN).value) : 0;
+    const añomes = añoN && mesN ? añoN * 100 + mesN : 0;
+    const rec = { operacion, año, semana, añosem: año * 100 + semana, añoN, mesN, añomes };
     for (const [campo, c] of Object.entries(cExtra)) {
       rec[campo] = c ? num(row.getCell(c).value) : 0;
     }
@@ -102,20 +107,29 @@ async function main() {
   const key = r => `${r.operacion}|${r.añosem}`;
 
   for (const r of ventas) {
-    mapa.set(key(r), { operacion: r.operacion, año: r.año, semana: r.semana, añosem: r.añosem,
-      ventaBruta: r.ventaBruta, ventaNeta: r.ventaNeta, tipEfectivo: 0, tipTC: 0 });
+    mapa.set(key(r), {
+      operacion: r.operacion, año: r.año, semana: r.semana, añosem: r.añosem,
+      añoN: r.añoN, mesN: r.mesN, añomes: r.añomes,
+      ventaBruta: r.ventaBruta, ventaNeta: r.ventaNeta, tipEfectivo: 0, tipTC: 0
+    });
   }
   for (const r of tipEfe) {
     const k = key(r);
     if (mapa.has(k)) mapa.get(k).tipEfectivo = r.tipEfectivo;
-    else mapa.set(k, { operacion: r.operacion, año: r.año, semana: r.semana, añosem: r.añosem,
-      ventaBruta: 0, ventaNeta: 0, tipEfectivo: r.tipEfectivo, tipTC: 0 });
+    else mapa.set(k, {
+      operacion: r.operacion, año: r.año, semana: r.semana, añosem: r.añosem,
+      añoN: r.añoN, mesN: r.mesN, añomes: r.añomes,
+      ventaBruta: 0, ventaNeta: 0, tipEfectivo: r.tipEfectivo, tipTC: 0
+    });
   }
   for (const r of tipTC) {
     const k = key(r);
     if (mapa.has(k)) mapa.get(k).tipTC = r.tipTC;
-    else mapa.set(k, { operacion: r.operacion, año: r.año, semana: r.semana, añosem: r.añosem,
-      ventaBruta: 0, ventaNeta: 0, tipEfectivo: 0, tipTC: r.tipTC });
+    else mapa.set(k, {
+      operacion: r.operacion, año: r.año, semana: r.semana, añosem: r.añosem,
+      añoN: r.añoN, mesN: r.mesN, añomes: r.añomes,
+      ventaBruta: 0, ventaNeta: 0, tipEfectivo: 0, tipTC: r.tipTC
+    });
   }
 
   const docs = [...mapa.values()];

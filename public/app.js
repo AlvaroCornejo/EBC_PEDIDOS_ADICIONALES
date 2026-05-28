@@ -2228,6 +2228,20 @@ async function viewVentasTip(container) {
               </button>
             </div>
           </div>
+          <!-- Granularidad: Semanal / Mensual -->
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Granularidad</label>
+            <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+              <button id="vt-gran-sem" onclick="vtCambiarGran('semanal')"
+                style="padding:6px 14px;font-size:13px;border:none;cursor:pointer;background:var(--primary);color:#fff;font-weight:600">
+                Semanal
+              </button>
+              <button id="vt-gran-mes" onclick="vtCambiarGran('mensual')"
+                style="padding:6px 14px;font-size:13px;border:none;cursor:pointer;background:var(--bg-secondary);color:var(--text)">
+                Mensual
+              </button>
+            </div>
+          </div>
           <!-- Operación: solo en evolución -->
           <div id="vt-op-wrap">
             <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Operación</label>
@@ -2237,8 +2251,8 @@ async function viewVentasTip(container) {
             </select>
           </div>
           <div>
-            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Semanas</label>
-            <select id="vt-sems" class="form-control" style="width:140px">
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px" id="vt-periodo-label">Semanas</label>
+            <select id="vt-sems" class="form-control" style="width:145px">
               <option value="8">8 sem (2 meses)</option>
               <option value="13" selected>13 sem (3 meses)</option>
               <option value="26">26 sem (6 meses)</option>
@@ -2258,6 +2272,7 @@ async function viewVentasTip(container) {
     </div>`;
 
   let vistaActual = 'evolucion';
+  let granActual  = 'semanal';
 
   window.vtCambiarVista = (v) => {
     vistaActual = v;
@@ -2270,6 +2285,34 @@ async function viewVentasTip(container) {
     buscarVentas();
   };
 
+  window.vtCambiarGran = (g) => {
+    granActual = g;
+    const isSem = g === 'semanal';
+    document.getElementById('vt-gran-sem').style.background = isSem ? 'var(--primary)' : 'var(--bg-secondary)';
+    document.getElementById('vt-gran-sem').style.color      = isSem ? '#fff' : 'var(--text)';
+    document.getElementById('vt-gran-mes').style.background = !isSem ? 'var(--primary)' : 'var(--bg-secondary)';
+    document.getElementById('vt-gran-mes').style.color      = !isSem ? '#fff' : 'var(--text)';
+    // Actualizar opciones del selector de período
+    const sel = document.getElementById('vt-sems');
+    const lbl = document.getElementById('vt-periodo-label');
+    if (isSem) {
+      lbl.textContent = 'Semanas';
+      sel.innerHTML = `
+        <option value="8">8 sem (2 meses)</option>
+        <option value="13" selected>13 sem (3 meses)</option>
+        <option value="26">26 sem (6 meses)</option>
+        <option value="52">52 sem (1 año)</option>`;
+    } else {
+      lbl.textContent = 'Meses';
+      sel.innerHTML = `
+        <option value="3">3 meses</option>
+        <option value="6">6 meses</option>
+        <option value="12" selected>12 meses (1 año)</option>
+        <option value="24">24 meses (2 años)</option>`;
+    }
+    buscarVentas();
+  };
+
   document.getElementById('vt-buscar').addEventListener('click', buscarVentas);
   document.getElementById('vt-sems').addEventListener('change', buscarVentas);
   document.getElementById('vt-op').addEventListener('change', buscarVentas);
@@ -2277,28 +2320,43 @@ async function viewVentasTip(container) {
 
   async function buscarVentas() {
     const op      = document.getElementById('vt-op').value;
-    const sems    = document.getElementById('vt-sems').value;
+    const n       = document.getElementById('vt-sems').value;
     const metrica = document.getElementById('vt-metrica').value;
     const res     = document.getElementById('vt-result');
     res.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
     try {
-      if (vistaActual === 'evolucion') {
-        const data = (await GET(`/ventas/evolucion?operacion=${op}&semanas=${sems}`)).map(addPct);
-        renderEvolucion(res, data, metrica, op);
+      if (granActual === 'semanal') {
+        if (vistaActual === 'evolucion') {
+          const data = (await GET(`/ventas/evolucion?operacion=${op}&semanas=${n}`)).map(addPct);
+          renderEvolucion(res, data, metrica, op, 'semanal');
+        } else {
+          const data = await GET(`/ventas/por-sede?semanas=${n}`);
+          renderPorSede(res, data, metrica, 'semanal');
+        }
       } else {
-        const data = await GET(`/ventas/por-sede?semanas=${sems}`);
-        renderPorSede(res, data, metrica);
+        if (vistaActual === 'evolucion') {
+          const data = (await GET(`/ventas/evolucion-mes?operacion=${op}&meses=${n}`)).map(addPct);
+          renderEvolucion(res, data, metrica, op, 'mensual');
+        } else {
+          const data = await GET(`/ventas/por-sede-mes?meses=${n}`);
+          renderPorSede(res, data, metrica, 'mensual');
+        }
       }
     } catch (err) { res.innerHTML = `<div class="msg-error">${err.message}</div>`; }
   }
 
-  // ── Render: Evolución semanal ─────────────────────────────────────
-  function renderEvolucion(container, data, metrica, op) {
+  // ── Render: Evolución (semanal o mensual) ────────────────────────
+  function renderEvolucion(container, data, metrica, op, granularidad) {
     if (!data.length) {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos disponibles.</p></div>`;
       return;
     }
-    const ult4  = data.slice(-4), ant4 = data.slice(-8, -4);
+    const esMensual  = granularidad === 'mensual';
+    const nRef       = esMensual ? 3 : 4;                    // últ. 3 meses ó 4 semanas
+    const periodKey  = esMensual ? 'añomes' : 'añosem';
+    const periodoLbl = esMensual ? 'meses' : 'sem';
+
+    const ult4  = data.slice(-nRef), ant4 = data.slice(-nRef * 2, -nRef);
     const sumV  = arr => arr.reduce((s,r) => s + r.ventaNeta,  0);
     const sumT  = arr => arr.reduce((s,r) => s + r.tipTotal,   0);
     const sumB  = arr => arr.reduce((s,r) => s + r.ventaBruta, 0);
@@ -2314,7 +2372,7 @@ async function viewVentasTip(container) {
     const COLS_TODAS = METRICAS.filter(m => m.key !== 'todos');
     const cols = metrica === 'todos' ? COLS_TODAS.filter(m => !m.isPct) : COLS_TODAS.filter(m => m.key === metrica);
 
-    let sortKey = 'añosem', sortDir = -1;
+    let sortKey = periodKey, sortDir = -1;
     const maxVenta = Math.max(...data.map(r => r.ventaNeta), 1);
     const maxTip   = Math.max(...data.map(r => r.tipTotal),  1);
     const maxPct   = Math.max(...data.map(r => r.pctTip),    1);
@@ -2322,31 +2380,31 @@ async function viewVentasTip(container) {
     container.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
         <div class="card" style="padding:12px">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Venta Neta (últ. 4 sem)</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Venta Neta (últ. ${nRef} ${periodoLbl})</div>
           <div style="font-size:20px;font-weight:700">${fmtV(vNeta)}</div>
-          <div style="font-size:12px;margin-top:4px">${arrow(pctV)} vs 4 sem. anteriores</div>
+          <div style="font-size:12px;margin-top:4px">${arrow(pctV)} vs ${nRef} ${periodoLbl}. anteriores</div>
         </div>
         <div class="card" style="padding:12px">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">TIP Total (últ. 4 sem)</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">TIP Total (últ. ${nRef} ${periodoLbl})</div>
           <div style="font-size:20px;font-weight:700">${fmtV(tTot)}</div>
-          <div style="font-size:12px;margin-top:4px">${arrow(pctT)} vs 4 sem. anteriores</div>
+          <div style="font-size:12px;margin-top:4px">${arrow(pctT)} vs ${nRef} ${periodoLbl}. anteriores</div>
         </div>
         <div class="card" style="padding:12px">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">% TIP / V. Bruta (últ. 4 sem)</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">% TIP / V. Bruta (últ. ${nRef} ${periodoLbl})</div>
           <div style="font-size:20px;font-weight:700;color:#8b5cf6">
             ${bTot > 0 ? (tTot / bTot * 100).toFixed(1) + '%' : '—'}
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Efe: ${fmtV(ult4.reduce((s,r)=>s+r.tipEfectivo,0))} / TC: ${fmtV(ult4.reduce((s,r)=>s+r.tipTC,0))}</div>
         </div>
         <div class="card" style="padding:12px">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Semanas con datos</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">${esMensual ? 'Meses' : 'Semanas'} con datos</div>
           <div style="font-size:20px;font-weight:700">${data.length}</div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${data[0]?.label} → ${data[data.length-1]?.label}</div>
         </div>
       </div>
       <div class="card">
         <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
-          ${op || 'Todas las operaciones'} — evolución semanal
+          ${op || 'Todas las operaciones'} — evolución ${esMensual ? 'mensual' : 'semanal'}
         </div>
         <div style="overflow-x:auto">
           <table class="data-table"><thead id="vt-head"></thead><tbody id="vt-body"></tbody></table>
@@ -2360,7 +2418,7 @@ async function viewVentasTip(container) {
       });
     }
     function renderHead() {
-      const allCols = [{ key: 'añosem', label: 'Semana', align: 'left' }, ...cols.map(c => ({ ...c, align: 'right' }))];
+      const allCols = [{ key: periodKey, label: esMensual ? 'Mes' : 'Semana', align: 'left' }, ...cols.map(c => ({ ...c, align: 'right' }))];
       document.getElementById('vt-head').innerHTML = `<tr>${allCols.map(c => {
         const act = c.key === sortKey;
         return `<th style="cursor:pointer;user-select:none;${c.align==='right'?'text-align:right':''}" onclick="vtSort('${c.key}')">${c.label}<span style="color:${act?'var(--primary)':'#9ca3af'};font-size:10px">${act?(sortDir===1?' ▲':' ▼'):' ⇅'}</span></th>`;
@@ -2400,8 +2458,8 @@ async function viewVentasTip(container) {
     };
   }
 
-  // ── Render: Por Sede (pivote expandible) ──────────────────────────
-  function renderPorSede(container, { semanas, sedes }, metrica) {
+  // ── Render: Por Sede (pivote expandible, semanal o mensual) ──────
+  function renderPorSede(container, { semanas, sedes }, metrica, granularidad) {
     if (!sedes.length) {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos disponibles.</p></div>`;
       return;
@@ -2418,10 +2476,12 @@ async function viewVentasTip(container) {
     const expandidas = new Set();
     const mostrarPct = metrica === 'pctTip';
 
+    const esMensual = granularidad === 'mensual';
+
     // Total por sede
     function totalSede(sede) {
       return semanas.reduce((acc, s) => {
-        const d = sede.datos[s.añosem] || {};
+        const d = sede.datos[s.id] || {};
         acc.ventaBruta  += d.ventaBruta  || 0;
         acc.ventaNeta   += d.ventaNeta   || 0;
         acc.tipEfectivo += d.tipEfectivo || 0;
@@ -2432,15 +2492,15 @@ async function viewVentasTip(container) {
     }
 
     function buildTable() {
-      // Grand total por semana y global
+      // Grand total por período y global
       const grandSem = semanas.map(s => {
-        const vb = sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.ventaBruta || 0), 0);
-        const tip = sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.tipTotal  || 0), 0);
+        const vb  = sedes.reduce((a,sede) => a + (sede.datos[s.id]?.ventaBruta  || 0), 0);
+        const tip = sedes.reduce((a,sede) => a + (sede.datos[s.id]?.tipTotal    || 0), 0);
         return { ...semanas, ventaBruta: vb, tipTotal: tip,
           pctTip: vb > 0 ? (tip/vb*100) : 0,
-          ventaNeta:   sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.ventaNeta   || 0), 0),
-          tipEfectivo: sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.tipEfectivo || 0), 0),
-          tipTC:       sedes.reduce((a,sede) => a + (sede.datos[s.añosem]?.tipTC       || 0), 0)
+          ventaNeta:   sedes.reduce((a,sede) => a + (sede.datos[s.id]?.ventaNeta   || 0), 0),
+          tipEfectivo: sedes.reduce((a,sede) => a + (sede.datos[s.id]?.tipEfectivo || 0), 0),
+          tipTC:       sedes.reduce((a,sede) => a + (sede.datos[s.id]?.tipTC       || 0), 0)
         };
       });
       const grandTot = grandSem.reduce((acc,g) => {
@@ -2463,7 +2523,7 @@ async function viewVentasTip(container) {
 
         // Fila principal
         const celdas = semanas.map(s => {
-          const d = sede.datos[s.añosem] || {};
+          const d = sede.datos[s.id] || {};
           const v = d[mainKey] ?? 0;
           const color = mainKey === 'pctTip' ? pctColor(v) : 'inherit';
           return `<td class="text-right" style="font-size:12px;color:${color}">${fmtMain(v)}</td>`;
@@ -2481,7 +2541,7 @@ async function viewVentasTip(container) {
         if (isExp) {
           for (const dk of DETALLE_KEYS) {
             const detCeldas = semanas.map(s => {
-              const d = sede.datos[s.añosem] || {};
+              const d = sede.datos[s.id] || {};
               const v = d[dk.key] ?? 0;
               const color = dk.key === 'pctTip' ? pctColor(v) : 'var(--text-muted)';
               return `<td class="text-right" style="font-size:11px;color:${color};background:#f9fafb">${fmtMetrica(dk.key === 'pctTip' ? 'pctTip' : dk.key, v)}</td>`;
@@ -2513,7 +2573,7 @@ async function viewVentasTip(container) {
       return `
         <div class="card">
           <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
-            <span>Por Sede — ${metricaLabel} · ${semanas.length} semanas · <em style="font-size:11px">Clic en sede para expandir</em></span>
+            <span>Por Sede — ${metricaLabel} · ${semanas.length} ${esMensual ? 'meses' : 'semanas'} · <em style="font-size:11px">Clic en sede para expandir</em></span>
           </div>
           <div style="overflow-x:auto">
             <table class="data-table">
