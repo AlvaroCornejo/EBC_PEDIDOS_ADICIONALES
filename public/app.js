@@ -2517,7 +2517,7 @@ function showUserModal(user, onSave) {
           ${allRoles.map(([k,v])=>`<option value="${k}" ${user?.role===k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group" id="um-ops-section"><label>Operaciones asignadas</label>
+      <div class="form-group" id="um-ops-section"><label>Operaciones Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_OPS.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
             <input type="checkbox" name="um-op" value="${op}" ${(user?.operations||[]).includes(op)?'checked':''}>
@@ -2525,7 +2525,7 @@ function showUserModal(user, onSave) {
           </label>`).join('')}
         </div>
       </div>
-      <div class="form-group" id="um-socs-section"><label>Sociedades de Compra</label>
+      <div class="form-group" id="um-socs-section"><label>Sociedades Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
             <input type="checkbox" name="um-soc-compra" value="${s}"
@@ -2547,6 +2547,11 @@ function showUserModal(user, onSave) {
             <input type="checkbox" id="um-precios" ${(user?.sociedadesCompra||[]).length>0?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>💰 <strong>Precios de Compra</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-comparativo" ${user?.puedeVerComparativo?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>📈 <strong>OC / Ingresos al Almacén</strong></span>
           </label>
         </div>
       </div>
@@ -2586,7 +2591,8 @@ function showUserModal(user, onSave) {
       email: document.getElementById('um-email').value.trim(),
       role,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
-      puedeVerKardex: isConsulta ? (document.getElementById('um-kardex')?.checked ?? false) : false,
+      puedeVerKardex:      isConsulta ? (document.getElementById('um-kardex')?.checked      ?? false) : false,
+      puedeVerComparativo: isConsulta ? (document.getElementById('um-comparativo')?.checked ?? false) : false,
       sociedadesCompra,
     };
     const pwd = document.getElementById('um-password').value;
