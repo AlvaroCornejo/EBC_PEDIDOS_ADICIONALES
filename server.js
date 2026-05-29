@@ -52,6 +52,7 @@ app.use('/api/push',        require('./routes/push'));
 app.use('/api/compras',     require('./routes/compras'));
 app.use('/api/comparativo', require('./routes/comparativo'));
 app.use('/api/ventas',      require('./routes/ventas'));
+app.use('/api/bajas',       require('./routes/bajas'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

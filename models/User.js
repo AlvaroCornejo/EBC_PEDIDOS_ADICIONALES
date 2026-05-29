@@ -11,6 +11,7 @@ const userSchema = new mongoose.Schema({
   puedeVerKardex:      { type: Boolean, default: false },
   puedeVerComparativo: { type: Boolean, default: false },
   puedeVerVentas:      { type: Boolean, default: false },
+  puedeVerBajas:       { type: Boolean, default: false },
   sociedadesCompra:    { type: [String], default: [] }
 });
 

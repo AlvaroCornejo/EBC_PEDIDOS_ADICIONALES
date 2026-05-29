@@ -234,6 +234,7 @@ const NAV_ITEMS = [
   { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS] },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
+  { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN, ROLES.CONS], extraPerm: 'puedeVerBajas' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -285,7 +286,7 @@ function navigate(view, params = {}) {
   setActiveNav(view);
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -2600,6 +2601,275 @@ async function viewVentasTip(container) {
   await buscarVentas();
 }
 
+// ─── View: Bajas ──────────────────────────────────────────────────
+async function viewBajas(container) {
+  let opsConDatos = [];
+  try { opsConDatos = await GET('/bajas/operaciones'); } catch {}
+
+  const fmtImp  = v => v == null ? '—' : 'S/ ' + Math.round(v).toLocaleString('es-CL');
+  const fmtCant = v => v == null ? '—' : Number(v).toLocaleString('es-CL', { maximumFractionDigits: 2 });
+  const fmtPct  = v => v == null ? '—' : v.toFixed(1) + '%';
+  const pctColor = v => v == null ? '' : v >= 10 ? '#ef4444' : v >= 5 ? '#f59e0b' : '#10b981';
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">🔻 Seguimiento de Bajas</div>
+    </div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:16px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Vista</label>
+            <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+              <button id="bj-tab-evol" onclick="bjCambiarVista('evolucion')"
+                style="padding:6px 14px;font-size:13px;border:none;cursor:pointer;background:var(--primary);color:#fff;font-weight:600">
+                📈 Evolución
+              </button>
+              <button id="bj-tab-item" onclick="bjCambiarVista('item')"
+                style="padding:6px 14px;font-size:13px;border:none;cursor:pointer;background:var(--bg-secondary);color:var(--text)">
+                📦 Por Ítem
+              </button>
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Operación</label>
+            <select id="bj-op" class="form-control" style="width:150px">
+              <option value="">Todas</option>
+              ${opsConDatos.map(o => `<option value="${o}">${o}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Semanas</label>
+            <select id="bj-sems" class="form-control" style="width:140px">
+              <option value="8">8 sem (2 meses)</option>
+              <option value="13" selected>13 sem (3 meses)</option>
+              <option value="26">26 sem (6 meses)</option>
+              <option value="52">52 sem (1 año)</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="bj-buscar" style="align-self:flex-end">🔍 Buscar</button>
+        </div>
+      </div>
+      <div id="bj-result"></div>
+    </div>`;
+
+  let vistaActual = 'evolucion';
+
+  window.bjCambiarVista = (v) => {
+    vistaActual = v;
+    const isEvol = v === 'evolucion';
+    document.getElementById('bj-tab-evol').style.background = isEvol ? 'var(--primary)' : 'var(--bg-secondary)';
+    document.getElementById('bj-tab-evol').style.color      = isEvol ? '#fff' : 'var(--text)';
+    document.getElementById('bj-tab-item').style.background = !isEvol ? 'var(--primary)' : 'var(--bg-secondary)';
+    document.getElementById('bj-tab-item').style.color      = !isEvol ? '#fff' : 'var(--text)';
+    buscarBajas();
+  };
+
+  document.getElementById('bj-buscar').addEventListener('click', buscarBajas);
+  document.getElementById('bj-sems').addEventListener('change', buscarBajas);
+  document.getElementById('bj-op').addEventListener('change', buscarBajas);
+
+  async function buscarBajas() {
+    const op   = document.getElementById('bj-op').value;
+    const sems = document.getElementById('bj-sems').value;
+    const res  = document.getElementById('bj-result');
+    res.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+    try {
+      if (vistaActual === 'evolucion') {
+        const data = await GET(`/bajas/evolucion?operacion=${op}&semanas=${sems}`);
+        renderBajasEvol(res, data, op);
+      } else {
+        const data = await GET(`/bajas/por-item?operacion=${op}&semanas=${sems}`);
+        renderBajasItem(res, data, op, sems);
+      }
+    } catch (err) { res.innerHTML = `<div class="msg-error">${err.message}</div>`; }
+  }
+
+  // ── Render: Evolución semanal ─────────────────────────────────────
+  function renderBajasEvol(container, data, op) {
+    if (!data.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos disponibles.</p></div>`;
+      return;
+    }
+
+    // KPIs sobre últimas 4 semanas
+    const ult4   = data.slice(-4);
+    const sumB   = arr => arr.reduce((s,r) => s + r.bajaImp,  0);
+    const sumV   = arr => arr.reduce((s,r) => s + r.ventaImp, 0);
+    const totB   = sumB(ult4), totV = sumV(ult4);
+    const totAll = { b: sumB(data), v: sumV(data) };
+
+    let sortKey = 'añosem', sortDir = -1;
+
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Importe Bajas (últ. 4 sem)</div>
+          <div style="font-size:20px;font-weight:700;color:#ef4444">${fmtImp(totB)}</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Importe Ventas (últ. 4 sem)</div>
+          <div style="font-size:20px;font-weight:700">${fmtImp(totV)}</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">% Baja / Venta (últ. 4 sem)</div>
+          <div style="font-size:20px;font-weight:700;color:${pctColor(totV>0?totB/totV*100:null)}">
+            ${totV > 0 ? (totB/totV*100).toFixed(1)+'%' : '—'}
+          </div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">% Baja / Venta (total período)</div>
+          <div style="font-size:20px;font-weight:700;color:${pctColor(totAll.v>0?totAll.b/totAll.v*100:null)}">
+            ${totAll.v > 0 ? (totAll.b/totAll.v*100).toFixed(1)+'%' : '—'}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${data.length} semanas con datos</div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+          ${op || 'Todas las operaciones'} — evolución semanal de bajas vs ventas
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table"><thead id="bj-head"></thead><tbody id="bj-body"></tbody></table>
+        </div>
+      </div>`;
+
+    const COLS = [
+      { key: 'añosem',    label: 'Semana',       align: 'left'  },
+      { key: 'bajaImp',   label: 'Imp. Baja',    align: 'right', fmt: fmtImp, color: '#ef4444' },
+      { key: 'bajaCant',  label: 'Cant. Baja',   align: 'right', fmt: fmtCant },
+      { key: 'ventaImp',  label: 'Imp. Venta',   align: 'right', fmt: fmtImp },
+      { key: 'ventaCant', label: 'Cant. Venta',  align: 'right', fmt: fmtCant },
+      { key: 'pctKpi',    label: '% Baja/Venta', align: 'right', fmt: fmtPct, isKpi: true },
+    ];
+
+    function sortData(rows) {
+      return [...rows].sort((a,b) => {
+        const va = a[sortKey] ?? -Infinity, vb = b[sortKey] ?? -Infinity;
+        return sortDir * (va - vb);
+      });
+    }
+    function renderHead() {
+      document.getElementById('bj-head').innerHTML = `<tr>${COLS.map(c => {
+        const act = c.key === sortKey;
+        return `<th style="cursor:pointer;${c.align==='right'?'text-align:right':''}" onclick="bjSortEvol('${c.key}')">
+          ${c.label}<span style="color:${act?'var(--primary)':'#9ca3af'};font-size:10px">${act?(sortDir===1?' ▲':' ▼'):' ⇅'}</span></th>`;
+      }).join('')}</tr>`;
+    }
+    function renderBody() {
+      document.getElementById('bj-body').innerHTML = sortData(data).map(r => {
+        return `<tr>${COLS.map(c => {
+          if (c.key === 'añosem') return `<td><strong>${esc(r.label)}</strong></td>`;
+          const val = r[c.key];
+          const color = c.isKpi ? pctColor(val) : (c.color || '');
+          const txt   = c.fmt ? c.fmt(val) : (val ?? '—');
+          return `<td class="text-right" style="color:${color}">${txt}</td>`;
+        }).join('')}</tr>`;
+      }).join('');
+    }
+    renderHead(); renderBody();
+    window.bjSortEvol = key => {
+      if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+      renderHead(); renderBody();
+    };
+  }
+
+  // ── Render: Por Ítem ──────────────────────────────────────────────
+  function renderBajasItem(container, data, op, sems) {
+    if (!data.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos disponibles.</p></div>`;
+      return;
+    }
+
+    const totB = data.reduce((s,r) => s + r.bajaImp,  0);
+    const totV = data.reduce((s,r) => s + r.ventaImp, 0);
+    const nConBaja = data.filter(r => r.bajaImp > 0).length;
+
+    let sortKey = 'bajaImp', sortDir = -1;
+
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Total Bajas (imp.)</div>
+          <div style="font-size:20px;font-weight:700;color:#ef4444">${fmtImp(totB)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${nConBaja} ítems con baja</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Total Ventas (imp.)</div>
+          <div style="font-size:20px;font-weight:700">${fmtImp(totV)}</div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">% Baja / Venta global</div>
+          <div style="font-size:20px;font-weight:700;color:${pctColor(totV>0?totB/totV*100:null)}">
+            ${totV > 0 ? (totB/totV*100).toFixed(1)+'%' : '—'}
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+          ${op || 'Todas las operaciones'} — por ítem (últimas ${sems} semanas con datos)
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table"><thead id="bj-ihead"></thead><tbody id="bj-ibody"></tbody></table>
+        </div>
+      </div>`;
+
+    const COLS = [
+      { key: 'item',      label: 'Ítem',         align: 'left'  },
+      { key: 'nombre',    label: 'Descripción',  align: 'left'  },
+      { key: 'grupoCompra',label:'Grupo',        align: 'left'  },
+      { key: 'bajaImp',   label: 'Imp. Baja',   align: 'right', fmt: fmtImp,  color: '#ef4444' },
+      { key: 'bajaCant',  label: 'Cant. Baja',  align: 'right', fmt: fmtCant },
+      { key: 'ventaImp',  label: 'Imp. Venta',  align: 'right', fmt: fmtImp  },
+      { key: 'ventaCant', label: 'Cant. Venta', align: 'right', fmt: fmtCant },
+      { key: 'pctKpi',    label: '% Baja/Venta',align: 'right', fmt: fmtPct, isKpi: true },
+    ];
+
+    function sortData(rows) {
+      return [...rows].sort((a,b) => {
+        const va = a[sortKey], vb = b[sortKey];
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        return typeof va === 'string'
+          ? sortDir * va.localeCompare(vb)
+          : sortDir * (va - vb);
+      });
+    }
+    function renderHead() {
+      document.getElementById('bj-ihead').innerHTML = `<tr>${COLS.map(c => {
+        const act = c.key === sortKey;
+        return `<th style="cursor:pointer;${c.align==='right'?'text-align:right':''}" onclick="bjSortItem('${c.key}')">
+          ${c.label}<span style="color:${act?'var(--primary)':'#9ca3af'};font-size:10px">${act?(sortDir===1?' ▲':' ▼'):' ⇅'}</span></th>`;
+      }).join('')}</tr>`;
+    }
+    function renderBody() {
+      document.getElementById('bj-ibody').innerHTML = sortData(data).map(r => {
+        return `<tr>${COLS.map(c => {
+          if (c.key === 'item')       return `<td style="font-size:12px">${r.item}</td>`;
+          if (c.key === 'nombre')     return `<td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.nombre || '')}</td>`;
+          if (c.key === 'grupoCompra')return `<td style="font-size:12px">${esc(r.grupoCompra || '')}</td>`;
+          const val   = r[c.key];
+          const color = c.isKpi ? pctColor(val) : (c.color && val > 0 ? c.color : '');
+          const txt   = c.fmt ? c.fmt(val) : (val ?? '—');
+          return `<td class="text-right" style="font-size:12px;${color?'color:'+color+';font-weight:600':''}">
+            ${c.isKpi && val != null
+              ? `<span style="background:${pctColor(val)}22;color:${pctColor(val)};padding:2px 6px;border-radius:4px;font-weight:700">${txt}</span>`
+              : txt}
+          </td>`;
+        }).join('')}</tr>`;
+      }).join('');
+    }
+    renderHead(); renderBody();
+    window.bjSortItem = key => {
+      if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+      renderHead(); renderBody();
+    };
+  }
+
+  await buscarBajas();
+}
+
 // ─── View: Admin ──────────────────────────────────────────────────
 async function viewAdmin(container) {
   container.innerHTML = `
@@ -3033,6 +3303,11 @@ function showUserModal(user, onSave) {
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🛒 <strong>Venta & TIP por Operación</strong></span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-bajas" ${user?.puedeVerBajas?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🔻 <strong>Seguimiento de Bajas</strong></span>
+          </label>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -3074,6 +3349,7 @@ function showUserModal(user, onSave) {
       puedeVerKardex:      isConsulta ? (document.getElementById('um-kardex')?.checked      ?? false) : false,
       puedeVerComparativo: isConsulta ? (document.getElementById('um-comparativo')?.checked ?? false) : false,
       puedeVerVentas:      isConsulta ? (document.getElementById('um-ventas')?.checked      ?? false) : false,
+      puedeVerBajas:       isConsulta ? (document.getElementById('um-bajas')?.checked       ?? false) : false,
       sociedadesCompra,
     };
     const pwd = document.getElementById('um-password').value;
