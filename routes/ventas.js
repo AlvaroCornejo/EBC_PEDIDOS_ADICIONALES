@@ -5,42 +5,6 @@ const VentasTip = require('../models/VentasTip');
 const router = express.Router();
 router.use(authMiddleware);
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function getISOWeek(date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const day = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - day);
-  const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
-  return 1 + Math.round(((d - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
-}
-
-function ultimosAñoSem(n) {
-  const hoy = new Date();
-  const res = [];
-  let año = hoy.getFullYear();
-  let sem = getISOWeek(hoy);
-  for (let i = 0; i < n; i++) {
-    res.push(año * 100 + sem);
-    sem--;
-    if (sem < 1) { año--; sem = 52; }
-  }
-  return res;
-}
-
-function ultimosAñoMes(n) {
-  const hoy = new Date();
-  const res = [];
-  let año = hoy.getFullYear();
-  let mes = hoy.getMonth() + 1; // 1-12
-  for (let i = 0; i < n; i++) {
-    res.push(año * 100 + mes);
-    mes--;
-    if (mes < 1) { año--; mes = 12; }
-  }
-  return res;
-}
-
 const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 /** Filtro de operaciones según perfil del usuario */
@@ -64,7 +28,7 @@ router.get('/operaciones', async (req, res) => {
 });
 
 // ── GET /api/ventas/evolucion — semanal ──────────────────────────────────────
-// ?operacion=X&semanas=13
+// Devuelve las últimas N semanas con datos reales (sin importar qué tan antiguas)
 router.get('/evolucion', async (req, res) => {
   try {
     const { operacion, semanas: semsQ } = req.query;
@@ -72,12 +36,9 @@ router.get('/evolucion', async (req, res) => {
     if (!filter) return res.status(403).json({ error: 'Sin acceso' });
 
     const nSems = Math.min(parseInt(semsQ) || 13, 104);
-    const semsRango = ultimosAñoSem(nSems);
-    const desde = Math.min(...semsRango);
-    const hasta = Math.max(...semsRango);
 
     const agg = await VentasTip.aggregate([
-      { $match: { ...filter, añosem: { $gte: desde, $lte: hasta } } },
+      { $match: filter },
       { $group: {
           _id:         '$añosem',
           año:         { $first: '$año' },
@@ -87,7 +48,9 @@ router.get('/evolucion', async (req, res) => {
           tipEfectivo: { $sum: '$tipEfectivo' },
           tipTC:       { $sum: '$tipTC' }
       }},
-      { $sort: { _id: 1 } }
+      { $sort: { _id: -1 } },
+      { $limit: nSems },
+      { $sort: { _id:  1 } }   // reordenar ascendente para gráfico
     ]);
 
     res.json(agg.map(r => ({
@@ -105,7 +68,7 @@ router.get('/evolucion', async (req, res) => {
 });
 
 // ── GET /api/ventas/evolucion-mes — mensual ───────────────────────────────────
-// ?operacion=X&meses=12
+// Devuelve los últimos N meses con datos reales
 router.get('/evolucion-mes', async (req, res) => {
   try {
     const { operacion, meses: mesQ } = req.query;
@@ -113,12 +76,9 @@ router.get('/evolucion-mes', async (req, res) => {
     if (!filter) return res.status(403).json({ error: 'Sin acceso' });
 
     const nMeses = Math.min(parseInt(mesQ) || 12, 60);
-    const rango  = ultimosAñoMes(nMeses);
-    const desde  = Math.min(...rango);
-    const hasta  = Math.max(...rango);
 
     const agg = await VentasTip.aggregate([
-      { $match: { ...filter, añomes: { $gte: desde, $lte: hasta } } },
+      { $match: { ...filter, añomes: { $gt: 0 } } },   // excluir registros sin añomes
       { $group: {
           _id:         '$añomes',
           añoN:        { $first: '$añoN' },
@@ -128,7 +88,9 @@ router.get('/evolucion-mes', async (req, res) => {
           tipEfectivo: { $sum: '$tipEfectivo' },
           tipTC:       { $sum: '$tipTC' }
       }},
-      { $sort: { _id: 1 } }
+      { $sort: { _id: -1 } },
+      { $limit: nMeses },
+      { $sort: { _id:  1 } }
     ]);
 
     res.json(agg.map(r => ({
@@ -146,7 +108,6 @@ router.get('/evolucion-mes', async (req, res) => {
 });
 
 // ── GET /api/ventas/por-sede — semanal ───────────────────────────────────────
-// ?semanas=13
 router.get('/por-sede', async (req, res) => {
   try {
     const { semanas: semsQ } = req.query;
@@ -154,16 +115,15 @@ router.get('/por-sede', async (req, res) => {
     if (!filter) return res.status(403).json({ error: 'Sin acceso' });
 
     const nSems = Math.min(parseInt(semsQ) || 13, 104);
-    const semsRango = ultimosAñoSem(nSems);
-    const desde = Math.min(...semsRango);
-    const hasta = Math.max(...semsRango);
+
+    // Obtener las N semanas más recientes con datos
+    const semsConDatos = await VentasTip.distinct('añosem', filter);
+    const semsSet = semsConDatos.sort((a,b) => b - a).slice(0, nSems).sort((a,b) => a - b);
 
     const agg = await VentasTip.aggregate([
-      { $match: { ...filter, añosem: { $gte: desde, $lte: hasta } } },
+      { $match: { ...filter, añosem: { $in: semsSet } } },
       { $group: {
           _id:         { operacion: '$operacion', añosem: '$añosem' },
-          año:         { $first: '$año' },
-          semana:      { $first: '$semana' },
           ventaBruta:  { $sum: '$ventaBruta' },
           ventaNeta:   { $sum: '$ventaNeta' },
           tipEfectivo: { $sum: '$tipEfectivo' },
@@ -172,9 +132,8 @@ router.get('/por-sede', async (req, res) => {
       { $sort: { '_id.operacion': 1, '_id.añosem': 1 } }
     ]);
 
-    const semanasSet = [...new Set(agg.map(r => r._id.añosem))].sort();
-    const semanas = semanasSet.map(as => ({
-      id: as,
+    const semanas = semsSet.map(as => ({
+      id:    as,
       label: `S${as % 100}/${Math.floor(as / 100)}`
     }));
 
@@ -198,7 +157,6 @@ router.get('/por-sede', async (req, res) => {
 });
 
 // ── GET /api/ventas/por-sede-mes — mensual ────────────────────────────────────
-// ?meses=12
 router.get('/por-sede-mes', async (req, res) => {
   try {
     const { meses: mesQ } = req.query;
@@ -206,12 +164,13 @@ router.get('/por-sede-mes', async (req, res) => {
     if (!filter) return res.status(403).json({ error: 'Sin acceso' });
 
     const nMeses = Math.min(parseInt(mesQ) || 12, 60);
-    const rango  = ultimosAñoMes(nMeses);
-    const desde  = Math.min(...rango);
-    const hasta  = Math.max(...rango);
+
+    // Obtener los N meses más recientes con datos
+    const mesesConDatos = await VentasTip.distinct('añomes', { ...filter, añomes: { $gt: 0 } });
+    const mesesSet = mesesConDatos.sort((a,b) => b - a).slice(0, nMeses).sort((a,b) => a - b);
 
     const agg = await VentasTip.aggregate([
-      { $match: { ...filter, añomes: { $gte: desde, $lte: hasta } } },
+      { $match: { ...filter, añomes: { $in: mesesSet } } },
       { $group: {
           _id:         { operacion: '$operacion', añomes: '$añomes' },
           añoN:        { $first: '$añoN' },
@@ -224,8 +183,7 @@ router.get('/por-sede-mes', async (req, res) => {
       { $sort: { '_id.operacion': 1, '_id.añomes': 1 } }
     ]);
 
-    const mesesSet = [...new Set(agg.map(r => r._id.añomes))].sort();
-    const semanas  = mesesSet.map(am => ({
+    const semanas = mesesSet.map(am => ({
       id:    am,
       label: `${MESES[(am % 100) - 1]}/${Math.floor(am / 100)}`
     }));
