@@ -233,7 +233,7 @@ const NAV_ITEMS = [
   { id: 'atender',        label: 'Atender',         icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
   { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS] },
-  { id: 'ventas',         label: 'Venta / TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
+  { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -2180,7 +2180,7 @@ async function viewComparativo(container) {
   await buscarComparativo();
 }
 
-// ─── View: Venta / TIP por Operación ─────────────────────────────
+// ─── View: Venta & TIP por Operación ─────────────────────────────
 async function viewVentasTip(container) {
   let opsConDatos = [];
   try { opsConDatos = await GET('/ventas/operaciones'); } catch {}
@@ -2209,7 +2209,7 @@ async function viewVentasTip(container) {
 
   container.innerHTML = `
     <div class="page-header">
-      <div class="page-title">🛒 Venta / TIP por Operación</div>
+      <div class="page-title">🛒 Venta & TIP por Operación</div>
     </div>
     <div class="page-body">
       <div class="card mb-16" style="padding:16px">
@@ -2370,7 +2370,7 @@ async function viewVentasTip(container) {
       : `<span style="color:#ef4444">▼ ${Math.abs(v).toFixed(1)}%</span>`);
 
     const COLS_TODAS = METRICAS.filter(m => m.key !== 'todos');
-    const cols = metrica === 'todos' ? COLS_TODAS.filter(m => !m.isPct) : COLS_TODAS.filter(m => m.key === metrica);
+    const cols = metrica === 'todos' ? COLS_TODAS : COLS_TODAS.filter(m => m.key === metrica);
 
     let sortKey = periodKey, sortDir = -1;
     const maxVenta = Math.max(...data.map(r => r.ventaNeta), 1);
@@ -3031,7 +3031,7 @@ function showUserModal(user, onSave) {
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-ventas" ${user?.puedeVerVentas?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
-            <span>🛒 <strong>Venta / TIP por Operación</strong></span>
+            <span>🛒 <strong>Venta & TIP por Operación</strong></span>
           </label>
         </div>
       </div>
