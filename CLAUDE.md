@@ -36,6 +36,9 @@
 
 ## Permisos especiales (JWT)
 - `puedeVerKardex`: boolean — solo rol CONS, da acceso a vista Kardex
+- `puedeVerComparativo`: boolean — acceso a Comparativo OC / Ingresos al Almacén
+- `puedeVerVentas`: boolean — acceso a Venta & TIP por Operación
+- `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
 - `sociedadesCompra`: array — sociedades para ver Precios de Compra (ERSAC, FRQ1, GB)
 - `operations`: array — operaciones asignadas al usuario
 
@@ -49,9 +52,16 @@
 - Ruta Box origen: `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC ADICIONALES\`
 - Destino en servidor sync: `C:\pedidos-app\data\`
 
-### MongoDB (ocasional)
-- Colección **Item**: loteCompra, gestion por operación
-- Colección **CompraPareto** / **CompraRoc**: precios históricos de compra
+### MongoDB (colecciones y scripts de importación)
+
+| Colección | Script | Fuente | Frecuencia |
+|-----------|--------|--------|------------|
+| Item | `/api/items/sync` (browser) | Excel ADICIONALES | ocasional |
+| CompraPareto / CompraRoc | `scripts/importCompras.js` | EBC COMPRAS HISTORICAS.xlsx | semanal |
+| ComparativoOC | `scripts/importComparativoOC.js` | COMPARATIVO OC INGRESOS.xlsx | diario |
+| VentasTip | `scripts/importVentasTip.js` | EBC VENTAS TIP RESUMEN.xlsx | diario |
+| KardexBajaVenta | `scripts/importBajas.js` | data/*ADICIONALES.xlsx | diario |
+
 - Sync items desde consola del navegador (admin logueado):
 ```javascript
 (async () => {
@@ -62,8 +72,31 @@
   }
 })();
 ```
-- Import precios compra: `node scripts/importCompras.js "ruta\al\archivo.xlsx"`
-- Excel por defecto: `C:\Users\alvar\Box\EBC\EBC AI\EBC AI BASES\EBC COMPRAS\EBC COMPRAS HISTORICAS.xlsx`
+
+## Tarea programada diaria — CORPSERV-PRUEBA
+
+**Tarea**: `EBC Actualizacion Diaria` — 6:00 AM diario  
+**Comando**: `cmd.exe /c "C:\pedidos-app\sync-master.bat >> C:\pedidos-app\scripts\sync-master.log 2>&1"`  
+**Log**: `C:\pedidos-app\scripts\sync-master.log`
+
+### sync-master.bat — pasos en orden
+
+| # | Bat | Qué hace |
+|---|-----|----------|
+| 1 | `sync-excel.bat` | Copia 13 ADICIONALES de Box → `data\` + git push |
+| 2 | `sync-oc-ingresos.bat` | `python D:\Comparativo_OC\actualizar_oc_ingresos.py` |
+| 3 | `sync-comparativo.bat` | `importComparativoOC.js` → MongoDB |
+| 4 | `sync-ventas.bat` | `importVentasTip.js` → MongoDB |
+| 5 | `sync-bajas.bat` | `importBajas.js` → MongoDB |
+| 6 | `scripts\ejecutar-importacion.bat` | `importCompras.js` → MongoDB |
+
+> **Para agregar una nueva consulta**: crear `sync-nueva.bat` + agregar paso `[N/X]` en `sync-master.bat` antes del bloque de Resumen. Los bats hijos solo hacen `echo` a stdout (sin `>>` internos); el master redirige todo al log con una sola apertura externa.
+
+**Problema recurrente en git pull del servidor**: si `sync-master.bat` u otro bat tiene cambios locales:
+```cmd
+git checkout -- sync-master.bat
+git pull origin main
+```
 
 ## Flujo de sincronización Excel → DigitalOcean
 
@@ -93,6 +126,15 @@ git pull origin main --no-edit
   - Precios de Compra ✅ (activa las sociedades seleccionadas arriba)
 - Para ADMIN: no se muestran Operaciones ni Sociedades ni Permisos
 
+## Form de mantenimiento de usuarios — Permisos de Consulta
+
+Recuadro azul, solo visible para rol `OPERADOR_CONSULTA`:
+- Kardex (`puedeVerKardex`)
+- OC / Ingresos al Almacén (`puedeVerComparativo`)
+- Venta / TIP por Operación (`puedeVerVentas`)
+- Seguimiento de Bajas (`puedeVerBajas`)
+- Precios de Compra — activa las Sociedades Autorizadas (`puedeVerKardex` con `sociedadesCompra`)
+
 ## Cambios implementados (historial completo)
 
 ### Sesión 1
@@ -109,6 +151,21 @@ git pull origin main --no-edit
 - Comentarios removido del nav principal, solo en footer sidebar
 - Form usuario rediseñado: Sociedades top-level, Permisos de Consulta solo para CONS
 - GBPLANTA agregada (operación 13), PREP movida después de DOSIMETRIA
-- Fix grupo masivo en paso3_detalle (payment_app): display:block + opción pre-inyectada
 - Fix sync-excel.bat en servidor: resolver conflicto con `git checkout -- sync-excel.bat`
 - CLAUDE.md creado para continuidad de sesiones
+
+### Sesión 3
+- Precios de Compra: fix filtro operacion en routes/compras.js (eliminado — acceso por sociedad)
+- Endpoint diagnóstico `/api/compras/muestra` para debug de datos importados
+- Venta & TIP: vista con tabs Evolución / Por Sede, granularidad Semanal/Mensual
+  - Modelo `VentasTip` con campos `añoN`, `mesN`, `añomes` para agrupación mensual
+  - `importVentasTip.js` lee columnas AÑO_N y MES_N del Excel
+  - Rutas: `/evolucion`, `/evolucion-mes`, `/por-sede`, `/por-sede-mes`
+  - "Ver todo" incluye % TIP; vista renombrada a "Venta & TIP"
+- Bajas: nueva vista Seguimiento de Bajas (BAJA vs VENTA del Kardex ADICIONALES)
+  - Modelo `KardexBajaVenta`, script `importBajas.js`, ruta `/api/bajas`
+  - Tabs Evolución semanal / Por Ítem, KPI % Baja/Venta coloreado
+  - Permiso `puedeVerBajas` en User model y form de usuarios
+- Tarea programada `EBC Actualizacion Diaria` en CORPSERV-PRUEBA
+  - `sync-master.bat` ejecuta los 6 pasos en secuencia
+  - Log único en `scripts\sync-master.log` (redirección externa, sin locks)
