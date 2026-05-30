@@ -236,6 +236,7 @@ const NAV_ITEMS = [
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS] },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN, ROLES.CONS], extraPerm: 'puedeVerBajas' },
+  { id: 'items-app',     label: 'Creación Ítems',  icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'itemsRol', href: 'http://localhost:5001' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -255,16 +256,19 @@ function renderNav() {
 
   // Sidebar (desktop)
   const nav = document.getElementById('sidebar-nav');
-  nav.innerHTML = visibles
-    .map(n => `<a href="#" class="nav-item" data-view="${n.id}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`)
-    .join('');
-  nav.querySelectorAll('.nav-item').forEach(el => {
+  nav.innerHTML = visibles.map(n => n.href
+    ? `<a href="${n.href}" target="_blank" rel="noopener" class="nav-item" style="opacity:.85">
+         <span class="nav-icon">${n.icon}</span>${n.label}<span style="font-size:10px;margin-left:4px;opacity:.6">↗</span>
+       </a>`
+    : `<a href="#" class="nav-item" data-view="${n.id}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`
+  ).join('');
+  nav.querySelectorAll('.nav-item[data-view]').forEach(el => {
     el.addEventListener('click', e => { e.preventDefault(); navigate(el.dataset.view); });
   });
 
   // Bottom nav (mobile)
   const bn = document.getElementById('bottom-nav');
-  bn.innerHTML = visibles
+  bn.innerHTML = visibles.filter(n => !n.href)   // externos no van en bottom nav
     .map(n => `<button class="bn-item" data-view="${n.id}"><span class="bn-icon">${n.icon}</span><span class="bn-label">${n.label}</span></button>`)
     .join('');
   bn.querySelectorAll('.bn-item').forEach(el => {
