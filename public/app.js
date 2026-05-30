@@ -6,6 +6,7 @@
 const API = '/api';
 const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA', CONS: 'OPERADOR_CONSULTA' };
 const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta', OPERADOR_CONSULTA: 'Consultas' };
+const ITEMS_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador / Aprobador'],['registrador','Registrador ERP'],['admin','Administrador']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB'];
@@ -3257,9 +3258,14 @@ function showUserModal(user, onSave) {
       <div class="form-group"><label>Contraseña ${user?'(dejar vacío para no cambiar)':''} *</label>
         <input type="password" id="um-password" ${!user?'required':''} placeholder="${user?'Nueva contraseña (opcional)':'Contraseña'}">
       </div>
-      <div class="form-group"><label>Rol *</label>
+      <div class="form-group"><label>Rol para Pedidos Adicionales *</label>
         <select id="um-role">
           ${allRoles.map(([k,v])=>`<option value="${k}" ${user?.role===k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Rol para Creación de Ítems</label>
+        <select id="um-items-role">
+          ${ITEMS_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.itemsRol||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
       <div class="form-group" id="um-ops-section"><label>Operaciones Autorizadas</label>
@@ -3345,6 +3351,7 @@ function showUserModal(user, onSave) {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
       role,
+      itemsRol: document.getElementById('um-items-role').value,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       puedeVerKardex:      isConsulta ? (document.getElementById('um-kardex')?.checked      ?? false) : false,
       puedeVerComparativo: isConsulta ? (document.getElementById('um-comparativo')?.checked ?? false) : false,

@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
   puedeVerComparativo: { type: Boolean, default: false },
   puedeVerVentas:      { type: Boolean, default: false },
   puedeVerBajas:       { type: Boolean, default: false },
+  itemsRol:            { type: String, default: '' },
   sociedadesCompra:    { type: [String], default: [] }
 });
 
