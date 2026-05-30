@@ -236,7 +236,7 @@ const NAV_ITEMS = [
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT, ROLES.CONS] },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN, ROLES.CONS], extraPerm: 'puedeVerBajas' },
-  { id: 'items-app',     label: 'Creación Ítems',  icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'itemsRol', href: 'http://localhost:5001' },
+  { id: 'items',         label: 'Creación Ítems',  icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'itemsRol' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -291,7 +291,7 @@ function navigate(view, params = {}) {
   setActiveNav(view);
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -2873,6 +2873,498 @@ async function viewBajas(container) {
   }
 
   await buscarBajas();
+}
+
+// ─── View: Creación de Ítems ──────────────────────────────────────
+async function viewItems(container) {
+  const rol = S.user.itemsRol || (S.user.role === 'ADMIN' ? 'admin' : '');
+
+  // Tabs visibles según itemsRol
+  const TABS = [
+    { id: 'catalogo',    label: '📋 Catálogo',       always: true },
+    { id: 'solicitudes', label: '📝 Mis Solicitudes', roles: ['solicitante','admin'] },
+    { id: 'validacion',  label: '✅ Validación',      roles: ['validador','admin'] },
+    { id: 'registro',    label: '🏷️ Registro ERP',   roles: ['registrador','admin'] },
+    { id: 'estado',      label: '📊 Estado',          always: true },
+  ].filter(t => t.always || (t.roles && t.roles.includes(rol)));
+
+  // Tab por defecto según rol
+  const defaultTab = rol === 'validador' ? 'validacion'
+                   : rol === 'registrador' ? 'registro'
+                   : rol === 'solicitante' ? 'solicitudes' : 'catalogo';
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">📦 Creación de Ítems</div>
+    </div>
+    <div class="page-body">
+      <div class="tabs mb-0">
+        ${TABS.map(t => `<button class="tab-btn${t.id===defaultTab?' active':''}" data-itab="${t.id}">${t.label}</button>`).join('')}
+      </div>
+      <div id="items-tab-content" class="mt-16"></div>
+    </div>`;
+
+  let refsCache = null;
+  async function getRefs() {
+    if (!refsCache) refsCache = await GET('/items-sol/refs');
+    return refsCache;
+  }
+
+  // Helpers de referencia
+  const refNombre = (refs, tipo, codigo) => {
+    const arr = refs[tipo] || [];
+    return (arr.find(r => r.codigo === String(codigo)))?.nombre || codigo || '—';
+  };
+
+  const fmtEstado = e => ({
+    borrador:   '<span class="badge" style="background:#94a3b8">Borrador</span>',
+    pendiente:  '<span class="badge" style="background:#f59e0b">Pendiente</span>',
+    aprobado:   '<span class="badge" style="background:#22c55e">Aprobado</span>',
+    rechazado:  '<span class="badge" style="background:#ef4444">Rechazado</span>',
+    completado: '<span class="badge" style="background:#3b82f6">Completado</span>',
+  }[e] || e);
+
+  // ── Tab: Catálogo ──────────────────────────────────────────────────
+  async function renderCatalogo(el) {
+    const refs = await getRefs();
+    const lineas = refs.linea || [];
+    const tipos  = refs.tipo_item || [];
+    const unidades = [...new Set((await GET('/items-sol/catalogo?page=1')).items.map(i => i.unidad).filter(Boolean))].sort();
+
+    el.innerHTML = `
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <div style="flex:2;min-width:200px">
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Buscar nombre</label>
+            <input id="itc-q" class="form-control" placeholder="Nombre del ítem..." style="font-size:13px">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo</label>
+            <select id="itc-tipo" class="form-control" style="width:160px;font-size:13px">
+              <option value="">Todos</option>
+              ${tipos.map(t=>`<option value="${t.codigo}">${t.nombre}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Línea</label>
+            <select id="itc-linea" class="form-control" style="width:160px;font-size:13px">
+              <option value="">Todas</option>
+              ${lineas.map(l=>`<option value="${l.codigo}">${l.nombre}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="itcBuscar(1)">🔍 Buscar</button>
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('itc-q').value='';document.getElementById('itc-tipo').value='';document.getElementById('itc-linea').value='';itcBuscar(1)">Limpiar</button>
+        </div>
+      </div>
+      ${['solicitante','admin'].includes(rol)?`
+      <div class="mb-16">
+        <button class="btn btn-primary btn-sm" onclick="itcNuevaSolicitud()">➕ Nueva solicitud de ítem</button>
+      </div>`:''}
+      <div id="itc-result"></div>`;
+
+    window.itcBuscar = async (page=1) => {
+      const q      = document.getElementById('itc-q')?.value || '';
+      const tipo   = document.getElementById('itc-tipo')?.value || '';
+      const linea  = document.getElementById('itc-linea')?.value || '';
+      const res    = document.getElementById('itc-result');
+      res.innerHTML = '<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>';
+      try {
+        const params = new URLSearchParams({ page });
+        if (q)    params.set('q', q);
+        if (tipo) params.set('tipoItem', tipo);
+        if (linea)params.set('linea', linea);
+        const data = await GET(`/items-sol/catalogo?${params}`);
+        const rows = data.items.map(it => `
+          <tr>
+            <td style="font-size:12px;color:var(--text-muted)">${it.item}</td>
+            <td style="font-size:13px;font-weight:600;max-width:280px">${esc(it.nombre||'')}</td>
+            <td style="font-size:12px">${esc(refNombre(refs,'tipo_item',it.tipoItem))}</td>
+            <td style="font-size:12px;color:var(--text-muted)">${esc(refNombre(refs,'linea',it.linea))}</td>
+            <td><span class="badge badge-outline">${esc(it.unidad||'')}</span></td>
+            ${['solicitante','admin'].includes(rol)?`
+            <td><button class="btn btn-sm btn-outline" onclick="itcCopiar(${it.item})">📋 Copiar</button></td>`:'<td></td>'}
+          </tr>`).join('');
+        const pages = data.pages;
+        const pag = pages > 1 ? `<div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
+          ${page>1?`<button class="btn btn-sm btn-outline" onclick="itcBuscar(${page-1})">‹ Anterior</button>`:''}
+          <span style="padding:6px 10px;font-size:12px;color:var(--text-muted)">${page}/${pages} · ${data.total.toLocaleString()} ítems</span>
+          ${page<pages?`<button class="btn btn-sm btn-outline" onclick="itcBuscar(${page+1})">Siguiente ›</button>`:''}
+        </div>` : '';
+        res.innerHTML = `
+          <div class="card" style="overflow:hidden">
+            <div style="overflow-x:auto">
+              <table class="data-table">
+                <thead><tr><th>#</th><th>Nombre</th><th>Tipo</th><th>Línea</th><th>Unidad</th><th></th></tr></thead>
+                <tbody>${rows||'<tr><td colspan="6" class="text-center text-muted py-16">Sin resultados</td></tr>'}</tbody>
+              </table>
+            </div>
+          </div>${pag}`;
+      } catch(e){ res.innerHTML = `<div class="msg-error">${e.message}</div>`; }
+    };
+    itcBuscar(1);
+  }
+
+  // ── Tab: Mis Solicitudes ───────────────────────────────────────────
+  async function renderSolicitudes(el) {
+    const refs = await getRefs();
+    el.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center mb-16">
+        <div class="section-title mb-0">Mis solicitudes de creación</div>
+        <button class="btn btn-primary btn-sm" onclick="itcNuevaSolicitud()">➕ Nueva solicitud</button>
+      </div>
+      <div id="its-list"><div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div></div>`;
+    await cargarListaSols('its-list', refs, 'solicitudes');
+  }
+
+  // ── Tab: Validación ────────────────────────────────────────────────
+  async function renderValidacion(el) {
+    const refs = await getRefs();
+    el.innerHTML = `
+      <div class="section-title mb-16">Solicitudes pendientes de validación</div>
+      <div id="itv-list"><div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div></div>`;
+    await cargarListaSols('itv-list', refs, 'validacion');
+  }
+
+  // ── Tab: Registro ERP ──────────────────────────────────────────────
+  async function renderRegistro(el) {
+    const refs = await getRefs();
+    el.innerHTML = `
+      <div class="section-title mb-16">Ítems aprobados para registrar en ERP</div>
+      <div id="itr-list"><div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div></div>`;
+    await cargarListaSols('itr-list', refs, 'registro');
+  }
+
+  // ── Tab: Estado general ────────────────────────────────────────────
+  async function renderEstado(el) {
+    const refs = await getRefs();
+    el.innerHTML = `
+      <div class="section-title mb-16">Estado de todas las solicitudes</div>
+      <div id="ite-list"><div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div></div>`;
+    await cargarListaSols('ite-list', refs, 'estado');
+  }
+
+  // ── Cargar lista de solicitudes ────────────────────────────────────
+  async function cargarListaSols(containerId, refs, vista) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    try {
+      const sols = await GET('/items-sol');
+      const filtrados = sols.filter(s => {
+        if (vista === 'solicitudes') return s.creadoPor === S.user.username || rol === 'admin';
+        if (vista === 'validacion') return s.estado === 'pendiente';
+        if (vista === 'registro')   return s.estado === 'aprobado';
+        return true; // estado: todos
+      });
+
+      if (!filtrados.length) {
+        el.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p>Sin solicitudes</p></div>';
+        return;
+      }
+      el.innerHTML = `
+        <div class="card" style="overflow:hidden">
+          <div style="overflow-x:auto">
+            <table class="data-table">
+              <thead><tr>
+                <th>#</th><th>Creado por</th><th>Fecha</th><th>Estado</th>
+                <th class="text-center">Ítems</th><th class="text-center">ERP</th>
+                <th class="text-center">Acción</th>
+              </tr></thead>
+              <tbody>
+                ${filtrados.map(s => {
+                  const nERP = s.items.filter(i => i.codigoErp).length;
+                  return `<tr>
+                    <td><code>#${s._id.slice(-6)}</code></td>
+                    <td class="fw-semibold">${esc(s.creadoPor)}</td>
+                    <td style="font-size:12px;color:var(--text-muted)">${s.creadoEn?.slice(0,10)||''}</td>
+                    <td>${fmtEstado(s.estado)}</td>
+                    <td class="text-center"><span class="badge badge-outline">${s.items.length}</span></td>
+                    <td class="text-center">
+                      ${s.items.length?`<span class="badge" style="background:${nERP===s.items.length?'#22c55e':'#94a3b8'}">${nERP}/${s.items.length}</span>`:'—'}
+                    </td>
+                    <td class="text-center">
+                      <button class="btn btn-sm ${s.estado==='pendiente'&&vista==='validacion'?'btn-primary':s.estado==='aprobado'&&vista==='registro'?'btn-primary':'btn-outline'}"
+                              onclick="itcAbrirSolicitud('${s._id}')">
+                        ${s.estado==='borrador'&&(s.creadoPor===S.user.username||rol==='admin')?'✏️ Editar':'👁️ Ver'}
+                      </button>
+                    </td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+    } catch(e) { el.innerHTML = `<div class="msg-error">${e.message}</div>`; }
+  }
+
+  // ── Navegación entre tabs ──────────────────────────────────────────
+  const tabContent = container.querySelector('#items-tab-content');
+  const tabFns = { catalogo: renderCatalogo, solicitudes: renderSolicitudes,
+                   validacion: renderValidacion, registro: renderRegistro, estado: renderEstado };
+
+  async function switchTab(id) {
+    container.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.itab === id));
+    tabContent.innerHTML = '<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>';
+    await (tabFns[id]?.(tabContent) ?? Promise.resolve());
+  }
+  container.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.itab)));
+
+  // ── Abrir solicitud (detalle) ──────────────────────────────────────
+  window.itcAbrirSolicitud = async (id) => {
+    const refs = await getRefs();
+    const sol  = await GET(`/items-sol/${id}`);
+    const editable = sol.estado === 'borrador' && (sol.creadoPor === S.user.username || rol === 'admin');
+    const esVal    = canValidar({ role: S.user.role, itemsRol: rol }) && sol.estado === 'pendiente';
+    const esReg    = canRegistrar({ role: S.user.role, itemsRol: rol }) && sol.estado === 'aprobado';
+
+    const grpOpts = (refs.grupo_compra||[]).map(g =>
+      `<option value="${g.codigo}">${g.codigo} — ${esc(g.nombre)}</option>`).join('');
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:12px;width:100%;max-width:900px;max-height:90vh;overflow-y:auto;padding:24px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div>
+            <span style="font-weight:700;font-size:16px">Solicitud #${sol._id.slice(-6)}</span>
+            <span style="margin-left:12px">${fmtEstado(sol.estado)}</span>
+            <span style="font-size:12px;color:var(--text-muted);margin-left:8px">${sol.creadoPor}</span>
+          </div>
+          <button style="background:none;border:none;font-size:22px;cursor:pointer" id="its-close">✕</button>
+        </div>
+        ${sol.observacion?`<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px">${esc(sol.observacion)}</div>`:''}
+        ${sol.comentarioValidador?`<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px">
+          <strong>${sol.validadoPor}</strong>: ${esc(sol.comentarioValidador)}</div>`:''}
+
+        <div id="its-items-list">
+          ${sol.items.map((it, idx) => `
+          <div style="border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:12px">
+            <div style="font-weight:600;margin-bottom:10px">Ítem ${idx+1}: ${esc(it.nombre)}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:13px">
+              <div>
+                <p style="color:var(--text-muted);font-size:11px;font-weight:600;text-transform:uppercase;margin-bottom:6px">Datos del solicitante</p>
+                <table style="width:100%;border-collapse:collapse">
+                  <tr><td style="color:var(--text-muted);padding:3px 8px 3px 0;width:40%">Tipo</td><td>${esc(refNombre(refs,'tipo_item',it.tipoItem))}</td></tr>
+                  <tr><td style="color:var(--text-muted);padding:3px 8px 3px 0">Línea</td><td>${esc(refNombre(refs,'linea',it.linea))}</td></tr>
+                  <tr><td style="color:var(--text-muted);padding:3px 8px 3px 0">Familia</td><td>${esc(refNombre(refs,'familia',it.familia))}</td></tr>
+                  <tr><td style="color:var(--text-muted);padding:3px 8px 3px 0">Unidad</td><td>${esc(it.unidad||'—')}</td></tr>
+                  ${it.itemOrigen?`<tr><td style="color:var(--text-muted);padding:3px 8px 3px 0">Copiado de</td><td>#${it.itemOrigen}</td></tr>`:''}
+                </table>
+              </div>
+              <div>
+                <p style="color:var(--text-muted);font-size:11px;font-weight:600;text-transform:uppercase;margin-bottom:6px">
+                  ${esVal?'Validación':'Datos validados'}
+                </p>
+                ${esVal?`
+                <input data-iid="${it._id}" data-f="nombreVal" placeholder="Nombre aprobado" value="${esc(it.nombreVal||it.nombre)}"
+                       class="form-control mb-8" style="font-size:12px">
+                <select data-iid="${it._id}" data-f="grupoCompra" class="form-control mb-8" style="font-size:12px">
+                  <option value="">— Grupo Compra —</option>${grpOpts}
+                </select>
+                <input data-iid="${it._id}" data-f="unidadVal" placeholder="Unidad" value="${esc(it.unidadVal||it.unidad||'')}"
+                       class="form-control mb-8" style="font-size:12px">
+                <input data-iid="${it._id}" data-f="comentarioItem" placeholder="Comentario" value="${esc(it.comentarioItem||'')}"
+                       class="form-control" style="font-size:12px">
+                `:
+                `<table style="width:100%;border-collapse:collapse">
+                  <tr><td style="color:var(--text-muted);padding:3px 8px 3px 0;width:40%">Nombre</td><td>${esc(it.nombreVal||it.nombre)}</td></tr>
+                  <tr><td style="color:var(--text-muted)">Grupo</td><td style="font-weight:600;color:#3b82f6">${esc(refNombre(refs,'grupo_compra',it.grupoCompra))}</td></tr>
+                  <tr><td style="color:var(--text-muted)">Unidad</td><td>${esc(it.unidadVal||it.unidad||'—')}</td></tr>
+                </table>`}
+                ${esReg?`
+                <div style="margin-top:10px">
+                  <label style="font-size:12px;font-weight:600;margin-bottom:4px;display:block">Código ERP</label>
+                  ${it.codigoErp
+                    ?`<span class="badge" style="background:#22c55e;font-size:13px">✓ ${esc(it.codigoErp)}</span>`
+                    :`<div style="display:flex;gap:6px">
+                        <input id="erp-${it._id}" class="form-control" style="font-size:12px" placeholder="Código en ERP">
+                        <button class="btn btn-primary btn-sm" onclick="itcRegistrar('${sol._id}','${it._id}')">Registrar</button>
+                      </div>`}
+                </div>`:''}
+              </div>
+            </div>
+          </div>`).join('')}
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+          ${editable?`
+          <button class="btn btn-primary btn-sm" onclick="itcEnviar('${sol._id}')">📤 Enviar para validación</button>
+          <button class="btn btn-outline btn-sm" onclick="overlay.remove()">Cancelar</button>`:''}
+          ${esVal?`
+          <div style="flex:1">
+            <input id="val-comment" class="form-control mb-8" placeholder="Comentario del validador (opcional)" style="font-size:13px">
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary btn-sm" onclick="itcValidar('${sol._id}','aprobar')">✅ Aprobar</button>
+              <button class="btn btn-sm" style="background:#ef4444;color:#fff" onclick="itcValidar('${sol._id}','rechazar')">❌ Rechazar</button>
+            </div>
+          </div>`:''}
+          ${!editable&&!esVal&&!esReg?`<button class="btn btn-outline btn-sm" onclick="overlay.remove()">Cerrar</button>`:''}
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+    overlay.querySelector('#its-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    // Pre-seleccionar grupoCompra en selects de validación
+    if (esVal) {
+      sol.items.forEach(it => {
+        const sel = overlay.querySelector(`select[data-iid="${it._id}"][data-f="grupoCompra"]`);
+        if (sel && it.grupoCompra) sel.value = String(it.grupoCompra);
+      });
+    }
+  };
+
+  // ── Acciones ───────────────────────────────────────────────────────
+  window.itcEnviar = async (id) => {
+    try {
+      await POST(`/items-sol/${id}/enviar`, {});
+      toast('Solicitud enviada para validación', 'success');
+      document.querySelector('[style*="position:fixed"]')?.remove();
+      await switchTab('solicitudes');
+    } catch(e){ toast(e.message, 'error'); }
+  };
+
+  window.itcValidar = async (id, accion) => {
+    const overlay = document.querySelector('[style*="position:fixed"]');
+    const comentario = document.getElementById('val-comment')?.value || '';
+    // Recoger datos editados de cada ítem
+    const items = [...overlay.querySelectorAll('[data-iid]')].reduce((acc, el) => {
+      const iid = el.dataset.iid; const f = el.dataset.f;
+      if (!iid || !f) return acc;
+      const obj = acc.find(o => o._id === iid) || { _id: iid };
+      if (!acc.includes(obj)) acc.push(obj);
+      obj[f] = el.tagName === 'SELECT' ? (el.value ? Number(el.value)||el.value : null) : el.value;
+      return acc;
+    }, []);
+    try {
+      await PUT(`/items-sol/${id}/validar`, { accion, comentarioValidador: comentario, items });
+      toast(`Solicitud ${accion==='aprobar'?'aprobada':'rechazada'}`, accion==='aprobar'?'success':'error');
+      overlay?.remove();
+      await switchTab('validacion');
+    } catch(e){ toast(e.message, 'error'); }
+  };
+
+  window.itcRegistrar = async (sid, iid) => {
+    const codigo = document.getElementById(`erp-${iid}`)?.value?.trim();
+    if (!codigo) { toast('Ingresa el código ERP', 'error'); return; }
+    try {
+      await PUT(`/items-sol/${sid}/items/${iid}/registrar`, { codigoErp: codigo });
+      toast('Ítem registrado en ERP', 'success');
+      document.querySelector('[style*="position:fixed"]')?.remove();
+      await switchTab('registro');
+    } catch(e){ toast(e.message, 'error'); }
+  };
+
+  // ── Nueva solicitud (modal con formulario multi-ítem) ──────────────
+  window.itcNuevaSolicitud = async () => {
+    const refs = await getRefs();
+    const lineas = refs.linea || [];
+    const tipos  = refs.tipo_item || [];
+    let itemsLocales = [];
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+
+    const buildModal = () => {
+      overlay.innerHTML = `
+        <div style="background:#fff;border-radius:12px;width:100%;max-width:720px;max-height:90vh;overflow-y:auto;padding:24px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <span style="font-weight:700;font-size:16px">📦 Nueva solicitud de ítem</span>
+            <button id="ns-close" style="background:none;border:none;font-size:22px;cursor:pointer">✕</button>
+          </div>
+          <input id="ns-obs" class="form-control mb-16" placeholder="Observación general (opcional)" style="font-size:13px">
+
+          ${itemsLocales.map((it,i)=>`
+          <div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:10px;background:#f8fafc">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="font-size:12px;font-weight:600;color:var(--text-muted)">ÍTEM ${i+1}${it.itemOrigen?` · Copia de #${it.itemOrigen}`:''}</span>
+              <button onclick="itcQuitarItem(${i})" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:18px">×</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+              <div style="grid-column:1/-1"><input class="form-control" style="font-size:12px" placeholder="Nombre *" value="${esc(it.nombre||'')}"
+                onchange="itemsLocales[${i}].nombre=this.value"></div>
+              <select class="form-control" style="font-size:12px" onchange="itemsLocales[${i}].tipoItem=this.value">
+                <option value="">Tipo ítem</option>
+                ${tipos.map(t=>`<option value="${t.codigo}" ${it.tipoItem===t.codigo?'selected':''}>${t.nombre}</option>`).join('')}
+              </select>
+              <input class="form-control" style="font-size:12px" placeholder="Unidad" value="${esc(it.unidad||'')}"
+                onchange="itemsLocales[${i}].unidad=this.value">
+              <select class="form-control" style="font-size:12px" onchange="itcLineaChange(this,${i})">
+                <option value="">Línea</option>
+                ${lineas.map(l=>`<option value="${l.codigo}" ${String(it.linea)===l.codigo?'selected':''}>${l.nombre}</option>`).join('')}
+              </select>
+              <select id="ns-fam-${i}" class="form-control" style="font-size:12px">
+                <option value="">Familia</option>
+                ${it.familia?`<option value="${it.familia}" selected>${refNombre(refs,'familia',it.familia)}</option>`:''}
+              </select>
+              <div style="grid-column:1/-1"><input class="form-control" style="font-size:12px" placeholder="Observación del ítem" value="${esc(it.observacion||'')}"
+                onchange="itemsLocales[${i}].observacion=this.value"></div>
+            </div>
+          </div>`).join('')}
+
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" onclick="itcAgregarItem()">➕ Agregar ítem vacío</button>
+            <button class="btn btn-outline btn-sm" onclick="itcAbrirBuscadorCopia()">📋 Copiar desde catálogo</button>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:20px">
+            <button class="btn btn-primary btn-sm" onclick="itcGuardarSolicitud()">✅ Crear solicitud</button>
+            <button class="btn btn-outline btn-sm" id="ns-close2">Cancelar</button>
+          </div>
+        </div>`;
+
+      overlay.querySelectorAll('#ns-close,#ns-close2').forEach(b => b.addEventListener('click', () => overlay.remove()));
+    };
+
+    window.itcQuitarItem = (i) => { itemsLocales.splice(i,1); buildModal(); };
+    window.itcAgregarItem = () => { itemsLocales.push({}); buildModal(); };
+    window.itcLineaChange = async (sel, idx) => {
+      itemsLocales[idx].linea = sel.value ? parseInt(sel.value) : null;
+      const fams = await GET(`/items-sol/refs/familias?linea=${sel.value}`);
+      const famSel = document.getElementById(`ns-fam-${idx}`);
+      if (famSel) {
+        famSel.innerHTML = '<option value="">Familia</option>' + fams.map(f=>`<option value="${f.codigo}">${f.nombre}</option>`).join('');
+        famSel.onchange = e => { itemsLocales[idx].familia = e.target.value ? parseInt(e.target.value) : null; };
+      }
+    };
+    window.itcAbrirBuscadorCopia = () => {
+      overlay.remove();
+      switchTab('catalogo');
+      toast('Usa el botón "📋 Copiar" en el catálogo, luego vuelve a crear la solicitud', 'success');
+    };
+
+    window.itcGuardarSolicitud = async () => {
+      const obs = document.getElementById('ns-obs')?.value || '';
+      const validos = itemsLocales.filter(it => it.nombre?.trim());
+      if (!validos.length) { toast('Agrega al menos un ítem con nombre', 'error'); return; }
+      try {
+        const sol = await POST('/items-sol', { observacion: obs, items: validos });
+        toast('Solicitud creada', 'success');
+        overlay.remove();
+        await switchTab('solicitudes');
+      } catch(e){ toast(e.message, 'error'); }
+    };
+
+    buildModal();
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  };
+
+  // Copiar desde catálogo
+  window.itcCopiar = async (itemId) => {
+    const it = await GET(`/items-sol/catalogo/${itemId}`);
+    toast(`Ítem "${it.nombre}" listo para copiar`, 'success');
+    // Abrir modal con el ítem pre-cargado
+    const refs = await getRefs();
+    window.itemsLocales = [{ nombre: it.nombre, tipoItem: it.tipoItem, linea: it.linea,
+                              familia: it.familia, subFamilia: it.subFamilia, unidad: it.unidad,
+                              itemOrigen: it.item }];
+    // Reusar el modal
+    await itcNuevaSolicitud();
+  };
+
+  // Carga inicial
+  await switchTab(defaultTab);
 }
 
 // ─── View: Admin ──────────────────────────────────────────────────
