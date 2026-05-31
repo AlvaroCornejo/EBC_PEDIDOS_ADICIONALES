@@ -35,23 +35,47 @@ function userOps(user) {
 
 // ── Catálogo ──────────────────────────────────────────────────────────────────
 // GET /api/items-sol/catalogo?q=&linea=&familia=&subFamilia=&tipoItem=&unidad=&page=
+// Filtra por operaciones del usuario, agrupa por ítem (sin duplicados)
 router.get('/catalogo', async (req, res) => {
   try {
     const { q, linea, familia, subFamilia, tipoItem, unidad, page = 1 } = req.query;
     const PER = 50;
-    const filter = {};
-    if (q)          filter.nombre = { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
-    if (linea)      filter.linea      = parseInt(linea);
-    if (familia)    filter.familia    = parseInt(familia);
-    if (subFamilia) filter.subFamilia = parseInt(subFamilia);
-    if (tipoItem)   filter.tipoItem   = tipoItem;
-    if (unidad)     filter.unidad     = unidad;
 
-    const [total, items] = await Promise.all([
-      ItemsMaestro.countDocuments(filter),
-      ItemsMaestro.find(filter).sort({ nombre: 1 }).skip((+page - 1) * PER).limit(PER).lean(),
+    // Filtro por operaciones autorizadas
+    const match = { ...opsFilter(req.user) };
+    if (q)          match.nombre     = { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+    if (linea)      match.linea      = parseInt(linea);
+    if (familia)    match.familia    = parseInt(familia);
+    if (subFamilia) match.subFamilia = parseInt(subFamilia);
+    if (tipoItem)   match.tipoItem   = tipoItem;
+    if (unidad)     match.unidad     = unidad;
+
+    // Agrupar por item para evitar duplicados (mismo item en varias ops)
+    const pipeline = [
+      { $match: match },
+      { $group: {
+          _id:          '$item',
+          nombre:       { $first: '$nombre' },
+          tipoItem:     { $first: '$tipoItem' },
+          linea:        { $first: '$linea' },
+          familia:      { $first: '$familia' },
+          subFamilia:   { $first: '$subFamilia' },
+          unidad:       { $first: '$unidad' },
+          codigoInterno:{ $first: '$codigoInterno' },
+          operaciones:  { $addToSet: '$operacion' },
+      }},
+      { $sort: { nombre: 1 } },
+    ];
+
+    const [countResult, items] = await Promise.all([
+      ItemsMaestro.aggregate([...pipeline, { $count: 'total' }]),
+      ItemsMaestro.aggregate([...pipeline, { $skip: (+page-1)*PER }, { $limit: PER }]),
     ]);
-    res.json({ items, total, page: +page, pages: Math.ceil(total / PER) });
+    const total = countResult[0]?.total || 0;
+    res.json({
+      items: items.map(i => ({ ...i, item: i._id })),
+      total, page: +page, pages: Math.ceil(total / PER),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -94,9 +118,10 @@ router.get('/refs/sub-familias', async (req, res) => {
 // GET /api/items-sol/catalogo/:item — detalle de un ítem para "copiar"
 router.get('/catalogo/:item', async (req, res) => {
   try {
-    const it = await ItemsMaestro.findOne({ item: parseInt(req.params.item) }).lean();
+    const filter = { item: parseInt(req.params.item), ...opsFilter(req.user) };
+    const it = await ItemsMaestro.findOne(filter).lean();
     if (!it) return res.status(404).json({ error: 'Ítem no encontrado' });
-    res.json(it);
+    res.json({ ...it, item: it.item });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

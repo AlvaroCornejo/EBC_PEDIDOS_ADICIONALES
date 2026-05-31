@@ -100,21 +100,24 @@ async function main() {
   console.log(`  ✓ ${refs.length} refs importadas.\n`);
 
   // ── Ítems maestro ─────────────────────────────────────────────────
+  // Nueva estructura: col0=OPERACION, col1=ITEM, col2=NOMBRE ITEM, ...
   console.log('Importando ítems maestro...');
   const itemRows = await leerHoja(wb, 'ITEMS');
   const items = [];
   for (const r of itemRows) {
-    const item = num(r[0]);
-    if (!item) continue;
+    const operacion = str(r[0]);
+    const item      = num(r[1]);
+    if (!item || !operacion) continue;
     items.push({
+      operacion,
       item,
-      nombre:        str(r[1]),
-      tipoItem:      str(r[2]),
-      linea:         num(r[3]),
-      familia:       num(r[4]),
-      subFamilia:    num(r[5]),
-      unidad:        str(r[6]),
-      codigoInterno: num(r[7]),
+      nombre:        str(r[2]),
+      tipoItem:      str(r[3]),
+      linea:         num(r[4]),
+      familia:       num(r[5]),
+      subFamilia:    num(r[6]),
+      unidad:        str(r[7]),
+      codigoInterno: num(r[8]),
     });
   }
 

@@ -1,10 +1,11 @@
 const mongoose = require('mongoose');
 
-// Catálogo de ítems maestro (cargado desde EBC ITEMS.xlsx)
+// Catálogo de ítems maestro (una fila por operacion+item)
 const schema = new mongoose.Schema({
-  item:          { type: Number, required: true, unique: true },
+  operacion:     { type: String, required: true },
+  item:          { type: Number, required: true },
   nombre:        String,
-  tipoItem:      String,   // código puede ser '01','C','PT','TR'
+  tipoItem:      String,
   linea:         Number,
   familia:       Number,
   subFamilia:    Number,
@@ -12,8 +13,8 @@ const schema = new mongoose.Schema({
   codigoInterno: Number,
 });
 
-schema.index({ nombre: 'text' });
-schema.index({ linea: 1, familia: 1, subFamilia: 1 });
-schema.index({ tipoItem: 1 });
+schema.index({ item: 1, operacion: 1 }, { unique: true });
+schema.index({ operacion: 1, nombre: 1 });
+schema.index({ operacion: 1, linea: 1, familia: 1, subFamilia: 1 });
 
 module.exports = mongoose.model('ItemsMaestro', schema);
