@@ -3834,7 +3834,10 @@ async function renderAdminUsuarios(container) {
 }
 
 function showUserModal(user, onSave) {
-  const allRoles = Object.entries(ROLE_LABELS);
+  const allRoles = [
+    ['', '— Sin acceso —'],
+    ...Object.entries(ROLE_LABELS).filter(([k]) => k !== 'OPERADOR_CONSULTA'),
+  ];
   const body = `
     <form id="user-form">
       <div class="form-group"><label>Usuario *</label>
@@ -3846,9 +3849,9 @@ function showUserModal(user, onSave) {
       <div class="form-group"><label>Contraseña ${user?'(dejar vacío para no cambiar)':''} *</label>
         <input type="password" id="um-password" ${!user?'required':''} placeholder="${user?'Nueva contraseña (opcional)':'Contraseña'}">
       </div>
-      <div class="form-group"><label>Rol para Pedidos Adicionales *</label>
+      <div class="form-group"><label>Rol para Pedidos Adicionales</label>
         <select id="um-role">
-          ${allRoles.map(([k,v])=>`<option value="${k}" ${user?.role===k?'selected':''}>${v}</option>`).join('')}
+          ${allRoles.map(([k,v])=>`<option value="${k}" ${(user?.role||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
       <div class="form-group"><label>Rol para Creación de Ítems</label>
@@ -3874,8 +3877,8 @@ function showUserModal(user, onSave) {
           </label>`).join('')}
         </div>
       </div>
-      <div id="um-consulta-perms" class="form-group" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px;display:none">
-        <label style="display:block;font-weight:600;margin-bottom:10px;color:#0369a1">🔍 Permisos de Consulta</label>
+      <div id="um-consulta-perms" class="form-group" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px">
+        <label style="display:block;font-weight:600;margin-bottom:10px;color:#0369a1">🔍 Otros Permisos</label>
         <div style="display:flex;flex-direction:column;gap:10px">
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-kardex" ${user?.puedeVerKardex?'checked':''}
@@ -3915,12 +3918,11 @@ function showUserModal(user, onSave) {
 
   // Mostrar/ocultar secciones según el rol seleccionado
   function syncRoleUI() {
-    const role       = document.getElementById('um-role').value;
-    const isAdmin    = role === ROLES.ADMIN;
-    const isConsulta = role === ROLES.CONS;
-    document.getElementById('um-ops-section').style.display      = isAdmin ? 'none' : 'block';
-    document.getElementById('um-socs-section').style.display     = isAdmin ? 'none' : 'block';
-    document.getElementById('um-consulta-perms').style.display   = isConsulta ? 'block' : 'none';
+    const role    = document.getElementById('um-role').value;
+    const isAdmin = role === ROLES.ADMIN;
+    document.getElementById('um-ops-section').style.display    = isAdmin ? 'none' : 'block';
+    document.getElementById('um-socs-section').style.display   = isAdmin ? 'none' : 'block';
+    document.getElementById('um-consulta-perms').style.display = isAdmin ? 'none' : 'block';
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
@@ -3929,22 +3931,20 @@ function showUserModal(user, onSave) {
     const errEl = document.getElementById('um-error');
     errEl.classList.add('hidden');
     const role = document.getElementById('um-role').value;
-    const isConsulta = role === ROLES.CONS;
-    // Sociedades siempre del selector top-level; para CONS además requiere perm de Precios activado
+    const isAdmin = role === ROLES.ADMIN;
     const selectedSocs = [...document.querySelectorAll('input[name="um-soc-compra"]:checked')].map(cb => cb.value);
-    const sociedadesCompra = isConsulta
-      ? (document.getElementById('um-precios')?.checked ? selectedSocs : [])
-      : selectedSocs;
+    // Sociedades activas si el permiso de Precios está marcado (o si es admin se ignoran)
+    const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? selectedSocs : [];
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
       role,
       itemsRol: document.getElementById('um-items-role').value,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
-      puedeVerKardex:      isConsulta ? (document.getElementById('um-kardex')?.checked      ?? false) : false,
-      puedeVerComparativo: isConsulta ? (document.getElementById('um-comparativo')?.checked ?? false) : false,
-      puedeVerVentas:      isConsulta ? (document.getElementById('um-ventas')?.checked      ?? false) : false,
-      puedeVerBajas:       isConsulta ? (document.getElementById('um-bajas')?.checked       ?? false) : false,
+      puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
+      puedeVerComparativo: !isAdmin && (document.getElementById('um-comparativo')?.checked ?? false),
+      puedeVerVentas:      !isAdmin && (document.getElementById('um-ventas')?.checked      ?? false),
+      puedeVerBajas:       !isAdmin && (document.getElementById('um-bajas')?.checked       ?? false),
       sociedadesCompra,
     };
     const pwd = document.getElementById('um-password').value;
