@@ -3333,8 +3333,8 @@ async function viewItems(container) {
               <button onclick="itcQuitarItem(${i})" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:18px">×</button>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
-              <div style="grid-column:1/-1"><input class="form-control" style="font-size:12px" placeholder="Nombre *" value="${esc(it.nombre||'')}"
-                onchange="itemsLocales[${i}].nombre=this.value"></div>
+              <div style="grid-column:1/-1"><input class="form-control ns-nombre" data-idx="${i}" style="font-size:12px" placeholder="Nombre *" value="${esc(it.nombre||'')}"
+                oninput="itemsLocales[${i}].nombre=this.value"></div>
               <select class="form-control" style="font-size:12px" onchange="itemsLocales[${i}].tipoItem=this.value">
                 <option value="">Tipo ítem</option>
                 ${tipos.map(t=>`<option value="${t.codigo}" ${it.tipoItem===t.codigo?'selected':''}>${t.nombre}</option>`).join('')}
@@ -3397,6 +3397,11 @@ async function viewItems(container) {
 
     window.itcGuardarSolicitud = async () => {
       const obs = document.getElementById('ns-obs')?.value || '';
+      // Sincronizar nombres desde el DOM por si el campo no perdió el foco
+      overlay.querySelectorAll('.ns-nombre').forEach(inp => {
+        const idx = parseInt(inp.dataset.idx);
+        if (!isNaN(idx) && itemsLocales[idx] !== undefined) itemsLocales[idx].nombre = inp.value.trim();
+      });
       const validos = itemsLocales.filter(it => it.nombre?.trim());
       if (!validos.length) { toast('Agrega al menos un ítem con nombre', 'error'); return; }
       try {
