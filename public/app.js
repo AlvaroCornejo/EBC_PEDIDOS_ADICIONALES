@@ -3211,8 +3211,10 @@ async function viewItems(container) {
                 <select data-iid="${it._id}" data-f="grupoCompra" class="form-control mb-8" style="font-size:12px">
                   <option value="">— Grupo Compra —</option>${grpOpts}
                 </select>
-                <input data-iid="${it._id}" data-f="unidadVal" placeholder="Unidad" value="${esc(it.unidadVal||it.unidad||'')}"
-                       class="form-control mb-8" style="font-size:12px">
+                <select data-iid="${it._id}" data-f="unidadVal" class="form-control mb-8" style="font-size:12px">
+                  <option value="">Unidad de medida</option>
+                  ${(refsCache?.unidad||[]).map(u=>`<option value="${u.codigo}" ${(it.unidadVal||it.unidad)===u.codigo?'selected':''}>${u.codigo}</option>`).join('')}
+                </select>
                 <input data-iid="${it._id}" data-f="comentarioItem" placeholder="Comentario" value="${esc(it.comentarioItem||'')}"
                        class="form-control" style="font-size:12px">
                 `:
@@ -3339,8 +3341,10 @@ async function viewItems(container) {
                 <option value="">Tipo ítem</option>
                 ${tipos.map(t=>`<option value="${t.codigo}" ${it.tipoItem===t.codigo?'selected':''}>${t.nombre}</option>`).join('')}
               </select>
-              <input class="form-control" style="font-size:12px" placeholder="Unidad" value="${esc(it.unidad||'')}"
-                onchange="itemsLocales[${i}].unidad=this.value">
+              <select class="form-control" style="font-size:12px" onchange="itemsLocales[${i}].unidad=this.value">
+                <option value="">Unidad de medida</option>
+                ${(refs.unidad||[]).map(u=>`<option value="${u.codigo}" ${it.unidad===u.codigo?'selected':''}>${u.codigo}</option>`).join('')}
+              </select>
               <select class="form-control" style="font-size:12px" onchange="itcLineaChange(this,${i})">
                 <option value="">Línea</option>
                 ${lineas.map(l=>`<option value="${l.codigo}" ${String(it.linea)===l.codigo?'selected':''}>${l.nombre}</option>`).join('')}

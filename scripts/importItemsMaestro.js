@@ -45,6 +45,14 @@ async function main() {
   // ── Tablas de referencia ──────────────────────────────────────────
   const refs = [];
 
+  // UNIDAD_MEDIDA
+  const unidadRows = await leerHoja(wb, 'UNIDAD_MEDIDA');
+  for (const r of unidadRows) {
+    const codigo = str(r[0]);
+    if (codigo) refs.push({ tipo: 'unidad', codigo, nombre: codigo });
+  }
+  console.log(`  Unidades: ${unidadRows.length}`);
+
   // LINEAS
   const lineasRows = await leerHoja(wb, 'LINEAS');
   for (const r of lineasRows) {
