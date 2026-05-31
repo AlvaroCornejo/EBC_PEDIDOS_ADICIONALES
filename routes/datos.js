@@ -60,6 +60,13 @@ function findFile(operacion) {
   return null;
 }
 
+/** Verifica que el usuario tiene acceso a una operación concreta */
+function checkOpAccess(user, operacion) {
+  if (!operacion) return false;
+  if (user.role === 'ADMIN') return true;
+  return (user.operations || []).includes(operacion);
+}
+
 /** Carga y cachea el workbook (por sesión de request, no persistente) */
 async function loadWB(fp) {
   const wb = new ExcelJS.Workbook();
@@ -143,6 +150,8 @@ function readRequisiciones(wb) {
 router.get('/items', async (req, res) => {
   try {
     const { operacion } = req.query;
+    if (operacion && !checkOpAccess(req.user, operacion))
+      return res.status(403).json({ error: 'Sin acceso a esa operación' });
     // Si se pide por operación específica usa ese archivo; si no, busca cualquiera disponible
     let fp = operacion ? findFile(operacion) : null;
     if (!fp) {
@@ -162,9 +171,10 @@ router.get('/items', async (req, res) => {
 router.get('/item-data', async (req, res) => {
   try {
     const { item, operacion, fecha } = req.query;
-    if (!item || !operacion || !fecha) {
+    if (!item || !operacion || !fecha)
       return res.status(400).json({ error: 'item, operacion y fecha son requeridos' });
-    }
+    if (!checkOpAccess(req.user, operacion))
+      return res.status(403).json({ error: 'Sin acceso a esa operación' });
 
     const fp = findFile(operacion);
     if (!fp) return res.status(404).json({ error: `No se encontró archivo para operación ${operacion}` });
@@ -248,6 +258,8 @@ router.get('/kardex-item', async (req, res) => {
   try {
     const { item, operacion, semanas: semQ } = req.query;
     if (!item || !operacion) return res.status(400).json({ error: 'item y operacion requeridos' });
+    if (!checkOpAccess(req.user, operacion))
+      return res.status(403).json({ error: 'Sin acceso a esa operación' });
     const ultSemanas = Math.max(parseInt(semQ) || 8, 1);
 
     const fp = findFile(operacion);

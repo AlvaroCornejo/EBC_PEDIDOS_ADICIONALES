@@ -1209,7 +1209,7 @@ function pedidoCardConCheck(p, isChecked) {
 // ─── View: Kardex ────────────────────────────────────────────────
 async function viewKardex(container) {
   const userOps = S.user.operations || [];
-  const ops = S.user.role === ROLES.ADMIN ? ALL_OPS : (userOps.length ? userOps : ALL_OPS);
+  const ops = S.user.role === ROLES.ADMIN ? ALL_OPS : userOps;
   let activeOp = ops[0];
   let allItems = [];
 
@@ -1325,7 +1325,7 @@ async function viewKardex(container) {
 
 // ─── View: Comentarios ───────────────────────────────────────────
 async function viewComentarios(container) {
-  const ops = S.user.role === ROLES.ADMIN ? ALL_OPS : (S.user.operations || ALL_OPS);
+  const ops = S.user.role === ROLES.ADMIN ? ALL_OPS : (S.user.operations || []);
   let activeOp = ops[0];
 
   function renderShell() {
