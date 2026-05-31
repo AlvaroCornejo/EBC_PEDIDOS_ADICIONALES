@@ -18,6 +18,20 @@ const canSolicitar = u => u.role === 'ADMIN' || ['solicitante','admin'].includes
 const canValidar   = u => u.role === 'ADMIN' || ['validador','admin'].includes(u.itemsRol);
 const canRegistrar = u => u.role === 'ADMIN' || ['registrador','admin'].includes(u.itemsRol);
 
+/** Filtro de operaciones permitidas para el usuario */
+function opsFilter(user) {
+  if (user.role === 'ADMIN' || user.itemsRol === 'admin') return {};
+  const ops = user.operations || [];
+  if (!ops.length) return { operacion: '__ninguna__' }; // sin acceso a ninguna
+  return { operacion: { $in: ops } };
+}
+
+/** Operaciones permitidas para el usuario (array) */
+function userOps(user) {
+  if (user.role === 'ADMIN' || user.itemsRol === 'admin') return null; // todas
+  return user.operations || [];
+}
+
 
 // ── Catálogo ──────────────────────────────────────────────────────────────────
 // GET /api/items-sol/catalogo?q=&linea=&familia=&subFamilia=&tipoItem=&unidad=&page=
@@ -88,19 +102,30 @@ router.get('/catalogo/:item', async (req, res) => {
 
 
 // ── Solicitudes ───────────────────────────────────────────────────────────────
-// GET /api/items-sol — lista según rol
+// GET /api/items-sol — lista según rol y operaciones autorizadas
 router.get('/', async (req, res) => {
   try {
     const u = req.user;
-    let filter = {};
+    const opFilter = opsFilter(u);           // filtro por operaciones autorizadas
+    let baseFilter = { ...opFilter };
+
     if (canValidar(u) || canRegistrar(u)) {
-      // Validador/registrador ven todas excepto borradores ajenos
-      filter = { $or: [{ estado: { $ne: 'borrador' } }, { creadoPor: u.username }] };
+      // Validador/registrador ven todas (dentro de sus ops) excepto borradores ajenos
+      baseFilter.$or = [{ estado: { $ne: 'borrador' } }, { creadoPor: u.username }];
     } else {
-      filter = { creadoPor: u.username };
+      // Solicitante: solo las propias
+      baseFilter.creadoPor = u.username;
     }
-    const sols = await ItemsSolicitud.find(filter).sort({ creadoEn: -1 }).lean();
+    const sols = await ItemsSolicitud.find(baseFilter).sort({ creadoEn: -1 }).lean();
     res.json(sols);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/items-sol/mis-operaciones — operaciones disponibles para el usuario
+router.get('/mis-operaciones', async (req, res) => {
+  try {
+    const ops = userOps(req.user);
+    res.json(ops); // null = todas (admin), array = permitidas
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -108,9 +133,15 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   if (!canSolicitar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
   try {
-    const { observacion, items } = req.body;
+    const { operacion, observacion, items } = req.body;
+    if (!operacion) return res.status(400).json({ error: 'Selecciona la operación' });
     if (!items?.length) return res.status(400).json({ error: 'Agrega al menos un ítem' });
+    // Verificar que la operación está autorizada
+    const ops = userOps(req.user);
+    if (ops !== null && !ops.includes(operacion))
+      return res.status(403).json({ error: 'Operación no autorizada' });
     const sol = await ItemsSolicitud.create({
+      operacion,
       creadoPor: req.user.username,
       observacion: observacion || '',
       items,

@@ -3116,7 +3116,7 @@ async function viewItems(container) {
           <div style="overflow-x:auto">
             <table class="data-table">
               <thead><tr>
-                <th>#</th><th>Creado por</th><th>Fecha</th><th>Estado</th>
+                <th>#</th><th>Operación</th><th>Creado por</th><th>Fecha</th><th>Estado</th>
                 <th class="text-center">Ítems</th><th class="text-center">ERP</th>
                 <th class="text-center">Acción</th>
               </tr></thead>
@@ -3125,6 +3125,7 @@ async function viewItems(container) {
                   const nERP = s.items.filter(i => i.codigoErp).length;
                   return `<tr>
                     <td><code>#${s._id.slice(-6)}</code></td>
+                    <td><span class="badge badge-outline" style="font-size:11px">${esc(s.operacion||'')}</span></td>
                     <td class="fw-semibold">${esc(s.creadoPor)}</td>
                     <td style="font-size:12px;color:var(--text-muted)">${s.creadoEn?.slice(0,10)||''}</td>
                     <td>${fmtEstado(s.estado)}</td>
@@ -3313,8 +3314,13 @@ async function viewItems(container) {
     const refs  = await getRefs();
     const lineas = refs.linea     || [];
     const tipos  = refs.tipo_item || [];
+    // Operaciones disponibles para el usuario
+    const misOps = S.user.role === 'ADMIN' || S.user.itemsRol === 'admin'
+      ? ALL_OPS
+      : (S.user.operations || []);
     // Siempre mostrar al menos un ítem vacío
     let itemsLocales = initialItems.length ? [...initialItems] : [{}];
+    let operacionSel = misOps.length === 1 ? misOps[0] : '';
 
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
@@ -3326,7 +3332,19 @@ async function viewItems(container) {
             <span style="font-weight:700;font-size:16px">📦 Nueva solicitud de ítem</span>
             <button id="ns-close" style="background:none;border:none;font-size:22px;cursor:pointer">✕</button>
           </div>
-          <input id="ns-obs" class="form-control mb-16" placeholder="Observación general (opcional)" style="font-size:13px">
+          <div style="display:flex;gap:10px;margin-bottom:16px">
+            <div style="flex:1">
+              <label style="font-size:12px;font-weight:600;margin-bottom:4px;display:block">Operación <span style="color:red">*</span></label>
+              <select id="ns-op" class="form-control" style="font-size:13px" onchange="operacionSel=this.value">
+                ${misOps.length > 1 ? '<option value="">— Seleccionar operación —</option>' : ''}
+                ${misOps.map(op=>`<option value="${op}" ${operacionSel===op?'selected':''}>${op}</option>`).join('')}
+              </select>
+            </div>
+            <div style="flex:2">
+              <label style="font-size:12px;font-weight:600;margin-bottom:4px;display:block">Observación general</label>
+              <input id="ns-obs" class="form-control" placeholder="Opcional" style="font-size:13px">
+            </div>
+          </div>
 
           ${itemsLocales.map((it,i)=>`
           <div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:10px;background:#f8fafc">
@@ -3400,7 +3418,9 @@ async function viewItems(container) {
     };
 
     window.itcGuardarSolicitud = async () => {
-      const obs = document.getElementById('ns-obs')?.value || '';
+      const operacion = document.getElementById('ns-op')?.value || operacionSel;
+      const obs       = document.getElementById('ns-obs')?.value || '';
+      if (!operacion) { toast('Selecciona la operación', 'error'); return; }
       // Sincronizar nombres desde el DOM por si el campo no perdió el foco
       overlay.querySelectorAll('.ns-nombre').forEach(inp => {
         const idx = parseInt(inp.dataset.idx);
@@ -3409,7 +3429,7 @@ async function viewItems(container) {
       const validos = itemsLocales.filter(it => it.nombre?.trim());
       if (!validos.length) { toast('Agrega al menos un ítem con nombre', 'error'); return; }
       try {
-        const sol = await POST('/items-sol', { observacion: obs, items: validos });
+        const sol = await POST('/items-sol', { operacion, observacion: obs, items: validos });
         toast('Solicitud creada', 'success');
         overlay.remove();
         await switchTab('solicitudes');

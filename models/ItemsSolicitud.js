@@ -32,6 +32,7 @@ const schema = new mongoose.Schema({
     type: String, default: 'borrador',
     enum: ['borrador','pendiente','aprobado','rechazado','completado'],
   },
+  operacion:           { type: String, required: true },  // operación que solicita el ítem
   observacion:         String,
   creadoPor:           { type: String, required: true },
   creadoEn:            { type: Date, default: Date.now },
@@ -42,7 +43,7 @@ const schema = new mongoose.Schema({
   items:               [itemSchema],
 });
 
+schema.index({ operacion: 1, estado: 1 });
 schema.index({ creadoPor: 1, estado: 1 });
-schema.index({ estado: 1 });
 
 module.exports = mongoose.model('ItemsSolicitud', schema);
