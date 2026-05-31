@@ -26,7 +26,7 @@ router.get('/catalogo', async (req, res) => {
     const { q, linea, familia, subFamilia, tipoItem, unidad, page = 1 } = req.query;
     const PER = 50;
     const filter = {};
-    if (q)          filter.$text = { $search: q };
+    if (q)          filter.nombre = { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
     if (linea)      filter.linea      = parseInt(linea);
     if (familia)    filter.familia    = parseInt(familia);
     if (subFamilia) filter.subFamilia = parseInt(subFamilia);

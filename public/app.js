@@ -2878,6 +2878,9 @@ async function viewBajas(container) {
 // ─── View: Creación de Ítems ──────────────────────────────────────
 async function viewItems(container) {
   const rol = S.user.itemsRol || (S.user.role === 'ADMIN' ? 'admin' : '');
+  const canSol = ['solicitante','admin'].includes(rol) || S.user.role === 'ADMIN';
+  const canVal = ['validador','admin'].includes(rol)    || S.user.role === 'ADMIN';
+  const canReg = ['registrador','admin'].includes(rol)  || S.user.role === 'ADMIN';
 
   // Tabs visibles según itemsRol
   const TABS = [
@@ -2924,78 +2927,126 @@ async function viewItems(container) {
     completado: '<span class="badge" style="background:#3b82f6">Completado</span>',
   }[e] || e);
 
+  // ── Helpers de lookup por clave compuesta ────────────────────────
+  const famNombre = (refs, linea, familia) =>
+    refs.familia?.find(r => r.codigo === `${linea}_${familia}`)?.nombre || '—';
+  const sfNombre = (refs, linea, familia, sf) =>
+    refs.sub_familia?.find(r => r.codigo === `${linea}_${familia}_${sf}`)?.nombre || '—';
+
   // ── Tab: Catálogo ──────────────────────────────────────────────────
   async function renderCatalogo(el) {
-    const refs = await getRefs();
-    const lineas = refs.linea || [];
-    const tipos  = refs.tipo_item || [];
-    const unidades = [...new Set((await GET('/items-sol/catalogo?page=1')).items.map(i => i.unidad).filter(Boolean))].sort();
+    const refs  = await getRefs();
+    const lineas = refs.linea       || [];
+    const tipos  = refs.tipo_item   || [];
 
     el.innerHTML = `
       <div class="card mb-16" style="padding:14px">
         <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
           <div style="flex:2;min-width:200px">
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Buscar nombre</label>
-            <input id="itc-q" class="form-control" placeholder="Nombre del ítem..." style="font-size:13px">
+            <input id="itc-q" class="form-control" placeholder="Escribe para buscar..."
+                   oninput="clearTimeout(window._itcT);window._itcT=setTimeout(()=>itcBuscar(1),380)"
+                   style="font-size:13px">
           </div>
           <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo</label>
-            <select id="itc-tipo" class="form-control" style="width:160px;font-size:13px">
+            <select id="itc-tipo" class="form-control" onchange="itcBuscar(1)" style="width:150px;font-size:13px">
               <option value="">Todos</option>
               ${tipos.map(t=>`<option value="${t.codigo}">${t.nombre}</option>`).join('')}
             </select>
           </div>
           <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Línea</label>
-            <select id="itc-linea" class="form-control" style="width:160px;font-size:13px">
+            <select id="itc-linea" class="form-control" onchange="itcLinFiltro(this.value)" style="width:160px;font-size:13px">
               <option value="">Todas</option>
               ${lineas.map(l=>`<option value="${l.codigo}">${l.nombre}</option>`).join('')}
             </select>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="itcBuscar(1)">🔍 Buscar</button>
-          <button class="btn btn-outline btn-sm" onclick="document.getElementById('itc-q').value='';document.getElementById('itc-tipo').value='';document.getElementById('itc-linea').value='';itcBuscar(1)">Limpiar</button>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Familia</label>
+            <select id="itc-fam" class="form-control" onchange="itcFamFiltro(this.value)" style="width:160px;font-size:13px">
+              <option value="">Todas</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sub-familia</label>
+            <select id="itc-sf" class="form-control" onchange="itcBuscar(1)" style="width:160px;font-size:13px">
+              <option value="">Todas</option>
+            </select>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="itcLimpiar()">✕ Limpiar</button>
         </div>
       </div>
-      ${['solicitante','admin'].includes(rol)?`
-      <div class="mb-16">
+      ${canSol?`<div class="mb-16">
         <button class="btn btn-primary btn-sm" onclick="itcNuevaSolicitud()">➕ Nueva solicitud de ítem</button>
       </div>`:''}
       <div id="itc-result"></div>`;
 
+    window.itcLinFiltro = async (linea) => {
+      const fams = linea ? await GET(`/items-sol/refs/familias?linea=${linea}`) : [];
+      const sel = document.getElementById('itc-fam');
+      sel.innerHTML = '<option value="">Todas</option>' + fams.map(f=>`<option value="${f.codigo}">${f.nombre}</option>`).join('');
+      document.getElementById('itc-sf').innerHTML = '<option value="">Todas</option>';
+      itcBuscar(1);
+    };
+    window.itcFamFiltro = async (famCodigo) => {
+      const linea = document.getElementById('itc-linea')?.value || '';
+      const parts = famCodigo.split('_');
+      const familia = parts[1] || '';
+      const sfs = (linea && familia) ? await GET(`/items-sol/refs/sub-familias?linea=${linea}&familia=${familia}`) : [];
+      const sel = document.getElementById('itc-sf');
+      sel.innerHTML = '<option value="">Todas</option>' + sfs.map(s=>`<option value="${s.codigo}">${s.nombre}</option>`).join('');
+      itcBuscar(1);
+    };
+    window.itcLimpiar = () => {
+      ['itc-q','itc-tipo','itc-linea','itc-fam','itc-sf'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      itcBuscar(1);
+    };
+
     window.itcBuscar = async (page=1) => {
-      const q      = document.getElementById('itc-q')?.value || '';
-      const tipo   = document.getElementById('itc-tipo')?.value || '';
-      const linea  = document.getElementById('itc-linea')?.value || '';
-      const res    = document.getElementById('itc-result');
+      const q       = document.getElementById('itc-q')?.value || '';
+      const tipo    = document.getElementById('itc-tipo')?.value || '';
+      const linea   = document.getElementById('itc-linea')?.value || '';
+      const famCod  = document.getElementById('itc-fam')?.value || '';
+      const sfCod   = document.getElementById('itc-sf')?.value || '';
+      const res     = document.getElementById('itc-result');
       res.innerHTML = '<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>';
       try {
         const params = new URLSearchParams({ page });
-        if (q)    params.set('q', q);
-        if (tipo) params.set('tipoItem', tipo);
-        if (linea)params.set('linea', linea);
-        const data = await GET(`/items-sol/catalogo?${params}`);
-        const rows = data.items.map(it => `
+        if (q)       params.set('q', q);
+        if (tipo)    params.set('tipoItem', tipo);
+        if (linea)   params.set('linea', linea);
+        if (famCod)  params.set('familia', famCod.split('_')[1] || '');
+        if (sfCod)   params.set('subFamilia', sfCod.split('_')[2] || '');
+        const data  = await GET(`/items-sol/catalogo?${params}`);
+        const rows  = data.items.map(it => `
           <tr>
-            <td style="font-size:12px;color:var(--text-muted)">${it.item}</td>
-            <td style="font-size:13px;font-weight:600;max-width:280px">${esc(it.nombre||'')}</td>
-            <td style="font-size:12px">${esc(refNombre(refs,'tipo_item',it.tipoItem))}</td>
-            <td style="font-size:12px;color:var(--text-muted)">${esc(refNombre(refs,'linea',it.linea))}</td>
-            <td><span class="badge badge-outline">${esc(it.unidad||'')}</span></td>
-            ${['solicitante','admin'].includes(rol)?`
-            <td><button class="btn btn-sm btn-outline" onclick="itcCopiar(${it.item})">📋 Copiar</button></td>`:'<td></td>'}
+            <td style="font-size:11px;color:var(--text-muted)">${it.item}</td>
+            <td style="font-size:13px;font-weight:600;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(it.nombre||'')}">${esc(it.nombre||'')}</td>
+            <td style="font-size:11px">${esc(refNombre(refs,'tipo_item',it.tipoItem))}</td>
+            <td style="font-size:11px;color:var(--text-muted)">${esc(refNombre(refs,'linea',it.linea))}</td>
+            <td style="font-size:11px;color:var(--text-muted)">${esc(famNombre(refs,it.linea,it.familia))}</td>
+            <td style="font-size:11px;color:var(--text-muted)">${esc(sfNombre(refs,it.linea,it.familia,it.subFamilia))}</td>
+            <td><span class="badge badge-outline" style="font-size:10px">${esc(it.unidad||'')}</span></td>
+            ${canSol?`<td><button class="btn btn-sm btn-outline" style="font-size:11px" onclick="itcCopiar(${it.item})">📋 Copiar</button></td>`:'<td></td>'}
           </tr>`).join('');
         const pages = data.pages;
-        const pag = pages > 1 ? `<div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
-          ${page>1?`<button class="btn btn-sm btn-outline" onclick="itcBuscar(${page-1})">‹ Anterior</button>`:''}
+        const pag   = pages > 1 ? `<div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
+          ${page>1?`<button class="btn btn-sm btn-outline" onclick="itcBuscar(${page-1})">‹</button>`:''}
           <span style="padding:6px 10px;font-size:12px;color:var(--text-muted)">${page}/${pages} · ${data.total.toLocaleString()} ítems</span>
-          ${page<pages?`<button class="btn btn-sm btn-outline" onclick="itcBuscar(${page+1})">Siguiente ›</button>`:''}
+          ${page<pages?`<button class="btn btn-sm btn-outline" onclick="itcBuscar(${page+1})">›</button>`:''}
         </div>` : '';
         res.innerHTML = `
           <div class="card" style="overflow:hidden">
             <div style="overflow-x:auto">
               <table class="data-table">
-                <thead><tr><th>#</th><th>Nombre</th><th>Tipo</th><th>Línea</th><th>Unidad</th><th></th></tr></thead>
-                <tbody>${rows||'<tr><td colspan="6" class="text-center text-muted py-16">Sin resultados</td></tr>'}</tbody>
+                <thead><tr><th style="font-size:11px">#</th><th>Nombre</th><th style="font-size:11px">Tipo</th>
+                  <th style="font-size:11px">Línea</th><th style="font-size:11px">Familia</th>
+                  <th style="font-size:11px">Sub-familia</th><th style="font-size:11px">Unidad</th><th></th></tr></thead>
+                <tbody>${rows||'<tr><td colspan="8" class="text-center text-muted py-16">Sin resultados</td></tr>'}</tbody>
               </table>
             </div>
           </div>${pag}`;
@@ -3256,11 +3307,12 @@ async function viewItems(container) {
   };
 
   // ── Nueva solicitud (modal con formulario multi-ítem) ──────────────
-  window.itcNuevaSolicitud = async () => {
-    const refs = await getRefs();
-    const lineas = refs.linea || [];
+  window.itcNuevaSolicitud = async (initialItems = []) => {
+    const refs  = await getRefs();
+    const lineas = refs.linea     || [];
     const tipos  = refs.tipo_item || [];
-    let itemsLocales = [];
+    // Siempre mostrar al menos un ítem vacío
+    let itemsLocales = initialItems.length ? [...initialItems] : [{}];
 
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
@@ -3293,9 +3345,13 @@ async function viewItems(container) {
                 <option value="">Línea</option>
                 ${lineas.map(l=>`<option value="${l.codigo}" ${String(it.linea)===l.codigo?'selected':''}>${l.nombre}</option>`).join('')}
               </select>
-              <select id="ns-fam-${i}" class="form-control" style="font-size:12px">
+              <select id="ns-fam-${i}" class="form-control" style="font-size:12px" onchange="itcFamChange(this,${i})">
                 <option value="">Familia</option>
-                ${it.familia?`<option value="${it.familia}" selected>${refNombre(refs,'familia',it.familia)}</option>`:''}
+                ${it.familia?`<option value="${it.familia}" selected>${famNombre(refs,it.linea,it.familia)}</option>`:''}
+              </select>
+              <select id="ns-sf-${i}" class="form-control" style="font-size:12px" onchange="itemsLocales[${i}].subFamilia=this.value?parseInt(this.value):null">
+                <option value="">Sub-familia</option>
+                ${it.subFamilia?`<option value="${it.subFamilia}" selected>${sfNombre(refs,it.linea,it.familia,it.subFamilia)}</option>`:''}
               </select>
               <div style="grid-column:1/-1"><input class="form-control" style="font-size:12px" placeholder="Observación del ítem" value="${esc(it.observacion||'')}"
                 onchange="itemsLocales[${i}].observacion=this.value"></div>
@@ -3303,8 +3359,7 @@ async function viewItems(container) {
           </div>`).join('')}
 
           <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
-            <button class="btn btn-outline btn-sm" onclick="itcAgregarItem()">➕ Agregar ítem vacío</button>
-            <button class="btn btn-outline btn-sm" onclick="itcAbrirBuscadorCopia()">📋 Copiar desde catálogo</button>
+            <button class="btn btn-outline btn-sm" onclick="itcAgregarItem()">➕ Agregar otro ítem</button>
           </div>
 
           <div style="display:flex;gap:10px;margin-top:20px">
@@ -3320,17 +3375,24 @@ async function viewItems(container) {
     window.itcAgregarItem = () => { itemsLocales.push({}); buildModal(); };
     window.itcLineaChange = async (sel, idx) => {
       itemsLocales[idx].linea = sel.value ? parseInt(sel.value) : null;
-      const fams = await GET(`/items-sol/refs/familias?linea=${sel.value}`);
+      itemsLocales[idx].familia = null; itemsLocales[idx].subFamilia = null;
+      const fams = sel.value ? await GET(`/items-sol/refs/familias?linea=${sel.value}`) : [];
       const famSel = document.getElementById(`ns-fam-${idx}`);
-      if (famSel) {
-        famSel.innerHTML = '<option value="">Familia</option>' + fams.map(f=>`<option value="${f.codigo}">${f.nombre}</option>`).join('');
-        famSel.onchange = e => { itemsLocales[idx].familia = e.target.value ? parseInt(e.target.value) : null; };
-      }
+      const sfSel  = document.getElementById(`ns-sf-${idx}`);
+      if (famSel) famSel.innerHTML = '<option value="">Familia</option>' + fams.map(f=>`<option value="${f.codigo.split('_')[1]}">${f.nombre}</option>`).join('');
+      if (sfSel)  sfSel.innerHTML  = '<option value="">Sub-familia</option>';
+    };
+    window.itcFamChange = async (sel, idx) => {
+      itemsLocales[idx].familia = sel.value ? parseInt(sel.value) : null;
+      itemsLocales[idx].subFamilia = null;
+      const linea = itemsLocales[idx].linea;
+      const sfs = (linea && sel.value) ? await GET(`/items-sol/refs/sub-familias?linea=${linea}&familia=${sel.value}`) : [];
+      const sfSel = document.getElementById(`ns-sf-${idx}`);
+      if (sfSel) sfSel.innerHTML = '<option value="">Sub-familia</option>' + sfs.map(s=>`<option value="${s.codigo.split('_')[2]}">${s.nombre}</option>`).join('');
     };
     window.itcAbrirBuscadorCopia = () => {
       overlay.remove();
       switchTab('catalogo');
-      toast('Usa el botón "📋 Copiar" en el catálogo, luego vuelve a crear la solicitud', 'success');
     };
 
     window.itcGuardarSolicitud = async () => {
@@ -3350,17 +3412,18 @@ async function viewItems(container) {
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   };
 
-  // Copiar desde catálogo
+  // Copiar desde catálogo → abre modal con ítem pre-cargado
   window.itcCopiar = async (itemId) => {
     const it = await GET(`/items-sol/catalogo/${itemId}`);
-    toast(`Ítem "${it.nombre}" listo para copiar`, 'success');
-    // Abrir modal con el ítem pre-cargado
-    const refs = await getRefs();
-    window.itemsLocales = [{ nombre: it.nombre, tipoItem: it.tipoItem, linea: it.linea,
-                              familia: it.familia, subFamilia: it.subFamilia, unidad: it.unidad,
-                              itemOrigen: it.item }];
-    // Reusar el modal
-    await itcNuevaSolicitud();
+    await itcNuevaSolicitud([{
+      nombre:     it.nombre,
+      tipoItem:   it.tipoItem,
+      linea:      it.linea,
+      familia:    it.familia,
+      subFamilia: it.subFamilia,
+      unidad:     it.unidad,
+      itemOrigen: it.item,
+    }]);
   };
 
   // Carga inicial
