@@ -28,9 +28,9 @@ function opsFilter(user) {
   return { operacion: { $in: ops } };
 }
 
-/** Filtro de operaciones para SOLICITUDES (validadores/registradores ven todas) */
+/** Filtro de operaciones para SOLICITUDES (todos filtran por sus ops asignadas) */
 function solOpsFilter(user) {
-  if (user.role === 'ADMIN' || ['admin','validador','registrador'].includes(user.itemsRol)) return {};
+  if (user.role === 'ADMIN' || user.itemsRol === 'admin') return {};
   const ops = user.operations || [];
   if (!ops.length) return { operacion: '__ninguna__' };
   return { operacion: { $in: ops } };
