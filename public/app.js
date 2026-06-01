@@ -3134,10 +3134,10 @@ async function viewItems(container) {
                       ${s.items.length?`<span class="badge" style="background:${nERP===s.items.length?'#22c55e':'#94a3b8'}">${nERP}/${s.items.length}</span>`:'—'}
                     </td>
                     <td class="text-center">
-                      <button class="btn btn-sm ${s.estado==='pendiente'&&vista==='validacion'?'btn-primary':s.estado==='aprobado'&&vista==='registro'?'btn-primary':'btn-outline'}"
-                              onclick="itcAbrirSolicitud('${s._id}')">
-                        ${['borrador','pendiente','rechazado'].includes(s.estado)&&(s.creadoPor===S.user.username||rol==='admin')?'✏️ Editar':'👁️ Ver'}
-                      </button>
+                      ${['borrador','pendiente','rechazado'].includes(s.estado)&&(s.creadoPor===S.user.username||rol==='admin')
+                        ? `<button class="btn btn-sm btn-primary" onclick="itcEditarSolicitud('${s._id}')">✏️ Editar</button>`
+                        : `<button class="btn btn-sm ${s.estado==='pendiente'&&vista==='validacion'?'btn-primary':s.estado==='aprobado'&&vista==='registro'?'btn-primary':'btn-outline'}" onclick="itcAbrirSolicitud('${s._id}')">👁️ Ver</button>`
+                      }
                     </td>
                   </tr>`;
                 }).join('')}
@@ -3309,8 +3309,16 @@ async function viewItems(container) {
     } catch(e){ toast(e.message, 'error'); }
   };
 
-  // ── Nueva solicitud (modal con formulario multi-ítem) ──────────────
-  window.itcNuevaSolicitud = async (initialItems = []) => {
+  // ── Editar solicitud existente ─────────────────────────────────────
+  window.itcEditarSolicitud = async (id) => {
+    const sol = await GET(`/items-sol/${id}`);
+    await itcNuevaSolicitud(sol.items || [], { solicitudId: id, observacion: sol.observacion, operacion: sol.operacion });
+  };
+
+  // ── Nueva / Editar solicitud (modal multi-ítem) ────────────────────
+  window.itcNuevaSolicitud = async (initialItems = [], opciones = {}) => {
+    const { solicitudId = null, observacion: obsInicial = '', operacion: opInicial = '' } = opciones;
+    const modoEdicion = !!solicitudId;
     const refs  = await getRefs();
     const lineas = refs.linea     || [];
     const tipos  = refs.tipo_item || [];
@@ -3320,7 +3328,7 @@ async function viewItems(container) {
       : (S.user.operations || []);
     // Siempre mostrar al menos un ítem vacío
     let itemsLocales = initialItems.length ? [...initialItems] : [{}];
-    let operacionSel = misOps.length === 1 ? misOps[0] : '';
+    let operacionSel = opInicial || (misOps.length === 1 ? misOps[0] : '');
 
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
@@ -3329,20 +3337,22 @@ async function viewItems(container) {
       overlay.innerHTML = `
         <div style="background:#fff;border-radius:12px;width:100%;max-width:720px;max-height:90vh;overflow-y:auto;padding:24px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-            <span style="font-weight:700;font-size:16px">📦 Nueva solicitud de ítem</span>
+            <span style="font-weight:700;font-size:16px">📦 ${modoEdicion ? 'Editar solicitud' : 'Nueva solicitud de ítem'}</span>
             <button id="ns-close" style="background:none;border:none;font-size:22px;cursor:pointer">✕</button>
           </div>
           <div style="display:flex;gap:10px;margin-bottom:16px">
             <div style="flex:1">
               <label style="font-size:12px;font-weight:600;margin-bottom:4px;display:block">Operación <span style="color:red">*</span></label>
-              <select id="ns-op" class="form-control" style="font-size:13px" onchange="operacionSel=this.value">
-                ${misOps.length > 1 ? '<option value="">— Seleccionar operación —</option>' : ''}
-                ${misOps.map(op=>`<option value="${op}" ${operacionSel===op?'selected':''}>${op}</option>`).join('')}
+              <select id="ns-op" class="form-control" style="font-size:13px" onchange="operacionSel=this.value" ${modoEdicion?'disabled':''}>
+                ${misOps.length > 1 && !modoEdicion ? '<option value="">— Seleccionar operación —</option>' : ''}
+                ${modoEdicion
+                  ? `<option value="${operacionSel}" selected>${operacionSel}</option>`
+                  : misOps.map(op=>`<option value="${op}" ${operacionSel===op?'selected':''}>${op}</option>`).join('')}
               </select>
             </div>
             <div style="flex:2">
               <label style="font-size:12px;font-weight:600;margin-bottom:4px;display:block">Observación general</label>
-              <input id="ns-obs" class="form-control" placeholder="Opcional" style="font-size:13px">
+              <input id="ns-obs" class="form-control" placeholder="Opcional" value="${esc(obsInicial)}" style="font-size:13px">
             </div>
           </div>
 
@@ -3385,7 +3395,9 @@ async function viewItems(container) {
           </div>
 
           <div style="display:flex;gap:10px;margin-top:20px">
-            <button class="btn btn-primary btn-sm" onclick="itcGuardarSolicitud()">✅ Crear solicitud</button>
+            <button class="btn btn-primary btn-sm" onclick="itcGuardarSolicitud()">
+              ${modoEdicion ? '💾 Guardar cambios' : '✅ Crear solicitud'}
+            </button>
             <button class="btn btn-outline btn-sm" id="ns-close2">Cancelar</button>
           </div>
         </div>`;
@@ -3418,7 +3430,7 @@ async function viewItems(container) {
     };
 
     window.itcGuardarSolicitud = async () => {
-      const operacion = document.getElementById('ns-op')?.value || operacionSel;
+      const operacion = operacionSel || document.getElementById('ns-op')?.value;
       const obs       = document.getElementById('ns-obs')?.value || '';
       if (!operacion) { toast('Selecciona la operación', 'error'); return; }
       // Sincronizar nombres desde el DOM por si el campo no perdió el foco
@@ -3429,8 +3441,13 @@ async function viewItems(container) {
       const validos = itemsLocales.filter(it => it.nombre?.trim());
       if (!validos.length) { toast('Agrega al menos un ítem con nombre', 'error'); return; }
       try {
-        const sol = await POST('/items-sol', { operacion, observacion: obs, items: validos });
-        toast('Solicitud creada', 'success');
+        if (modoEdicion) {
+          await PUT(`/items-sol/${solicitudId}`, { observacion: obs, items: validos });
+          toast('Solicitud actualizada', 'success');
+        } else {
+          await POST('/items-sol', { operacion, observacion: obs, items: validos });
+          toast('Solicitud creada', 'success');
+        }
         overlay.remove();
         await switchTab('solicitudes');
       } catch(e){ toast(e.message, 'error'); }
