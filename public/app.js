@@ -3134,10 +3134,13 @@ async function viewItems(container) {
                       ${s.items.length?`<span class="badge" style="background:${nERP===s.items.length?'#22c55e':'#94a3b8'}">${nERP}/${s.items.length}</span>`:'—'}
                     </td>
                     <td class="text-center">
-                      ${['borrador','pendiente','rechazado'].includes(s.estado)&&(s.creadoPor===S.user.username||rol==='admin')
-                        ? `<button class="btn btn-sm btn-primary" onclick="itcEditarSolicitud('${s._id}')">✏️ Editar</button>`
-                        : `<button class="btn btn-sm ${s.estado==='pendiente'&&vista==='validacion'?'btn-primary':s.estado==='aprobado'&&vista==='registro'?'btn-primary':'btn-outline'}" onclick="itcAbrirSolicitud('${s._id}')">👁️ Ver</button>`
-                      }
+                      <div style="display:flex;gap:4px;justify-content:center">
+                        ${['borrador','pendiente','rechazado'].includes(s.estado)&&(s.creadoPor===S.user.username||rol==='admin')
+                          ? `<button class="btn btn-sm btn-primary" onclick="itcEditarSolicitud('${s._id}')">✏️ Editar</button>
+                             <button class="btn btn-sm btn-outline" style="color:#ef4444;border-color:#ef4444" onclick="itcEliminarSol('${s._id}')" title="Eliminar">🗑️</button>`
+                          : `<button class="btn btn-sm ${s.estado==='pendiente'&&vista==='validacion'?'btn-primary':s.estado==='aprobado'&&vista==='registro'?'btn-primary':'btn-outline'}" onclick="itcAbrirSolicitud('${s._id}')">👁️ Ver</button>`
+                        }
+                      </div>
                     </td>
                   </tr>`;
                 }).join('')}
@@ -3470,6 +3473,15 @@ async function viewItems(container) {
       unidad:     it.unidad,
       itemOrigen: it.item,
     }]);
+  };
+
+  window.itcEliminarSol = async (id) => {
+    if (!confirm('¿Eliminar esta solicitud? Esta acción no se puede deshacer.')) return;
+    try {
+      await DEL(`/items-sol/${id}`);
+      toast('Solicitud eliminada', 'success');
+      await switchTab(vistaActual);
+    } catch(e) { toast(e.message, 'error'); }
   };
 
   // Carga inicial

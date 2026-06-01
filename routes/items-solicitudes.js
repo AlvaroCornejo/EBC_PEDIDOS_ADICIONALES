@@ -246,7 +246,9 @@ router.delete('/:id', async (req, res) => {
   if (!canSolicitar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
   try {
     const sol = await ItemsSolicitud.findById(req.params.id);
-    if (!sol || sol.estado !== 'borrador') return res.status(400).json({ error: 'Solo se pueden eliminar borradores' });
+    const eliminables = ['borrador', 'pendiente', 'rechazado'];
+    if (!sol || !eliminables.includes(sol.estado)) return res.status(400).json({ error: 'Solo se pueden eliminar solicitudes no aprobadas' });
+    if (sol.creadoPor !== req.user.username && req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Sin permiso' });
     await sol.deleteOne();
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
