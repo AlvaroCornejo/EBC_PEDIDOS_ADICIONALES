@@ -3136,7 +3136,7 @@ async function viewItems(container) {
                     <td class="text-center">
                       <button class="btn btn-sm ${s.estado==='pendiente'&&vista==='validacion'?'btn-primary':s.estado==='aprobado'&&vista==='registro'?'btn-primary':'btn-outline'}"
                               onclick="itcAbrirSolicitud('${s._id}')">
-                        ${s.estado==='borrador'&&(s.creadoPor===S.user.username||rol==='admin')?'✏️ Editar':'👁️ Ver'}
+                        ${['borrador','pendiente','rechazado'].includes(s.estado)&&(s.creadoPor===S.user.username||rol==='admin')?'✏️ Editar':'👁️ Ver'}
                       </button>
                     </td>
                   </tr>`;
@@ -3164,7 +3164,7 @@ async function viewItems(container) {
   window.itcAbrirSolicitud = async (id) => {
     const refs = await getRefs();
     const sol  = await GET(`/items-sol/${id}`);
-    const editable = sol.estado === 'borrador' && (sol.creadoPor === S.user.username || rol === 'admin');
+    const editable = ['borrador','pendiente','rechazado'].includes(sol.estado) && (sol.creadoPor === S.user.username || rol === 'admin');
     const esVal    = canValidar({ role: S.user.role, itemsRol: rol }) && sol.estado === 'pendiente';
     const esReg    = canRegistrar({ role: S.user.role, itemsRol: rol }) && sol.estado === 'aprobado';
 

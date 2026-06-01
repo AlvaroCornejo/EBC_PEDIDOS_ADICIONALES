@@ -184,13 +184,14 @@ router.get('/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /api/items-sol/:id — editar borrador (solicitante)
+// PUT /api/items-sol/:id — editar solicitud (borrador, pendiente o rechazado)
 router.put('/:id', async (req, res) => {
   if (!canSolicitar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
   try {
     const sol = await ItemsSolicitud.findById(req.params.id);
     if (!sol) return res.status(404).json({ error: 'No encontrada' });
-    if (sol.estado !== 'borrador' || sol.creadoPor !== req.user.username && req.user.role !== 'ADMIN')
+    const editables = ['borrador', 'pendiente', 'rechazado'];
+    if (!editables.includes(sol.estado) || (sol.creadoPor !== req.user.username && req.user.role !== 'ADMIN'))
       return res.status(403).json({ error: 'No se puede editar en este estado' });
     const { observacion, items } = req.body;
     if (observacion !== undefined) sol.observacion = observacion;
@@ -205,10 +206,13 @@ router.post('/:id/enviar', async (req, res) => {
   if (!canSolicitar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
   try {
     const sol = await ItemsSolicitud.findById(req.params.id);
-    if (!sol || sol.estado !== 'borrador') return res.status(400).json({ error: 'No disponible' });
+    if (!sol || !['borrador','pendiente','rechazado'].includes(sol.estado))
+      return res.status(400).json({ error: 'No disponible' });
     if (!sol.items.length) return res.status(400).json({ error: 'Sin ítems' });
     sol.estado = 'pendiente';
     sol.enviadoEn = new Date();
+    // Limpiar validación previa si se re-envía tras rechazo
+    if (sol.estado === 'rechazado') { sol.validadoPor = undefined; sol.validadoEn = undefined; sol.comentarioValidador = undefined; }
     await sol.save();
     res.json(sol);
   } catch (err) { res.status(500).json({ error: err.message }); }
