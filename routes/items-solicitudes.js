@@ -18,17 +18,27 @@ const canSolicitar = u => u.role === 'ADMIN' || ['solicitante','admin'].includes
 const canValidar   = u => u.role === 'ADMIN' || ['validador','admin'].includes(u.itemsRol);
 const canRegistrar = u => u.role === 'ADMIN' || ['registrador','admin'].includes(u.itemsRol);
 
-/** Filtro de operaciones permitidas para el usuario */
+/** Filtro de operaciones para el CATÁLOGO (solicitantes solo ven sus ops) */
 function opsFilter(user) {
   if (user.role === 'ADMIN' || user.itemsRol === 'admin') return {};
+  // Validadores y registradores ven el catálogo completo
+  if (['validador','registrador'].includes(user.itemsRol)) return {};
   const ops = user.operations || [];
-  if (!ops.length) return { operacion: '__ninguna__' }; // sin acceso a ninguna
+  if (!ops.length) return { operacion: '__ninguna__' };
   return { operacion: { $in: ops } };
 }
 
-/** Operaciones permitidas para el usuario (array) */
+/** Filtro de operaciones para SOLICITUDES (validadores/registradores ven todas) */
+function solOpsFilter(user) {
+  if (user.role === 'ADMIN' || ['admin','validador','registrador'].includes(user.itemsRol)) return {};
+  const ops = user.operations || [];
+  if (!ops.length) return { operacion: '__ninguna__' };
+  return { operacion: { $in: ops } };
+}
+
+/** Operaciones permitidas para el usuario (array, null = todas) */
 function userOps(user) {
-  if (user.role === 'ADMIN' || user.itemsRol === 'admin') return null; // todas
+  if (user.role === 'ADMIN' || user.itemsRol === 'admin') return null;
   return user.operations || [];
 }
 
@@ -131,7 +141,7 @@ router.get('/catalogo/:item', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const u = req.user;
-    const opFilter = opsFilter(u);           // filtro por operaciones autorizadas
+    const opFilter = solOpsFilter(u);         // validadores/registradores ven todas las ops
     let baseFilter = { ...opFilter };
 
     if (canValidar(u) || canRegistrar(u)) {
