@@ -18,9 +18,9 @@ set APP=C:\pedidos-app
 set LOG=%APP%\scripts\sync-master.log
 set ERRORES=0
 
-:: Redirigir toda la salida de este proceso al log (una sola apertura)
+:: Redirigir toda la salida al log (overwrite — sin conflicto de bloqueo)
 if not exist "%APP%\scripts" mkdir "%APP%\scripts"
-call :run >> "%LOG%" 2>&1
+call :run > "%LOG%" 2>&1
 exit /b %ERRORLEVEL%
 
 :run
