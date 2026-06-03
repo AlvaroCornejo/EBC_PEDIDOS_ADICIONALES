@@ -18,8 +18,9 @@ set APP=C:\pedidos-app
 set LOG=%APP%\scripts\sync-master.log
 set ERRORES=0
 
-:: Redirigir toda la salida al log (overwrite — sin conflicto de bloqueo)
+:: Redirigir toda la salida al log (eliminar primero para evitar bloqueos)
 if not exist "%APP%\scripts" mkdir "%APP%\scripts"
+if exist "%LOG%" del /f /q "%LOG%"
 call :run > "%LOG%" 2>&1
 exit /b %ERRORLEVEL%
 
