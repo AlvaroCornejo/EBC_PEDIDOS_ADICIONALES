@@ -10,7 +10,7 @@ const ITEMS_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['v
 const PAGO_ROLES  = [['','— Sin acceso —'],['programador','Programador (Paso 1)'],['aprobador','Aprobador (Paso 2)'],['pagador','Pagador (Paso 3 y 5)'],['autorizador','Autorizador (Paso 4)'],['admin','Administrador']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
-const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB'];
+const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
 const ALL_SOCS_PAGO   = ['MUVON', 'QUIASMO', 'FACTORIAL K'];
 
 // ─── State ───────────────────────────────────────────────────────
@@ -3550,7 +3550,7 @@ async function renderPaso1(container) {
             <option value="">— Seleccionar —</option>
             ${(S.user.role === 'ADMIN' || S.user.rolPago === 'admin'
               ? ALL_SOCS_PAGO
-              : (S.user.sociedadesPago || []).filter(s => ALL_SOCS_PAGO.includes(s))
+              : (S.user.sociedadesCompra || []).filter(s => ALL_SOCS_PAGO.includes(s))
             ).map(s => `<option value="${s}">${s}</option>`).join('')}
           </select>
         </div>
@@ -4226,21 +4226,11 @@ function showUserModal(user, onSave) {
           </label>`).join('')}
         </div>
       </div>
-      <div class="form-group" id="um-socs-section"><label>Sociedades Autorizadas <span style="font-size:11px;color:var(--text-muted)">(Precios de Compra)</span></label>
+      <div class="form-group" id="um-socs-section"><label>Sociedades Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
             <input type="checkbox" name="um-soc-compra" value="${s}"
               ${(user?.sociedadesCompra||[]).includes(s)?'checked':''}
-              style="width:15px;height:15px;accent-color:var(--primary)">
-            ${s}
-          </label>`).join('')}
-        </div>
-      </div>
-      <div class="form-group" id="um-socs-pago-section"><label>Sociedades de Pago <span style="font-size:11px;color:var(--text-muted)">(Gestión de Pagos)</span></label>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
-          ${ALL_SOCS_PAGO.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-            <input type="checkbox" name="um-soc-pago" value="${s}"
-              ${(user?.sociedadesPago||[]).includes(s)?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             ${s}
           </label>`).join('')}
@@ -4291,7 +4281,6 @@ function showUserModal(user, onSave) {
     const isAdmin = role === ROLES.ADMIN;
     document.getElementById('um-ops-section').style.display       = isAdmin ? 'none' : 'block';
     document.getElementById('um-socs-section').style.display      = isAdmin ? 'none' : 'block';
-    document.getElementById('um-socs-pago-section').style.display = isAdmin ? 'none' : 'block';
     document.getElementById('um-consulta-perms').style.display    = isAdmin ? 'none' : 'block';
   }
   syncRoleUI();
@@ -4303,17 +4292,14 @@ function showUserModal(user, onSave) {
     const role = document.getElementById('um-role').value;
     const isAdmin = role === ROLES.ADMIN;
     const selectedSocs     = [...document.querySelectorAll('input[name="um-soc-compra"]:checked')].map(cb => cb.value);
-    const selectedSocsPago = [...document.querySelectorAll('input[name="um-soc-pago"]:checked')].map(cb => cb.value);
     // Sociedades activas si el permiso de Precios está marcado (o si es admin se ignoran)
     const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? selectedSocs : [];
-    const sociedadesPago   = isAdmin ? [] : selectedSocsPago;
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
       role,
       itemsRol: document.getElementById('um-items-role').value,
       rolPago:      document.getElementById('um-pago-role').value,
-      sociedadesPago,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
       puedeVerComparativo: !isAdmin && (document.getElementById('um-comparativo')?.checked ?? false),
