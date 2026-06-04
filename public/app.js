@@ -3553,13 +3553,19 @@ async function renderPaso1(container) {
             ).map(s => `<option value="${s}">${s}</option>`).join('')}
           </select>
         </div>
-        <div>
-          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">
-            Archivo Q PROGRAMACION.csv
-          </label>
-          <input type="file" id="pg-file" accept=".csv" class="form-control" style="width:280px">
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Archivo</label>
+            <input type="file" id="pg-file" accept=".csv" style="display:none">
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file').click()">
+              📎 Seleccionar archivo
+            </button>
+          </div>
+          <span id="pg-filename" style="font-size:12px;color:var(--text-muted);align-self:center;max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
+            Sin archivo
+          </span>
+          <button class="btn btn-primary btn-sm" id="pg-cargar">📂 Cargar</button>
         </div>
-        <button class="btn btn-primary btn-sm" id="pg-cargar">📂 Cargar</button>
         <div style="padding:8px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:13px">
           <span style="color:var(--text-muted)">Fecha de pago:</span>
           <strong style="margin-left:6px" id="pg-fecha-pago">${fechaPagoStr}</strong>
@@ -3616,6 +3622,12 @@ async function renderPaso1(container) {
         </div>
       </div>
     </div>`;
+
+  // Mostrar nombre del archivo seleccionado
+  document.getElementById('pg-file').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    document.getElementById('pg-filename').textContent = f ? f.name : 'Sin archivo';
+  });
 
   // ── Cargar CSV ─────────────────────────────────────────────────────
   document.getElementById('pg-cargar').addEventListener('click', async () => {
