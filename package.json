@@ -1,7 +1,7 @@
 {
-  "name": "pedidos-app",
-  "version": "1.0.0",
-  "description": "Sistema de Gestión de Pedidos",
+  "name": "ebc-app",
+  "version": "2.0.0",
+  "description": "EBC — Sistema de Gestión Operacional",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

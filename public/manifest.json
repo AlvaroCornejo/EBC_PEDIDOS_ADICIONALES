@@ -1,7 +1,7 @@
 {
-  "name": "Pedidos Adicionales",
-  "short_name": "Pedidos",
-  "description": "Gestión de Pedidos Adicionales Operacionales",
+  "name": "EBC App",
+  "short_name": "EBC",
+  "description": "EBC — Sistema de Gestión Operacional",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a1f3a",

@@ -40,8 +40,8 @@ async function api(method, path, body) {
     // Si no llevaba token (ej: /auth/login con contraseña incorrecta), mostrar el error normal
     if (S.token) {
       S.user = null; S.token = null;
-      localStorage.removeItem('pedidos_token');
-      localStorage.removeItem('pedidos_user');
+      localStorage.removeItem('ebc_token');
+      localStorage.removeItem('ebc_user');
       document.getElementById('app').classList.add('hidden');
       document.getElementById('login-screen').classList.remove('hidden');
       toast('Tu sesión expiró. Por favor vuelve a iniciar sesión.', 'error');
@@ -99,8 +99,8 @@ async function login(username, password) {
   const data = await POST('/auth/login', { username, password });
   S.user = data.user;
   S.token = data.token;
-  localStorage.setItem('pedidos_token', data.token);
-  localStorage.setItem('pedidos_user', JSON.stringify(data.user));
+  localStorage.setItem('ebc_token', data.token);
+  localStorage.setItem('ebc_user', JSON.stringify(data.user));
   return data;
 }
 
@@ -139,7 +139,7 @@ function showChangePasswordModal() {
     try {
       await PUT('/auth/change-password', { newPassword: newPwd });
       S.user.mustChangePassword = false;
-      localStorage.setItem('pedidos_user', JSON.stringify(S.user));
+      localStorage.setItem('ebc_user', JSON.stringify(S.user));
       overlay.remove();
       showApp();
     } catch (err) {
@@ -192,14 +192,14 @@ function showCambiarPasswordModal() {
 
 function logout() {
   S.user = null; S.token = null;
-  localStorage.removeItem('pedidos_token');
-  localStorage.removeItem('pedidos_user');
+  localStorage.removeItem('ebc_token');
+  localStorage.removeItem('ebc_user');
   location.reload();
 }
 
 function restoreSession() {
-  const token = localStorage.getItem('pedidos_token');
-  const user  = localStorage.getItem('pedidos_user');
+  const token = localStorage.getItem('ebc_token');
+  const user  = localStorage.getItem('ebc_user');
   if (token && user) { S.token = token; S.user = JSON.parse(user); return true; }
   return false;
 }
@@ -211,7 +211,7 @@ async function refreshToken() {
     const data = await GET('/auth/refresh');
     if (data.token) {
       S.token = data.token;
-      localStorage.setItem('pedidos_token', data.token);
+      localStorage.setItem('ebc_token', data.token);
     }
   } catch {
     // Si falla (401) el api() helper ya gestiona el logout automático
@@ -4914,7 +4914,7 @@ async function exportarExcel(pedidos, gestion = '') {
     });
     if (res.status === 401) {
       S.user = null; S.token = null;
-      localStorage.removeItem('pedidos_token'); localStorage.removeItem('pedidos_user');
+      localStorage.removeItem('ebc_token'); localStorage.removeItem('ebc_user');
       document.getElementById('app').classList.add('hidden');
       document.getElementById('login-screen').classList.remove('hidden');
       toast('Tu sesión expiró.', 'error'); return;
@@ -4930,7 +4930,7 @@ async function exportarExcel(pedidos, gestion = '') {
   if (btn) { btn.disabled = false; btn.textContent = '📥 Excel'; }
 }
 
-function imprimirPedidos(pedidos, titulo = 'Pedidos Adicionales', gestion = '') {
+function imprimirPedidos(pedidos, titulo = 'EBC — Pedidos Adicionales', gestion = '') {
   if (!pedidos.length) { toast('No hay datos para imprimir', 'error'); return; }
 
   const filas = pedidos.flatMap(p => {
