@@ -3635,32 +3635,81 @@ async function renderPaso1(container) {
     document.getElementById('pg-filename').textContent = f ? f.name : 'Sin archivo';
   });
 
+  // ── Barra de progreso ──────────────────────────────────────────────
+  function setProgress(pct, label) {
+    let bar = document.getElementById('pg-progress');
+    if (!bar) {
+      const wrap = document.createElement('div');
+      wrap.id = 'pg-progress-wrap';
+      wrap.style.cssText = 'margin-top:10px;animation:fadeIn .2s';
+      wrap.innerHTML = `
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:4px">
+          <span id="pg-progress-label">Cargando...</span>
+          <span id="pg-progress-pct">0%</span>
+        </div>
+        <div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden">
+          <div id="pg-progress" style="height:100%;width:0%;background:var(--primary);border-radius:4px;transition:width .3s"></div>
+        </div>`;
+      document.getElementById('pg-cargar').parentElement.after(wrap);
+      bar = document.getElementById('pg-progress');
+    }
+    bar.style.width = pct + '%';
+    bar.style.background = pct === 100 ? '#22c55e' : 'var(--primary)';
+    document.getElementById('pg-progress-label').textContent = label;
+    document.getElementById('pg-progress-pct').textContent   = pct + '%';
+    if (pct === 100) {
+      setTimeout(() => document.getElementById('pg-progress-wrap')?.remove(), 1500);
+    }
+  }
+
+  function uploadCSV(fd) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/pagos/cargar');
+      xhr.setRequestHeader('Authorization', 'Bearer ' + localStorage.getItem('ebc_token'));
+      xhr.upload.addEventListener('progress', e => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 70);
+          setProgress(pct, `Enviando archivo... ${pct}%`);
+        }
+      });
+      xhr.addEventListener('load', () => {
+        setProgress(85, 'Procesando obligaciones...');
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 400) reject(new Error(data.error || `Error ${xhr.status}`));
+          else resolve(data);
+        } catch(e) { reject(new Error('Respuesta inválida del servidor')); }
+      });
+      xhr.addEventListener('error', () => reject(new Error('Error de red')));
+      xhr.send(fd);
+    });
+  }
+
   // ── Cargar CSV ─────────────────────────────────────────────────────
   document.getElementById('pg-cargar').addEventListener('click', async () => {
     const compania = document.getElementById('pg-compania').value.trim();
     const file     = document.getElementById('pg-file').files[0];
-    if (!compania) { toast('Ingresa la sociedad', 'error'); return; }
+    if (!compania) { toast('Selecciona la sociedad', 'error'); return; }
     if (!file)     { toast('Selecciona el archivo CSV', 'error'); return; }
     const fd = new FormData();
     fd.append('archivo', file);
     fd.append('compania', compania);
+    document.getElementById('pg-progress-wrap')?.remove();
+    setProgress(0, 'Iniciando...');
     try {
-      const r = await fetch('/api/pagos/cargar', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
-        body: fd,
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
-      toast(`${data.total} obligaciones cargadas`, 'success');
-      // Cargar la programación creada
+      const data = await uploadCSV(fd);
+      setProgress(92, 'Cargando programación...');
       progActual = await GET(`/pagos/programaciones/${data.id}`);
-      // Actualizar mapa de grupos desde la programación
-      progActual.obligaciones.forEach(ob => {
-        benefMap[ob.pagarA.toUpperCase()] = ob.grupo;
-      });
+      progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
+      setProgress(98, 'Renderizando tabla...');
       await renderTablaYResumenes();
-    } catch(e) { toast(e.message, 'error'); }
+      setProgress(100, `✓ ${data.total} obligaciones cargadas`);
+      toast(`${data.total} obligaciones cargadas`, 'success');
+    } catch(e) {
+      document.getElementById('pg-progress-wrap')?.remove();
+      toast(e.message, 'error');
+    }
   });
 
   // ── Render tabla + resúmenes ────────────────────────────────────────
