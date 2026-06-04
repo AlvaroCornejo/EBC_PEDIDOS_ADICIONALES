@@ -3566,6 +3566,12 @@ async function renderPaso1(container) {
           </span>
           <button class="btn btn-primary btn-sm" id="pg-cargar">📂 Cargar</button>
         </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo de Cambio</label>
+          <input id="pg-tc" type="number" step="0.001" min="0" class="form-control"
+                 style="width:90px;font-size:13px" value="3.700"
+                 oninput="clearTimeout(window._pgTC);window._pgTC=setTimeout(()=>renderTabla(),400)">
+        </div>
         <div style="padding:8px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:13px">
           <span style="color:var(--text-muted)">Fecha de pago:</span>
           <strong style="margin-left:6px" id="pg-fecha-pago">${fechaPagoStr}</strong>
@@ -3658,8 +3664,17 @@ async function renderPaso1(container) {
   });
 
   // ── Render tabla + resúmenes ────────────────────────────────────────
+  // Cargar grupos y detalles una vez
+  let gruposRef = [], detallesRef = [];
+  async function cargarGruposRef() {
+    [gruposRef, detallesRef] = await Promise.all([
+      GET('/pagos/grupos'), GET('/pagos/detalles'),
+    ]);
+  }
+
   async function renderTablaYResumenes() {
     if (!progActual) return;
+    await cargarGruposRef();
     document.getElementById('pg-filtros').style.display = '';
     document.getElementById('pg-resumenes').style.display = '';
     poblarFiltros();
@@ -3692,44 +3707,81 @@ async function renderPaso1(container) {
   function renderTabla() {
     const obs  = obligacionesFiltradas();
     const wrap = document.getElementById('pg-tabla-wrap');
+    const tc   = parseFloat(document.getElementById('pg-tc')?.value) || 1;
+
     if (!obs.length) {
       wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin obligaciones para los filtros aplicados</p></div>`;
       return;
     }
+
+    const grpOpts = ['OTROS', ...gruposRef.map(g => g.nombre)]
+      .map(g => `<option value="${g}">${g}</option>`).join('');
+
     wrap.innerHTML = `
       <div class="card" style="overflow:hidden">
-        <div style="padding:8px 14px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
-          ${obs.length} obligaciones · Fecha de pago: <strong>${fechaPagoStr}</strong>
+        <div style="padding:8px 14px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
+          <span>${obs.length} obligaciones · Fecha de pago: <strong>${fechaPagoStr}</strong></span>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;font-weight:normal">
+            <input type="checkbox" id="pg-check-all" style="width:14px;height:14px"
+                   onchange="pgToggleAll(this.checked)"> Marcar todos
+          </label>
         </div>
         <div style="overflow-x:auto">
-          <table class="data-table" style="font-size:12px">
+          <table class="data-table" style="font-size:11px">
             <thead><tr>
+              <th style="width:28px"></th>
               <th>Tipo</th><th>N° Documento</th><th>Vencimiento</th><th>F. Documento</th>
-              <th>Moneda</th><th class="text-right">Monto</th>
+              <th>Mon.</th><th class="text-right">Monto</th><th class="text-right">Monto S/</th>
               <th>Beneficiario</th><th>Banco</th>
-              <th class="text-right">Días Vencido</th>
-              <th>Grupo</th>
+              <th class="text-right">Días Venc.</th>
+              <th style="min-width:110px">Grupo</th>
+              <th style="min-width:110px">Detalle Grupo</th>
             </tr></thead>
             <tbody>
               ${obs.map(o => {
                 const dv = o.diasVencido;
-                const dvColor = dv > 0 ? '#ef4444' : dv < 0 ? '#10b981' : '#64748b';
-                const dvLabel = dv > 0 ? `+${dv}` : String(dv);
+                const dvColor   = dv > 0 ? '#ef4444' : dv < 0 ? '#10b981' : '#64748b';
+                const dvLabel   = dv > 0 ? `+${dv}` : String(dv);
+                const montoColor= o.monto < 0 ? 'color:#ef4444' : '';
+                const esLocal   = o.moneda === 'LO';
+                const montoSol  = esLocal ? o.monto : o.monto * tc;
+                const autoCheck = dv >= 0 && dv <= 9;
+                const checked   = o.seleccionado !== undefined ? o.seleccionado : autoCheck;
+                // Detalles filtrados por grupo actual
+                const dtOpts = ['OTROS', ...detallesRef.filter(d => d.grupoProveedor === o.grupo).map(d => d.nombre)]
+                  .map(d => `<option value="${d}" ${o.detalleGrupo===d?'selected':''}>${d}</option>`).join('');
+                const grpOptsRow = grpOpts.replace(`value="${o.grupo}"`, `value="${o.grupo}" selected`);
                 return `<tr>
-                  <td><span class="badge badge-outline">${esc(o.tipoDocumento)}</span></td>
+                  <td class="text-center">
+                    <input type="checkbox" class="pg-check" data-pa="${esc(o.pagarA)}" data-idx="${obs.indexOf(o)}"
+                           style="width:14px;height:14px;accent-color:var(--primary)"
+                           ${checked?'checked':''}
+                           onchange="pgToggleObl(this)">
+                  </td>
+                  <td><span class="badge badge-outline" style="font-size:10px">${esc(o.tipoDocumento)}</span></td>
                   <td style="white-space:nowrap">${esc(o.numeroDocumento)}</td>
                   <td style="white-space:nowrap">${fmtFecha(o.fechaVencimiento)}</td>
                   <td style="white-space:nowrap">${fmtFecha(o.fechaDocumento)}</td>
                   <td>${esc(o.moneda)}</td>
-                  <td class="text-right fw-semibold">${fmtMonto(o.monto)}</td>
-                  <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.pagarA)}</td>
+                  <td class="text-right fw-semibold" style="${montoColor}">${fmtMonto(o.monto)}</td>
+                  <td class="text-right fw-semibold" style="${!esLocal?'color:#3b82f6':''}">
+                    ${fmtMonto(montoSol)}
+                  </td>
+                  <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+                      title="${esc(o.pagarA)}">${esc(o.pagarA)}</td>
                   <td>${esc(o.banco)}</td>
                   <td class="text-right fw-semibold" style="color:${dvColor}">${dvLabel}</td>
                   <td>
-                    <input class="form-control" style="font-size:11px;padding:2px 6px;min-width:100px"
-                           value="${esc(o.grupo)}" placeholder="Sin grupo"
-                           onchange="pgActGrupo('${esc(o.pagarA)}',this.value)"
-                           onblur="renderResumenes()">
+                    <select style="font-size:11px;padding:2px 4px;width:100%;border:1px solid #e2e8f0;border-radius:4px"
+                            onchange="pgActGrupo('${esc(o.pagarA)}',this.value,'grupo');this.closest('tr').querySelector('.pg-detalle-sel').innerHTML='<option>OTROS</option>'+pgDetalleOpts(this.value)">
+                      ${grpOptsRow}
+                    </select>
+                  </td>
+                  <td>
+                    <select class="pg-detalle-sel" style="font-size:11px;padding:2px 4px;width:100%;border:1px solid #e2e8f0;border-radius:4px"
+                            onchange="pgActGrupo('${esc(o.pagarA)}',this.value,'detalle')">
+                      ${dtOpts}
+                    </select>
                   </td>
                 </tr>`;
               }).join('')}
@@ -3794,33 +3846,46 @@ async function renderPaso1(container) {
 
   window.pgLimpiarFiltros = () => {
     ['f-tipodoc','f-numdoc','f-benef','f-grupo'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = '';
+      const el = document.getElementById(id); if (el) el.value = '';
     });
     renderTabla(); renderResumenes();
   };
 
   window.pgFiltrarDesdeResumen = (tipo, valor, activo) => {
-    if (tipo === 'benef') {
-      const el = document.getElementById('f-benef');
-      if (el) el.value = activo ? valor : '';
-    } else {
-      const el = document.getElementById('f-grupo');
-      if (el) el.value = activo ? valor : '';
-    }
+    const id = tipo === 'benef' ? 'f-benef' : 'f-grupo';
+    const el = document.getElementById(id);
+    if (el) el.value = activo ? valor : '';
     renderTabla(); renderResumenes();
   };
 
-  window.pgActGrupo = async (pagarA, grupo) => {
+  window.pgDetalleOpts = (grupoNombre) =>
+    detallesRef.filter(d => d.grupoProveedor === grupoNombre)
+      .map(d => `<option value="${d.nombre}">${d.nombre}</option>`).join('');
+
+  window.pgToggleAll = (checked) => {
+    document.querySelectorAll('.pg-check').forEach(cb => { cb.checked = checked; });
+    if (progActual) progActual.obligaciones.forEach(ob => { ob.seleccionado = checked; });
+  };
+
+  window.pgToggleObl = (cb) => {
     if (!progActual) return;
-    // Actualizar localmente
+    const obs = obligacionesFiltradas();
+    const idx = parseInt(cb.dataset.idx);
+    if (obs[idx]) obs[idx].seleccionado = cb.checked;
+  };
+
+  window.pgActGrupo = async (pagarA, valor, campo = 'grupo') => {
+    if (!progActual) return;
     progActual.obligaciones.forEach(ob => {
-      if (ob.pagarA.trim().toUpperCase() === pagarA.trim().toUpperCase()) ob.grupo = grupo;
+      if (ob.pagarA.trim().toUpperCase() === pagarA.trim().toUpperCase())
+        ob[campo] = valor || 'OTROS';
     });
-    // Persistir en backend
     try {
-      await PUT(`/pagos/programaciones/${progActual._id}/grupo-beneficiario`, { nombre: pagarA, grupo });
-    } catch(e) { toast('Error guardando grupo: ' + e.message, 'error'); }
+      const body = { nombre: pagarA };
+      body[campo] = valor || 'OTROS';
+      await PUT(`/pagos/programaciones/${progActual._id}/grupo-beneficiario`, body);
+      renderResumenes();
+    } catch(e) { toast('Error guardando: ' + e.message, 'error'); }
   };
 }
 
@@ -3839,6 +3904,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="pedidos-admin">📋 Todos los Pedidos</button>
         <button class="tab-btn" data-tab="database">🗄️ Base de Datos</button>
         <button class="tab-btn" data-tab="config">⚙️ Configuración</button>
+        <button class="tab-btn" data-tab="grupos-pago">💳 Grupos de Pago</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -3846,6 +3912,7 @@ async function viewAdmin(container) {
       <div id="tab-pedidos-admin" class="tab-panel"></div>
       <div id="tab-database" class="tab-panel"></div>
       <div id="tab-config" class="tab-panel"></div>
+      <div id="tab-grupos-pago" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -3863,6 +3930,95 @@ async function viewAdmin(container) {
   renderAdminPedidos(document.getElementById('tab-pedidos-admin'));
   renderAdminDatabase(document.getElementById('tab-database'));
   renderAdminConfig(document.getElementById('tab-config'));
+  renderAdminGruposPago(document.getElementById('tab-grupos-pago'));
+}
+
+// ─── Admin: Grupos de Pago ────────────────────────────────────────
+async function renderAdminGruposPago(container) {
+  async function load() {
+    const [grupos, detalles] = await Promise.all([
+      GET('/pagos/grupos'), GET('/pagos/detalles'),
+    ]);
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:8px">
+
+        <!-- Grupo Proveedor -->
+        <div class="card" style="overflow:hidden">
+          <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <span>💳 Grupo Proveedor</span>
+            <div style="display:flex;gap:6px">
+              <input id="new-grupo" class="form-control" style="width:160px;font-size:12px" placeholder="Nuevo grupo...">
+              <button class="btn btn-primary btn-sm" onclick="pgAddGrupo()">+ Agregar</button>
+            </div>
+          </div>
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Nombre</th><th class="text-center" style="width:60px">Eliminar</th></tr></thead>
+            <tbody>
+              ${grupos.map(g => `<tr>
+                <td>${esc(g.nombre)}</td>
+                <td class="text-center">
+                  <button class="btn btn-xs btn-danger" onclick="pgDelGrupo('${g._id}')">✕</button>
+                </td>
+              </tr>`).join('') || '<tr><td colspan="2" class="text-muted text-center py-8">Sin grupos</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Detalle Grupo Proveedor -->
+        <div class="card" style="overflow:hidden">
+          <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <span>📋 Detalle Grupo</span>
+            <div style="display:flex;gap:6px">
+              <select id="new-det-grupo" class="form-control" style="width:130px;font-size:12px">
+                <option value="">— Grupo —</option>
+                ${grupos.map(g => `<option value="${g.nombre}">${g.nombre}</option>`).join('')}
+              </select>
+              <input id="new-detalle" class="form-control" style="width:130px;font-size:12px" placeholder="Detalle...">
+              <button class="btn btn-primary btn-sm" onclick="pgAddDetalle()">+ Agregar</button>
+            </div>
+          </div>
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Grupo</th><th>Detalle</th><th class="text-center" style="width:60px">Eliminar</th></tr></thead>
+            <tbody>
+              ${detalles.map(d => `<tr>
+                <td class="text-muted">${esc(d.grupoProveedor)}</td>
+                <td>${esc(d.nombre)}</td>
+                <td class="text-center">
+                  <button class="btn btn-xs btn-danger" onclick="pgDelDetalle('${d._id}')">✕</button>
+                </td>
+              </tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center py-8">Sin detalles</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+
+      </div>`;
+  }
+
+  window.pgAddGrupo = async () => {
+    const nombre = document.getElementById('new-grupo')?.value.trim();
+    if (!nombre) return;
+    try { await POST('/pagos/grupos', { nombre }); await load(); }
+    catch(e) { toast(e.message, 'error'); }
+  };
+  window.pgDelGrupo = async (id) => {
+    if (!confirm('¿Eliminar este grupo?')) return;
+    try { await DEL(`/pagos/grupos/${id}`); await load(); }
+    catch(e) { toast(e.message, 'error'); }
+  };
+  window.pgAddDetalle = async () => {
+    const grupoProveedor = document.getElementById('new-det-grupo')?.value;
+    const nombre         = document.getElementById('new-detalle')?.value.trim();
+    if (!grupoProveedor || !nombre) { toast('Selecciona un grupo e ingresa el detalle', 'error'); return; }
+    try { await POST('/pagos/detalles', { nombre, grupoProveedor }); await load(); }
+    catch(e) { toast(e.message, 'error'); }
+  };
+  window.pgDelDetalle = async (id) => {
+    if (!confirm('¿Eliminar?')) return;
+    try { await DEL(`/pagos/detalles/${id}`); await load(); }
+    catch(e) { toast(e.message, 'error'); }
+  };
+
+  await load();
 }
 
 // ─── Admin: Configuración ─────────────────────────────────────────

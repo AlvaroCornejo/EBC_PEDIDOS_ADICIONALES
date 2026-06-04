@@ -3,6 +3,8 @@ const multer         = require('multer');
 const auth           = require('../middleware/auth');
 const PagoBeneficiario  = require('../models/PagoBeneficiario');
 const PagoProgramacion  = require('../models/PagoProgramacion');
+const PagoGrupoProveedor = require('../models/PagoGrupoProveedor');
+const PagoDetalleGrupo   = require('../models/PagoDetalleGrupo');
 
 const router  = express.Router();
 const upload  = multer({ storage: multer.memoryStorage() });
@@ -79,6 +81,44 @@ function parseCSV(buffer) {
   });
 }
 
+
+// ── Grupos Proveedor & Detalle ────────────────────────────────────────────────
+router.get('/grupos', async (req, res) => {
+  try { res.json(await PagoGrupoProveedor.find({ activo: true }).sort({ nombre: 1 }).lean()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.post('/grupos', async (req, res) => {
+  try {
+    const g = await PagoGrupoProveedor.create({ nombre: (req.body.nombre || '').trim() });
+    res.json(g);
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+router.delete('/grupos/:id', async (req, res) => {
+  try { await PagoGrupoProveedor.findByIdAndDelete(req.params.id); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/detalles', async (req, res) => {
+  try {
+    const { grupo } = req.query;
+    const filter = { activo: true };
+    if (grupo) filter.grupoProveedor = grupo;
+    res.json(await PagoDetalleGrupo.find(filter).sort({ grupoProveedor: 1, nombre: 1 }).lean());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.post('/detalles', async (req, res) => {
+  try {
+    const d = await PagoDetalleGrupo.create({
+      nombre: (req.body.nombre || '').trim(),
+      grupoProveedor: (req.body.grupoProveedor || '').trim(),
+    });
+    res.json(d);
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+router.delete('/detalles/:id', async (req, res) => {
+  try { await PagoDetalleGrupo.findByIdAndDelete(req.params.id); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // ── GET /api/pagos/fecha-pago ─────────────────────────────────────────────────
 router.get('/fecha-pago', (req, res) => {
@@ -173,8 +213,9 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
         : 0;
 
       const key   = pagarA.toUpperCase();
-      const grupo = benefMap[key]?.grupo || '';
-      const banco = benefMap[key]?.banco || (r['Banco'] || '').trim();
+      const grupo       = benefMap[key]?.grupo       || 'OTROS';
+      const detalleGrupo= benefMap[key]?.detalleGrupo|| 'OTROS';
+      const banco       = benefMap[key]?.banco || (r['Banco'] || '').trim();
 
       // Acumular para upsert de beneficiarios
       if (!nuevosBenef[key]) {
@@ -192,7 +233,8 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
         banco:            (r['Banco'] || '').trim(),
         diasVencido,
         grupo,
-        seleccionado:     true,
+        detalleGrupo,
+        seleccionado: diasVencido >= 0 && diasVencido <= 9,
       });
     }
 
@@ -218,27 +260,28 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
 });
 
 // ── PUT /api/pagos/programaciones/:id/grupo-beneficiario ─────────────────────
-// Actualiza el grupo de un beneficiario en la programación y en el maestro
 router.put('/programaciones/:progId/grupo-beneficiario', async (req, res) => {
   try {
-    const { nombre, grupo } = req.body;
+    const { nombre, grupo, detalleGrupo } = req.body;
     const prog = await PagoProgramacion.findById(req.params.progId);
     if (!prog) return res.status(404).json({ error: 'No encontrada' });
 
-    // Actualizar en las obligaciones
     prog.obligaciones.forEach(ob => {
       if (ob.pagarA.trim().toUpperCase() === nombre.trim().toUpperCase()) {
-        ob.grupo = grupo || '';
+        if (grupo        !== undefined) ob.grupo        = grupo        || 'OTROS';
+        if (detalleGrupo !== undefined) ob.detalleGrupo = detalleGrupo || 'OTROS';
       }
     });
     await prog.save();
 
-    // Actualizar maestro
+    const upd = {};
+    if (grupo        !== undefined) upd.grupo        = grupo        || 'OTROS';
+    if (detalleGrupo !== undefined) upd.detalleGrupo = detalleGrupo || 'OTROS';
+    upd.updatedAt = new Date();
     await PagoBeneficiario.findOneAndUpdate(
       { nombre: { $regex: new RegExp(`^${nombre.trim()}$`, 'i') }, compania: prog.compania },
-      { grupo: grupo || '', updatedAt: new Date() }
+      upd
     );
-
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

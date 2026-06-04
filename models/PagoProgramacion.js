@@ -10,8 +10,9 @@ const obligacionSchema = new mongoose.Schema({
   fechaDocumento:  Date,
   banco:           String,
   diasVencido:     Number,
-  grupo:           { type: String, default: '' },
-  seleccionado:    { type: Boolean, default: true },
+  grupo:           { type: String, default: 'OTROS' },
+  detalleGrupo:    { type: String, default: 'OTROS' },
+  seleccionado:    { type: Boolean, default: false },
 }, { _id: true });
 
 const schema = new mongoose.Schema({
