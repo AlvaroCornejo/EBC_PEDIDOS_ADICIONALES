@@ -3581,29 +3581,42 @@ async function renderPaso1(container) {
     </div>
 
     <!-- Filtros -->
-    <div class="card mb-16" style="padding:12px" id="pg-filtros" style="display:none">
+    <div class="card mb-16" style="padding:12px;display:none" id="pg-filtros">
       <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
         <div>
           <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Tipo Documento</label>
-          <select id="f-tipodoc" class="form-control" style="width:130px;font-size:12px" onchange="pgFiltrar()">
+          <select id="f-tipodoc" class="form-control" style="width:120px;font-size:12px" onchange="pgFiltrar()">
             <option value="">Todos</option>
           </select>
         </div>
         <div>
           <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">N° Documento</label>
-          <input id="f-numdoc" class="form-control" style="width:170px;font-size:12px" placeholder="Buscar..."
+          <input id="f-numdoc" class="form-control" style="width:160px;font-size:12px" placeholder="Buscar..."
                  oninput="clearTimeout(window._pgT);window._pgT=setTimeout(pgFiltrar,320)">
         </div>
         <div>
           <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Beneficiario</label>
-          <input id="f-benef" class="form-control" style="width:200px;font-size:12px" placeholder="Buscar..."
+          <input id="f-benef" class="form-control" style="width:180px;font-size:12px" placeholder="Buscar..."
                  oninput="clearTimeout(window._pgT);window._pgT=setTimeout(pgFiltrar,320)">
         </div>
         <div>
           <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Grupo</label>
-          <select id="f-grupo" class="form-control" style="width:160px;font-size:12px" onchange="pgFiltrar()">
+          <select id="f-grupo" class="form-control" style="width:140px;font-size:12px" onchange="pgFiltrarGrupo()">
             <option value="">Todos</option>
           </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Detalle Grupo</label>
+          <select id="f-detalle" class="form-control" style="width:140px;font-size:12px" onchange="pgFiltrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div style="align-self:flex-end;padding-bottom:2px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap">
+            <input type="checkbox" id="f-solo-sel" onchange="pgFiltrar()"
+                   style="width:14px;height:14px;accent-color:var(--primary)">
+            Solo seleccionadas
+          </label>
         </div>
         <button class="btn btn-outline btn-sm" onclick="pgLimpiarFiltros()">✕ Limpiar</button>
       </div>
@@ -3611,8 +3624,8 @@ async function renderPaso1(container) {
 
     <div id="pg-tabla-wrap"></div>
 
-    <!-- Paneles resumen -->
-    <div id="pg-resumenes" style="display:none;margin-top:20px">
+    <!-- Paneles resumen — siempre visibles -->
+    <div id="pg-resumenes" style="margin-top:20px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="card" style="overflow:hidden">
           <div style="padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
@@ -3725,31 +3738,45 @@ async function renderPaso1(container) {
     if (!progActual) return;
     await cargarGruposRef();
     document.getElementById('pg-filtros').style.display = '';
-    document.getElementById('pg-resumenes').style.display = '';
     poblarFiltros();
     renderTabla();
     renderResumenes();
   }
 
   function poblarFiltros() {
-    const tipos  = [...new Set(progActual.obligaciones.map(o => o.tipoDocumento).filter(Boolean))].sort();
-    const grupos = [...new Set(progActual.obligaciones.map(o => o.grupo).filter(Boolean))].sort();
-    const selTipo  = document.getElementById('f-tipodoc');
-    const selGrupo = document.getElementById('f-grupo');
-    selTipo.innerHTML  = '<option value="">Todos</option>' + tipos.map(t => `<option>${t}</option>`).join('');
-    selGrupo.innerHTML = '<option value="">Todos</option>' + grupos.map(g => `<option>${esc(g)}</option>`).join('');
+    const obs    = progActual?.obligaciones || [];
+    const tipos  = [...new Set(obs.map(o => o.tipoDocumento).filter(Boolean))].sort();
+    const grupos = [...new Set(obs.map(o => o.grupo).filter(Boolean))].sort();
+    const dets   = [...new Set(obs.map(o => o.detalleGrupo).filter(Boolean))].sort();
+    document.getElementById('f-tipodoc').innerHTML  = '<option value="">Todos</option>' + tipos.map(t => `<option>${t}</option>`).join('');
+    document.getElementById('f-grupo').innerHTML    = '<option value="">Todos</option>' + grupos.map(g => `<option>${esc(g)}</option>`).join('');
+    document.getElementById('f-detalle').innerHTML  = '<option value="">Todos</option>' + dets.map(d => `<option>${esc(d)}</option>`).join('');
   }
 
+  // Al cambiar grupo, recargar detalles del grupo seleccionado
+  window.pgFiltrarGrupo = () => {
+    const grp  = document.getElementById('f-grupo')?.value || '';
+    const dets = grp
+      ? [...new Set((progActual?.obligaciones||[]).filter(o => o.grupo===grp).map(o=>o.detalleGrupo).filter(Boolean))].sort()
+      : [...new Set((progActual?.obligaciones||[]).map(o=>o.detalleGrupo).filter(Boolean))].sort();
+    document.getElementById('f-detalle').innerHTML = '<option value="">Todos</option>' + dets.map(d => `<option>${esc(d)}</option>`).join('');
+    pgFiltrar();
+  };
+
   function obligacionesFiltradas() {
-    const fDoc   = document.getElementById('f-tipodoc')?.value || '';
-    const fNum   = (document.getElementById('f-numdoc')?.value || '').toLowerCase();
-    const fBenef = (document.getElementById('f-benef')?.value || '').toLowerCase();
-    const fGrp   = document.getElementById('f-grupo')?.value || '';
+    const fDoc    = document.getElementById('f-tipodoc')?.value || '';
+    const fNum    = (document.getElementById('f-numdoc')?.value || '').toLowerCase();
+    const fBenef  = (document.getElementById('f-benef')?.value || '').toLowerCase();
+    const fGrp    = document.getElementById('f-grupo')?.value || '';
+    const fDet    = document.getElementById('f-detalle')?.value || '';
+    const fSoloSel= document.getElementById('f-solo-sel')?.checked || false;
     return (progActual?.obligaciones || []).filter(o =>
-      (!fDoc   || o.tipoDocumento === fDoc) &&
-      (!fNum   || o.numeroDocumento.toLowerCase().includes(fNum)) &&
-      (!fBenef || o.pagarA.toLowerCase().includes(fBenef)) &&
-      (!fGrp   || o.grupo === fGrp)
+      (!fDoc    || o.tipoDocumento === fDoc) &&
+      (!fNum    || o.numeroDocumento.toLowerCase().includes(fNum)) &&
+      (!fBenef  || o.pagarA.toLowerCase().includes(fBenef)) &&
+      (!fGrp    || o.grupo === fGrp) &&
+      (!fDet    || o.detalleGrupo === fDet) &&
+      (!fSoloSel || o.seleccionado)
     );
   }
 
@@ -3800,7 +3827,7 @@ async function renderPaso1(container) {
                 const dtOpts = ['OTROS', ...detallesRef.filter(d => d.grupoProveedor === o.grupo).map(d => d.nombre)]
                   .map(d => `<option value="${d}" ${o.detalleGrupo===d?'selected':''}>${d}</option>`).join('');
                 const grpOptsRow = grpOpts.replace(`value="${o.grupo}"`, `value="${o.grupo}" selected`);
-                return `<tr>
+                return `<tr style="${checked?'background:#f0fdf4;':''}">
                   <td class="text-center">
                     <input type="checkbox" class="pg-check" data-pa="${esc(o.pagarA)}" data-idx="${obs.indexOf(o)}"
                            style="width:14px;height:14px;accent-color:var(--primary)"
@@ -3894,9 +3921,11 @@ async function renderPaso1(container) {
   window.pgFiltrar = () => { renderTabla(); renderResumenes(); };
 
   window.pgLimpiarFiltros = () => {
-    ['f-tipodoc','f-numdoc','f-benef','f-grupo'].forEach(id => {
+    ['f-tipodoc','f-numdoc','f-benef','f-grupo','f-detalle'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
+    const chk = document.getElementById('f-solo-sel');
+    if (chk) chk.checked = false;
     renderTabla(); renderResumenes();
   };
 
@@ -3912,7 +3941,11 @@ async function renderPaso1(container) {
       .map(d => `<option value="${d.nombre}">${d.nombre}</option>`).join('');
 
   window.pgToggleAll = (checked) => {
-    document.querySelectorAll('.pg-check').forEach(cb => { cb.checked = checked; });
+    document.querySelectorAll('.pg-check').forEach(cb => {
+      cb.checked = checked;
+      const tr = cb.closest('tr');
+      if (tr) tr.style.background = checked ? '#f0fdf4' : '';
+    });
     if (progActual) progActual.obligaciones.forEach(ob => { ob.seleccionado = checked; });
   };
 
@@ -3921,6 +3954,9 @@ async function renderPaso1(container) {
     const obs = obligacionesFiltradas();
     const idx = parseInt(cb.dataset.idx);
     if (obs[idx]) obs[idx].seleccionado = cb.checked;
+    const tr = cb.closest('tr');
+    if (tr) tr.style.background = cb.checked ? '#f0fdf4' : '';
+    if (document.getElementById('f-solo-sel')?.checked) renderTabla();
   };
 
   window.pgActGrupo = async (pagarA, valor, campo = 'grupo') => {

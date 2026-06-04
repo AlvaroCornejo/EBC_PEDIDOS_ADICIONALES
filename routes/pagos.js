@@ -67,14 +67,33 @@ function parseFecha(str) {
   return new Date(y, m - 1, d);
 }
 
-/** Parsear CSV simple (sin comillas con comas) */
+/** Parsear una línea CSV respetando campos entre comillas (RFC 4180) */
+function parseCSVLine(line) {
+  const fields = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }  // comilla escapada
+      else inQ = !inQ;
+    } else if (c === ',' && !inQ) {
+      fields.push(cur); cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  fields.push(cur);
+  return fields;
+}
+
+/** Parsear CSV completo con soporte para campos con comas entre comillas */
 function parseCSV(buffer) {
   const text  = buffer.toString('latin1').replace(/\r/g, '');
   const lines = text.split('\n').filter(l => l.trim());
   if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim());
+  const headers = parseCSVLine(lines[0]).map(h => h.trim());
   return lines.slice(1).map(line => {
-    const vals = line.split(',');
+    const vals = parseCSVLine(line);
     const obj  = {};
     headers.forEach((h, i) => { obj[h] = (vals[i] || '').trim(); });
     return obj;
