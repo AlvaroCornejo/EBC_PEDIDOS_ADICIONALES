@@ -11,7 +11,6 @@ const PAGO_ROLES  = [['','— Sin acceso —'],['programador','Programador (Paso
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
-const ALL_SOCS_PAGO   = ['MUVON', 'QUIASMO', 'FACTORIAL K'];
 
 // ─── State ───────────────────────────────────────────────────────
 let S = {
@@ -3549,8 +3548,8 @@ async function renderPaso1(container) {
           <select id="pg-compania" class="form-control" style="width:150px">
             <option value="">— Seleccionar —</option>
             ${(S.user.role === 'ADMIN' || S.user.rolPago === 'admin'
-              ? ALL_SOCS_PAGO
-              : (S.user.sociedadesCompra || []).filter(s => ALL_SOCS_PAGO.includes(s))
+              ? ALL_SOCS_COMPRA
+              : (S.user.sociedadesCompra || [])
             ).map(s => `<option value="${s}">${s}</option>`).join('')}
           </select>
         </div>
