@@ -15,14 +15,14 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     }
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, operations: user.operations, puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo, puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas, itemsRol: user.itemsRol || '', rolPago: user.rolPago || '', sociedadesCompra: user.sociedadesCompra || [] },
+      { id: user.id, username: user.username, role: user.role, operations: user.operations, puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo, puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas, itemsRol: user.itemsRol || '', rolPago: user.rolPago || '', sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [] },
       SECRET,
       { expiresIn: '24h' }
     );
     res.json({
       token,
       mustChangePassword: user.mustChangePassword === true,
-      user: { id: user.id, username: user.username, email: user.email, role: user.role, operations: user.operations, mustChangePassword: user.mustChangePassword === true, puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo, puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas, itemsRol: user.itemsRol || '', rolPago: user.rolPago || '', sociedadesCompra: user.sociedadesCompra || [] }
+      user: { id: user.id, username: user.username, email: user.email, role: user.role, operations: user.operations, mustChangePassword: user.mustChangePassword === true, puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo, puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas, itemsRol: user.itemsRol || '', rolPago: user.rolPago || '', sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [] }
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -61,7 +61,7 @@ router.get('/refresh', authMiddleware, async (req, res) => {
     const user = await User.findOne({ id: req.user.id }).lean();
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, operations: user.operations, puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo, puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas, itemsRol: user.itemsRol || '', rolPago: user.rolPago || '', sociedadesCompra: user.sociedadesCompra || [] },
+      { id: user.id, username: user.username, role: user.role, operations: user.operations, puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo, puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas, itemsRol: user.itemsRol || '', rolPago: user.rolPago || '', sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [] },
       SECRET,
       { expiresIn: '24h' }
     );
