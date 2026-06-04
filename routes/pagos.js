@@ -16,6 +16,27 @@ function requirePagoAccess(req, res, next) {
 }
 router.use(requirePagoAccess);
 
+/** Sociedades autorizadas del usuario para pagos */
+function socsPago(user) {
+  if (user.role === 'ADMIN' || user.rolPago === 'admin') return null; // todas
+  return (user.sociedadesCompra || []);
+}
+
+/** Verifica que la sociedad esté autorizada para el usuario */
+function checkSocAccess(user, compania) {
+  const socs = socsPago(user);
+  if (socs === null) return true;       // admin ve todas
+  return socs.includes(compania);
+}
+
+/** Filtro MongoDB de sociedad para el usuario */
+function socFilter(user) {
+  const socs = socsPago(user);
+  if (socs === null) return {};
+  if (!socs.length)  return { compania: '__ninguna__' };
+  return { compania: { $in: socs } };
+}
+
 /** Próximo viernes estricto (si hoy es viernes → el siguiente) */
 function proxViernes(desde = new Date()) {
   const d = new Date(desde);
@@ -69,7 +90,10 @@ router.get('/fecha-pago', (req, res) => {
 router.get('/beneficiarios', async (req, res) => {
   try {
     const { compania } = req.query;
-    const filter = compania ? { compania } : {};
+    if (compania && !checkSocAccess(req.user, compania))
+      return res.status(403).json({ error: 'Sociedad no autorizada' });
+    const filter = { ...socFilter(req.user) };
+    if (compania) filter.compania = compania;
     const rows = await PagoBeneficiario.find(filter).sort({ nombre: 1 }).lean();
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -91,7 +115,9 @@ router.put('/beneficiarios/:id/grupo', async (req, res) => {
 router.get('/programaciones', async (req, res) => {
   try {
     const { compania, año, semana } = req.query;
-    const filter = {};
+    if (compania && !checkSocAccess(req.user, compania))
+      return res.status(403).json({ error: 'Sociedad no autorizada' });
+    const filter = { ...socFilter(req.user) };
     if (compania) filter.compania = compania;
     if (año)      filter.año = parseInt(año);
     if (semana)   filter.semana = parseInt(semana);
@@ -118,6 +144,8 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
     const { compania } = req.body;
     if (!compania)     return res.status(400).json({ error: 'Compañía requerida' });
+    if (!checkSocAccess(req.user, compania))
+      return res.status(403).json({ error: 'Sociedad no autorizada' });
 
     const rows = parseCSV(req.file.buffer);
     if (!rows.length)  return res.status(400).json({ error: 'Archivo vacío o inválido' });
