@@ -3545,7 +3545,12 @@ async function renderPaso1(container) {
       <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
         <div>
           <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
-          <input id="pg-compania" class="form-control" style="width:120px" placeholder="000012">
+          <select id="pg-compania" class="form-control" style="width:150px">
+            <option value="">— Seleccionar —</option>
+            <option value="MUVON">MUVON</option>
+            <option value="QUIASMO">QUIASMO</option>
+            <option value="FACTORIAL K">FACTORIAL K</option>
+          </select>
         </div>
         <div>
           <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">
