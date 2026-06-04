@@ -13,6 +13,7 @@ const userSchema = new mongoose.Schema({
   puedeVerVentas:      { type: Boolean, default: false },
   puedeVerBajas:       { type: Boolean, default: false },
   itemsRol:            { type: String, default: '' },
+  rolPago:             { type: String, default: '' },  // programador|aprobador|pagador|autorizador|admin
   sociedadesCompra:    { type: [String], default: [] }
 });
 

@@ -7,6 +7,7 @@ const API = '/api';
 const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA', CONS: 'OPERADOR_CONSULTA' };
 const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta', OPERADOR_CONSULTA: 'Consultas' };
 const ITEMS_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador / Aprobador'],['registrador','Registrador ERP'],['admin','Administrador']];
+const PAGO_ROLES  = [['','— Sin acceso —'],['programador','Programador (Paso 1)'],['aprobador','Aprobador (Paso 2)'],['pagador','Pagador (Paso 3 y 5)'],['autorizador','Autorizador (Paso 4)'],['admin','Administrador']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB'];
@@ -237,6 +238,7 @@ const NAV_ITEMS = [
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
   { id: 'items',         label: 'Creación Ítems',  icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'itemsRol' },
+  { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -291,7 +293,7 @@ function navigate(view, params = {}) {
   setActiveNav(view);
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -3488,6 +3490,322 @@ async function viewItems(container) {
   await switchTab(defaultTab);
 }
 
+// ─── View: Gestión de Pagos ───────────────────────────────────────
+async function viewPagos(container) {
+  const rolP = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">💸 Gestión de Pagos</div>
+    </div>
+    <div class="page-body">
+      <div class="tabs mb-0">
+        <button class="tab-btn active" data-ptab="p1">📋 Paso 1 — Programación</button>
+        <button class="tab-btn" data-ptab="p2" disabled style="opacity:.4">✅ Paso 2 — Aprobación</button>
+        <button class="tab-btn" data-ptab="p3" disabled style="opacity:.4">🏦 Paso 3 — Configuración</button>
+        <button class="tab-btn" data-ptab="p4" disabled style="opacity:.4">🔑 Paso 4 — Autorización</button>
+        <button class="tab-btn" data-ptab="p5" disabled style="opacity:.4">✔️ Paso 5 — Ejecución</button>
+      </div>
+      <div id="pagos-content" class="mt-16"></div>
+    </div>`;
+
+  container.querySelectorAll('.tab-btn[data-ptab]').forEach(b => {
+    b.addEventListener('click', () => {
+      if (b.disabled) return;
+      container.querySelectorAll('.tab-btn[data-ptab]').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      renderPasoContent(b.dataset.ptab, document.getElementById('pagos-content'));
+    });
+  });
+
+  await renderPasoContent('p1', document.getElementById('pagos-content'));
+}
+
+async function renderPasoContent(paso, el) {
+  if (paso === 'p1') await renderPaso1(el);
+}
+
+async function renderPaso1(container) {
+  // ── Estado compartido de esta vista ──
+  let progActual   = null;   // programación cargada
+  let benefMap     = {};     // nombre.upper → grupo
+  let filtroDoc    = '';
+  let filtroNum    = '';
+  let filtroBenef  = '';
+  let filtroGrupo  = '';
+
+  const fmtFecha = d => d ? new Date(d).toLocaleDateString('es-PE', { day:'2-digit', month:'2-digit', year:'numeric' }) : '—';
+  const fmtMonto = v => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Obtener fecha de pago
+  const fp = await GET('/pagos/fecha-pago');
+  const fechaPagoStr = fmtFecha(fp.fechaPago);
+
+  container.innerHTML = `
+    <div class="card mb-16" style="padding:16px">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+          <input id="pg-compania" class="form-control" style="width:120px" placeholder="000012">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">
+            Archivo Q PROGRAMACION.csv
+          </label>
+          <input type="file" id="pg-file" accept=".csv" class="form-control" style="width:280px">
+        </div>
+        <button class="btn btn-primary btn-sm" id="pg-cargar">📂 Cargar</button>
+        <div style="padding:8px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:13px">
+          <span style="color:var(--text-muted)">Fecha de pago:</span>
+          <strong style="margin-left:6px" id="pg-fecha-pago">${fechaPagoStr}</strong>
+          <span style="color:var(--text-muted);margin-left:10px">Sem. ${fp.semana}/${fp.año}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card mb-16" style="padding:12px" id="pg-filtros" style="display:none">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Tipo Documento</label>
+          <select id="f-tipodoc" class="form-control" style="width:130px;font-size:12px" onchange="pgFiltrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">N° Documento</label>
+          <input id="f-numdoc" class="form-control" style="width:170px;font-size:12px" placeholder="Buscar..."
+                 oninput="clearTimeout(window._pgT);window._pgT=setTimeout(pgFiltrar,320)">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Beneficiario</label>
+          <input id="f-benef" class="form-control" style="width:200px;font-size:12px" placeholder="Buscar..."
+                 oninput="clearTimeout(window._pgT);window._pgT=setTimeout(pgFiltrar,320)">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Grupo</label>
+          <select id="f-grupo" class="form-control" style="width:160px;font-size:12px" onchange="pgFiltrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="pgLimpiarFiltros()">✕ Limpiar</button>
+      </div>
+    </div>
+
+    <div id="pg-tabla-wrap"></div>
+
+    <!-- Paneles resumen -->
+    <div id="pg-resumenes" style="display:none;margin-top:20px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card" style="overflow:hidden">
+          <div style="padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
+            Resumen por Beneficiario
+          </div>
+          <div id="pg-res-benef" style="overflow-y:auto;max-height:320px"></div>
+        </div>
+        <div class="card" style="overflow:hidden">
+          <div style="padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
+            Resumen por Grupo
+          </div>
+          <div id="pg-res-grupo" style="overflow-y:auto;max-height:320px"></div>
+        </div>
+      </div>
+    </div>`;
+
+  // ── Cargar CSV ─────────────────────────────────────────────────────
+  document.getElementById('pg-cargar').addEventListener('click', async () => {
+    const compania = document.getElementById('pg-compania').value.trim();
+    const file     = document.getElementById('pg-file').files[0];
+    if (!compania) { toast('Ingresa la sociedad', 'error'); return; }
+    if (!file)     { toast('Selecciona el archivo CSV', 'error'); return; }
+    const fd = new FormData();
+    fd.append('archivo', file);
+    fd.append('compania', compania);
+    try {
+      const r = await fetch('/api/pagos/cargar', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
+        body: fd,
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      toast(`${data.total} obligaciones cargadas`, 'success');
+      // Cargar la programación creada
+      progActual = await GET(`/pagos/programaciones/${data.id}`);
+      // Actualizar mapa de grupos desde la programación
+      progActual.obligaciones.forEach(ob => {
+        benefMap[ob.pagarA.toUpperCase()] = ob.grupo;
+      });
+      await renderTablaYResumenes();
+    } catch(e) { toast(e.message, 'error'); }
+  });
+
+  // ── Render tabla + resúmenes ────────────────────────────────────────
+  async function renderTablaYResumenes() {
+    if (!progActual) return;
+    document.getElementById('pg-filtros').style.display = '';
+    document.getElementById('pg-resumenes').style.display = '';
+    poblarFiltros();
+    renderTabla();
+    renderResumenes();
+  }
+
+  function poblarFiltros() {
+    const tipos  = [...new Set(progActual.obligaciones.map(o => o.tipoDocumento).filter(Boolean))].sort();
+    const grupos = [...new Set(progActual.obligaciones.map(o => o.grupo).filter(Boolean))].sort();
+    const selTipo  = document.getElementById('f-tipodoc');
+    const selGrupo = document.getElementById('f-grupo');
+    selTipo.innerHTML  = '<option value="">Todos</option>' + tipos.map(t => `<option>${t}</option>`).join('');
+    selGrupo.innerHTML = '<option value="">Todos</option>' + grupos.map(g => `<option>${esc(g)}</option>`).join('');
+  }
+
+  function obligacionesFiltradas() {
+    const fDoc   = document.getElementById('f-tipodoc')?.value || '';
+    const fNum   = (document.getElementById('f-numdoc')?.value || '').toLowerCase();
+    const fBenef = (document.getElementById('f-benef')?.value || '').toLowerCase();
+    const fGrp   = document.getElementById('f-grupo')?.value || '';
+    return (progActual?.obligaciones || []).filter(o =>
+      (!fDoc   || o.tipoDocumento === fDoc) &&
+      (!fNum   || o.numeroDocumento.toLowerCase().includes(fNum)) &&
+      (!fBenef || o.pagarA.toLowerCase().includes(fBenef)) &&
+      (!fGrp   || o.grupo === fGrp)
+    );
+  }
+
+  function renderTabla() {
+    const obs  = obligacionesFiltradas();
+    const wrap = document.getElementById('pg-tabla-wrap');
+    if (!obs.length) {
+      wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin obligaciones para los filtros aplicados</p></div>`;
+      return;
+    }
+    wrap.innerHTML = `
+      <div class="card" style="overflow:hidden">
+        <div style="padding:8px 14px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+          ${obs.length} obligaciones · Fecha de pago: <strong>${fechaPagoStr}</strong>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr>
+              <th>Tipo</th><th>N° Documento</th><th>Vencimiento</th><th>F. Documento</th>
+              <th>Moneda</th><th class="text-right">Monto</th>
+              <th>Beneficiario</th><th>Banco</th>
+              <th class="text-right">Días Vencido</th>
+              <th>Grupo</th>
+            </tr></thead>
+            <tbody>
+              ${obs.map(o => {
+                const dv = o.diasVencido;
+                const dvColor = dv > 0 ? '#ef4444' : dv < 0 ? '#10b981' : '#64748b';
+                const dvLabel = dv > 0 ? `+${dv}` : String(dv);
+                return `<tr>
+                  <td><span class="badge badge-outline">${esc(o.tipoDocumento)}</span></td>
+                  <td style="white-space:nowrap">${esc(o.numeroDocumento)}</td>
+                  <td style="white-space:nowrap">${fmtFecha(o.fechaVencimiento)}</td>
+                  <td style="white-space:nowrap">${fmtFecha(o.fechaDocumento)}</td>
+                  <td>${esc(o.moneda)}</td>
+                  <td class="text-right fw-semibold">${fmtMonto(o.monto)}</td>
+                  <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.pagarA)}</td>
+                  <td>${esc(o.banco)}</td>
+                  <td class="text-right fw-semibold" style="color:${dvColor}">${dvLabel}</td>
+                  <td>
+                    <input class="form-control" style="font-size:11px;padding:2px 6px;min-width:100px"
+                           value="${esc(o.grupo)}" placeholder="Sin grupo"
+                           onchange="pgActGrupo('${esc(o.pagarA)}',this.value)"
+                           onblur="renderResumenes()">
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function renderResumenes() {
+    const obs = obligacionesFiltradas();
+
+    // Por Beneficiario
+    const byBenef = {};
+    obs.forEach(o => {
+      if (!byBenef[o.pagarA]) byBenef[o.pagarA] = { monto: 0, docs: 0, grupo: o.grupo };
+      byBenef[o.pagarA].monto += o.monto;
+      byBenef[o.pagarA].docs++;
+    });
+    const fBenefFilt = (document.getElementById('f-benef')?.value || '').toLowerCase();
+    const benefRows  = Object.entries(byBenef).sort(([a],[b]) => a.localeCompare(b));
+    document.getElementById('pg-res-benef').innerHTML = `
+      <table class="data-table" style="font-size:11px">
+        <thead><tr><th style="width:24px"></th><th>Beneficiario</th><th>Grupo</th><th class="text-right">Monto</th><th class="text-center">Docs</th></tr></thead>
+        <tbody>${benefRows.map(([nombre, d]) => `<tr>
+          <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('benef','${esc(nombre)}',this.checked)"
+               ${fBenefFilt === nombre.toLowerCase() ? 'checked' : ''}></td>
+          <td style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(nombre)}">${esc(nombre)}</td>
+          <td style="color:var(--text-muted)">${esc(d.grupo || '—')}</td>
+          <td class="text-right fw-semibold">${fmtMonto(d.monto)}</td>
+          <td class="text-center">${d.docs}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+
+    // Por Grupo
+    const byGrupo = {};
+    obs.forEach(o => {
+      const g = o.grupo || '(Sin grupo)';
+      if (!byGrupo[g]) byGrupo[g] = { monto: 0, docs: 0, beneficiarios: new Set() };
+      byGrupo[g].monto += o.monto;
+      byGrupo[g].docs++;
+      byGrupo[g].beneficiarios.add(o.pagarA);
+    });
+    const fGrpFilt   = document.getElementById('f-grupo')?.value || '';
+    const grupoRows  = Object.entries(byGrupo).sort(([a],[b]) => a.localeCompare(b));
+    document.getElementById('pg-res-grupo').innerHTML = `
+      <table class="data-table" style="font-size:11px">
+        <thead><tr><th style="width:24px"></th><th>Grupo</th><th class="text-right">Monto</th><th class="text-center">Docs</th><th class="text-center">Benef.</th></tr></thead>
+        <tbody>${grupoRows.map(([grupo, d]) => `<tr>
+          <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('grupo','${esc(grupo)}',this.checked)"
+               ${fGrpFilt === grupo ? 'checked' : ''}></td>
+          <td class="fw-semibold">${esc(grupo)}</td>
+          <td class="text-right fw-semibold">${fmtMonto(d.monto)}</td>
+          <td class="text-center">${d.docs}</td>
+          <td class="text-center">${d.beneficiarios.size}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+  }
+
+  // ── Funciones globales ─────────────────────────────────────────────
+  window.pgFiltrar = () => { renderTabla(); renderResumenes(); };
+
+  window.pgLimpiarFiltros = () => {
+    ['f-tipodoc','f-numdoc','f-benef','f-grupo'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    renderTabla(); renderResumenes();
+  };
+
+  window.pgFiltrarDesdeResumen = (tipo, valor, activo) => {
+    if (tipo === 'benef') {
+      const el = document.getElementById('f-benef');
+      if (el) el.value = activo ? valor : '';
+    } else {
+      const el = document.getElementById('f-grupo');
+      if (el) el.value = activo ? valor : '';
+    }
+    renderTabla(); renderResumenes();
+  };
+
+  window.pgActGrupo = async (pagarA, grupo) => {
+    if (!progActual) return;
+    // Actualizar localmente
+    progActual.obligaciones.forEach(ob => {
+      if (ob.pagarA.trim().toUpperCase() === pagarA.trim().toUpperCase()) ob.grupo = grupo;
+    });
+    // Persistir en backend
+    try {
+      await PUT(`/pagos/programaciones/${progActual._id}/grupo-beneficiario`, { nombre: pagarA, grupo });
+    } catch(e) { toast('Error guardando grupo: ' + e.message, 'error'); }
+  };
+}
+
 // ─── View: Admin ──────────────────────────────────────────────────
 async function viewAdmin(container) {
   container.innerHTML = `
@@ -3888,6 +4206,11 @@ function showUserModal(user, onSave) {
           ${ITEMS_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.itemsRol||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Rol para Gestión de Pagos</label>
+        <select id="um-pago-role">
+          ${PAGO_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolPago||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-group" id="um-ops-section"><label>Operaciones Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_OPS.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
@@ -3969,6 +4292,7 @@ function showUserModal(user, onSave) {
       email: document.getElementById('um-email').value.trim(),
       role,
       itemsRol: document.getElementById('um-items-role').value,
+      rolPago:  document.getElementById('um-pago-role').value,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
       puedeVerComparativo: !isAdmin && (document.getElementById('um-comparativo')?.checked ?? false),
