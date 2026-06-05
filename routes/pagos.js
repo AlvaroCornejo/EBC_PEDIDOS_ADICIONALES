@@ -139,6 +139,20 @@ router.delete('/detalles/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── DELETE /api/pagos/programaciones/:id ─────────────────────────────────────
+router.delete('/programaciones/:id', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (!['borrador','pendiente'].includes(prog.estado))
+      return res.status(400).json({ error: 'Solo se pueden eliminar programaciones en borrador o pendiente de aprobación' });
+    await prog.deleteOne();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── GET /api/pagos/fecha-pago ─────────────────────────────────────────────────
 router.get('/fecha-pago', (req, res) => {
   const fp = proxViernes();

@@ -3656,13 +3656,13 @@ async function renderPaso1(container) {
         <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
           Resumen por Beneficiario
         </div>
-        <div id="pg-res-benef" style="overflow-y:auto;max-height:130px"></div>
+        <div id="pg-res-benef" style="overflow-y:auto;max-height:228px"></div>
       </div>
       <div>
         <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
           Resumen por Grupo
         </div>
-        <div id="pg-res-grupo" style="overflow-y:auto;max-height:130px"></div>
+        <div id="pg-res-grupo" style="overflow-y:auto;max-height:228px"></div>
       </div>`;
     document.body.appendChild(pgFooter);
   }
@@ -3686,19 +3686,24 @@ async function renderPaso1(container) {
     try {
       const progs = await GET(`/pagos/programaciones?compania=${encodeURIComponent(compania)}`);
       if (!progs.length) { wrap.innerHTML = `<p style="font-size:12px;color:var(--text-muted);margin:6px 0">Sin programaciones anteriores para ${compania}</p>`; return; }
-      const fmtEstado = e => ({ borrador:'🔵 Borrador', pendiente:'🟡 Pendiente aprobación', aprobado:'🟢 Aprobado', pagado:'✅ Pagado' }[e] || e);
+      const fmtEstado = e => ({ borrador:'🔵 Borrador', pendiente:'🟡 Pendiente', aprobado:'🟢 Aprobado', pagado:'✅ Pagado' }[e] || e);
+      const editable  = e => ['borrador','pendiente'].includes(e);
       wrap.innerHTML = `
-        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Programaciones existentes — ${compania}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Programaciones — ${compania}</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
           ${progs.map(p => `
-            <button onclick="pgAbrirProg('${p._id}')"
-              style="font-size:12px;padding:6px 12px;border:1px solid ${p.estado==='borrador'?'#93c5fd':p.estado==='pendiente'?'#fcd34d':'#86efac'};
-                     background:${p.estado==='borrador'?'#eff6ff':p.estado==='pendiente'?'#fffbeb':'#f0fdf4'};
-                     border-radius:6px;cursor:pointer;text-align:left">
-              <div style="font-weight:600">Sem. ${p.semana}/${p.año}</div>
-              <div style="color:var(--text-muted)">${new Date(p.fechaPago).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'})}</div>
-              <div>${fmtEstado(p.estado)}</div>
-            </button>`).join('')}
+            <div style="display:flex;align-items:stretch;gap:0;border:1px solid ${p.estado==='borrador'?'#93c5fd':p.estado==='pendiente'?'#fcd34d':'#86efac'};border-radius:6px;overflow:hidden">
+              <button onclick="pgAbrirProg('${p._id}')"
+                style="font-size:12px;padding:6px 12px;background:${p.estado==='borrador'?'#eff6ff':p.estado==='pendiente'?'#fffbeb':'#f0fdf4'};border:none;cursor:pointer;text-align:left">
+                <div style="font-weight:600">Sem. ${p.semana}/${p.año}</div>
+                <div style="color:var(--text-muted);font-size:11px">${new Date(p.fechaPago).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'})}</div>
+                <div style="font-size:11px">${fmtEstado(p.estado)}</div>
+              </button>
+              ${editable(p.estado)?`
+              <button onclick="pgEliminarProg('${p._id}',event)"
+                style="background:#fee2e2;border:none;border-left:1px solid #fca5a5;padding:0 8px;cursor:pointer;color:#ef4444;font-size:14px"
+                title="Eliminar">🗑️</button>`:''}
+            </div>`).join('')}
         </div>`;
     } catch(e) { wrap.innerHTML = `<p style="font-size:12px;color:red">${e.message}</p>`; }
   }
@@ -3706,9 +3711,29 @@ async function renderPaso1(container) {
   window.pgAbrirProg = async (id) => {
     try {
       progActual = await GET(`/pagos/programaciones/${id}`);
+      progActual._readOnly = !['borrador','pendiente'].includes(progActual.estado);
       progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
       await renderTablaYResumenes();
-      toast('Programación cargada', 'success');
+      if (progActual._readOnly) toast('Vista de solo lectura — estado: ' + progActual.estado, 'success');
+      else toast('Programación cargada', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.pgEliminarProg = async (id, e) => {
+    e.stopPropagation();
+    if (!confirm('¿Eliminar esta programación? Esta acción no se puede deshacer.')) return;
+    try {
+      await DEL(`/pagos/programaciones/${id}`);
+      if (progActual?._id === id) {
+        progActual = null;
+        document.getElementById('pg-tabla-wrap').innerHTML = '';
+        document.getElementById('pg-filtros').style.display = 'none';
+        document.getElementById('pg-btn-enviar').style.display = 'none';
+        renderResumenes();
+      }
+      const comp = document.getElementById('pg-compania').value;
+      await pgCargarListaProgs(comp);
+      toast('Programación eliminada', 'success');
     } catch(e) { toast(e.message, 'error'); }
   };
 
@@ -3802,10 +3827,13 @@ async function renderPaso1(container) {
     if (!progActual) return;
     await cargarGruposRef();
     document.getElementById('pg-filtros').style.display = '';
-    const esBorrador = ['borrador','pendiente'].includes(progActual.estado);
+    const readOnly   = !!progActual._readOnly;
+    const esBorrador = !readOnly && ['borrador','pendiente'].includes(progActual.estado);
     if (esBorrador) {
       document.getElementById('pg-btn-enviar').style.display = '';
       document.getElementById('pg-enviar-btn')?.addEventListener('click', pgEnviarAprobacion);
+    } else {
+      document.getElementById('pg-btn-enviar').style.display = 'none';
     }
     poblarFiltros();
     renderResumenes();
@@ -3850,9 +3878,10 @@ async function renderPaso1(container) {
   }
 
   function renderTabla() {
-    const obs  = obligacionesFiltradas();
-    const wrap = document.getElementById('pg-tabla-wrap');
-    const tc   = parseFloat(document.getElementById('pg-tc')?.value) || 1;
+    const obs      = obligacionesFiltradas();
+    const wrap     = document.getElementById('pg-tabla-wrap');
+    const tc       = parseFloat(document.getElementById('pg-tc')?.value) || 1;
+    const readOnly = !!progActual?._readOnly;
 
     if (!obs.length) {
       wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin obligaciones para los filtros aplicados</p></div>`;
@@ -3901,7 +3930,7 @@ async function renderPaso1(container) {
                   <td class="text-center">
                     <input type="checkbox" class="pg-check" data-pa="${esc(o.pagarA)}" data-idx="${obs.indexOf(o)}"
                            style="width:14px;height:14px;accent-color:var(--primary)"
-                           ${checked?'checked':''}
+                           ${checked?'checked':''} ${readOnly?'disabled':''}
                            onchange="pgToggleObl(this)">
                   </td>
                   <td><span class="badge badge-outline" style="font-size:10px">${esc(o.tipoDocumento)}</span></td>
@@ -3917,17 +3946,19 @@ async function renderPaso1(container) {
                       title="${esc(o.pagarA)}">${esc(o.pagarA)}</td>
                   <td>${esc(o.banco)}</td>
                   <td class="text-right fw-semibold" style="color:${dvColor}">${dvLabel}</td>
-                  <td>
-                    <select style="font-size:11px;padding:2px 4px;width:100%;border:1px solid #e2e8f0;border-radius:4px"
-                            onchange="pgActGrupo('${esc(o.pagarA)}',this.value,'grupo');this.closest('tr').querySelector('.pg-detalle-sel').innerHTML='<option>OTROS</option>'+pgDetalleOpts(this.value)">
-                      ${grpOptsRow}
-                    </select>
+                  <td>${readOnly
+                    ? `<span style="font-size:11px">${esc(o.grupo)}</span>`
+                    : `<select style="font-size:11px;padding:2px 4px;width:100%;border:1px solid #e2e8f0;border-radius:4px"
+                               onchange="pgActGrupo('${esc(o.pagarA)}',this.value,'grupo');this.closest('tr').querySelector('.pg-detalle-sel').innerHTML='<option>OTROS</option>'+pgDetalleOpts(this.value)">
+                         ${grpOptsRow}
+                       </select>`}
                   </td>
-                  <td>
-                    <select class="pg-detalle-sel" style="font-size:11px;padding:2px 4px;width:100%;border:1px solid #e2e8f0;border-radius:4px"
-                            onchange="pgActGrupo('${esc(o.pagarA)}',this.value,'detalleGrupo')">
-                      ${dtOpts}
-                    </select>
+                  <td>${readOnly
+                    ? `<span style="font-size:11px">${esc(o.detalleGrupo||'')}</span>`
+                    : `<select class="pg-detalle-sel" style="font-size:11px;padding:2px 4px;width:100%;border:1px solid #e2e8f0;border-radius:4px"
+                               onchange="pgActGrupo('${esc(o.pagarA)}',this.value,'detalleGrupo')">
+                         ${dtOpts}
+                       </select>`}
                   </td>
                 </tr>`;
               }).join('')}
@@ -3939,51 +3970,91 @@ async function renderPaso1(container) {
 
   function renderResumenes() {
     const obs = obligacionesFiltradas();
+    const tc  = parseFloat(document.getElementById('pg-tc')?.value) || 1;
+    const fBenefFilt = (document.getElementById('f-benef')?.value || '').toLowerCase();
+    const fGrpFilt   = document.getElementById('f-grupo')?.value || '';
 
-    // Por Beneficiario
+    // Helper: acumula por moneda { LO: total, <otras>: total }
+    function acumMonedas(arr) {
+      const m = {};
+      arr.forEach(o => { m[o.moneda] = (m[o.moneda] || 0) + o.monto; });
+      return m;
+    }
+    function totalSoles(monedas) {
+      return Object.entries(monedas).reduce((s, [mon, amt]) => s + (mon === 'LO' ? amt : amt * tc), 0);
+    }
+    function monedasHtml(monedas) {
+      return Object.entries(monedas).map(([mon, amt]) => {
+        const esLocal = mon === 'LO';
+        const sol = esLocal ? amt : amt * tc;
+        return `<span style="white-space:nowrap">${mon}: ${fmtMonto(amt)}${!esLocal ? ` <span style="color:#3b82f6">(S/${fmtMonto(sol)})</span>` : ''}</span>`;
+      }).join('<br>');
+    }
+
+    // ── Por Beneficiario ──────────────────────────────────────────────
     const byBenef = {};
     obs.forEach(o => {
-      if (!byBenef[o.pagarA]) byBenef[o.pagarA] = { monto: 0, docs: 0, grupo: o.grupo };
-      byBenef[o.pagarA].monto += o.monto;
-      byBenef[o.pagarA].docs++;
+      if (!byBenef[o.pagarA]) byBenef[o.pagarA] = { obs: [], grupo: o.grupo };
+      byBenef[o.pagarA].obs.push(o);
     });
-    const fBenefFilt = (document.getElementById('f-benef')?.value || '').toLowerCase();
-    const benefRows  = Object.entries(byBenef).sort(([a],[b]) => a.localeCompare(b));
+    const benefRows = Object.entries(byBenef).sort(([a],[b]) => a.localeCompare(b));
+    const totBenef  = acumMonedas(obs);
     document.getElementById('pg-res-benef').innerHTML = `
       <table class="data-table" style="font-size:11px">
-        <thead><tr><th style="width:24px"></th><th>Beneficiario</th><th>Grupo</th><th class="text-right">Monto</th><th class="text-center">Docs</th></tr></thead>
-        <tbody>${benefRows.map(([nombre, d]) => `<tr>
-          <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('benef','${esc(nombre)}',this.checked)"
-               ${fBenefFilt === nombre.toLowerCase() ? 'checked' : ''}></td>
-          <td style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(nombre)}">${esc(nombre)}</td>
-          <td style="color:var(--text-muted)">${esc(d.grupo || '—')}</td>
-          <td class="text-right fw-semibold">${fmtMonto(d.monto)}</td>
-          <td class="text-center">${d.docs}</td>
-        </tr>`).join('')}</tbody>
+        <thead><tr><th style="width:24px"></th><th>Beneficiario</th><th>Grupo</th><th class="text-right">Moneda / Monto</th><th class="text-right">Total S/</th></tr></thead>
+        <tbody>
+          ${benefRows.map(([nombre, d]) => {
+            const m = acumMonedas(d.obs);
+            return `<tr>
+              <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('benef','${esc(nombre)}',this.checked)"
+                   ${fBenefFilt===nombre.toLowerCase()?'checked':''}></td>
+              <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(nombre)}">${esc(nombre)}</td>
+              <td style="color:var(--text-muted);font-size:10px">${esc(d.grupo||'—')}</td>
+              <td class="text-right">${monedasHtml(m)}</td>
+              <td class="text-right fw-semibold">${fmtMonto(totalSoles(m))}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+        <tfoot style="border-top:2px solid var(--border);background:var(--bg-secondary)">
+          <tr><td colspan="3" class="fw-semibold" style="padding:4px 8px">TOTAL</td>
+              <td class="text-right" style="padding:4px 8px">${monedasHtml(totBenef)}</td>
+              <td class="text-right fw-semibold" style="padding:4px 8px">${fmtMonto(totalSoles(totBenef))}</td>
+          </tr>
+        </tfoot>
       </table>`;
 
-    // Por Grupo
+    // ── Por Grupo ─────────────────────────────────────────────────────
     const byGrupo = {};
     obs.forEach(o => {
       const g = o.grupo || '(Sin grupo)';
-      if (!byGrupo[g]) byGrupo[g] = { monto: 0, docs: 0, beneficiarios: new Set() };
-      byGrupo[g].monto += o.monto;
-      byGrupo[g].docs++;
+      if (!byGrupo[g]) byGrupo[g] = { obs: [], beneficiarios: new Set() };
+      byGrupo[g].obs.push(o);
       byGrupo[g].beneficiarios.add(o.pagarA);
     });
-    const fGrpFilt   = document.getElementById('f-grupo')?.value || '';
-    const grupoRows  = Object.entries(byGrupo).sort(([a],[b]) => a.localeCompare(b));
+    const grupoRows = Object.entries(byGrupo).sort(([a],[b]) => a.localeCompare(b));
     document.getElementById('pg-res-grupo').innerHTML = `
       <table class="data-table" style="font-size:11px">
-        <thead><tr><th style="width:24px"></th><th>Grupo</th><th class="text-right">Monto</th><th class="text-center">Docs</th><th class="text-center">Benef.</th></tr></thead>
-        <tbody>${grupoRows.map(([grupo, d]) => `<tr>
-          <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('grupo','${esc(grupo)}',this.checked)"
-               ${fGrpFilt === grupo ? 'checked' : ''}></td>
-          <td class="fw-semibold">${esc(grupo)}</td>
-          <td class="text-right fw-semibold">${fmtMonto(d.monto)}</td>
-          <td class="text-center">${d.docs}</td>
-          <td class="text-center">${d.beneficiarios.size}</td>
-        </tr>`).join('')}</tbody>
+        <thead><tr><th style="width:24px"></th><th>Grupo</th><th class="text-right">Moneda / Monto</th><th class="text-right">Total S/</th><th class="text-center">Ben.</th></tr></thead>
+        <tbody>
+          ${grupoRows.map(([grupo, d]) => {
+            const m = acumMonedas(d.obs);
+            return `<tr>
+              <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('grupo','${esc(grupo)}',this.checked)"
+                   ${fGrpFilt===grupo?'checked':''}></td>
+              <td class="fw-semibold">${esc(grupo)}</td>
+              <td class="text-right">${monedasHtml(m)}</td>
+              <td class="text-right fw-semibold">${fmtMonto(totalSoles(m))}</td>
+              <td class="text-center">${d.beneficiarios.size}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+        <tfoot style="border-top:2px solid var(--border);background:var(--bg-secondary)">
+          <tr><td colspan="2" class="fw-semibold" style="padding:4px 8px">TOTAL</td>
+              <td class="text-right" style="padding:4px 8px">${monedasHtml(totBenef)}</td>
+              <td class="text-right fw-semibold" style="padding:4px 8px">${fmtMonto(totalSoles(totBenef))}</td>
+              <td></td>
+          </tr>
+        </tfoot>
       </table>`;
   }
 
