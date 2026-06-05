@@ -4480,7 +4480,19 @@ async function renderPaso2(container) {
             <span class="ap2-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
           </div>
         </div>
-        <div id="${grpId}" style="display:none">`;
+        <div id="${grpId}" style="display:none">
+          <!-- Cabecera de columnas -->
+          <div style="display:grid;grid-template-columns:26px 20px 1fr 160px 160px 130px 120px;
+                      align-items:center;padding:5px 16px 5px 20px;
+                      background:#f1f5f9;border-bottom:1px solid #e2e8f0;
+                      font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
+            <div></div><div></div>
+            <div>Beneficiario</div>
+            <div style="text-align:right">Deuda total</div>
+            <div style="text-align:right">Programado</div>
+            <div style="text-align:right">Prom. pagos</div>
+            <div style="text-align:right">Total S/</div>
+          </div>`;
 
       Object.keys(bens).sort().forEach(ben => {
         const oblList = bens[ben];
@@ -4490,30 +4502,26 @@ async function renderPaso2(container) {
         const allSel  = allObs.filter(o => (o.pagarA||'') === ben).every(o => o.seleccionado);
         const prom    = ap2Promedios[ben.toUpperCase()];
         const promStr = prom?.promedio != null ? `S/ ${fmtN(prom.promedio)}` : '—';
-        // Programado en moneda original (sin convertir)
         const progMoneda = [
-          bTot.usd ? `USD&nbsp;<strong>${fmtN(bTot.usd)}</strong>` : '',
-          bTot.sol ? `S/&nbsp;<strong>${fmtN(bTot.sol)}</strong>`   : '',
-        ].filter(Boolean).join('<span style="color:#cbd5e1;margin:0 3px">|</span>') || '<span style="color:var(--text-muted)">—</span>';
-        const SEP = `<span style="color:#cbd5e1;margin:0 2px">·</span>`;
+          bTot.usd ? `USD&nbsp;${fmtN(bTot.usd)}` : '',
+          bTot.sol ? `S/&nbsp;${fmtN(bTot.sol)}`   : '',
+        ].filter(Boolean).join('<br>') || '—';
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
           <div class="ap2-ben-row" onclick="if(event.target.tagName!=='INPUT')ap2ToggleBenObl(this)"
-               style="display:flex;align-items:center;gap:8px;padding:8px 16px 6px 20px;background:#fafbfc;cursor:pointer;user-select:none;flex-wrap:wrap">
+               style="display:grid;grid-template-columns:26px 20px 1fr 160px 160px 130px 120px;
+                      align-items:center;padding:7px 16px 7px 20px;
+                      background:#fafbfc;cursor:pointer;user-select:none">
             <span class="ap2-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
             <input type="checkbox" data-ben="${benKey}" class="ap2-ben-cb" ${allSel ? 'checked' : ''}
                    style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
                    onchange="ap2ToggleBen('${benKey}',this.checked)">
-            <span style="font-weight:600;font-size:13px;margin-right:4px">${esc(ben)}</span>
-            ${SEP}
-            <span style="font-size:12px;color:var(--text-muted)">Deuda:&nbsp;${bDeuda}</span>
-            ${SEP}
-            <span style="font-size:12px;color:var(--text-muted)">Prog.:&nbsp;${progMoneda}</span>
-            ${SEP}
-            <span style="font-size:12px;color:var(--text-muted)">Prom.:&nbsp;<strong style="color:#7c3aed">${promStr}</strong></span>
-            ${SEP}
-            <span style="font-size:12px;color:var(--text-muted)">Total S/:&nbsp;<strong style="color:var(--primary)">${fmtN(bTot.tot)}</strong></span>
+            <span style="font-weight:600;font-size:13px">${esc(ben)}</span>
+            <div style="text-align:right;font-size:12px;line-height:1.5">${bDeuda}</div>
+            <div style="text-align:right;font-size:12px;line-height:1.5">${progMoneda}</div>
+            <div style="text-align:right;font-size:12px;color:#7c3aed;font-weight:600">${promStr}</div>
+            <div style="text-align:right;font-size:13px;font-weight:700;color:var(--primary)">${fmtN(bTot.tot)}</div>
           </div>
           <div class="ap2-obl-div" data-ap2-ben="${benKey}" style="display:none">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
