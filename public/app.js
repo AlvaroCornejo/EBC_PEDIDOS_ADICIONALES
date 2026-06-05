@@ -3557,7 +3557,7 @@ async function renderPaso1(container) {
             <option value="">— Seleccionar —</option>
             ${(S.user.role === 'ADMIN' || S.user.rolPago === 'admin'
               ? ALL_SOCS_COMPRA
-              : (S.user.sociedadesCompra || [])
+              : (S.user.sociedadesPago || [])
             ).map(s => `<option value="${s}">${s}</option>`).join('')}
           </select>
         </div>
@@ -4245,7 +4245,7 @@ async function renderPaso2(container) {
             <option value="">— Seleccionar —</option>
             ${(S.user.role === 'ADMIN' || rolP === 'admin'
               ? ALL_SOCS_COMPRA
-              : (S.user.sociedadesCompra || [])
+              : (S.user.sociedadesPago || [])
             ).map(s => `<option value="${s}">${s}</option>`).join('')}
           </select>
         </div>
@@ -4314,27 +4314,45 @@ async function renderPaso2(container) {
     await ap2CargarLista();
   });
 
-  // ── Cargar lista de programaciones pendientes ────────────────────
+  // ── Cargar lista de programaciones (pendientes + aprobadas [+ borrador para admin]) ──
   async function ap2CargarLista() {
     const comp = document.getElementById('ap2-compania').value;
     const el   = document.getElementById('ap2-lista');
     if (!comp) { el.innerHTML = ''; return; }
-    const data = await GET(`/pagos/programaciones?compania=${comp}&estado=pendiente`);
+    const esAdmin = (S.user.role === 'ADMIN' || rolP === 'admin');
+    let data;
+    if (esAdmin) {
+      // Admin ve todas (sin filtro de estado, excepto 'pagado')
+      const todas = await GET(`/pagos/programaciones?compania=${comp}`);
+      data = todas.filter(p => p.estado !== 'pagado');
+    } else {
+      const [pend, apro] = await Promise.all([
+        GET(`/pagos/programaciones?compania=${comp}&estado=pendiente`),
+        GET(`/pagos/programaciones?compania=${comp}&estado=aprobado`),
+      ]);
+      data = [...pend, ...apro];
+    }
     if (!data.length) {
-      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones pendientes de aprobación para <strong>${esc(comp)}</strong>.</p>`;
+      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones para revisar en <strong>${esc(comp)}</strong>.</p>`;
       return;
     }
+    const BADGES = {
+      borrador:  `<span style="font-size:10px;background:#f1f5f9;color:#64748b;border-radius:3px;padding:1px 4px;margin-left:4px">📝 Borrador</span>`,
+      pendiente: `<span style="font-size:10px;background:#fef9c3;color:#854d0e;border-radius:3px;padding:1px 4px;margin-left:4px">⏳ Pendiente</span>`,
+      aprobado:  `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">✅ Aprobada</span>`,
+    };
     el.innerHTML = `
       <div class="card" style="padding:12px">
         <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;letter-spacing:.5px">
-          Programaciones pendientes de aprobación
+          Programaciones para revisión / aprobación
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
           ${data.map(p => {
             const activo = ap2Prog?._id === p._id;
+            const badge  = BADGES[p.estado] || '';
             return `<button class="btn btn-sm ap2-prog-btn" data-id="${p._id}"
               style="font-size:12px;${activo ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : 'border:1px solid #cbd5e1;background:#fff'}">
-              📋 Sem ${p.semana}/${p.año}&nbsp;&nbsp;${p.compania}
+              📋 Sem ${p.semana}/${p.año}&nbsp;&nbsp;${p.compania}${badge}
             </button>`;
           }).join('')}
         </div>
@@ -4591,12 +4609,16 @@ async function renderPaso2(container) {
       <div style="font-size:13px">Todo en S/:&nbsp;<strong style="color:var(--primary);font-size:14px">${fmtN(totTot)}</strong></div>
       ${ap2Prog ? `
         <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          ${ap2Prog.estado === 'aprobado'
+            ? `<span style="font-size:11px;background:#bbf7d0;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Aprobada</span>`
+            : ''}
           <button class="btn btn-outline btn-sm" onclick="ap2Guardar()">💾 Guardar</button>
-          ${puedeAprobar ? `
+          ${puedeAprobar && ap2Prog.estado !== 'aprobado' ? `
             <button class="btn btn-primary btn-sm" onclick="ap2Aprobar()"
                     style="background:#16a34a;border-color:#16a34a">✅ Aprobar</button>` : ''}
-          <button class="btn btn-sm" onclick="ap2Eliminar()"
-                  style="border:1px solid #dc2626;color:#dc2626;background:#fff">🗑️ Eliminar</button>
+          ${ap2Prog.estado !== 'aprobado' ? `
+            <button class="btn btn-sm" onclick="ap2Eliminar()"
+                    style="border:1px solid #dc2626;color:#dc2626;background:#fff">🗑️ Eliminar</button>` : ''}
         </div>` : ''}`;
   }
 
@@ -5198,6 +5220,19 @@ function showUserModal(user, onSave) {
           ${PAGO_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolPago||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group" id="um-socs-pago-section"><label>Sociedades Autorizadas para Pagos</label>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
+          ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" name="um-soc-pago" value="${s}"
+              ${(user?.sociedadesPago||[]).includes(s)?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            ${s}
+          </label>`).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+          Define qué sociedades puede ver este usuario en Gestión de Pagos. Los administradores de pagos ven todas sin restricción.
+        </div>
+      </div>
       <div class="form-group" id="um-ops-section"><label>Operaciones Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_OPS.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
@@ -5274,6 +5309,7 @@ function showUserModal(user, onSave) {
     const selectedSocs     = [...document.querySelectorAll('input[name="um-soc-compra"]:checked')].map(cb => cb.value);
     // Sociedades activas si el permiso de Precios está marcado (o si es admin se ignoran)
     const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? selectedSocs : [];
+    const sociedadesPago   = [...document.querySelectorAll('input[name="um-soc-pago"]:checked')].map(cb => cb.value);
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
@@ -5286,6 +5322,7 @@ function showUserModal(user, onSave) {
       puedeVerVentas:      !isAdmin && (document.getElementById('um-ventas')?.checked      ?? false),
       puedeVerBajas:       !isAdmin && (document.getElementById('um-bajas')?.checked       ?? false),
       sociedadesCompra,
+      sociedadesPago,
     };
     const pwd = document.getElementById('um-password').value;
     if (pwd) data.password = pwd;

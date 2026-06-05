@@ -21,7 +21,7 @@ router.use(requirePagoAccess);
 /** Sociedades autorizadas del usuario para pagos */
 function socsPago(user) {
   if (user.role === 'ADMIN' || user.rolPago === 'admin') return null; // todas
-  return (user.sociedadesCompra || []);
+  return (user.sociedadesPago || []);
 }
 
 /** Verifica que la sociedad esté autorizada para el usuario */
@@ -299,7 +299,7 @@ router.put('/programaciones/:id/guardar', async (req, res) => {
   try {
     const prog = await PagoProgramacion.findById(req.params.id);
     if (!prog) return res.status(404).json({ error: 'No encontrada' });
-    if (!['borrador','pendiente'].includes(prog.estado))
+    if (!['borrador','pendiente','aprobado'].includes(prog.estado))
       return res.status(400).json({ error: 'No se puede modificar en este estado' });
     const { selecciones } = req.body;
     if (Array.isArray(selecciones)) {
@@ -320,8 +320,8 @@ router.put('/programaciones/:id/aprobar', async (req, res) => {
     if (!prog) return res.status(404).json({ error: 'No encontrada' });
     if (!checkSocAccess(req.user, prog.compania))
       return res.status(403).json({ error: 'Sin acceso' });
-    if (prog.estado !== 'pendiente')
-      return res.status(400).json({ error: 'Solo se pueden aprobar programaciones en estado pendiente' });
+    if (!['borrador','pendiente'].includes(prog.estado))
+      return res.status(400).json({ error: 'Solo se pueden aprobar programaciones en estado borrador o pendiente' });
     const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
     if (!['aprobador','admin'].includes(rol))
       return res.status(403).json({ error: 'No tiene permiso para aprobar programaciones' });

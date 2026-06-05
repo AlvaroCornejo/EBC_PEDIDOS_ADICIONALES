@@ -22,7 +22,7 @@ router.post('/', adminOnly, async (req, res) => {
     const { username, email, password, role, operations, puedeVerKardex, puedeVerComparativo, puedeVerVentas, puedeVerBajas, itemsRol, rolPago, sociedadesPago, sociedadesCompra } = req.body;
     const exists = await User.findOne({ username });
     if (exists) return res.status(400).json({ error: 'El usuario ya existe' });
-    const user = new User({ id: uuidv4(), username, email: email || '', password: await bcrypt.hash(password, 10), role, operations: operations || [], puedeVerKardex: !!puedeVerKardex, puedeVerComparativo: !!puedeVerComparativo, puedeVerVentas: !!puedeVerVentas, puedeVerBajas: !!puedeVerBajas, itemsRol: itemsRol || '', sociedadesCompra: Array.isArray(sociedadesCompra) ? sociedadesCompra : [] });
+    const user = new User({ id: uuidv4(), username, email: email || '', password: await bcrypt.hash(password, 10), role, operations: operations || [], puedeVerKardex: !!puedeVerKardex, puedeVerComparativo: !!puedeVerComparativo, puedeVerVentas: !!puedeVerVentas, puedeVerBajas: !!puedeVerBajas, itemsRol: itemsRol || '', rolPago: rolPago || '', sociedadesPago: Array.isArray(sociedadesPago) ? sociedadesPago : [], sociedadesCompra: Array.isArray(sociedadesCompra) ? sociedadesCompra : [] });
     await user.save();
     res.json(strip(user));
   } catch (err) { res.status(500).json({ error: err.message }); }
