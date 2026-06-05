@@ -4388,14 +4388,40 @@ async function renderPaso2(container) {
     } catch(e) { toast(e.message, 'error'); }
   }
 
+  // ── Guardar / restaurar estado de colapso ───────────────────────
+  function ap2SaveState() {
+    const grps = {}, obls = {};
+    document.querySelectorAll('#ap2-wrap [id^="grp-"]').forEach(el => {
+      grps[el.id] = el.style.display !== 'none';
+    });
+    document.querySelectorAll('#ap2-wrap .ap2-obl-div[data-ap2-ben]').forEach(el => {
+      obls[el.dataset.ap2Ben] = el.style.display !== 'none';
+    });
+    return { grps, obls };
+  }
+  function ap2RestoreState({ grps, obls }) {
+    document.querySelectorAll('#ap2-wrap [id^="grp-"]').forEach(el => {
+      const open = grps[el.id] ?? false;
+      el.style.display = open ? '' : 'none';
+      const arr = el.closest('.card')?.querySelector('.ap2-arr');
+      if (arr) arr.textContent = open ? '▾' : '▸';
+    });
+    document.querySelectorAll('#ap2-wrap .ap2-obl-div[data-ap2-ben]').forEach(el => {
+      const open = obls[el.dataset.ap2Ben] ?? false;
+      el.style.display = open ? '' : 'none';
+      const arr = el.previousElementSibling?.querySelector('.ap2-ben-arr');
+      if (arr) arr.textContent = open ? '▾' : '▸';
+    });
+  }
+
   // ── Vista agrupada: Grupo → Beneficiario → Obligaciones ─────────
   function ap2RenderGrupos() {
     if (!ap2Prog) { document.getElementById('ap2-wrap').innerHTML = ''; return; }
     const tc     = parseFloat(document.getElementById('ap2-tc')?.value) || 1;
     const toS    = ob => ob.moneda !== 'LO' ? ob.monto * tc : ob.monto;
-    const obsVis = ap2ObsFiltradas();  // solo las que pasan el filtro
+    const obsVis = ap2ObsFiltradas();
 
-    // Agrupar SOLO las visibles
+    // Agrupar SOLO las visibles (para mostrar en el árbol)
     const grupos = {};
     obsVis.forEach(ob => {
       const g = ob.grupo || 'OTROS';
@@ -4405,64 +4431,78 @@ async function renderPaso2(container) {
       grupos[g][b].push(ob);
     });
 
-    const sumSel  = list => list.filter(o => o.seleccionado).reduce((s,o) => s + toS(o), 0);
-    // deuda total: usa TODAS las obligaciones del beneficiario (no solo filtradas)
-    const deudaBen = ben => (ap2Prog.obligaciones || [])
-      .filter(o => (o.pagarA||'') === ben)
-      .reduce((s,o) => s + toS(o), 0);
+    // Totales usando TODAS las obligaciones del prog (no solo filtradas)
+    const allObs = ap2Prog.obligaciones;
+    const benTotales = ben => {
+      const sel = allObs.filter(o => (o.pagarA||'') === ben && o.seleccionado);
+      const usd = sel.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
+      const sol = sel.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+      return { usd, sol, tot: sol + usd * tc };
+    };
+    const benDeuda = ben => allObs.filter(o => (o.pagarA||'') === ben).reduce((s,o) => s + toS(o), 0);
+    const grpTotales = grp => {
+      const sel = allObs.filter(o => (o.grupo || 'OTROS') === grp && o.seleccionado);
+      const usd = sel.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
+      const sol = sel.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+      return { usd, sol, tot: sol + usd * tc };
+    };
+
+    const totStr = ({usd, sol, tot}) => {
+      const parts = [];
+      if (usd) parts.push(`USD&nbsp;<strong>${fmtN(usd)}</strong>`);
+      if (sol) parts.push(`S/&nbsp;<strong>${fmtN(sol)}</strong>`);
+      parts.push(`Total S/&nbsp;<strong style="color:var(--primary)">${fmtN(tot)}</strong>`);
+      return parts.join('<span style="color:#e2e8f0;margin:0 4px">|</span>');
+    };
 
     let html = '';
     Object.keys(grupos).sort().forEach(grp => {
       const bens  = grupos[grp];
-      const gTot  = Object.values(bens).reduce((s, l) => s + sumSel(l), 0);
+      const gTot  = grpTotales(grp);
       const grpId = 'grp-' + grp.replace(/\W/g,'_');
 
       html += `
       <div class="card mb-12" style="padding:0;overflow:hidden">
-        <!-- Cabecera grupo — clic para colapsar/expandir -->
         <div onclick="const b=document.getElementById('${grpId}');const open=b.style.display!=='none';b.style.display=open?'none':'';this.querySelector('.ap2-arr').textContent=open?'▸':'▾'"
              style="display:flex;align-items:center;justify-content:space-between;
                     padding:10px 16px;background:var(--bg-secondary);
                     border-bottom:2px solid var(--primary);cursor:pointer;user-select:none">
           <span style="font-weight:700;font-size:13px;color:var(--primary)">📁 ${esc(grp)}</span>
-          <div style="display:flex;align-items:center;gap:16px">
-            <span style="font-size:12px;color:var(--text-muted)">Total Programado: <strong>S/ ${fmtN(gTot)}</strong></span>
+          <div style="display:flex;align-items:center;gap:12px;font-size:12px">
+            <span style="color:var(--text-muted)">Programado:&nbsp;${totStr(gTot)}</span>
             <span class="ap2-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
           </div>
         </div>
-        <!-- Cuerpo grupo — colapsado por defecto -->
         <div id="${grpId}" style="display:none">`;
 
       Object.keys(bens).sort().forEach(ben => {
         const oblList = bens[ben];
         const benKey  = ben.toUpperCase().replace(/"/g,'&quot;');
-        const bTot    = sumSel(oblList);
-        const bDeuda  = deudaBen(ben);
-        const allSel  = oblList.every(o => o.seleccionado);
+        const bTot    = benTotales(ben);
+        const bDeuda  = benDeuda(ben);
+        const allSel  = allObs.filter(o => (o.pagarA||'') === ben).every(o => o.seleccionado);
         const prom    = ap2Promedios[ben.toUpperCase()];
         const promStr = prom?.promedio != null ? `S/ ${fmtN(prom.promedio)}` : '—';
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
-          <!-- Fila beneficiario — clic (no en checkbox) para colapsar/expandir obligaciones -->
           <div class="ap2-ben-row" onclick="if(event.target.tagName!=='INPUT')ap2ToggleBenObl(this)"
                style="display:flex;align-items:center;gap:10px;padding:8px 16px 6px 20px;background:#fafbfc;cursor:pointer;user-select:none">
             <span class="ap2-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
-            <input type="checkbox" data-ben="${benKey}"
-                   class="ap2-ben-cb" ${allSel ? 'checked' : ''}
+            <input type="checkbox" data-ben="${benKey}" class="ap2-ben-cb" ${allSel ? 'checked' : ''}
                    style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
                    onchange="ap2ToggleBen('${benKey}',this.checked)">
             <span style="font-weight:600;font-size:13px">${esc(ben)}</span>
             <span style="font-size:11px;background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:99px;margin-left:4px">
-              Prom. pagos: ${promStr}
+              Prom: ${promStr}
             </span>
-            <div style="display:flex;gap:20px;margin-left:auto;font-size:12px;color:var(--text-muted)">
-              <span>Deuda total:&nbsp;<strong>S/ ${fmtN(bDeuda)}</strong></span>
-              <span>Total Programado:&nbsp;<strong style="color:var(--primary)">S/ ${fmtN(bTot)}</strong></span>
+            <div style="display:flex;gap:12px;margin-left:auto;font-size:12px;align-items:center">
+              <span style="color:var(--text-muted)">Deuda:&nbsp;<strong>S/ ${fmtN(bDeuda)}</strong></span>
+              <span style="color:#64748b">|</span>
+              <span style="color:var(--text-muted)">Programado:&nbsp;${totStr(bTot)}</span>
             </div>
           </div>
-          <!-- Tabla obligaciones — colapsada por defecto -->
-          <div class="ap2-obl-div" style="display:none">
+          <div class="ap2-obl-div" data-ap2-ben="${benKey}" style="display:none">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
               <thead>
                 <tr style="background:#f8fafc;color:var(--text-muted)">
@@ -4480,9 +4520,8 @@ async function renderPaso2(container) {
                 ${oblList.map(ob => {
                   const dias  = ob.diasVencido ?? 0;
                   const dCol  = dias > 0 ? '#dc2626' : dias === 0 ? '#d97706' : '#166534';
-                  const bgRow = ob.seleccionado ? '#f0fdf4' : '';
                   return `
-                  <tr style="border-top:1px solid #f1f5f9;background:${bgRow}" id="ap2-tr-${ob._id}">
+                  <tr style="border-top:1px solid #f1f5f9;background:${ob.seleccionado?'#f0fdf4':''}" id="ap2-tr-${ob._id}">
                     <td style="padding:5px 8px 5px 36px">
                       <input type="checkbox" data-id="${ob._id}" data-ben="${benKey}"
                              class="ap2-ob-cb" ${ob.seleccionado ? 'checked' : ''}
@@ -4520,25 +4559,22 @@ async function renderPaso2(container) {
     const totTot = totSOL + totUSD * tc;
 
     ap2Footer.innerHTML = `
-      <div style="font-size:13px;color:var(--text-muted)">
-        Total Programado: <strong style="color:#111">${obs.length} obligaciones</strong>
+      <div style="font-size:12px;color:var(--text-muted)">
+        Programadas:&nbsp;<strong style="color:#111">${obs.length}</strong>
       </div>
-      <div style="width:1px;height:22px;background:#e2e8f0"></div>
-      <div style="font-size:13px">USD&nbsp;<strong>${fmtN(totUSD)}</strong></div>
-      <div style="font-size:13px">S/&nbsp;<strong>${fmtN(totSOL)}</strong></div>
-      <div style="font-size:13px">Total S/&nbsp;<strong style="color:var(--primary);font-size:14px">${fmtN(totTot)}</strong></div>
+      <div style="width:1px;height:20px;background:#e2e8f0"></div>
+      ${totUSD ? `<div style="font-size:13px">USD&nbsp;<strong>${fmtN(totUSD)}</strong></div>` : ''}
+      ${totSOL ? `<div style="font-size:13px">S/&nbsp;<strong>${fmtN(totSOL)}</strong></div>` : ''}
+      ${totUSD && totSOL ? `<div style="width:1px;height:20px;background:#e2e8f0"></div>` : ''}
+      <div style="font-size:13px">Todo en S/:&nbsp;<strong style="color:var(--primary);font-size:14px">${fmtN(totTot)}</strong></div>
       ${ap2Prog ? `
         <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
           <button class="btn btn-outline btn-sm" onclick="ap2Guardar()">💾 Guardar</button>
           ${puedeAprobar ? `
             <button class="btn btn-primary btn-sm" onclick="ap2Aprobar()"
-                    style="background:#16a34a;border-color:#16a34a">
-              ✅ Aprobar programación
-            </button>` : ''}
+                    style="background:#16a34a;border-color:#16a34a">✅ Aprobar</button>` : ''}
           <button class="btn btn-sm" onclick="ap2Eliminar()"
-                  style="border:1px solid #dc2626;color:#dc2626;background:#fff">
-            🗑️ Eliminar
-          </button>
+                  style="border:1px solid #dc2626;color:#dc2626;background:#fff">🗑️ Eliminar</button>
         </div>` : ''}`;
   }
 
@@ -4584,25 +4620,20 @@ async function renderPaso2(container) {
     const ob = ap2Prog?.obligaciones.find(o => String(o._id) === id);
     if (!ob) return;
     ob.seleccionado = val;
-    // Color de fila
-    const tr = document.getElementById(`ap2-tr-${id}`);
-    if (tr) tr.style.background = val ? '#f0fdf4' : '';
-    // Actualizar checkbox de beneficiario
-    const benObs = ap2Prog.obligaciones.filter(o => (o.pagarA||'').toUpperCase() === benKey);
-    const benCb  = document.querySelector(`.ap2-ben-cb[data-ben="${benKey}"]`);
-    if (benCb) benCb.checked = benObs.every(o => o.seleccionado);
+    const state = ap2SaveState();
+    ap2RenderGrupos();
+    ap2RestoreState(state);
     ap2RenderFooter();
   };
 
   window.ap2ToggleBen = function(benKey, val) {
     if (!ap2Prog) return;
     ap2Prog.obligaciones.forEach(ob => {
-      if ((ob.pagarA||'').toUpperCase() !== benKey) return;
-      ob.seleccionado = val;
-      const tr = document.getElementById(`ap2-tr-${ob._id}`);
-      if (tr) tr.style.background = val ? '#f0fdf4' : '';
+      if ((ob.pagarA||'').toUpperCase() === benKey) ob.seleccionado = val;
     });
-    document.querySelectorAll(`.ap2-ob-cb[data-ben="${benKey}"]`).forEach(cb => cb.checked = val);
+    const state = ap2SaveState();
+    ap2RenderGrupos();
+    ap2RestoreState(state);
     ap2RenderFooter();
   };
 
