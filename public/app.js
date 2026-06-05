@@ -3869,7 +3869,7 @@ async function renderPaso1(container) {
                   </td>
                   <td>
                     <select class="pg-detalle-sel" style="font-size:11px;padding:2px 4px;width:100%;border:1px solid #e2e8f0;border-radius:4px"
-                            onchange="pgActGrupo('${esc(o.pagarA)}',this.value,'detalle')">
+                            onchange="pgActGrupo('${esc(o.pagarA)}',this.value,'detalleGrupo')">
                       ${dtOpts}
                     </select>
                   </td>
@@ -3975,16 +3975,32 @@ async function renderPaso1(container) {
 
   window.pgActGrupo = async (pagarA, valor, campo = 'grupo') => {
     if (!progActual) return;
-    const key = pagarA.trim().toUpperCase();
+    const key   = pagarA.trim().toUpperCase();
+    const nuevo = valor || 'OTROS';
+
     // Solo actualiza las del mismo beneficiario que tengan OTROS en ese campo
     progActual.obligaciones.forEach(ob => {
       if (ob.pagarA.trim().toUpperCase() === key && (ob[campo] === 'OTROS' || !ob[campo]))
-        ob[campo] = valor || 'OTROS';
+        ob[campo] = nuevo;
     });
-    renderTabla(); renderResumenes();
+
+    // Para 'grupo': re-renderizar tabla (cambia opciones de detalle también)
+    // Para 'detalleGrupo': actualizar DOM sin destruir los selects activos
+    if (campo === 'grupo') {
+      renderTabla();
+    } else {
+      // Actualizar el valor de todos los selects .pg-detalle-sel del mismo beneficiario
+      document.querySelectorAll('.pg-detalle-sel').forEach(sel => {
+        const tr = sel.closest('tr');
+        const pa = tr?.querySelector('.pg-check')?.dataset.pa || '';
+        if (pa.trim().toUpperCase() === key) sel.value = nuevo;
+      });
+    }
+    renderResumenes();
+
     try {
       await PUT(`/pagos/programaciones/${progActual._id}/grupo-beneficiario`,
-        { nombre: pagarA, [campo]: valor || 'OTROS' });
+        { nombre: pagarA, [campo]: nuevo });
     } catch(e) { toast('Error guardando: ' + e.message, 'error'); }
   };
 
