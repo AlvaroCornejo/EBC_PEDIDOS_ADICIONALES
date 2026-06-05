@@ -22,8 +22,9 @@ const schema = new mongoose.Schema({
   año:        Number,
   creadoPor:  String,
   creadoEn:   { type: Date, default: Date.now },
-  estado:     { type: String, default: 'borrador',
-                enum: ['borrador','pendiente','aprobado','pagado'] },
+  estado:          { type: String, default: 'borrador',
+                     enum: ['borrador','pendiente','aprobado','pagado'] },
+  promediosPagos:  { type: mongoose.Schema.Types.Mixed, default: {} },
   obligaciones: [obligacionSchema],
 });
 

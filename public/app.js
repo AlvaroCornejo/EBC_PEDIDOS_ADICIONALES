@@ -3694,6 +3694,7 @@ async function renderPaso1(container) {
     if (!file) { toast('Selecciona Q PAGOS.csv', 'error'); return; }
     const fd = new FormData();
     fd.append('archivo', file);
+    if (progActual?._id) fd.append('progId', progActual._id);
     try {
       const r = await fetch('/api/pagos/cargar-pagos', {
         method: 'POST',
@@ -3748,6 +3749,8 @@ async function renderPaso1(container) {
       progActual = await GET(`/pagos/programaciones/${id}`);
       progActual._readOnly = !['borrador','pendiente'].includes(progActual.estado);
       progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
+      // Restaurar promedios guardados (si existen)
+      pagosPromedios = progActual.promediosPagos || {};
       await renderTablaYResumenes();
       if (progActual._readOnly) toast('Vista de solo lectura — estado: ' + progActual.estado, 'success');
       else toast('Programación cargada', 'success');

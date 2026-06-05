@@ -346,6 +346,7 @@ router.put('/programaciones/:progId/grupo-beneficiario', async (req, res) => {
 router.post('/cargar-pagos', upload.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
+    const { progId } = req.body;
     const rows = parseCSV(req.file.buffer);
 
     // Primero: recopilar todas las fechas válidas para hallar las 4 semanas más recientes del archivo
@@ -383,6 +384,11 @@ router.post('/cargar-pagos', upload.single('archivo'), async (req, res) => {
         promedio: d.semanas.size > 0 ? d.total / d.semanas.size : 0,
       };
     }
+    // Guardar en la programación si se proporcionó un progId
+    if (progId) {
+      await PagoProgramacion.findByIdAndUpdate(progId, { promediosPagos: resultado });
+    }
+
     res.json(resultado);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
