@@ -4490,24 +4490,30 @@ async function renderPaso2(container) {
         const allSel  = allObs.filter(o => (o.pagarA||'') === ben).every(o => o.seleccionado);
         const prom    = ap2Promedios[ben.toUpperCase()];
         const promStr = prom?.promedio != null ? `S/ ${fmtN(prom.promedio)}` : '—';
+        // Programado en moneda original (sin convertir)
+        const progMoneda = [
+          bTot.usd ? `USD&nbsp;<strong>${fmtN(bTot.usd)}</strong>` : '',
+          bTot.sol ? `S/&nbsp;<strong>${fmtN(bTot.sol)}</strong>`   : '',
+        ].filter(Boolean).join('<span style="color:#cbd5e1;margin:0 3px">|</span>') || '<span style="color:var(--text-muted)">—</span>';
+        const SEP = `<span style="color:#cbd5e1;margin:0 2px">·</span>`;
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
           <div class="ap2-ben-row" onclick="if(event.target.tagName!=='INPUT')ap2ToggleBenObl(this)"
-               style="display:flex;align-items:center;gap:10px;padding:8px 16px 6px 20px;background:#fafbfc;cursor:pointer;user-select:none">
+               style="display:flex;align-items:center;gap:8px;padding:8px 16px 6px 20px;background:#fafbfc;cursor:pointer;user-select:none;flex-wrap:wrap">
             <span class="ap2-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
             <input type="checkbox" data-ben="${benKey}" class="ap2-ben-cb" ${allSel ? 'checked' : ''}
                    style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
                    onchange="ap2ToggleBen('${benKey}',this.checked)">
-            <span style="font-weight:600;font-size:13px">${esc(ben)}</span>
-            <span style="font-size:11px;background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:99px;margin-left:4px">
-              Prom: ${promStr}
-            </span>
-            <div style="display:flex;gap:12px;margin-left:auto;font-size:12px;align-items:center">
-              <span style="color:var(--text-muted)">Deuda:&nbsp;${bDeuda}</span>
-              <span style="color:#64748b">|</span>
-              <span style="color:var(--text-muted)">Programado:&nbsp;${totStr(bTot)}</span>
-            </div>
+            <span style="font-weight:600;font-size:13px;margin-right:4px">${esc(ben)}</span>
+            ${SEP}
+            <span style="font-size:12px;color:var(--text-muted)">Deuda:&nbsp;${bDeuda}</span>
+            ${SEP}
+            <span style="font-size:12px;color:var(--text-muted)">Prog.:&nbsp;${progMoneda}</span>
+            ${SEP}
+            <span style="font-size:12px;color:var(--text-muted)">Prom.:&nbsp;<strong style="color:#7c3aed">${promStr}</strong></span>
+            ${SEP}
+            <span style="font-size:12px;color:var(--text-muted)">Total S/:&nbsp;<strong style="color:var(--primary)">${fmtN(bTot.tot)}</strong></span>
           </div>
           <div class="ap2-obl-div" data-ap2-ben="${benKey}" style="display:none">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
