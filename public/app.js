@@ -3501,9 +3501,9 @@ async function viewPagos(container) {
       <div class="tabs mb-0">
         <button class="tab-btn active" data-ptab="p1">📋 Paso 1 — Programación</button>
         <button class="tab-btn" data-ptab="p2" disabled style="opacity:.4">✅ Paso 2 — Aprobación</button>
-        <button class="tab-btn" data-ptab="p3" disabled style="opacity:.4">🏦 Paso 3 — Configuración</button>
-        <button class="tab-btn" data-ptab="p4" disabled style="opacity:.4">🔑 Paso 4 — Autorización</button>
-        <button class="tab-btn" data-ptab="p5" disabled style="opacity:.4">✔️ Paso 5 — Ejecución</button>
+        <button class="tab-btn" data-ptab="p3" disabled style="opacity:.4">🏦 Paso 3 — Preparación de Pagos</button>
+        <button class="tab-btn" data-ptab="p4" disabled style="opacity:.4">🔑 Paso 4 — Autorización en Bancos</button>
+        <button class="tab-btn" data-ptab="p5" disabled style="opacity:.4">📝 Paso 5 — Registro del Movimiento Bancario</button>
       </div>
       <div id="pagos-content" class="mt-16"></div>
     </div>`;
@@ -3622,10 +3622,8 @@ async function renderPaso1(container) {
       </div>
     </div>
 
-    <div id="pg-tabla-wrap"></div>
-
-    <!-- Paneles resumen — siempre visibles -->
-    <div id="pg-resumenes" style="margin-top:20px">
+    <!-- Paneles resumen — siempre visibles ANTES de la tabla -->
+    <div id="pg-resumenes" style="margin-bottom:16px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="card" style="overflow:hidden">
           <div style="padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
@@ -3637,9 +3635,19 @@ async function renderPaso1(container) {
           <div style="padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
             Resumen por Grupo
           </div>
-          <div id="pg-res-grupo" style="overflow-y:auto;max-height:320px"></div>
+          <div id="pg-res-grupo" style="overflow-y:auto;max-height:220px"></div>
         </div>
       </div>
+    </div>
+
+    <!-- Tabla de obligaciones (scrollable) -->
+    <div id="pg-tabla-wrap"></div>
+
+    <!-- Botón enviar -->
+    <div id="pg-btn-enviar" style="display:none;margin-top:14px;text-align:right">
+      <button class="btn btn-primary" id="pg-enviar-btn" style="font-size:13px">
+        📤 Enviar a Aprobación
+      </button>
     </div>`;
 
   // Mostrar nombre del archivo seleccionado
@@ -3738,9 +3746,14 @@ async function renderPaso1(container) {
     if (!progActual) return;
     await cargarGruposRef();
     document.getElementById('pg-filtros').style.display = '';
+    const esBorrador = ['borrador','pendiente'].includes(progActual.estado);
+    if (esBorrador) {
+      document.getElementById('pg-btn-enviar').style.display = '';
+      document.getElementById('pg-enviar-btn')?.addEventListener('click', pgEnviarAprobacion);
+    }
     poblarFiltros();
-    renderTabla();
     renderResumenes();
+    renderTabla();
   }
 
   function poblarFiltros() {
@@ -3796,13 +3809,14 @@ async function renderPaso1(container) {
     wrap.innerHTML = `
       <div class="card" style="overflow:hidden">
         <div style="padding:8px 14px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
-          <span>${obs.length} obligaciones · Fecha de pago: <strong>${fechaPagoStr}</strong></span>
+          <span>${obs.length} obligaciones · Fecha de pago: <strong>${fechaPagoStr}</strong>
+          · Seleccionadas: <strong>${obs.filter(o=>o.seleccionado).length}</strong></span>
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;font-weight:normal">
             <input type="checkbox" id="pg-check-all" style="width:14px;height:14px"
                    onchange="pgToggleAll(this.checked)"> Marcar todos
           </label>
         </div>
-        <div style="overflow-x:auto">
+        <div style="overflow-x:auto;max-height:55vh;overflow-y:auto">
           <table class="data-table" style="font-size:11px">
             <thead><tr>
               <th style="width:28px"></th>
@@ -3961,17 +3975,31 @@ async function renderPaso1(container) {
 
   window.pgActGrupo = async (pagarA, valor, campo = 'grupo') => {
     if (!progActual) return;
+    const key = pagarA.trim().toUpperCase();
+    // Solo actualiza las del mismo beneficiario que tengan OTROS en ese campo
     progActual.obligaciones.forEach(ob => {
-      if (ob.pagarA.trim().toUpperCase() === pagarA.trim().toUpperCase())
+      if (ob.pagarA.trim().toUpperCase() === key && (ob[campo] === 'OTROS' || !ob[campo]))
         ob[campo] = valor || 'OTROS';
     });
+    renderTabla(); renderResumenes();
     try {
-      const body = { nombre: pagarA };
-      body[campo] = valor || 'OTROS';
-      await PUT(`/pagos/programaciones/${progActual._id}/grupo-beneficiario`, body);
-      renderResumenes();
+      await PUT(`/pagos/programaciones/${progActual._id}/grupo-beneficiario`,
+        { nombre: pagarA, [campo]: valor || 'OTROS' });
     } catch(e) { toast('Error guardando: ' + e.message, 'error'); }
   };
+
+  // ── Enviar a aprobación ────────────────────────────────────────────
+  async function pgEnviarAprobacion() {
+    if (!progActual) return;
+    const obs = progActual.obligaciones;
+    const selecciones = obs.map(ob => ({ id: ob._id, seleccionado: ob.seleccionado }));
+    try {
+      await POST(`/pagos/programaciones/${progActual._id}/enviar-aprobacion`, { selecciones });
+      progActual.estado = 'pendiente';
+      document.getElementById('pg-btn-enviar').style.display = 'none';
+      toast('Programación enviada a aprobación', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  }
 }
 
 // ─── View: Admin ──────────────────────────────────────────────────

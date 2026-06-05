@@ -278,6 +278,28 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── POST /api/pagos/programaciones/:id/enviar-aprobacion ─────────────────────
+router.post('/programaciones/:id/enviar-aprobacion', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!['borrador','pendiente'].includes(prog.estado))
+      return res.status(400).json({ error: 'No se puede enviar en este estado' });
+    // Guardar selecciones actuales
+    const { selecciones } = req.body;
+    if (Array.isArray(selecciones)) {
+      selecciones.forEach(({ id, seleccionado }) => {
+        const ob = prog.obligaciones.id(id);
+        if (ob) ob.seleccionado = !!seleccionado;
+      });
+    }
+    prog.estado    = 'pendiente';
+    prog.enviadoEn = new Date();
+    await prog.save();
+    res.json(prog);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── PUT /api/pagos/programaciones/:id/grupo-beneficiario ─────────────────────
 router.put('/programaciones/:progId/grupo-beneficiario', async (req, res) => {
   try {
