@@ -3526,7 +3526,7 @@ async function renderPasoContent(paso, el) {
   // Ocultar footers de otros pasos al cambiar
   const p1f = document.getElementById('pg-resumenes-footer');
   const p2f = document.getElementById('ap2-footer');
-  if (p1f) p1f.style.display = paso === 'p1' ? '' : 'none';
+  if (p1f) p1f.style.display = paso === 'p1' ? 'grid' : 'none';
   if (p2f) p2f.style.display = paso === 'p2' ? 'flex' : 'none';
   if (paso === 'p1') await renderPaso1(el);
   if (paso === 'p2') await renderPaso2(el);
@@ -4211,10 +4211,10 @@ async function renderPaso1(container) {
 
 // ─── Paso 2: Aprobación ───────────────────────────────────────────
 async function renderPaso2(container) {
-  let ap2Prog     = null;
+  let ap2Prog      = null;
   let ap2Promedios = {};
 
-  const rolP = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
+  const rolP        = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
   const puedeAprobar = ['aprobador','admin'].includes(rolP);
 
   const fmtF = d => d ? new Date(d).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
@@ -4255,18 +4255,61 @@ async function renderPaso2(container) {
                  style="width:90px;font-size:13px" value="3.700"
                  oninput="clearTimeout(window._ap2TC);window._ap2TC=setTimeout(ap2Refresh,300)">
         </div>
-        <div style="margin-left:auto;align-self:flex-end">
-          <button id="ap2-toggle-all-btn" class="btn btn-outline btn-sm"
-                  onclick="ap2ToggleTodo()" style="font-size:12px">▾ Expandir todo</button>
+        <div style="margin-left:auto;align-self:flex-end;display:flex;gap:6px">
+          <button class="btn btn-outline btn-sm" onclick="ap2Expandir(0)" title="Contraer todo">▸ Contraer</button>
+          <button class="btn btn-outline btn-sm" onclick="ap2Expandir(1)" title="Expandir hasta beneficiarios">≡ Beneficiarios</button>
+          <button class="btn btn-outline btn-sm" onclick="ap2Expandir(2)" title="Expandir hasta obligaciones">≣ Obligaciones</button>
         </div>
       </div>
     </div>
     <div id="ap2-lista" class="mb-16"></div>
+    <!-- Filtros (ocultos hasta abrir una programación) -->
+    <div id="ap2-filtros" class="card mb-16" style="padding:12px;display:none">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Tipo Documento</label>
+          <select id="ap2-f-tipodoc" class="form-control" style="width:120px;font-size:12px" onchange="ap2Filtrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">N° Documento</label>
+          <input id="ap2-f-numdoc" class="form-control" style="width:160px;font-size:12px" placeholder="Buscar..."
+                 oninput="clearTimeout(window._ap2FT);window._ap2FT=setTimeout(ap2Filtrar,320)">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Beneficiario</label>
+          <input id="ap2-f-benef" class="form-control" style="width:180px;font-size:12px" placeholder="Buscar..."
+                 oninput="clearTimeout(window._ap2FT);window._ap2FT=setTimeout(ap2Filtrar,320)">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Grupo</label>
+          <select id="ap2-f-grupo" class="form-control" style="width:140px;font-size:12px" onchange="ap2Filtrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Detalle Grupo</label>
+          <select id="ap2-f-detalle" class="form-control" style="width:140px;font-size:12px" onchange="ap2Filtrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div style="align-self:flex-end;padding-bottom:2px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="ap2-f-solo-sel" onchange="ap2Filtrar()"
+                   style="width:14px;height:14px;accent-color:var(--primary)">
+            Solo programadas
+          </label>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="ap2LimpiarFiltros()">✕ Limpiar</button>
+      </div>
+    </div>
     <div id="ap2-wrap" style="padding-bottom:72px"></div>`;
 
   document.getElementById('ap2-compania').addEventListener('change', async () => {
     ap2Prog = null;
     document.getElementById('ap2-wrap').innerHTML = '';
+    document.getElementById('ap2-filtros').style.display = 'none';
     ap2RenderFooter();
     await ap2CargarLista();
   });
@@ -4301,11 +4344,44 @@ async function renderPaso2(container) {
     );
   }
 
+  // ── Filtros ──────────────────────────────────────────────────────
+  function ap2ObsFiltradas() {
+    if (!ap2Prog) return [];
+    const fDoc  = document.getElementById('ap2-f-tipodoc')?.value || '';
+    const fNum  = (document.getElementById('ap2-f-numdoc')?.value || '').toLowerCase();
+    const fBen  = (document.getElementById('ap2-f-benef')?.value || '').toLowerCase();
+    const fGrp  = document.getElementById('ap2-f-grupo')?.value || '';
+    const fDet  = document.getElementById('ap2-f-detalle')?.value || '';
+    const fSel  = document.getElementById('ap2-f-solo-sel')?.checked || false;
+    return ap2Prog.obligaciones.filter(ob => {
+      if (fDoc && ob.tipoDocumento !== fDoc) return false;
+      if (fNum && !(ob.numeroDocumento||'').toLowerCase().includes(fNum)) return false;
+      if (fBen && !(ob.pagarA||'').toLowerCase().includes(fBen)) return false;
+      if (fGrp && ob.grupo !== fGrp) return false;
+      if (fDet && ob.detalleGrupo !== fDet) return false;
+      if (fSel && !ob.seleccionado) return false;
+      return true;
+    });
+  }
+
+  function ap2PoblarFiltros() {
+    const obs    = ap2Prog?.obligaciones || [];
+    const tipos  = [...new Set(obs.map(o => o.tipoDocumento).filter(Boolean))].sort();
+    const grupos = [...new Set(obs.map(o => o.grupo).filter(Boolean))].sort();
+    const dets   = [...new Set(obs.map(o => o.detalleGrupo).filter(Boolean))].sort();
+    const el = id => document.getElementById(id);
+    if (el('ap2-f-tipodoc')) el('ap2-f-tipodoc').innerHTML = '<option value="">Todos</option>' + tipos.map(t => `<option>${t}</option>`).join('');
+    if (el('ap2-f-grupo'))   el('ap2-f-grupo').innerHTML   = '<option value="">Todos</option>' + grupos.map(g => `<option>${esc(g)}</option>`).join('');
+    if (el('ap2-f-detalle')) el('ap2-f-detalle').innerHTML = '<option value="">Todos</option>' + dets.map(d => `<option>${esc(d)}</option>`).join('');
+    document.getElementById('ap2-filtros').style.display = '';
+  }
+
   // ── Abrir programación ───────────────────────────────────────────
   async function ap2AbrirProg(id) {
     try {
       ap2Prog      = await GET(`/pagos/programaciones/${id}`);
       ap2Promedios = ap2Prog.promediosPagos || {};
+      ap2PoblarFiltros();
       ap2RenderGrupos();
       ap2RenderFooter();
       await ap2CargarLista(); // remarcar botón activo
@@ -4315,12 +4391,13 @@ async function renderPaso2(container) {
   // ── Vista agrupada: Grupo → Beneficiario → Obligaciones ─────────
   function ap2RenderGrupos() {
     if (!ap2Prog) { document.getElementById('ap2-wrap').innerHTML = ''; return; }
-    const tc  = parseFloat(document.getElementById('ap2-tc')?.value) || 1;
-    const toS = ob => ob.moneda !== 'LO' ? ob.monto * tc : ob.monto;
+    const tc     = parseFloat(document.getElementById('ap2-tc')?.value) || 1;
+    const toS    = ob => ob.moneda !== 'LO' ? ob.monto * tc : ob.monto;
+    const obsVis = ap2ObsFiltradas();  // solo las que pasan el filtro
 
-    // Agrupar
+    // Agrupar SOLO las visibles
     const grupos = {};
-    ap2Prog.obligaciones.forEach(ob => {
+    obsVis.forEach(ob => {
       const g = ob.grupo || 'OTROS';
       const b = ob.pagarA || '—';
       if (!grupos[g]) grupos[g] = {};
@@ -4329,7 +4406,10 @@ async function renderPaso2(container) {
     });
 
     const sumSel  = list => list.filter(o => o.seleccionado).reduce((s,o) => s + toS(o), 0);
-    const sumTodo = list => list.reduce((s,o) => s + toS(o), 0);
+    // deuda total: usa TODAS las obligaciones del beneficiario (no solo filtradas)
+    const deudaBen = ben => (ap2Prog.obligaciones || [])
+      .filter(o => (o.pagarA||'') === ben)
+      .reduce((s,o) => s + toS(o), 0);
 
     let html = '';
     Object.keys(grupos).sort().forEach(grp => {
@@ -4339,7 +4419,7 @@ async function renderPaso2(container) {
 
       html += `
       <div class="card mb-12" style="padding:0;overflow:hidden">
-        <!-- Cabecera grupo -->
+        <!-- Cabecera grupo — clic para colapsar/expandir -->
         <div onclick="const b=document.getElementById('${grpId}');const open=b.style.display!=='none';b.style.display=open?'none':'';this.querySelector('.ap2-arr').textContent=open?'▸':'▾'"
              style="display:flex;align-items:center;justify-content:space-between;
                     padding:10px 16px;background:var(--bg-secondary);
@@ -4354,18 +4434,20 @@ async function renderPaso2(container) {
         <div id="${grpId}" style="display:none">`;
 
       Object.keys(bens).sort().forEach(ben => {
-        const oblList  = bens[ben];
-        const benKey   = ben.toUpperCase().replace(/"/g,'&quot;');
-        const bTot     = sumSel(oblList);
-        const bDeuda   = sumTodo(oblList);
-        const allSel   = oblList.every(o => o.seleccionado);
-        const prom     = ap2Promedios[ben.toUpperCase()];
-        const promStr  = prom != null ? `S/ ${fmtN(prom)}` : '—';
+        const oblList = bens[ben];
+        const benKey  = ben.toUpperCase().replace(/"/g,'&quot;');
+        const bTot    = sumSel(oblList);
+        const bDeuda  = deudaBen(ben);
+        const allSel  = oblList.every(o => o.seleccionado);
+        const prom    = ap2Promedios[ben.toUpperCase()];
+        const promStr = prom?.promedio != null ? `S/ ${fmtN(prom.promedio)}` : '—';
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
-          <!-- Fila beneficiario -->
-          <div style="display:flex;align-items:center;gap:10px;padding:8px 16px 6px 20px;background:#fafbfc">
+          <!-- Fila beneficiario — clic (no en checkbox) para colapsar/expandir obligaciones -->
+          <div class="ap2-ben-row" onclick="if(event.target.tagName!=='INPUT')ap2ToggleBenObl(this)"
+               style="display:flex;align-items:center;gap:10px;padding:8px 16px 6px 20px;background:#fafbfc;cursor:pointer;user-select:none">
+            <span class="ap2-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
             <input type="checkbox" data-ben="${benKey}"
                    class="ap2-ben-cb" ${allSel ? 'checked' : ''}
                    style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
@@ -4379,51 +4461,54 @@ async function renderPaso2(container) {
               <span>Total Programado:&nbsp;<strong style="color:var(--primary)">S/ ${fmtN(bTot)}</strong></span>
             </div>
           </div>
-          <!-- Tabla obligaciones -->
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead>
-              <tr style="background:#f8fafc;color:var(--text-muted)">
-                <th style="width:36px;padding:4px 8px 4px 36px"></th>
-                <th style="padding:4px 8px;text-align:left">Tipo Doc</th>
-                <th style="padding:4px 8px;text-align:left">N° Documento</th>
-                <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
-                <th style="padding:4px 8px;text-align:right">Moneda</th>
-                <th style="padding:4px 8px;text-align:right">Monto</th>
-                <th style="padding:4px 8px;text-align:right">Días Venc.</th>
-                <th style="padding:4px 8px;text-align:left">Banco</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${oblList.map(ob => {
-                const dias  = ob.diasVencido ?? 0;
-                const dCol  = dias > 0 ? '#dc2626' : dias === 0 ? '#d97706' : '#166534';
-                const bgRow = ob.seleccionado ? '#f0fdf4' : '';
-                return `
-                <tr style="border-top:1px solid #f1f5f9;background:${bgRow}" id="ap2-tr-${ob._id}">
-                  <td style="padding:5px 8px 5px 36px">
-                    <input type="checkbox" data-id="${ob._id}" data-ben="${benKey}"
-                           class="ap2-ob-cb" ${ob.seleccionado ? 'checked' : ''}
-                           style="width:13px;height:13px;accent-color:var(--primary);cursor:pointer"
-                           onchange="ap2ToggleOb('${ob._id}','${benKey}',this.checked)">
-                  </td>
-                  <td style="padding:5px 8px">${esc(ob.tipoDocumento||'')}</td>
-                  <td style="padding:5px 8px">${esc(ob.numeroDocumento||'')}</td>
-                  <td style="padding:5px 8px">${fmtF(ob.fechaVencimiento)}</td>
-                  <td style="padding:5px 8px;text-align:right">${esc(ob.moneda||'')}</td>
-                  <td style="padding:5px 8px;text-align:right;${ob.monto<0?'color:#dc2626':''}">${fmtN(ob.monto)}</td>
-                  <td style="padding:5px 8px;text-align:right;color:${dCol};font-weight:600">${dias}</td>
-                  <td style="padding:5px 8px">${esc(ob.banco||'')}</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
+          <!-- Tabla obligaciones — colapsada por defecto -->
+          <div class="ap2-obl-div" style="display:none">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="background:#f8fafc;color:var(--text-muted)">
+                  <th style="width:36px;padding:4px 8px 4px 36px"></th>
+                  <th style="padding:4px 8px;text-align:left">Tipo Doc</th>
+                  <th style="padding:4px 8px;text-align:left">N° Documento</th>
+                  <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
+                  <th style="padding:4px 8px;text-align:right">Moneda</th>
+                  <th style="padding:4px 8px;text-align:right">Monto</th>
+                  <th style="padding:4px 8px;text-align:right">Días Venc.</th>
+                  <th style="padding:4px 8px;text-align:left">Banco</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${oblList.map(ob => {
+                  const dias  = ob.diasVencido ?? 0;
+                  const dCol  = dias > 0 ? '#dc2626' : dias === 0 ? '#d97706' : '#166534';
+                  const bgRow = ob.seleccionado ? '#f0fdf4' : '';
+                  return `
+                  <tr style="border-top:1px solid #f1f5f9;background:${bgRow}" id="ap2-tr-${ob._id}">
+                    <td style="padding:5px 8px 5px 36px">
+                      <input type="checkbox" data-id="${ob._id}" data-ben="${benKey}"
+                             class="ap2-ob-cb" ${ob.seleccionado ? 'checked' : ''}
+                             style="width:13px;height:13px;accent-color:var(--primary);cursor:pointer"
+                             onchange="ap2ToggleOb('${ob._id}','${benKey}',this.checked)">
+                    </td>
+                    <td style="padding:5px 8px">${esc(ob.tipoDocumento||'')}</td>
+                    <td style="padding:5px 8px">${esc(ob.numeroDocumento||'')}</td>
+                    <td style="padding:5px 8px">${fmtF(ob.fechaVencimiento)}</td>
+                    <td style="padding:5px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+                    <td style="padding:5px 8px;text-align:right;${ob.monto<0?'color:#dc2626':''}">${fmtN(ob.monto)}</td>
+                    <td style="padding:5px 8px;text-align:right;color:${dCol};font-weight:600">${dias}</td>
+                    <td style="padding:5px 8px">${esc(ob.banco||'')}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>`;
       });
 
       html += `</div></div>`;
     });
 
-    document.getElementById('ap2-wrap').innerHTML = html || '<p style="color:var(--text-muted);font-size:13px">Sin obligaciones</p>';
+    document.getElementById('ap2-wrap').innerHTML = html ||
+      '<p style="color:var(--text-muted);font-size:13px;padding:12px">Sin obligaciones que coincidan con los filtros.</p>';
   }
 
   // ── Footer con totales y botones ─────────────────────────────────
@@ -4457,22 +4542,42 @@ async function renderPaso2(container) {
         </div>` : ''}`;
   }
 
-  // ── Funciones globales (llamadas desde onchange inline) ──────────
-  window.ap2Refresh = () => { ap2RenderGrupos(); ap2RenderFooter(); };
-
-  window.ap2ToggleTodo = function() {
-    const bodies = document.querySelectorAll('#ap2-wrap [id^="grp-"]');
-    if (!bodies.length) return;
-    // Determinar estado actual: si alguno está visible → contraer todo; si todos ocultos → expandir todo
-    const hayAbierto = [...bodies].some(b => b.style.display !== 'none');
-    const btn = document.getElementById('ap2-toggle-all-btn');
-    bodies.forEach(b => {
-      b.style.display = hayAbierto ? 'none' : '';
-      // Actualizar flecha en la cabecera del mismo card
-      const arr = b.closest('.card')?.querySelector('.ap2-arr');
-      if (arr) arr.textContent = hayAbierto ? '▸' : '▾';
+  // ── Funciones globales ───────────────────────────────────────────
+  window.ap2Refresh   = () => { ap2RenderGrupos(); ap2RenderFooter(); };
+  window.ap2Filtrar   = () => { ap2RenderGrupos(); ap2RenderFooter(); };
+  window.ap2LimpiarFiltros = () => {
+    ['ap2-f-tipodoc','ap2-f-numdoc','ap2-f-benef','ap2-f-grupo','ap2-f-detalle'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
     });
-    if (btn) btn.textContent = hayAbierto ? '▾ Expandir todo' : '▸ Contraer todo';
+    const chk = document.getElementById('ap2-f-solo-sel');
+    if (chk) chk.checked = false;
+    ap2RenderGrupos(); ap2RenderFooter();
+  };
+
+  // Toggle solo la tabla de obligaciones de un beneficiario (clic en fila ben-row)
+  window.ap2ToggleBenObl = function(benRow) {
+    const oblDiv = benRow.nextElementSibling;
+    if (!oblDiv || !oblDiv.classList.contains('ap2-obl-div')) return;
+    const open = oblDiv.style.display !== 'none';
+    oblDiv.style.display = open ? 'none' : '';
+    const arr = benRow.querySelector('.ap2-ben-arr');
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  // Expandir a 3 niveles: 0=contraer grupos, 1=grupos abiertos+obls cerradas, 2=todo abierto
+  window.ap2Expandir = function(nivel) {
+    // Cuerpos de grupo
+    document.querySelectorAll('#ap2-wrap [id^="grp-"]').forEach(b => {
+      b.style.display = nivel === 0 ? 'none' : '';
+      const arr = b.closest('.card')?.querySelector('.ap2-arr');
+      if (arr) arr.textContent = nivel === 0 ? '▸' : '▾';
+    });
+    // Divs de obligaciones
+    document.querySelectorAll('#ap2-wrap .ap2-obl-div').forEach(d => {
+      d.style.display = nivel >= 2 ? '' : 'none';
+      const arr = d.previousElementSibling?.querySelector('.ap2-ben-arr');
+      if (arr) arr.textContent = nivel >= 2 ? '▾' : '▸';
+    });
   };
 
   window.ap2ToggleOb = function(id, benKey, val) {
@@ -4513,13 +4618,14 @@ async function renderPaso2(container) {
   window.ap2Aprobar = async function() {
     if (!ap2Prog) return;
     const n = ap2Prog.obligaciones.filter(o => o.seleccionado).length;
-    if (!confirm(`¿Aprobar esta programación con ${n} obligaciones seleccionadas?\nUna vez aprobada, el programador no podrá modificarla.`)) return;
+    if (!confirm(`¿Aprobar esta programación con ${n} obligaciones programadas?\nUna vez aprobada, el programador no podrá modificarla.`)) return;
     const selecciones = ap2Prog.obligaciones.map(ob => ({ id: ob._id, seleccionado: ob.seleccionado }));
     try {
       await PUT(`/pagos/programaciones/${ap2Prog._id}/aprobar`, { selecciones });
       toast('✅ Programación aprobada', 'success');
       ap2Prog = null;
       document.getElementById('ap2-wrap').innerHTML = '';
+      document.getElementById('ap2-filtros').style.display = 'none';
       ap2RenderFooter();
       await ap2CargarLista();
     } catch(e) { toast(e.message, 'error'); }
@@ -4533,6 +4639,7 @@ async function renderPaso2(container) {
       toast('Programación eliminada', 'success');
       ap2Prog = null;
       document.getElementById('ap2-wrap').innerHTML = '';
+      document.getElementById('ap2-filtros').style.display = 'none';
       ap2RenderFooter();
       await ap2CargarLista();
     } catch(e) { toast(e.message, 'error'); }
