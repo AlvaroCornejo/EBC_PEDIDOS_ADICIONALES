@@ -4255,6 +4255,10 @@ async function renderPaso2(container) {
                  style="width:90px;font-size:13px" value="3.700"
                  oninput="clearTimeout(window._ap2TC);window._ap2TC=setTimeout(ap2Refresh,300)">
         </div>
+        <div style="margin-left:auto;align-self:flex-end">
+          <button id="ap2-toggle-all-btn" class="btn btn-outline btn-sm"
+                  onclick="ap2ToggleTodo()" style="font-size:12px">▾ Expandir todo</button>
+        </div>
       </div>
     </div>
     <div id="ap2-lista" class="mb-16"></div>
@@ -4324,7 +4328,8 @@ async function renderPaso2(container) {
       grupos[g][b].push(ob);
     });
 
-    const sumSel = list => list.filter(o => o.seleccionado).reduce((s,o) => s + toS(o), 0);
+    const sumSel  = list => list.filter(o => o.seleccionado).reduce((s,o) => s + toS(o), 0);
+    const sumTodo = list => list.reduce((s,o) => s + toS(o), 0);
 
     let html = '';
     Object.keys(grupos).sort().forEach(grp => {
@@ -4335,26 +4340,27 @@ async function renderPaso2(container) {
       html += `
       <div class="card mb-12" style="padding:0;overflow:hidden">
         <!-- Cabecera grupo -->
-        <div onclick="const b=document.getElementById('${grpId}');b.style.display=b.style.display==='none'?'':'none'"
+        <div onclick="const b=document.getElementById('${grpId}');const open=b.style.display!=='none';b.style.display=open?'none':'';this.querySelector('.ap2-arr').textContent=open?'▸':'▾'"
              style="display:flex;align-items:center;justify-content:space-between;
                     padding:10px 16px;background:var(--bg-secondary);
                     border-bottom:2px solid var(--primary);cursor:pointer;user-select:none">
           <span style="font-weight:700;font-size:13px;color:var(--primary)">📁 ${esc(grp)}</span>
           <div style="display:flex;align-items:center;gap:16px">
-            <span style="font-size:12px;color:var(--text-muted)">Seleccionado: <strong>S/ ${fmtN(gTot)}</strong></span>
-            <span style="font-size:11px;color:var(--text-muted)">▾</span>
+            <span style="font-size:12px;color:var(--text-muted)">Total Programado: <strong>S/ ${fmtN(gTot)}</strong></span>
+            <span class="ap2-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
           </div>
         </div>
-        <!-- Cuerpo grupo -->
-        <div id="${grpId}">`;
+        <!-- Cuerpo grupo — colapsado por defecto -->
+        <div id="${grpId}" style="display:none">`;
 
       Object.keys(bens).sort().forEach(ben => {
-        const oblList = bens[ben];
-        const benKey  = ben.toUpperCase().replace(/"/g,'&quot;');
-        const bTot    = sumSel(oblList);
-        const allSel  = oblList.every(o => o.seleccionado);
-        const prom    = ap2Promedios[ben.toUpperCase()];
-        const promStr = prom != null ? `S/ ${fmtN(prom)}` : '—';
+        const oblList  = bens[ben];
+        const benKey   = ben.toUpperCase().replace(/"/g,'&quot;');
+        const bTot     = sumSel(oblList);
+        const bDeuda   = sumTodo(oblList);
+        const allSel   = oblList.every(o => o.seleccionado);
+        const prom     = ap2Promedios[ben.toUpperCase()];
+        const promStr  = prom != null ? `S/ ${fmtN(prom)}` : '—';
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
@@ -4368,9 +4374,10 @@ async function renderPaso2(container) {
             <span style="font-size:11px;background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:99px;margin-left:4px">
               Prom. pagos: ${promStr}
             </span>
-            <span style="font-size:12px;color:var(--text-muted);margin-left:auto">
-              Seleccionado: <strong>S/ ${fmtN(bTot)}</strong>
-            </span>
+            <div style="display:flex;gap:20px;margin-left:auto;font-size:12px;color:var(--text-muted)">
+              <span>Deuda total:&nbsp;<strong>S/ ${fmtN(bDeuda)}</strong></span>
+              <span>Total Programado:&nbsp;<strong style="color:var(--primary)">S/ ${fmtN(bTot)}</strong></span>
+            </div>
           </div>
           <!-- Tabla obligaciones -->
           <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -4429,7 +4436,7 @@ async function renderPaso2(container) {
 
     ap2Footer.innerHTML = `
       <div style="font-size:13px;color:var(--text-muted)">
-        Seleccionadas: <strong style="color:#111">${obs.length}</strong>
+        Total Programado: <strong style="color:#111">${obs.length} obligaciones</strong>
       </div>
       <div style="width:1px;height:22px;background:#e2e8f0"></div>
       <div style="font-size:13px">USD&nbsp;<strong>${fmtN(totUSD)}</strong></div>
@@ -4452,6 +4459,21 @@ async function renderPaso2(container) {
 
   // ── Funciones globales (llamadas desde onchange inline) ──────────
   window.ap2Refresh = () => { ap2RenderGrupos(); ap2RenderFooter(); };
+
+  window.ap2ToggleTodo = function() {
+    const bodies = document.querySelectorAll('#ap2-wrap [id^="grp-"]');
+    if (!bodies.length) return;
+    // Determinar estado actual: si alguno está visible → contraer todo; si todos ocultos → expandir todo
+    const hayAbierto = [...bodies].some(b => b.style.display !== 'none');
+    const btn = document.getElementById('ap2-toggle-all-btn');
+    bodies.forEach(b => {
+      b.style.display = hayAbierto ? 'none' : '';
+      // Actualizar flecha en la cabecera del mismo card
+      const arr = b.closest('.card')?.querySelector('.ap2-arr');
+      if (arr) arr.textContent = hayAbierto ? '▸' : '▾';
+    });
+    if (btn) btn.textContent = hayAbierto ? '▾ Expandir todo' : '▸ Contraer todo';
+  };
 
   window.ap2ToggleOb = function(id, benKey, val) {
     const ob = ap2Prog?.obligaciones.find(o => String(o._id) === id);
