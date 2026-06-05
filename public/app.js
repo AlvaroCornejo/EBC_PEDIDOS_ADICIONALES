@@ -3635,6 +3635,10 @@ async function renderPaso1(container) {
           </label>
         </div>
         <button class="btn btn-outline btn-sm" onclick="pgLimpiarFiltros()">✕ Limpiar</button>
+        <div id="pg-footer-btns" style="display:none;align-items:center;gap:8px;margin-left:auto">
+          <button class="btn btn-outline btn-sm" id="pg-guardar-btn">💾 Guardar</button>
+          <button class="btn btn-primary btn-sm" id="pg-enviar-btn">📤 Enviar a Aprobación</button>
+        </div>
       </div>
     </div>
 
@@ -3653,26 +3657,20 @@ async function renderPaso1(container) {
       position:fixed; bottom:0; left:220px; right:0; z-index:100;
       background:#fff; border-top:2px solid #e2e8f0;
       box-shadow:0 -4px 12px rgba(0,0,0,.08);
-      display:flex; flex-direction:column;
+      display:grid; grid-template-columns:1fr 1fr; gap:0;
     `;
     pgFooter.innerHTML = `
-      <div id="pg-footer-btns" style="display:none;justify-content:flex-end;align-items:center;gap:10px;padding:7px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0">
-        <button class="btn btn-outline" id="pg-guardar-btn" style="font-size:13px">💾 Guardar</button>
-        <button class="btn btn-primary" id="pg-enviar-btn" style="font-size:13px">📤 Enviar a Aprobación</button>
+      <div style="border-right:1px solid #e2e8f0">
+        <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
+          Resumen por Beneficiario
+        </div>
+        <div id="pg-res-benef" style="overflow-y:auto;max-height:228px"></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1">
-        <div style="border-right:1px solid #e2e8f0">
-          <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
-            Resumen por Beneficiario
-          </div>
-          <div id="pg-res-benef" style="overflow-y:auto;max-height:228px"></div>
+      <div>
+        <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
+          Resumen por Grupo
         </div>
-        <div>
-          <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
-            Resumen por Grupo
-          </div>
-          <div id="pg-res-grupo" style="overflow-y:auto;max-height:228px"></div>
-        </div>
+        <div id="pg-res-grupo" style="overflow-y:auto;max-height:228px"></div>
       </div>`;
     document.body.appendChild(pgFooter);
   }
