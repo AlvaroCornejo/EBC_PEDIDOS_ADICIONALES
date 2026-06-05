@@ -3495,17 +3495,30 @@ async function viewItems(container) {
 // ─── View: Gestión de Pagos ───────────────────────────────────────
 async function viewPagos(container) {
   const rolP = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
+
+  // Acceso por paso según rol
+  const puedeP1 = ['programador','admin'].includes(rolP);
+  const puedeP2 = ['aprobador','admin'].includes(rolP);
+  const puedeP3 = ['pagador','admin'].includes(rolP);
+  const puedeP4 = ['autorizador','admin'].includes(rolP);
+  const puedeP5 = ['pagador','admin'].includes(rolP);
+
+  // Tab inicial: primer paso al que tiene acceso
+  const pasoInicial = puedeP1 ? 'p1' : puedeP2 ? 'p2' : puedeP3 ? 'p3' : puedeP4 ? 'p4' : 'p5';
+
+  const tabAttr = (puede) => puede ? '' : 'disabled style="opacity:.4;cursor:not-allowed"';
+
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">💸 Gestión de Pagos</div>
     </div>
     <div class="page-body">
       <div class="tabs mb-0">
-        <button class="tab-btn active" data-ptab="p1">📋 Paso 1 — Programación</button>
-        <button class="tab-btn" data-ptab="p2" ${['aprobador','admin'].includes(rolP) ? '' : 'disabled style="opacity:.4"'}>✅ Paso 2 — Aprobación</button>
-        <button class="tab-btn" data-ptab="p3" ${['pagador','admin'].includes(rolP) ? '' : 'disabled style="opacity:.4"'}>🏦 Paso 3 — Preparación de Pagos</button>
-        <button class="tab-btn" data-ptab="p4" disabled style="opacity:.4">🔑 Paso 4 — Autorización en Bancos</button>
-        <button class="tab-btn" data-ptab="p5" disabled style="opacity:.4">📝 Paso 5 — Registro del Movimiento Bancario</button>
+        <button class="tab-btn" data-ptab="p1" ${tabAttr(puedeP1)}>📋 Paso 1 — Programación</button>
+        <button class="tab-btn" data-ptab="p2" ${tabAttr(puedeP2)}>✅ Paso 2 — Aprobación</button>
+        <button class="tab-btn" data-ptab="p3" ${tabAttr(puedeP3)}>🏦 Paso 3 — Preparación de Pagos</button>
+        <button class="tab-btn" data-ptab="p4" ${tabAttr(puedeP4)}>🔑 Paso 4 — Autorización en Bancos</button>
+        <button class="tab-btn" data-ptab="p5" ${tabAttr(puedeP5)}>📝 Paso 5 — Registro del Movimiento Bancario</button>
       </div>
       <div id="pagos-content" class="mt-16"></div>
     </div>`;
@@ -3519,7 +3532,11 @@ async function viewPagos(container) {
     });
   });
 
-  await renderPasoContent('p1', document.getElementById('pagos-content'));
+  // Activar el tab inicial
+  const btnInicial = container.querySelector(`[data-ptab="${pasoInicial}"]`);
+  if (btnInicial) btnInicial.classList.add('active');
+
+  await renderPasoContent(pasoInicial, document.getElementById('pagos-content'));
 }
 
 async function renderPasoContent(paso, el) {
