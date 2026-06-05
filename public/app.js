@@ -291,6 +291,8 @@ function navigate(view, params = {}) {
   S.view = view;
   S.viewParams = params;
   setActiveNav(view);
+  // Limpiar footer de pagos si se navega fuera
+  if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
   const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, admin: viewAdmin };
@@ -3625,33 +3627,45 @@ async function renderPaso1(container) {
       </div>
     </div>
 
-    <!-- Paneles resumen — siempre visibles ANTES de la tabla -->
-    <div id="pg-resumenes" style="margin-bottom:16px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div class="card" style="overflow:hidden">
-          <div style="padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
-            Resumen por Beneficiario
-          </div>
-          <div id="pg-res-benef" style="overflow-y:auto;max-height:320px"></div>
-        </div>
-        <div class="card" style="overflow:hidden">
-          <div style="padding:10px 14px;font-weight:600;font-size:13px;border-bottom:1px solid var(--border);background:var(--bg-secondary)">
-            Resumen por Grupo
-          </div>
-          <div id="pg-res-grupo" style="overflow-y:auto;max-height:220px"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Tabla de obligaciones (scrollable) -->
-    <div id="pg-tabla-wrap"></div>
+    <!-- Tabla de obligaciones (scrollable) — con espacio para el footer fijo -->
+    <div id="pg-tabla-wrap" style="padding-bottom:180px"></div>
 
     <!-- Botón enviar -->
     <div id="pg-btn-enviar" style="display:none;margin-top:14px;text-align:right">
       <button class="btn btn-primary" id="pg-enviar-btn" style="font-size:13px">
         📤 Enviar a Aprobación
       </button>
-    </div>`;
+    </div>
+
+    <!-- Resúmenes fijos al pie (se inyectan vía JS fuera del flujo) -->
+    <div id="pg-resumenes-placeholder"></div>`;
+
+  // Crear el footer fijo de resúmenes como elemento global
+  let pgFooter = document.getElementById('pg-resumenes-footer');
+  if (!pgFooter) {
+    pgFooter = document.createElement('div');
+    pgFooter.id = 'pg-resumenes-footer';
+    pgFooter.style.cssText = `
+      position:fixed; bottom:0; left:220px; right:0; z-index:100;
+      background:#fff; border-top:2px solid #e2e8f0;
+      box-shadow:0 -4px 12px rgba(0,0,0,.08);
+      display:grid; grid-template-columns:1fr 1fr; gap:0;
+    `;
+    pgFooter.innerHTML = `
+      <div style="border-right:1px solid #e2e8f0">
+        <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
+          Resumen por Beneficiario
+        </div>
+        <div id="pg-res-benef" style="overflow-y:auto;max-height:130px"></div>
+      </div>
+      <div>
+        <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
+          Resumen por Grupo
+        </div>
+        <div id="pg-res-grupo" style="overflow-y:auto;max-height:130px"></div>
+      </div>`;
+    document.body.appendChild(pgFooter);
+  }
 
   // Mostrar nombre del archivo seleccionado
   document.getElementById('pg-file').addEventListener('change', (e) => {
@@ -3858,7 +3872,7 @@ async function renderPaso1(container) {
                    onchange="pgToggleAll(this.checked)"> Marcar todos
           </label>
         </div>
-        <div style="overflow-x:auto;max-height:55vh;overflow-y:auto">
+        <div style="overflow-x:auto;max-height:calc(100vh - 420px);overflow-y:auto">
           <table class="data-table" style="font-size:11px">
             <thead><tr>
               <th style="width:28px"></th>
