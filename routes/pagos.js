@@ -348,30 +348,30 @@ router.post('/cargar-pagos', upload.single('archivo'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
     const rows = parseCSV(req.file.buffer);
 
-    // Determinar las últimas 4 semanas ISO desde hoy
-    const hoy   = new Date();
-    const semanas4 = new Set();
-    for (let i = 0; i < 4; i++) {
-      const d = new Date(hoy);
-      d.setDate(d.getDate() - i * 7);
-      semanas4.add(`${d.getFullYear()}-${isoWeek(d)}`);
-    }
-
-    // Acumular por beneficiario
-    const benef = {};  // { pagarA: { total, semanas: Set } }
+    // Primero: recopilar todas las fechas válidas para hallar las 4 semanas más recientes del archivo
+    const parsedRows = [];
     for (const r of rows) {
       const pagarA = (r['PagarA'] || '').trim();
       if (!pagarA) continue;
-      const fRaw  = r['FechaPago'] || '';
-      const fecha = parseFecha(fRaw.split(':')[0].trim()); // quitar milisegundos
+      const fRaw  = (r['FechaPago'] || '').split(':')[0].trim(); // quitar milisegundos HH:MM:SS:mmm
+      const fecha = parseFecha(fRaw);
       if (!fecha || isNaN(fecha)) continue;
-      const clave = `${fecha.getFullYear()}-${isoWeek(fecha)}`;
-      if (!semanas4.has(clave)) continue;
+      const monto = parseFloat(r['PagoMonedaLocal'] || r['PagoMonedaExtranjera'] || 0) || 0;
+      const clave = `${fecha.getFullYear()}-${String(isoWeek(fecha)).padStart(2,'0')}`;
+      parsedRows.push({ pagarA, monto, clave });
+    }
 
-      const monto = parseFloat(r['PagoMonedaLocal']) || 0;
-      if (!benef[pagarA]) benef[pagarA] = { total: 0, semanas: new Set() };
-      benef[pagarA].total += monto;
-      benef[pagarA].semanas.add(clave);
+    // Obtener las 4 semanas más recientes presentes en el archivo
+    const todasSemanas = [...new Set(parsedRows.map(r => r.clave))].sort().reverse();
+    const semanas4 = new Set(todasSemanas.slice(0, 4));
+
+    // Acumular por beneficiario (solo las 4 semanas más recientes)
+    const benef = {};
+    for (const r of parsedRows) {
+      if (!semanas4.has(r.clave)) continue;
+      if (!benef[r.pagarA]) benef[r.pagarA] = { total: 0, semanas: new Set() };
+      benef[r.pagarA].total += r.monto;
+      benef[r.pagarA].semanas.add(r.clave);
     }
 
     // Calcular promedio
