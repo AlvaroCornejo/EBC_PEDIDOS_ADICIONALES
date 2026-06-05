@@ -4150,18 +4150,26 @@ async function renderPaso1(container) {
         ob[campo] = nuevo;
     });
 
-    // Para 'grupo': re-renderizar tabla (cambia opciones de detalle también)
-    // Para 'detalleGrupo': actualizar DOM sin destruir los selects activos
-    if (campo === 'grupo') {
-      renderTabla();
-    } else {
-      // Actualizar el valor de todos los selects .pg-detalle-sel del mismo beneficiario
-      document.querySelectorAll('.pg-detalle-sel').forEach(sel => {
-        const tr = sel.closest('tr');
-        const pa = tr?.querySelector('.pg-check')?.dataset.pa || '';
-        if (pa.trim().toUpperCase() === key) sel.value = nuevo;
-      });
-    }
+    // Actualizar DOM sin re-renderizar la tabla (preserva posición de scroll)
+    document.querySelectorAll('.pg-check').forEach(cb => {
+      if ((cb.dataset.pa || '').trim().toUpperCase() !== key) return;
+      const tr = cb.closest('tr');
+      if (!tr) return;
+      if (campo === 'grupo') {
+        // Actualizar el select de grupo y repoblar el de detalle
+        const grpSel = tr.querySelector('select:not(.pg-detalle-sel)');
+        if (grpSel) grpSel.value = nuevo;
+        const detSel = tr.querySelector('.pg-detalle-sel');
+        if (detSel) {
+          detSel.innerHTML = `<option value="OTROS">OTROS</option>${pgDetalleOpts(nuevo)}`;
+          detSel.value = 'OTROS';
+        }
+      } else {
+        // Solo actualizar el select de detalle
+        const detSel = tr.querySelector('.pg-detalle-sel');
+        if (detSel) detSel.value = nuevo;
+      }
+    });
     renderResumenes();
 
     try {
