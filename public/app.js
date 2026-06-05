@@ -3969,27 +3969,31 @@ async function renderPaso1(container) {
   }
 
   function renderResumenes() {
-    const obs = obligacionesFiltradas();
+    // Solo obligaciones seleccionadas para pago
+    const obs = obligacionesFiltradas().filter(o => o.seleccionado);
     const tc  = parseFloat(document.getElementById('pg-tc')?.value) || 1;
     const fBenefFilt = (document.getElementById('f-benef')?.value || '').toLowerCase();
     const fGrpFilt   = document.getElementById('f-grupo')?.value || '';
 
-    // Helper: acumula por moneda { LO: total, <otras>: total }
-    function acumMonedas(arr) {
-      const m = {};
-      arr.forEach(o => { m[o.moneda] = (m[o.moneda] || 0) + o.monto; });
-      return m;
-    }
-    function totalSoles(monedas) {
-      return Object.entries(monedas).reduce((s, [mon, amt]) => s + (mon === 'LO' ? amt : amt * tc), 0);
-    }
-    function monedasHtml(monedas) {
-      return Object.entries(monedas).map(([mon, amt]) => {
-        const esLocal = mon === 'LO';
-        const sol = esLocal ? amt : amt * tc;
-        return `<span style="white-space:nowrap">${mon}: ${fmtMonto(amt)}${!esLocal ? ` <span style="color:#3b82f6">(S/${fmtMonto(sol)})</span>` : ''}</span>`;
-      }).join('<br>');
-    }
+    const usd  = o => o.moneda !== 'LO' ? o.monto : 0;
+    const sol  = o => o.moneda === 'LO' ? o.monto : 0;
+    const tot  = o => o.moneda === 'LO' ? o.monto : o.monto * tc;
+    const sumF = (arr, fn) => arr.reduce((s, o) => s + fn(o), 0);
+
+    const THEAD = `<thead><tr>
+      <th style="width:24px"></th><th>Nombre</th>
+      <th class="text-right">USD</th>
+      <th class="text-right">S/</th>
+      <th class="text-right">Total S/</th>
+    </tr></thead>`;
+    const TFOOT = (arr) => `<tfoot style="border-top:2px solid var(--border);background:var(--bg-secondary);font-weight:700">
+      <tr>
+        <td colspan="2" style="padding:4px 8px">TOTAL</td>
+        <td class="text-right" style="padding:4px 8px">${fmtMonto(sumF(arr, usd))}</td>
+        <td class="text-right" style="padding:4px 8px">${fmtMonto(sumF(arr, sol))}</td>
+        <td class="text-right" style="padding:4px 8px;color:var(--primary)">${fmtMonto(sumF(arr, tot))}</td>
+      </tr>
+    </tfoot>`;
 
     // ── Por Beneficiario ──────────────────────────────────────────────
     const byBenef = {};
@@ -3998,29 +4002,20 @@ async function renderPaso1(container) {
       byBenef[o.pagarA].obs.push(o);
     });
     const benefRows = Object.entries(byBenef).sort(([a],[b]) => a.localeCompare(b));
-    const totBenef  = acumMonedas(obs);
     document.getElementById('pg-res-benef').innerHTML = `
       <table class="data-table" style="font-size:11px">
-        <thead><tr><th style="width:24px"></th><th>Beneficiario</th><th>Grupo</th><th class="text-right">Moneda / Monto</th><th class="text-right">Total S/</th></tr></thead>
+        ${THEAD}
         <tbody>
-          ${benefRows.map(([nombre, d]) => {
-            const m = acumMonedas(d.obs);
-            return `<tr>
-              <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('benef','${esc(nombre)}',this.checked)"
-                   ${fBenefFilt===nombre.toLowerCase()?'checked':''}></td>
-              <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(nombre)}">${esc(nombre)}</td>
-              <td style="color:var(--text-muted);font-size:10px">${esc(d.grupo||'—')}</td>
-              <td class="text-right">${monedasHtml(m)}</td>
-              <td class="text-right fw-semibold">${fmtMonto(totalSoles(m))}</td>
-            </tr>`;
-          }).join('')}
+          ${benefRows.length ? benefRows.map(([nombre, d]) => `<tr>
+            <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('benef','${esc(nombre)}',this.checked)"
+                 ${fBenefFilt===nombre.toLowerCase()?'checked':''}></td>
+            <td style="max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(nombre)}">${esc(nombre)}</td>
+            <td class="text-right">${sumF(d.obs,usd)?fmtMonto(sumF(d.obs,usd)):'—'}</td>
+            <td class="text-right">${sumF(d.obs,sol)?fmtMonto(sumF(d.obs,sol)):'—'}</td>
+            <td class="text-right fw-semibold">${fmtMonto(sumF(d.obs,tot))}</td>
+          </tr>`).join('') : '<tr><td colspan="5" class="text-center text-muted py-8" style="font-size:11px">Sin obligaciones seleccionadas</td></tr>'}
         </tbody>
-        <tfoot style="border-top:2px solid var(--border);background:var(--bg-secondary)">
-          <tr><td colspan="3" class="fw-semibold" style="padding:4px 8px">TOTAL</td>
-              <td class="text-right" style="padding:4px 8px">${monedasHtml(totBenef)}</td>
-              <td class="text-right fw-semibold" style="padding:4px 8px">${fmtMonto(totalSoles(totBenef))}</td>
-          </tr>
-        </tfoot>
+        ${TFOOT(obs)}
       </table>`;
 
     // ── Por Grupo ─────────────────────────────────────────────────────
@@ -4034,27 +4029,18 @@ async function renderPaso1(container) {
     const grupoRows = Object.entries(byGrupo).sort(([a],[b]) => a.localeCompare(b));
     document.getElementById('pg-res-grupo').innerHTML = `
       <table class="data-table" style="font-size:11px">
-        <thead><tr><th style="width:24px"></th><th>Grupo</th><th class="text-right">Moneda / Monto</th><th class="text-right">Total S/</th><th class="text-center">Ben.</th></tr></thead>
+        ${THEAD.replace('Nombre','Grupo')}
         <tbody>
-          ${grupoRows.map(([grupo, d]) => {
-            const m = acumMonedas(d.obs);
-            return `<tr>
-              <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('grupo','${esc(grupo)}',this.checked)"
-                   ${fGrpFilt===grupo?'checked':''}></td>
-              <td class="fw-semibold">${esc(grupo)}</td>
-              <td class="text-right">${monedasHtml(m)}</td>
-              <td class="text-right fw-semibold">${fmtMonto(totalSoles(m))}</td>
-              <td class="text-center">${d.beneficiarios.size}</td>
-            </tr>`;
-          }).join('')}
+          ${grupoRows.length ? grupoRows.map(([grupo, d]) => `<tr>
+            <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('grupo','${esc(grupo)}',this.checked)"
+                 ${fGrpFilt===grupo?'checked':''}></td>
+            <td class="fw-semibold">${esc(grupo)}</td>
+            <td class="text-right">${sumF(d.obs,usd)?fmtMonto(sumF(d.obs,usd)):'—'}</td>
+            <td class="text-right">${sumF(d.obs,sol)?fmtMonto(sumF(d.obs,sol)):'—'}</td>
+            <td class="text-right fw-semibold">${fmtMonto(sumF(d.obs,tot))}</td>
+          </tr>`).join('') : '<tr><td colspan="5" class="text-center text-muted py-8" style="font-size:11px">Sin obligaciones seleccionadas</td></tr>'}
         </tbody>
-        <tfoot style="border-top:2px solid var(--border);background:var(--bg-secondary)">
-          <tr><td colspan="2" class="fw-semibold" style="padding:4px 8px">TOTAL</td>
-              <td class="text-right" style="padding:4px 8px">${monedasHtml(totBenef)}</td>
-              <td class="text-right fw-semibold" style="padding:4px 8px">${fmtMonto(totalSoles(totBenef))}</td>
-              <td></td>
-          </tr>
-        </tfoot>
+        ${TFOOT(obs)}
       </table>`;
   }
 
