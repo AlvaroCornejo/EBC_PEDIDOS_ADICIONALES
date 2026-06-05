@@ -187,13 +187,14 @@ router.put('/beneficiarios/:id/grupo', async (req, res) => {
 // ── GET /api/pagos/programaciones ─────────────────────────────────────────────
 router.get('/programaciones', async (req, res) => {
   try {
-    const { compania, año, semana } = req.query;
+    const { compania, año, semana, estado } = req.query;
     if (compania && !checkSocAccess(req.user, compania))
       return res.status(403).json({ error: 'Sociedad no autorizada' });
     const filter = { ...socFilter(req.user) };
     if (compania) filter.compania = compania;
     if (año)      filter.año = parseInt(año);
     if (semana)   filter.semana = parseInt(semana);
+    if (estado)   filter.estado = estado;
     const rows = await PagoProgramacion
       .find(filter, { obligaciones: 0 })
       .sort({ creadoEn: -1 }).lean();
@@ -312,6 +313,33 @@ router.put('/programaciones/:id/guardar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── PUT /api/pagos/programaciones/:id/aprobar ────────────────────────────────
+router.put('/programaciones/:id/aprobar', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (prog.estado !== 'pendiente')
+      return res.status(400).json({ error: 'Solo se pueden aprobar programaciones en estado pendiente' });
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['aprobador','admin'].includes(rol))
+      return res.status(403).json({ error: 'No tiene permiso para aprobar programaciones' });
+    const { selecciones } = req.body;
+    if (Array.isArray(selecciones)) {
+      selecciones.forEach(({ id, seleccionado }) => {
+        const ob = prog.obligaciones.id(id);
+        if (ob) ob.seleccionado = !!seleccionado;
+      });
+    }
+    prog.estado      = 'aprobado';
+    prog.aprobadoPor = req.user.username;
+    prog.aprobadoEn  = new Date();
+    await prog.save();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /api/pagos/programaciones/:id/enviar-aprobacion ─────────────────────
 router.post('/programaciones/:id/enviar-aprobacion', async (req, res) => {
   try {
@@ -327,8 +355,9 @@ router.post('/programaciones/:id/enviar-aprobacion', async (req, res) => {
         if (ob) ob.seleccionado = !!seleccionado;
       });
     }
-    prog.estado    = 'pendiente';
-    prog.enviadoEn = new Date();
+    prog.estado     = 'pendiente';
+    prog.enviadoPor = req.user.username;
+    prog.enviadoEn  = new Date();
     await prog.save();
     res.json(prog);
   } catch (err) { res.status(500).json({ error: err.message }); }

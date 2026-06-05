@@ -3502,7 +3502,7 @@ async function viewPagos(container) {
     <div class="page-body">
       <div class="tabs mb-0">
         <button class="tab-btn active" data-ptab="p1">📋 Paso 1 — Programación</button>
-        <button class="tab-btn" data-ptab="p2" disabled style="opacity:.4">✅ Paso 2 — Aprobación</button>
+        <button class="tab-btn" data-ptab="p2" ${['aprobador','admin'].includes(rolP) ? '' : 'disabled style="opacity:.4"'}>✅ Paso 2 — Aprobación</button>
         <button class="tab-btn" data-ptab="p3" disabled style="opacity:.4">🏦 Paso 3 — Preparación de Pagos</button>
         <button class="tab-btn" data-ptab="p4" disabled style="opacity:.4">🔑 Paso 4 — Autorización en Bancos</button>
         <button class="tab-btn" data-ptab="p5" disabled style="opacity:.4">📝 Paso 5 — Registro del Movimiento Bancario</button>
@@ -3523,7 +3523,13 @@ async function viewPagos(container) {
 }
 
 async function renderPasoContent(paso, el) {
+  // Ocultar footers de otros pasos al cambiar
+  const p1f = document.getElementById('pg-resumenes-footer');
+  const p2f = document.getElementById('ap2-footer');
+  if (p1f) p1f.style.display = paso === 'p1' ? '' : 'none';
+  if (p2f) p2f.style.display = paso === 'p2' ? 'flex' : 'none';
   if (paso === 'p1') await renderPaso1(el);
+  if (paso === 'p2') await renderPaso2(el);
 }
 
 async function renderPaso1(container) {
@@ -4201,6 +4207,317 @@ async function renderPaso1(container) {
       toast('Programación enviada a aprobación', 'success');
     } catch(e) { toast(e.message, 'error'); }
   }
+}
+
+// ─── Paso 2: Aprobación ───────────────────────────────────────────
+async function renderPaso2(container) {
+  let ap2Prog     = null;
+  let ap2Promedios = {};
+
+  const rolP = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
+  const puedeAprobar = ['aprobador','admin'].includes(rolP);
+
+  const fmtF = d => d ? new Date(d).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+  const fmtN = v => v == null ? '—' : Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  // ── Footer fijo ─────────────────────────────────────────────────
+  let ap2Footer = document.getElementById('ap2-footer');
+  if (!ap2Footer) {
+    ap2Footer = document.createElement('div');
+    ap2Footer.id = 'ap2-footer';
+    ap2Footer.style.cssText = `
+      position:fixed;bottom:0;left:220px;right:0;z-index:100;
+      background:#fff;border-top:2px solid #e2e8f0;
+      box-shadow:0 -4px 12px rgba(0,0,0,.08);
+      display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap;
+    `;
+    document.body.appendChild(ap2Footer);
+  }
+  ap2Footer.style.display = 'flex';
+
+  // ── HTML principal ───────────────────────────────────────────────
+  container.innerHTML = `
+    <div class="card mb-16" style="padding:14px">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+          <select id="ap2-compania" class="form-control" style="width:150px">
+            <option value="">— Seleccionar —</option>
+            ${(S.user.role === 'ADMIN' || rolP === 'admin'
+              ? ALL_SOCS_COMPRA
+              : (S.user.sociedadesCompra || [])
+            ).map(s => `<option value="${s}">${s}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo de Cambio (USD→S/)</label>
+          <input id="ap2-tc" type="number" step="0.001" min="0" class="form-control"
+                 style="width:90px;font-size:13px" value="3.700"
+                 oninput="clearTimeout(window._ap2TC);window._ap2TC=setTimeout(ap2Refresh,300)">
+        </div>
+      </div>
+    </div>
+    <div id="ap2-lista" class="mb-16"></div>
+    <div id="ap2-wrap" style="padding-bottom:72px"></div>`;
+
+  document.getElementById('ap2-compania').addEventListener('change', async () => {
+    ap2Prog = null;
+    document.getElementById('ap2-wrap').innerHTML = '';
+    ap2RenderFooter();
+    await ap2CargarLista();
+  });
+
+  // ── Cargar lista de programaciones pendientes ────────────────────
+  async function ap2CargarLista() {
+    const comp = document.getElementById('ap2-compania').value;
+    const el   = document.getElementById('ap2-lista');
+    if (!comp) { el.innerHTML = ''; return; }
+    const data = await GET(`/pagos/programaciones?compania=${comp}&estado=pendiente`);
+    if (!data.length) {
+      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones pendientes de aprobación para <strong>${esc(comp)}</strong>.</p>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="card" style="padding:12px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;letter-spacing:.5px">
+          Programaciones pendientes de aprobación
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${data.map(p => {
+            const activo = ap2Prog?._id === p._id;
+            return `<button class="btn btn-sm ap2-prog-btn" data-id="${p._id}"
+              style="font-size:12px;${activo ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : 'border:1px solid #cbd5e1;background:#fff'}">
+              📋 Sem ${p.semana}/${p.año}&nbsp;&nbsp;${p.compania}
+            </button>`;
+          }).join('')}
+        </div>
+      </div>`;
+    document.querySelectorAll('.ap2-prog-btn').forEach(btn =>
+      btn.addEventListener('click', () => ap2AbrirProg(btn.dataset.id))
+    );
+  }
+
+  // ── Abrir programación ───────────────────────────────────────────
+  async function ap2AbrirProg(id) {
+    try {
+      ap2Prog      = await GET(`/pagos/programaciones/${id}`);
+      ap2Promedios = ap2Prog.promediosPagos || {};
+      ap2RenderGrupos();
+      ap2RenderFooter();
+      await ap2CargarLista(); // remarcar botón activo
+    } catch(e) { toast(e.message, 'error'); }
+  }
+
+  // ── Vista agrupada: Grupo → Beneficiario → Obligaciones ─────────
+  function ap2RenderGrupos() {
+    if (!ap2Prog) { document.getElementById('ap2-wrap').innerHTML = ''; return; }
+    const tc  = parseFloat(document.getElementById('ap2-tc')?.value) || 1;
+    const toS = ob => ob.moneda !== 'LO' ? ob.monto * tc : ob.monto;
+
+    // Agrupar
+    const grupos = {};
+    ap2Prog.obligaciones.forEach(ob => {
+      const g = ob.grupo || 'OTROS';
+      const b = ob.pagarA || '—';
+      if (!grupos[g]) grupos[g] = {};
+      if (!grupos[g][b]) grupos[g][b] = [];
+      grupos[g][b].push(ob);
+    });
+
+    const sumSel = list => list.filter(o => o.seleccionado).reduce((s,o) => s + toS(o), 0);
+
+    let html = '';
+    Object.keys(grupos).sort().forEach(grp => {
+      const bens  = grupos[grp];
+      const gTot  = Object.values(bens).reduce((s, l) => s + sumSel(l), 0);
+      const grpId = 'grp-' + grp.replace(/\W/g,'_');
+
+      html += `
+      <div class="card mb-12" style="padding:0;overflow:hidden">
+        <!-- Cabecera grupo -->
+        <div onclick="const b=document.getElementById('${grpId}');b.style.display=b.style.display==='none'?'':'none'"
+             style="display:flex;align-items:center;justify-content:space-between;
+                    padding:10px 16px;background:var(--bg-secondary);
+                    border-bottom:2px solid var(--primary);cursor:pointer;user-select:none">
+          <span style="font-weight:700;font-size:13px;color:var(--primary)">📁 ${esc(grp)}</span>
+          <div style="display:flex;align-items:center;gap:16px">
+            <span style="font-size:12px;color:var(--text-muted)">Seleccionado: <strong>S/ ${fmtN(gTot)}</strong></span>
+            <span style="font-size:11px;color:var(--text-muted)">▾</span>
+          </div>
+        </div>
+        <!-- Cuerpo grupo -->
+        <div id="${grpId}">`;
+
+      Object.keys(bens).sort().forEach(ben => {
+        const oblList = bens[ben];
+        const benKey  = ben.toUpperCase().replace(/"/g,'&quot;');
+        const bTot    = sumSel(oblList);
+        const allSel  = oblList.every(o => o.seleccionado);
+        const prom    = ap2Promedios[ben.toUpperCase()];
+        const promStr = prom != null ? `S/ ${fmtN(prom)}` : '—';
+
+        html += `
+        <div style="border-bottom:1px solid #f1f5f9">
+          <!-- Fila beneficiario -->
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 16px 6px 20px;background:#fafbfc">
+            <input type="checkbox" data-ben="${benKey}"
+                   class="ap2-ben-cb" ${allSel ? 'checked' : ''}
+                   style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
+                   onchange="ap2ToggleBen('${benKey}',this.checked)">
+            <span style="font-weight:600;font-size:13px">${esc(ben)}</span>
+            <span style="font-size:11px;background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:99px;margin-left:4px">
+              Prom. pagos: ${promStr}
+            </span>
+            <span style="font-size:12px;color:var(--text-muted);margin-left:auto">
+              Seleccionado: <strong>S/ ${fmtN(bTot)}</strong>
+            </span>
+          </div>
+          <!-- Tabla obligaciones -->
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:#f8fafc;color:var(--text-muted)">
+                <th style="width:36px;padding:4px 8px 4px 36px"></th>
+                <th style="padding:4px 8px;text-align:left">Tipo Doc</th>
+                <th style="padding:4px 8px;text-align:left">N° Documento</th>
+                <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
+                <th style="padding:4px 8px;text-align:right">Moneda</th>
+                <th style="padding:4px 8px;text-align:right">Monto</th>
+                <th style="padding:4px 8px;text-align:right">Días Venc.</th>
+                <th style="padding:4px 8px;text-align:left">Banco</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${oblList.map(ob => {
+                const dias  = ob.diasVencido ?? 0;
+                const dCol  = dias > 0 ? '#dc2626' : dias === 0 ? '#d97706' : '#166534';
+                const bgRow = ob.seleccionado ? '#f0fdf4' : '';
+                return `
+                <tr style="border-top:1px solid #f1f5f9;background:${bgRow}" id="ap2-tr-${ob._id}">
+                  <td style="padding:5px 8px 5px 36px">
+                    <input type="checkbox" data-id="${ob._id}" data-ben="${benKey}"
+                           class="ap2-ob-cb" ${ob.seleccionado ? 'checked' : ''}
+                           style="width:13px;height:13px;accent-color:var(--primary);cursor:pointer"
+                           onchange="ap2ToggleOb('${ob._id}','${benKey}',this.checked)">
+                  </td>
+                  <td style="padding:5px 8px">${esc(ob.tipoDocumento||'')}</td>
+                  <td style="padding:5px 8px">${esc(ob.numeroDocumento||'')}</td>
+                  <td style="padding:5px 8px">${fmtF(ob.fechaVencimiento)}</td>
+                  <td style="padding:5px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+                  <td style="padding:5px 8px;text-align:right;${ob.monto<0?'color:#dc2626':''}">${fmtN(ob.monto)}</td>
+                  <td style="padding:5px 8px;text-align:right;color:${dCol};font-weight:600">${dias}</td>
+                  <td style="padding:5px 8px">${esc(ob.banco||'')}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+      });
+
+      html += `</div></div>`;
+    });
+
+    document.getElementById('ap2-wrap').innerHTML = html || '<p style="color:var(--text-muted);font-size:13px">Sin obligaciones</p>';
+  }
+
+  // ── Footer con totales y botones ─────────────────────────────────
+  function ap2RenderFooter() {
+    const obs    = (ap2Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const tc     = parseFloat(document.getElementById('ap2-tc')?.value) || 1;
+    const totUSD = obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
+    const totSOL = obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+    const totTot = totSOL + totUSD * tc;
+
+    ap2Footer.innerHTML = `
+      <div style="font-size:13px;color:var(--text-muted)">
+        Seleccionadas: <strong style="color:#111">${obs.length}</strong>
+      </div>
+      <div style="width:1px;height:22px;background:#e2e8f0"></div>
+      <div style="font-size:13px">USD&nbsp;<strong>${fmtN(totUSD)}</strong></div>
+      <div style="font-size:13px">S/&nbsp;<strong>${fmtN(totSOL)}</strong></div>
+      <div style="font-size:13px">Total S/&nbsp;<strong style="color:var(--primary);font-size:14px">${fmtN(totTot)}</strong></div>
+      ${ap2Prog ? `
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <button class="btn btn-outline btn-sm" onclick="ap2Guardar()">💾 Guardar</button>
+          ${puedeAprobar ? `
+            <button class="btn btn-primary btn-sm" onclick="ap2Aprobar()"
+                    style="background:#16a34a;border-color:#16a34a">
+              ✅ Aprobar programación
+            </button>` : ''}
+          <button class="btn btn-sm" onclick="ap2Eliminar()"
+                  style="border:1px solid #dc2626;color:#dc2626;background:#fff">
+            🗑️ Eliminar
+          </button>
+        </div>` : ''}`;
+  }
+
+  // ── Funciones globales (llamadas desde onchange inline) ──────────
+  window.ap2Refresh = () => { ap2RenderGrupos(); ap2RenderFooter(); };
+
+  window.ap2ToggleOb = function(id, benKey, val) {
+    const ob = ap2Prog?.obligaciones.find(o => String(o._id) === id);
+    if (!ob) return;
+    ob.seleccionado = val;
+    // Color de fila
+    const tr = document.getElementById(`ap2-tr-${id}`);
+    if (tr) tr.style.background = val ? '#f0fdf4' : '';
+    // Actualizar checkbox de beneficiario
+    const benObs = ap2Prog.obligaciones.filter(o => (o.pagarA||'').toUpperCase() === benKey);
+    const benCb  = document.querySelector(`.ap2-ben-cb[data-ben="${benKey}"]`);
+    if (benCb) benCb.checked = benObs.every(o => o.seleccionado);
+    ap2RenderFooter();
+  };
+
+  window.ap2ToggleBen = function(benKey, val) {
+    if (!ap2Prog) return;
+    ap2Prog.obligaciones.forEach(ob => {
+      if ((ob.pagarA||'').toUpperCase() !== benKey) return;
+      ob.seleccionado = val;
+      const tr = document.getElementById(`ap2-tr-${ob._id}`);
+      if (tr) tr.style.background = val ? '#f0fdf4' : '';
+    });
+    document.querySelectorAll(`.ap2-ob-cb[data-ben="${benKey}"]`).forEach(cb => cb.checked = val);
+    ap2RenderFooter();
+  };
+
+  window.ap2Guardar = async function() {
+    if (!ap2Prog) return;
+    const selecciones = ap2Prog.obligaciones.map(ob => ({ id: ob._id, seleccionado: ob.seleccionado }));
+    try {
+      await PUT(`/pagos/programaciones/${ap2Prog._id}/guardar`, { selecciones });
+      toast('Programación guardada', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.ap2Aprobar = async function() {
+    if (!ap2Prog) return;
+    const n = ap2Prog.obligaciones.filter(o => o.seleccionado).length;
+    if (!confirm(`¿Aprobar esta programación con ${n} obligaciones seleccionadas?\nUna vez aprobada, el programador no podrá modificarla.`)) return;
+    const selecciones = ap2Prog.obligaciones.map(ob => ({ id: ob._id, seleccionado: ob.seleccionado }));
+    try {
+      await PUT(`/pagos/programaciones/${ap2Prog._id}/aprobar`, { selecciones });
+      toast('✅ Programación aprobada', 'success');
+      ap2Prog = null;
+      document.getElementById('ap2-wrap').innerHTML = '';
+      ap2RenderFooter();
+      await ap2CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.ap2Eliminar = async function() {
+    if (!ap2Prog) return;
+    if (!confirm('¿Eliminar esta programación? Esta acción no se puede deshacer.')) return;
+    try {
+      await DEL(`/pagos/programaciones/${ap2Prog._id}`);
+      toast('Programación eliminada', 'success');
+      ap2Prog = null;
+      document.getElementById('ap2-wrap').innerHTML = '';
+      ap2RenderFooter();
+      await ap2CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  // Init
+  ap2RenderFooter();
 }
 
 // ─── View: Admin ──────────────────────────────────────────────────
