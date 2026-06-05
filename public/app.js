@@ -3641,16 +3641,6 @@ async function renderPaso1(container) {
     <!-- Tabla de obligaciones (scrollable) — con espacio para el footer fijo -->
     <div id="pg-tabla-wrap" style="padding-bottom:180px"></div>
 
-    <!-- Botones acción -->
-    <div id="pg-btn-enviar" style="display:none;margin-top:14px;display:none;gap:10px;justify-content:flex-end">
-      <button class="btn btn-outline" id="pg-guardar-btn" style="font-size:13px">
-        💾 Guardar
-      </button>
-      <button class="btn btn-primary" id="pg-enviar-btn" style="font-size:13px">
-        📤 Enviar a Aprobación
-      </button>
-    </div>
-
     <!-- Resúmenes fijos al pie (se inyectan vía JS fuera del flujo) -->
     <div id="pg-resumenes-placeholder"></div>`;
 
@@ -3663,20 +3653,26 @@ async function renderPaso1(container) {
       position:fixed; bottom:0; left:220px; right:0; z-index:100;
       background:#fff; border-top:2px solid #e2e8f0;
       box-shadow:0 -4px 12px rgba(0,0,0,.08);
-      display:grid; grid-template-columns:1fr 1fr; gap:0;
+      display:flex; flex-direction:column;
     `;
     pgFooter.innerHTML = `
-      <div style="border-right:1px solid #e2e8f0">
-        <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
-          Resumen por Beneficiario
-        </div>
-        <div id="pg-res-benef" style="overflow-y:auto;max-height:228px"></div>
+      <div id="pg-footer-btns" style="display:none;justify-content:flex-end;align-items:center;gap:10px;padding:7px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0">
+        <button class="btn btn-outline" id="pg-guardar-btn" style="font-size:13px">💾 Guardar</button>
+        <button class="btn btn-primary" id="pg-enviar-btn" style="font-size:13px">📤 Enviar a Aprobación</button>
       </div>
-      <div>
-        <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
-          Resumen por Grupo
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1">
+        <div style="border-right:1px solid #e2e8f0">
+          <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
+            Resumen por Beneficiario
+          </div>
+          <div id="pg-res-benef" style="overflow-y:auto;max-height:228px"></div>
         </div>
-        <div id="pg-res-grupo" style="overflow-y:auto;max-height:228px"></div>
+        <div>
+          <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
+            Resumen por Grupo
+          </div>
+          <div id="pg-res-grupo" style="overflow-y:auto;max-height:228px"></div>
+        </div>
       </div>`;
     document.body.appendChild(pgFooter);
   }
@@ -3769,7 +3765,7 @@ async function renderPaso1(container) {
         progActual = null;
         document.getElementById('pg-tabla-wrap').innerHTML = '';
         document.getElementById('pg-filtros').style.display = 'none';
-        document.getElementById('pg-btn-enviar').style.display = 'none';
+        const _fb = document.getElementById('pg-footer-btns'); if (_fb) _fb.style.display = 'none';
         renderResumenes();
       }
       const comp = document.getElementById('pg-compania').value;
@@ -3870,13 +3866,15 @@ async function renderPaso1(container) {
     document.getElementById('pg-filtros').style.display = '';
     const readOnly   = !!progActual._readOnly;
     const esBorrador = !readOnly && ['borrador','pendiente'].includes(progActual.estado);
-    const btnWrap = document.getElementById('pg-btn-enviar');
-    if (esBorrador) {
-      btnWrap.style.display = 'flex';
-      document.getElementById('pg-guardar-btn')?.addEventListener('click', pgGuardar);
-      document.getElementById('pg-enviar-btn')?.addEventListener('click', pgEnviarAprobacion);
-    } else {
-      btnWrap.style.display = 'none';
+    const btnWrap = document.getElementById('pg-footer-btns');
+    if (btnWrap) {
+      if (esBorrador) {
+        btnWrap.style.display = 'flex';
+        document.getElementById('pg-guardar-btn').onclick = pgGuardar;
+        document.getElementById('pg-enviar-btn').onclick = pgEnviarAprobacion;
+      } else {
+        btnWrap.style.display = 'none';
+      }
     }
     poblarFiltros();
     renderResumenes();
@@ -4201,7 +4199,7 @@ async function renderPaso1(container) {
     try {
       await POST(`/pagos/programaciones/${progActual._id}/enviar-aprobacion`, { selecciones });
       progActual.estado = 'pendiente';
-      document.getElementById('pg-btn-enviar').style.display = 'none';
+      const _fb = document.getElementById('pg-footer-btns'); if (_fb) _fb.style.display = 'none';
       toast('Programación enviada a aprobación', 'success');
     } catch(e) { toast(e.message, 'error'); }
   }
