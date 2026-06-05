@@ -4439,7 +4439,14 @@ async function renderPaso2(container) {
       const sol = sel.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
       return { usd, sol, tot: sol + usd * tc };
     };
-    const benDeuda = ben => allObs.filter(o => (o.pagarA||'') === ben).reduce((s,o) => s + toS(o), 0);
+    const benDeuda = ben => {
+      const obs = allObs.filter(o => (o.pagarA||'') === ben);
+      const usd = obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
+      const sol = obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+      return [usd ? `USD&nbsp;<strong>${fmtN(usd)}</strong>` : '',
+              sol ? `S/&nbsp;<strong>${fmtN(sol)}</strong>`  : '']
+             .filter(Boolean).join('<span style="color:#cbd5e1;margin:0 3px">|</span>');
+    };
     const grpTotales = grp => {
       const sel = allObs.filter(o => (o.grupo || 'OTROS') === grp && o.seleccionado);
       const usd = sel.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
@@ -4497,7 +4504,7 @@ async function renderPaso2(container) {
               Prom: ${promStr}
             </span>
             <div style="display:flex;gap:12px;margin-left:auto;font-size:12px;align-items:center">
-              <span style="color:var(--text-muted)">Deuda:&nbsp;<strong>S/ ${fmtN(bDeuda)}</strong></span>
+              <span style="color:var(--text-muted)">Deuda:&nbsp;${bDeuda}</span>
               <span style="color:#64748b">|</span>
               <span style="color:var(--text-muted)">Programado:&nbsp;${totStr(bTot)}</span>
             </div>
