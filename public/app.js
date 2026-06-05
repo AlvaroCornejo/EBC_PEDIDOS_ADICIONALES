@@ -4779,7 +4779,6 @@ async function renderPaso3(container) {
           <button class="btn btn-outline btn-sm" onclick="p3Expandir(0)" title="Contraer todo">▸ Contraer</button>
           <button class="btn btn-outline btn-sm" onclick="p3Expandir(1)" title="Expandir hasta beneficiarios">≡ Beneficiarios</button>
           <button class="btn btn-outline btn-sm" onclick="p3Expandir(2)" title="Expandir hasta obligaciones">≣ Obligaciones</button>
-          ${esAdmin ? `<button class="btn btn-outline btn-sm" onclick="p3GestionBancos()" title="Gestionar lista de bancos">🏦 Bancos</button>` : ''}
         </div>
       </div>
     </div>
@@ -5355,6 +5354,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="database">🗄️ Base de Datos</button>
         <button class="tab-btn" data-tab="config">⚙️ Configuración</button>
         <button class="tab-btn" data-tab="grupos-pago">💳 Grupos de Pago</button>
+        <button class="tab-btn" data-tab="bancos-pago">🏦 Bancos</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -5363,6 +5363,7 @@ async function viewAdmin(container) {
       <div id="tab-database" class="tab-panel"></div>
       <div id="tab-config" class="tab-panel"></div>
       <div id="tab-grupos-pago" class="tab-panel"></div>
+      <div id="tab-bancos-pago" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -5381,6 +5382,7 @@ async function viewAdmin(container) {
   renderAdminDatabase(document.getElementById('tab-database'));
   renderAdminConfig(document.getElementById('tab-config'));
   renderAdminGruposPago(document.getElementById('tab-grupos-pago'));
+  renderAdminBancos(document.getElementById('tab-bancos-pago'));
 }
 
 // ─── Admin: Grupos de Pago ────────────────────────────────────────
@@ -5466,6 +5468,89 @@ async function renderAdminGruposPago(container) {
     if (!confirm('¿Eliminar?')) return;
     try { await DEL(`/pagos/detalles/${id}`); await load(); }
     catch(e) { toast(e.message, 'error'); }
+  };
+
+  await load();
+}
+
+// ─── Admin: Bancos de Pago ────────────────────────────────────────
+async function renderAdminBancos(container) {
+  async function load() {
+    const bancos = await GET('/pagos/bancos');
+    container.innerHTML = `
+      <div style="padding:8px">
+        <div class="card" style="overflow:hidden;max-width:600px">
+          <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border);
+                      display:flex;justify-content:space-between;align-items:center">
+            <span>🏦 Bancos Válidos para Pagos</span>
+          </div>
+          <table class="data-table" style="font-size:13px">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Código</th>
+                <th class="text-center">Activo</th>
+                <th class="text-center" style="width:70px">Eliminar</th>
+              </tr>
+            </thead>
+            <tbody id="admin-bancos-tbody">
+              ${bancos.map(b => `
+                <tr data-id="${b._id}">
+                  <td style="font-weight:600">${esc(b.nombre)}</td>
+                  <td style="color:var(--text-muted)">${esc(b.codigo||'—')}</td>
+                  <td class="text-center">
+                    <input type="checkbox" ${b.activo ? 'checked' : ''}
+                           style="width:14px;height:14px;accent-color:var(--primary)"
+                           onchange="adminBancoToggle('${b._id}',this.checked)">
+                  </td>
+                  <td class="text-center">
+                    <button class="btn btn-xs btn-danger" onclick="adminBancoEliminar('${b._id}')">✕</button>
+                  </td>
+                </tr>`).join('') ||
+              '<tr><td colspan="4" class="text-muted text-center" style="padding:16px">Sin bancos registrados</td></tr>'}
+            </tbody>
+          </table>
+          <!-- Formulario de alta -->
+          <div style="padding:12px 16px;border-top:1px solid var(--border);
+                      display:flex;gap:8px;align-items:flex-end;background:#f8fafc">
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Nombre del banco *</label>
+              <input id="admin-banco-nombre" class="form-control" style="font-size:13px" placeholder="Ej: BBVA">
+            </div>
+            <div style="width:110px">
+              <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Código</label>
+              <input id="admin-banco-codigo" class="form-control" style="font-size:13px" placeholder="Ej: 011">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="adminBancoAgregar()">＋ Agregar</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  window.adminBancoAgregar = async function() {
+    const nombre = document.getElementById('admin-banco-nombre').value.trim();
+    const codigo = document.getElementById('admin-banco-codigo').value.trim();
+    if (!nombre) { toast('Ingresa el nombre del banco', 'error'); return; }
+    try {
+      await POST('/pagos/bancos', { nombre, codigo });
+      toast('Banco agregado', 'success');
+      await load();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.adminBancoToggle = async function(id, activo) {
+    try {
+      await PUT(`/pagos/bancos/${id}`, { activo });
+    } catch(e) { toast(e.message, 'error'); await load(); }
+  };
+
+  window.adminBancoEliminar = async function(id) {
+    if (!confirm('¿Eliminar este banco? No podrá deshacerse.')) return;
+    try {
+      await DEL(`/pagos/bancos/${id}`);
+      toast('Banco eliminado', 'success');
+      await load();
+    } catch(e) { toast(e.message, 'error'); }
   };
 
   await load();
