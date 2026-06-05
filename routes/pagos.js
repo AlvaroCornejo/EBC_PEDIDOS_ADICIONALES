@@ -292,6 +292,26 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── PUT /api/pagos/programaciones/:id/guardar ────────────────────────────────
+// Guarda selecciones sin cambiar el estado
+router.put('/programaciones/:id/guardar', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!['borrador','pendiente'].includes(prog.estado))
+      return res.status(400).json({ error: 'No se puede modificar en este estado' });
+    const { selecciones } = req.body;
+    if (Array.isArray(selecciones)) {
+      selecciones.forEach(({ id, seleccionado }) => {
+        const ob = prog.obligaciones.id(id);
+        if (ob) ob.seleccionado = !!seleccionado;
+      });
+    }
+    await prog.save();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /api/pagos/programaciones/:id/enviar-aprobacion ─────────────────────
 router.post('/programaciones/:id/enviar-aprobacion', async (req, res) => {
   try {

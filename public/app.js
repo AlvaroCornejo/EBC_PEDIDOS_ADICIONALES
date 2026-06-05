@@ -3641,8 +3641,11 @@ async function renderPaso1(container) {
     <!-- Tabla de obligaciones (scrollable) — con espacio para el footer fijo -->
     <div id="pg-tabla-wrap" style="padding-bottom:180px"></div>
 
-    <!-- Botón enviar -->
-    <div id="pg-btn-enviar" style="display:none;margin-top:14px;text-align:right">
+    <!-- Botones acción -->
+    <div id="pg-btn-enviar" style="display:none;margin-top:14px;display:none;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" id="pg-guardar-btn" style="font-size:13px">
+        💾 Guardar
+      </button>
       <button class="btn btn-primary" id="pg-enviar-btn" style="font-size:13px">
         📤 Enviar a Aprobación
       </button>
@@ -3867,11 +3870,13 @@ async function renderPaso1(container) {
     document.getElementById('pg-filtros').style.display = '';
     const readOnly   = !!progActual._readOnly;
     const esBorrador = !readOnly && ['borrador','pendiente'].includes(progActual.estado);
+    const btnWrap = document.getElementById('pg-btn-enviar');
     if (esBorrador) {
-      document.getElementById('pg-btn-enviar').style.display = '';
+      btnWrap.style.display = 'flex';
+      document.getElementById('pg-guardar-btn')?.addEventListener('click', pgGuardar);
       document.getElementById('pg-enviar-btn')?.addEventListener('click', pgEnviarAprobacion);
     } else {
-      document.getElementById('pg-btn-enviar').style.display = 'none';
+      btnWrap.style.display = 'none';
     }
     poblarFiltros();
     renderResumenes();
@@ -4177,6 +4182,16 @@ async function renderPaso1(container) {
         { nombre: pagarA, [campo]: nuevo });
     } catch(e) { toast('Error guardando: ' + e.message, 'error'); }
   };
+
+  // ── Guardar selecciones ────────────────────────────────────────────
+  async function pgGuardar() {
+    if (!progActual) return;
+    const selecciones = progActual.obligaciones.map(ob => ({ id: ob._id, seleccionado: ob.seleccionado }));
+    try {
+      await PUT(`/pagos/programaciones/${progActual._id}/guardar`, { selecciones });
+      toast('Programación guardada', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  }
 
   // ── Enviar a aprobación ────────────────────────────────────────────
   async function pgEnviarAprobacion() {
