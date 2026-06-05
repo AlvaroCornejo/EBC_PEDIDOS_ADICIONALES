@@ -4968,14 +4968,67 @@ async function renderPaso3(container) {
     });
   }
 
+  // ── Agrupadores fijos + custom para esta programación ───────────
+  const AGRUPS_FIJOS = ['INDIVIDUAL','AGRUPADO 1','AGRUPADO 2','AGRUPADO 3','AGRUPADO 4',
+                        'AGRUPADO 5','AGRUPADO 6','AGRUPADO 7','AGRUPADO 8','AGRUPADO 9','AGRUPADO 10'];
+  let p3CustomAgrups = []; // nombres extra añadidos en esta sesión
+
+  function p3AgrupOpts(selVal) {
+    const extra = p3CustomAgrups.filter(a => !AGRUPS_FIJOS.includes(a));
+    const todos = [...AGRUPS_FIJOS, ...extra];
+    return todos.map(a =>
+      `<option value="${esc(a)}" ${a === selVal ? 'selected' : ''}>${esc(a)}</option>`
+    ).join('') + `<option value="__nuevo__">＋ Nuevo agrupador...</option>`;
+  }
+
+  // ── Validar antes de asignar agrupador ────────────────────────────
+  function p3ValidarAgrup(benKey, nuevoAgrup, nuevoBanco) {
+    if (nuevoAgrup === 'INDIVIDUAL') return { ok: true };
+    const allObs = (p3Prog.obligaciones || []).filter(o => o.seleccionado);
+    const benObs = allObs.filter(o => (o.pagarA||'').toUpperCase() === benKey.toUpperCase());
+
+    // Este beneficiario no puede tener monedas mixtas en un agrupado
+    const hasUSD = benObs.some(o => o.moneda !== 'LO');
+    const hasSol = benObs.some(o => o.moneda === 'LO');
+    if (hasUSD && hasSol)
+      return { ok: false, msg: `"${benKey}" tiene obligaciones en USD y S/. Solo INDIVIDUAL acepta monedas mixtas.` };
+
+    // Obligaciones ya en ese agrupador (de otros beneficiarios)
+    const otrosEnGrupo = allObs.filter(o =>
+      (o.pagarA||'').toUpperCase() !== benKey.toUpperCase() &&
+      (o.agrupadorPago||'INDIVIDUAL') === nuevoAgrup
+    );
+    if (!otrosEnGrupo.length) return { ok: true };
+
+    // Validar misma moneda
+    const otroUSD = otrosEnGrupo.some(o => o.moneda !== 'LO');
+    const benMon  = hasUSD ? 'USD' : 'S/';
+    const otroMon = otroUSD ? 'USD' : 'S/';
+    if (benMon !== otroMon)
+      return { ok: false, msg: `El agrupador "${nuevoAgrup}" ya contiene obligaciones en ${otroMon}, pero "${benKey}" tiene en ${benMon}.` };
+
+    // Validar mismo banco
+    if (nuevoBanco) {
+      const otrosBancos = [...new Set(otrosEnGrupo.map(o => o.bancoAsignado).filter(Boolean))];
+      if (otrosBancos.length && !otrosBancos.includes(nuevoBanco))
+        return { ok: false, msg: `El agrupador "${nuevoAgrup}" ya usa el banco "${otrosBancos[0]}". Un agrupado solo puede tener un banco.` };
+    }
+    return { ok: true };
+  }
+
   // ── Render árbol de grupos ───────────────────────────────────────
   function p3RenderGrupos() {
     const wrap = document.getElementById('p3-wrap');
     if (!p3Prog) { wrap.innerHTML = ''; return; }
-    const tc     = parseFloat(document.getElementById('p3-tc')?.value) || 1;
-    const fmtMon = (ob) => ob.moneda !== 'LO' ? 'USD' : 'S/';
-    const obs    = p3ObsFiltradas();
+    const tc  = parseFloat(document.getElementById('p3-tc')?.value) || 1;
+    const obs = p3ObsFiltradas();
     const allObs = (p3Prog.obligaciones || []).filter(o => o.seleccionado);
+
+    // Sincronizar custom agrupadores existentes en la programación
+    allObs.forEach(o => {
+      const ag = o.agrupadorPago || 'INDIVIDUAL';
+      if (!AGRUPS_FIJOS.includes(ag) && !p3CustomAgrups.includes(ag)) p3CustomAgrups.push(ag);
+    });
 
     // Agrupar por grupo → beneficiario
     const grupos = {};
@@ -4987,29 +5040,32 @@ async function renderPaso3(container) {
       grupos[g][b].push(ob);
     });
 
-    // Helpers de totales
     const grpTot = (g) => {
-      const gobs = obs.filter(o => (o.grupo||'OTROS') === g);
-      const usd  = gobs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
-      const sol  = gobs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+      const go = obs.filter(o => (o.grupo||'OTROS') === g);
+      const usd = go.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
+      const sol = go.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
       return { usd, sol, tot: sol + usd * tc };
     };
     const benTot = (ben) => {
-      const bobs = obs.filter(o => (o.pagarA||'') === ben);
-      const usd  = bobs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
-      const sol  = bobs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+      const bo = obs.filter(o => (o.pagarA||'') === ben);
+      const usd = bo.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
+      const sol = bo.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
       return { usd, sol, tot: sol + usd * tc };
     };
     const totStr = ({usd, sol}) => [
       usd ? `USD&nbsp;${fmtN(usd)}` : '',
-      sol ? `S/&nbsp;${fmtN(sol)}`   : '',
+      sol ? `S/&nbsp;${fmtN(sol)}`  : '',
     ].filter(Boolean).join('<br>') || '—';
 
-    // Opciones de banco para select
-    const bancosOpts = `<option value="">— Banco —</option>` +
-      p3Bancos.filter(b => b.activo).map(b => `<option value="${esc(b.nombre)}">${esc(b.nombre)}</option>`).join('');
+    // Select de banco (para fila de beneficiario)
+    const bancosOpts = (sel) =>
+      `<option value="">— Banco —</option>` +
+      p3Bancos.filter(b => b.activo).map(b =>
+        `<option value="${esc(b.nombre)}" ${b.nombre === sel ? 'selected' : ''}>${esc(b.nombre)}</option>`
+      ).join('');
 
-    const COLS = 'grid-template-columns:26px 20px minmax(120px,200px) 150px 130px 150px 140px 120px';
+    // COLS: arrow | name | programado | banco | agrupador | total
+    const COLS = 'grid-template-columns:26px minmax(140px,220px) 140px 120px 130px 110px';
 
     let html = '';
     Object.keys(grupos).sort().forEach(grp => {
@@ -5036,79 +5092,74 @@ async function renderPaso3(container) {
         <div id="${grpId}" style="display:none">
           <!-- Cabecera de columnas -->
           <div style="display:grid;${COLS};
-                      align-items:center;padding:5px 16px 5px 20px;
+                      align-items:center;padding:5px 14px 5px 18px;
                       background:#f1f5f9;border-bottom:1px solid #e2e8f0;
                       font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
-            <div></div><div></div>
+            <div></div>
             <div>Beneficiario</div>
             <div style="text-align:right">Programado</div>
-            <div style="text-align:center">Banco Asignado</div>
-            <div style="text-align:center">Agrupador Pago</div>
+            <div style="text-align:center">Banco</div>
+            <div style="text-align:center">Agrupador</div>
             <div style="text-align:right">Total S/</div>
           </div>`;
 
       Object.keys(grupos[grp]).sort().forEach(ben => {
         const oblList = grupos[grp][ben];
-        const benKey  = ben.toUpperCase().replace(/"/g,'&quot;');
+        const benKey  = ben.toUpperCase().replace(/"/g,'&quot;').replace(/'/g,'&#39;');
         const bt      = benTot(ben);
         const progMon = totStr(bt);
+        // Banco y agrupador actuales del beneficiario (primer ob = referencia)
+        const benFirstOb = allObs.find(o => (o.pagarA||'').toUpperCase() === ben.toUpperCase());
+        const curBanco = benFirstOb?.bancoAsignado || '';
+        const curAgrup = benFirstOb?.agrupadorPago || 'INDIVIDUAL';
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
-          <div class="p3-ben-row" onclick="if(!['SELECT','INPUT','BUTTON'].includes(event.target.tagName))p3ToggleBenObl(this)"
+          <div class="p3-ben-row" onclick="if(!['SELECT','OPTION'].includes(event.target.tagName))p3ToggleBenObl(this)"
                style="display:grid;${COLS};
-                      align-items:center;padding:7px 16px 7px 20px;
+                      align-items:center;padding:6px 14px 6px 18px;
                       background:#fafbfc;cursor:pointer;user-select:none">
             <span class="p3-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
-            <div></div>
             <span style="font-weight:600;font-size:13px">${esc(ben)}</span>
             <div style="text-align:right;font-size:12px;line-height:1.5">${progMon}</div>
-            <div></div>
-            <div></div>
+            <div onclick="event.stopPropagation()">
+              <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
+                      onchange="p3SetBancoBen('${benKey}',this.value)">
+                ${bancosOpts(curBanco)}
+              </select>
+            </div>
+            <div onclick="event.stopPropagation()">
+              <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
+                      onchange="p3SetAgrupBen('${benKey}',this.value)">
+                ${p3AgrupOpts(curAgrup)}
+              </select>
+            </div>
             <div style="text-align:right;font-size:13px;font-weight:700;color:var(--primary)">${fmtN(bt.tot)}</div>
           </div>
           <div class="p3-obl-div" data-p3-ben="${benKey}" style="display:none">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
               <thead>
                 <tr style="background:#f8fafc;color:var(--text-muted)">
-                  <th style="width:36px;padding:4px 8px 4px 36px"></th>
-                  <th style="padding:4px 8px;text-align:left">Tipo Doc</th>
+                  <th style="padding:4px 8px 4px 32px;text-align:left">Tipo Doc</th>
                   <th style="padding:4px 8px;text-align:left">N° Documento</th>
                   <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
                   <th style="padding:4px 8px;text-align:right">Moneda</th>
                   <th style="padding:4px 8px;text-align:right">Monto</th>
-                  <th style="padding:4px 8px;text-align:center;min-width:140px">Banco Asignado</th>
-                  <th style="padding:4px 8px;text-align:center;min-width:150px">Agrupador Pago</th>
+                  <th style="padding:4px 8px;text-align:center">Banco</th>
+                  <th style="padding:4px 8px;text-align:center">Agrupador</th>
                 </tr>
               </thead>
               <tbody>
-                ${oblList.map(ob => {
-                  const obId  = String(ob._id);
-                  const banco = ob.bancoAsignado || '';
-                  const agrup = ob.agrupadorPago || 'INDIVIDUAL';
-                  return `<tr style="border-top:1px solid #f1f5f9">
-                    <td style="padding:5px 8px 5px 36px"></td>
-                    <td style="padding:5px 8px">${esc(ob.tipoDocumento||'')}</td>
-                    <td style="padding:5px 8px">${esc(ob.numeroDocumento||'')}</td>
-                    <td style="padding:5px 8px">${fmtF(ob.fechaVencimiento)}</td>
-                    <td style="padding:5px 8px;text-align:right">${esc(ob.moneda||'')}</td>
-                    <td style="padding:5px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
-                    <td style="padding:4px 8px">
-                      <select class="form-control" style="font-size:11px;padding:2px 6px;height:28px"
-                              onchange="p3SetBanco('${obId}',this.value)">
-                        ${bancosOpts.replace(`value="${esc(banco)}"`,`value="${esc(banco)}" selected`)}
-                      </select>
-                    </td>
-                    <td style="padding:4px 8px">
-                      <input class="form-control p3-agrup-inp" data-obid="${obId}"
-                             style="font-size:11px;padding:2px 6px;height:28px"
-                             value="${esc(agrup)}"
-                             list="p3-agrup-list"
-                             onchange="p3SetAgrup('${obId}',this.value)"
-                             oninput="p3SetAgrup('${obId}',this.value)">
-                    </td>
-                  </tr>`;
-                }).join('')}
+                ${oblList.map(ob => `
+                  <tr style="border-top:1px solid #f1f5f9">
+                    <td style="padding:4px 8px 4px 32px">${esc(ob.tipoDocumento||'')}</td>
+                    <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
+                    <td style="padding:4px 8px">${fmtF(ob.fechaVencimiento)}</td>
+                    <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+                    <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
+                    <td style="padding:4px 8px;text-align:center;color:#1d4ed8;font-size:11px">${esc(ob.bancoAsignado||'—')}</td>
+                    <td style="padding:4px 8px;text-align:center;color:#7c3aed;font-size:11px">${esc(ob.agrupadorPago||'INDIVIDUAL')}</td>
+                  </tr>`).join('')}
               </tbody>
             </table>
           </div>
@@ -5117,13 +5168,6 @@ async function renderPaso3(container) {
 
       html += `</div></div>`;
     });
-
-    // Datalist para agrupadores usados
-    const agrups = [...new Set(allObs.map(o => o.agrupadorPago||'INDIVIDUAL'))].sort();
-    html += `<datalist id="p3-agrup-list">
-      <option value="INDIVIDUAL">
-      ${agrups.filter(a => a !== 'INDIVIDUAL').map(a => `<option value="${esc(a)}">`).join('')}
-    </datalist>`;
 
     wrap.innerHTML = html || '<p style="color:var(--text-muted);padding:16px">No hay obligaciones programadas.</p>';
   }
@@ -5152,14 +5196,44 @@ async function renderPaso3(container) {
     });
   };
 
-  // ── Setters inline ───────────────────────────────────────────────
-  window.p3SetBanco = function(obId, val) {
-    const ob = p3Prog?.obligaciones?.find(o => String(o._id) === obId);
-    if (ob) { ob.bancoAsignado = val; p3RenderFooter(); }
+  // ── Setters a nivel de beneficiario ─────────────────────────────
+  window.p3SetBancoBen = function(benKey, val) {
+    if (!p3Prog) return;
+    p3Prog.obligaciones.forEach(ob => {
+      if ((ob.pagarA||'').toUpperCase() === benKey.toUpperCase() && ob.seleccionado)
+        ob.bancoAsignado = val;
+    });
+    const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
   };
-  window.p3SetAgrup = function(obId, val) {
-    const ob = p3Prog?.obligaciones?.find(o => String(o._id) === obId);
-    if (ob) { ob.agrupadorPago = val || 'INDIVIDUAL'; p3RenderFooter(); }
+
+  window.p3SetAgrupBen = function(benKey, val) {
+    if (!p3Prog) return;
+
+    // Nuevo agrupador personalizado
+    if (val === '__nuevo__') {
+      const nuevo = prompt('Ingresa el nombre del nuevo agrupador:');
+      if (!nuevo || !nuevo.trim()) return;
+      const nombre = nuevo.trim().toUpperCase();
+      if (!AGRUPS_FIJOS.includes(nombre) && !p3CustomAgrups.includes(nombre))
+        p3CustomAgrups.push(nombre);
+      val = nombre;
+    }
+
+    // Banco actual del beneficiario
+    const benFirstOb = p3Prog.obligaciones.find(
+      o => (o.pagarA||'').toUpperCase() === benKey.toUpperCase() && o.seleccionado
+    );
+    const bancoBen = benFirstOb?.bancoAsignado || '';
+
+    // Validar
+    const v = p3ValidarAgrup(benKey, val, bancoBen);
+    if (!v.ok) { toast(v.msg, 'error'); const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); return; }
+
+    p3Prog.obligaciones.forEach(ob => {
+      if ((ob.pagarA||'').toUpperCase() === benKey.toUpperCase() && ob.seleccionado)
+        ob.agrupadorPago = val;
+    });
+    const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
   };
 
   // ── Refresh / filtrar ────────────────────────────────────────────
