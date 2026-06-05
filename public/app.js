@@ -3580,6 +3580,9 @@ async function renderPaso1(container) {
       </div>
     </div>
 
+    <!-- Lista de programaciones existentes -->
+    <div id="pg-progs-lista" style="margin-bottom:12px"></div>
+
     <!-- Filtros -->
     <div class="card mb-16" style="padding:12px;display:none" id="pg-filtros">
       <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
@@ -3655,6 +3658,45 @@ async function renderPaso1(container) {
     const f = e.target.files[0];
     document.getElementById('pg-filename').textContent = f ? f.name : 'Sin archivo';
   });
+
+  // Al cambiar sociedad → mostrar programaciones existentes
+  document.getElementById('pg-compania').addEventListener('change', async (e) => {
+    const comp = e.target.value;
+    await pgCargarListaProgs(comp);
+  });
+
+  async function pgCargarListaProgs(compania) {
+    const wrap = document.getElementById('pg-progs-lista');
+    if (!wrap) return;
+    if (!compania) { wrap.innerHTML = ''; return; }
+    try {
+      const progs = await GET(`/pagos/programaciones?compania=${encodeURIComponent(compania)}`);
+      if (!progs.length) { wrap.innerHTML = `<p style="font-size:12px;color:var(--text-muted);margin:6px 0">Sin programaciones anteriores para ${compania}</p>`; return; }
+      const fmtEstado = e => ({ borrador:'🔵 Borrador', pendiente:'🟡 Pendiente aprobación', aprobado:'🟢 Aprobado', pagado:'✅ Pagado' }[e] || e);
+      wrap.innerHTML = `
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Programaciones existentes — ${compania}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${progs.map(p => `
+            <button onclick="pgAbrirProg('${p._id}')"
+              style="font-size:12px;padding:6px 12px;border:1px solid ${p.estado==='borrador'?'#93c5fd':p.estado==='pendiente'?'#fcd34d':'#86efac'};
+                     background:${p.estado==='borrador'?'#eff6ff':p.estado==='pendiente'?'#fffbeb':'#f0fdf4'};
+                     border-radius:6px;cursor:pointer;text-align:left">
+              <div style="font-weight:600">Sem. ${p.semana}/${p.año}</div>
+              <div style="color:var(--text-muted)">${new Date(p.fechaPago).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'})}</div>
+              <div>${fmtEstado(p.estado)}</div>
+            </button>`).join('')}
+        </div>`;
+    } catch(e) { wrap.innerHTML = `<p style="font-size:12px;color:red">${e.message}</p>`; }
+  }
+
+  window.pgAbrirProg = async (id) => {
+    try {
+      progActual = await GET(`/pagos/programaciones/${id}`);
+      progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
+      await renderTablaYResumenes();
+      toast('Programación cargada', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  };
 
   // ── Barra de progreso ──────────────────────────────────────────────
   function setProgress(pct, label) {
