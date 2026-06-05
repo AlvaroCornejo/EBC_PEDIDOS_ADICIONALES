@@ -5,6 +5,7 @@ const PagoBeneficiario  = require('../models/PagoBeneficiario');
 const PagoProgramacion  = require('../models/PagoProgramacion');
 const PagoGrupoProveedor = require('../models/PagoGrupoProveedor');
 const PagoDetalleGrupo   = require('../models/PagoDetalleGrupo');
+const PagoBanco          = require('../models/PagoBanco');
 
 const router  = express.Router();
 const upload  = multer({ storage: multer.memoryStorage() });
@@ -299,7 +300,7 @@ router.put('/programaciones/:id/guardar', async (req, res) => {
   try {
     const prog = await PagoProgramacion.findById(req.params.id);
     if (!prog) return res.status(404).json({ error: 'No encontrada' });
-    if (!['borrador','pendiente','aprobado'].includes(prog.estado))
+    if (!['borrador','pendiente','aprobado','preparado'].includes(prog.estado))
       return res.status(400).json({ error: 'No se puede modificar en este estado' });
     const { selecciones } = req.body;
     if (Array.isArray(selecciones)) {
@@ -439,6 +440,116 @@ router.post('/cargar-pagos', upload.single('archivo'), async (req, res) => {
     }
 
     res.json(resultado);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET  /api/pagos/bancos ────────────────────────────────────────────────────
+router.get('/bancos', async (req, res) => {
+  try {
+    const rows = await PagoBanco.find().sort({ nombre: 1 }).lean();
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/pagos/bancos ────────────────────────────────────────────────────
+router.post('/bancos', async (req, res) => {
+  try {
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['admin'].includes(rol) && req.user.role !== 'ADMIN')
+      return res.status(403).json({ error: 'Solo administradores pueden crear bancos' });
+    const { nombre, codigo } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+    const banco = new PagoBanco({ nombre: nombre.trim().toUpperCase(), codigo: (codigo||'').trim() });
+    await banco.save();
+    res.json(banco);
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ error: 'Ya existe un banco con ese nombre' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PUT /api/pagos/bancos/:id ─────────────────────────────────────────────────
+router.put('/bancos/:id', async (req, res) => {
+  try {
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['admin'].includes(rol) && req.user.role !== 'ADMIN')
+      return res.status(403).json({ error: 'Sin permiso' });
+    const { nombre, codigo, activo } = req.body;
+    const upd = {};
+    if (nombre !== undefined) upd.nombre = nombre.trim().toUpperCase();
+    if (codigo !== undefined) upd.codigo = codigo.trim();
+    if (activo !== undefined) upd.activo = !!activo;
+    const banco = await PagoBanco.findByIdAndUpdate(req.params.id, upd, { new: true });
+    if (!banco) return res.status(404).json({ error: 'No encontrado' });
+    res.json(banco);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /api/pagos/bancos/:id ──────────────────────────────────────────────
+router.delete('/bancos/:id', async (req, res) => {
+  try {
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['admin'].includes(rol) && req.user.role !== 'ADMIN')
+      return res.status(403).json({ error: 'Sin permiso' });
+    await PagoBanco.findByIdAndDelete(req.params.id);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PUT /api/pagos/programaciones/:id/guardar-p3 ─────────────────────────────
+// Guarda bancoAsignado + agrupadorPago de cada obligación (Paso 3)
+router.put('/programaciones/:id/guardar-p3', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (!['aprobado','preparado'].includes(prog.estado))
+      return res.status(400).json({ error: 'Solo se puede preparar en estado aprobado o preparado' });
+    const { asignaciones } = req.body; // [{ id, bancoAsignado, agrupadorPago }]
+    if (Array.isArray(asignaciones)) {
+      asignaciones.forEach(({ id, bancoAsignado, agrupadorPago }) => {
+        const ob = prog.obligaciones.id(id);
+        if (ob) {
+          if (bancoAsignado  !== undefined) ob.bancoAsignado  = bancoAsignado  || '';
+          if (agrupadorPago  !== undefined) ob.agrupadorPago  = agrupadorPago  || 'INDIVIDUAL';
+        }
+      });
+    }
+    await prog.save();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PUT /api/pagos/programaciones/:id/preparar ───────────────────────────────
+// Marca la programación como preparada (Paso 3 → Paso 4)
+router.put('/programaciones/:id/preparar', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (!['aprobado','preparado'].includes(prog.estado))
+      return res.status(400).json({ error: 'Solo se puede preparar desde estado aprobado' });
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['pagador','admin'].includes(rol))
+      return res.status(403).json({ error: 'No tiene permiso para preparar pagos' });
+    // Guardar asignaciones
+    const { asignaciones } = req.body;
+    if (Array.isArray(asignaciones)) {
+      asignaciones.forEach(({ id, bancoAsignado, agrupadorPago }) => {
+        const ob = prog.obligaciones.id(id);
+        if (ob) {
+          if (bancoAsignado !== undefined) ob.bancoAsignado = bancoAsignado || '';
+          if (agrupadorPago !== undefined) ob.agrupadorPago = agrupadorPago || 'INDIVIDUAL';
+        }
+      });
+    }
+    prog.estado        = 'preparado';
+    prog.preparadoPor  = req.user.username;
+    prog.preparadoEn   = new Date();
+    await prog.save();
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

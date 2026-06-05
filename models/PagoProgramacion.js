@@ -8,11 +8,14 @@ const obligacionSchema = new mongoose.Schema({
   monto:           Number,
   pagarA:          String,
   fechaDocumento:  Date,
-  banco:           String,
+  banco:           String,   // banco original de la obligación
   diasVencido:     Number,
   grupo:           { type: String, default: 'OTROS' },
   detalleGrupo:    { type: String, default: 'OTROS' },
   seleccionado:    { type: Boolean, default: false },
+  // Paso 3 — Preparación
+  bancoAsignado:   { type: String, default: '' },   // banco de pago asignado en Paso 3
+  agrupadorPago:   { type: String, default: 'INDIVIDUAL' }, // agrupador de pago
 }, { _id: true });
 
 const schema = new mongoose.Schema({
@@ -22,12 +25,16 @@ const schema = new mongoose.Schema({
   año:        Number,
   creadoPor:   String,
   creadoEn:    { type: Date, default: Date.now },
-  enviadoPor:  String,
-  enviadoEn:   Date,
-  aprobadoPor: String,
-  aprobadoEn:  Date,
+  enviadoPor:    String,
+  enviadoEn:     Date,
+  aprobadoPor:   String,
+  aprobadoEn:    Date,
+  preparadoPor:  String,
+  preparadoEn:   Date,
+  autorizadoPor: String,
+  autorizadoEn:  Date,
   estado:          { type: String, default: 'borrador',
-                     enum: ['borrador','pendiente','aprobado','pagado'] },
+                     enum: ['borrador','pendiente','aprobado','preparado','autorizado','pagado'] },
   promediosPagos:  { type: mongoose.Schema.Types.Mixed, default: {} },
   obligaciones: [obligacionSchema],
 });

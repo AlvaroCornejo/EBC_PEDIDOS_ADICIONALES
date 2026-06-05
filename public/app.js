@@ -3503,7 +3503,7 @@ async function viewPagos(container) {
       <div class="tabs mb-0">
         <button class="tab-btn active" data-ptab="p1">📋 Paso 1 — Programación</button>
         <button class="tab-btn" data-ptab="p2" ${['aprobador','admin'].includes(rolP) ? '' : 'disabled style="opacity:.4"'}>✅ Paso 2 — Aprobación</button>
-        <button class="tab-btn" data-ptab="p3" disabled style="opacity:.4">🏦 Paso 3 — Preparación de Pagos</button>
+        <button class="tab-btn" data-ptab="p3" ${['pagador','admin'].includes(rolP) ? '' : 'disabled style="opacity:.4"'}>🏦 Paso 3 — Preparación de Pagos</button>
         <button class="tab-btn" data-ptab="p4" disabled style="opacity:.4">🔑 Paso 4 — Autorización en Bancos</button>
         <button class="tab-btn" data-ptab="p5" disabled style="opacity:.4">📝 Paso 5 — Registro del Movimiento Bancario</button>
       </div>
@@ -3526,10 +3526,13 @@ async function renderPasoContent(paso, el) {
   // Ocultar footers de otros pasos al cambiar
   const p1f = document.getElementById('pg-resumenes-footer');
   const p2f = document.getElementById('ap2-footer');
+  const p3f = document.getElementById('ap3-footer');
   if (p1f) p1f.style.display = paso === 'p1' ? 'grid' : 'none';
   if (p2f) p2f.style.display = paso === 'p2' ? 'flex' : 'none';
+  if (p3f) p3f.style.display = paso === 'p3' ? 'flex' : 'none';
   if (paso === 'p1') await renderPaso1(el);
   if (paso === 'p2') await renderPaso2(el);
+  if (paso === 'p3') await renderPaso3(el);
 }
 
 async function renderPaso1(container) {
@@ -4500,7 +4503,7 @@ async function renderPaso2(container) {
         </div>
         <div id="${grpId}" style="display:none">
           <!-- Cabecera de columnas -->
-          <div style="display:grid;grid-template-columns:26px 20px 1fr 160px 160px 130px 120px;
+          <div style="display:grid;grid-template-columns:26px 20px minmax(120px,200px) 150px 150px 120px 120px;
                       align-items:center;padding:5px 16px 5px 20px;
                       background:#f1f5f9;border-bottom:1px solid #e2e8f0;
                       font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
@@ -4529,7 +4532,7 @@ async function renderPaso2(container) {
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
           <div class="ap2-ben-row" onclick="if(event.target.tagName!=='INPUT')ap2ToggleBenObl(this)"
-               style="display:grid;grid-template-columns:26px 20px 1fr 160px 160px 130px 120px;
+               style="display:grid;grid-template-columns:26px 20px minmax(120px,200px) 150px 150px 120px 120px;
                       align-items:center;padding:7px 16px 7px 20px;
                       background:#fafbfc;cursor:pointer;user-select:none">
             <span class="ap2-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
@@ -4722,6 +4725,618 @@ async function renderPaso2(container) {
 
   // Init
   ap2RenderFooter();
+}
+
+// ─── Paso 3: Preparación de Pagos ────────────────────────────────
+async function renderPaso3(container) {
+  let p3Prog      = null;
+  let p3Bancos    = [];
+
+  const rolP        = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
+  const puedePagar  = ['pagador','admin'].includes(rolP);
+  const esAdmin     = (S.user.role === 'ADMIN' || rolP === 'admin');
+
+  const fmtN = v => v == null ? '—' : Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtF = d => d ? new Date(d).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+
+  // Footer fijo
+  let p3Footer = document.getElementById('ap3-footer');
+  if (!p3Footer) {
+    p3Footer = document.createElement('div');
+    p3Footer.id = 'ap3-footer';
+    p3Footer.style.cssText = `
+      position:fixed;bottom:0;left:220px;right:0;z-index:100;
+      background:#fff;border-top:2px solid #e2e8f0;
+      box-shadow:0 -4px 12px rgba(0,0,0,.08);
+      display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap;
+    `;
+    document.body.appendChild(p3Footer);
+  }
+  p3Footer.style.display = 'flex';
+
+  // Cargar bancos
+  p3Bancos = await GET('/pagos/bancos');
+
+  // ── HTML principal ───────────────────────────────────────────────
+  container.innerHTML = `
+    <div class="card mb-16" style="padding:14px">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+          <select id="p3-compania" class="form-control" style="width:150px">
+            <option value="">— Seleccionar —</option>
+            ${(esAdmin ? ALL_SOCS_COMPRA : (S.user.sociedadesPago || []))
+              .map(s => `<option value="${s}">${s}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo de Cambio (USD→S/)</label>
+          <input id="p3-tc" type="number" step="0.001" min="0" class="form-control"
+                 style="width:90px;font-size:13px" value="3.700"
+                 oninput="clearTimeout(window._p3TC);window._p3TC=setTimeout(p3Refresh,300)">
+        </div>
+        <div style="margin-left:auto;align-self:flex-end;display:flex;gap:6px">
+          <button class="btn btn-outline btn-sm" onclick="p3Expandir(0)" title="Contraer todo">▸ Contraer</button>
+          <button class="btn btn-outline btn-sm" onclick="p3Expandir(1)" title="Expandir hasta beneficiarios">≡ Beneficiarios</button>
+          <button class="btn btn-outline btn-sm" onclick="p3Expandir(2)" title="Expandir hasta obligaciones">≣ Obligaciones</button>
+          ${esAdmin ? `<button class="btn btn-outline btn-sm" onclick="p3GestionBancos()" title="Gestionar lista de bancos">🏦 Bancos</button>` : ''}
+        </div>
+      </div>
+    </div>
+    <div id="p3-lista" class="mb-16"></div>
+    <!-- Filtros -->
+    <div id="p3-filtros" class="card mb-16" style="padding:12px;display:none">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Tipo Documento</label>
+          <select id="p3-f-tipodoc" class="form-control" style="width:120px;font-size:12px" onchange="p3Filtrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">N° Documento</label>
+          <input id="p3-f-numdoc" class="form-control" style="width:160px;font-size:12px" placeholder="Buscar..."
+                 oninput="clearTimeout(window._p3FT);window._p3FT=setTimeout(p3Filtrar,320)">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Beneficiario</label>
+          <input id="p3-f-benef" class="form-control" style="width:180px;font-size:12px" placeholder="Buscar..."
+                 oninput="clearTimeout(window._p3FT);window._p3FT=setTimeout(p3Filtrar,320)">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Grupo</label>
+          <select id="p3-f-grupo" class="form-control" style="width:140px;font-size:12px" onchange="p3Filtrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Banco Asignado</label>
+          <select id="p3-f-banco" class="form-control" style="width:140px;font-size:12px" onchange="p3Filtrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Agrupador</label>
+          <select id="p3-f-agrup" class="form-control" style="width:140px;font-size:12px" onchange="p3Filtrar()">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="p3LimpiarFiltros()">✕ Limpiar</button>
+      </div>
+    </div>
+    <div id="p3-wrap" style="padding-bottom:120px"></div>`;
+
+  // Evento selector de sociedad
+  document.getElementById('p3-compania').addEventListener('change', async () => {
+    p3Prog = null;
+    document.getElementById('p3-wrap').innerHTML = '';
+    document.getElementById('p3-filtros').style.display = 'none';
+    p3RenderFooter();
+    await p3CargarLista();
+  });
+
+  // ── Cargar lista ─────────────────────────────────────────────────
+  async function p3CargarLista() {
+    const comp = document.getElementById('p3-compania').value;
+    const el   = document.getElementById('p3-lista');
+    if (!comp) { el.innerHTML = ''; return; }
+    let data;
+    if (esAdmin) {
+      const todas = await GET(`/pagos/programaciones?compania=${comp}`);
+      data = todas.filter(p => ['aprobado','preparado'].includes(p.estado));
+    } else {
+      const [apro, prep] = await Promise.all([
+        GET(`/pagos/programaciones?compania=${comp}&estado=aprobado`),
+        GET(`/pagos/programaciones?compania=${comp}&estado=preparado`),
+      ]);
+      data = [...apro, ...prep];
+    }
+    if (!data.length) {
+      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones aprobadas para preparar en <strong>${esc(comp)}</strong>.</p>`;
+      return;
+    }
+    const BADGES = {
+      aprobado:  `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">✅ Aprobada</span>`,
+      preparado: `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px;margin-left:4px">🏦 Preparada</span>`,
+    };
+    el.innerHTML = `
+      <div class="card" style="padding:12px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;letter-spacing:.5px">
+          Programaciones para preparación de pagos
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${data.map(p => {
+            const activo = p3Prog?._id === p._id;
+            const badge  = BADGES[p.estado] || '';
+            return `<button class="btn btn-sm p3-prog-btn" data-id="${p._id}"
+              style="font-size:12px;${activo ? 'background:var(--primary);color:#fff;border-color:var(--primary)' : 'border:1px solid #cbd5e1;background:#fff'}">
+              📋 Sem ${p.semana}/${p.año}&nbsp;&nbsp;${p.compania}${badge}
+            </button>`;
+          }).join('')}
+        </div>
+      </div>`;
+    document.querySelectorAll('.p3-prog-btn').forEach(btn =>
+      btn.addEventListener('click', () => p3AbrirProg(btn.dataset.id))
+    );
+  }
+
+  // ── Abrir programación ───────────────────────────────────────────
+  async function p3AbrirProg(id) {
+    try {
+      p3Prog = await GET(`/pagos/programaciones/${id}`);
+      p3PoblarFiltros();
+      p3RenderGrupos();
+      p3RenderFooter();
+      await p3CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  }
+
+  // ── Filtros ──────────────────────────────────────────────────────
+  function p3ObsFiltradas() {
+    if (!p3Prog) return [];
+    const fDoc   = document.getElementById('p3-f-tipodoc')?.value || '';
+    const fNum   = (document.getElementById('p3-f-numdoc')?.value || '').toLowerCase();
+    const fBen   = (document.getElementById('p3-f-benef')?.value || '').toLowerCase();
+    const fGrp   = document.getElementById('p3-f-grupo')?.value || '';
+    const fBanco = document.getElementById('p3-f-banco')?.value || '';
+    const fAgrup = document.getElementById('p3-f-agrup')?.value || '';
+    return (p3Prog.obligaciones || []).filter(ob => {
+      if (!ob.seleccionado) return false; // solo programadas
+      if (fDoc   && ob.tipoDocumento !== fDoc) return false;
+      if (fNum   && !(ob.numeroDocumento||'').toLowerCase().includes(fNum)) return false;
+      if (fBen   && !(ob.pagarA||'').toLowerCase().includes(fBen)) return false;
+      if (fGrp   && ob.grupo !== fGrp) return false;
+      if (fBanco && (ob.bancoAsignado||'') !== fBanco) return false;
+      if (fAgrup && (ob.agrupadorPago||'INDIVIDUAL') !== fAgrup) return false;
+      return true;
+    });
+  }
+
+  function p3PoblarFiltros() {
+    const obs    = (p3Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const tipos  = [...new Set(obs.map(o => o.tipoDocumento).filter(Boolean))].sort();
+    const grupos = [...new Set(obs.map(o => o.grupo).filter(Boolean))].sort();
+    const bancos = [...new Set(obs.map(o => o.bancoAsignado).filter(Boolean))].sort();
+    const agrups = [...new Set(obs.map(o => o.agrupadorPago||'INDIVIDUAL'))].sort();
+    const el = id => document.getElementById(id);
+    if (el('p3-f-tipodoc')) el('p3-f-tipodoc').innerHTML = '<option value="">Todos</option>' + tipos.map(t => `<option>${t}</option>`).join('');
+    if (el('p3-f-grupo'))   el('p3-f-grupo').innerHTML   = '<option value="">Todos</option>' + grupos.map(g => `<option>${esc(g)}</option>`).join('');
+    if (el('p3-f-banco'))   el('p3-f-banco').innerHTML   = '<option value="">Todos</option>' + bancos.map(b => `<option>${esc(b)}</option>`).join('');
+    if (el('p3-f-agrup'))   el('p3-f-agrup').innerHTML   = '<option value="">Todos</option>' + agrups.map(a => `<option>${esc(a)}</option>`).join('');
+    document.getElementById('p3-filtros').style.display = '';
+  }
+
+  // ── Guardar / restaurar estado de colapso ───────────────────────
+  function p3SaveState() {
+    const grps = {}, obls = {};
+    document.querySelectorAll('#p3-wrap [id^="p3grp-"]').forEach(el => {
+      grps[el.id] = el.style.display !== 'none';
+    });
+    document.querySelectorAll('#p3-wrap .p3-obl-div[data-p3-ben]').forEach(el => {
+      obls[el.dataset.p3Ben] = el.style.display !== 'none';
+    });
+    return { grps, obls };
+  }
+  function p3RestoreState({ grps, obls }) {
+    document.querySelectorAll('#p3-wrap [id^="p3grp-"]').forEach(el => {
+      const open = grps[el.id] ?? false;
+      el.style.display = open ? '' : 'none';
+      const arr = el.closest('.card')?.querySelector('.p3-arr');
+      if (arr) arr.textContent = open ? '▾' : '▸';
+    });
+    document.querySelectorAll('#p3-wrap .p3-obl-div[data-p3-ben]').forEach(el => {
+      const open = obls[el.dataset.p3Ben] ?? false;
+      el.style.display = open ? '' : 'none';
+      const arr = el.previousElementSibling?.querySelector('.p3-ben-arr');
+      if (arr) arr.textContent = open ? '▾' : '▸';
+    });
+  }
+
+  // ── Render árbol de grupos ───────────────────────────────────────
+  function p3RenderGrupos() {
+    const wrap = document.getElementById('p3-wrap');
+    if (!p3Prog) { wrap.innerHTML = ''; return; }
+    const tc     = parseFloat(document.getElementById('p3-tc')?.value) || 1;
+    const fmtMon = (ob) => ob.moneda !== 'LO' ? 'USD' : 'S/';
+    const obs    = p3ObsFiltradas();
+    const allObs = (p3Prog.obligaciones || []).filter(o => o.seleccionado);
+
+    // Agrupar por grupo → beneficiario
+    const grupos = {};
+    obs.forEach(ob => {
+      const g = ob.grupo || 'OTROS';
+      if (!grupos[g]) grupos[g] = {};
+      const b = ob.pagarA || '(sin beneficiario)';
+      if (!grupos[g][b]) grupos[g][b] = [];
+      grupos[g][b].push(ob);
+    });
+
+    // Helpers de totales
+    const grpTot = (g) => {
+      const gobs = obs.filter(o => (o.grupo||'OTROS') === g);
+      const usd  = gobs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
+      const sol  = gobs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+      return { usd, sol, tot: sol + usd * tc };
+    };
+    const benTot = (ben) => {
+      const bobs = obs.filter(o => (o.pagarA||'') === ben);
+      const usd  = bobs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
+      const sol  = bobs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+      return { usd, sol, tot: sol + usd * tc };
+    };
+    const totStr = ({usd, sol}) => [
+      usd ? `USD&nbsp;${fmtN(usd)}` : '',
+      sol ? `S/&nbsp;${fmtN(sol)}`   : '',
+    ].filter(Boolean).join('<br>') || '—';
+
+    // Opciones de banco para select
+    const bancosOpts = `<option value="">— Banco —</option>` +
+      p3Bancos.filter(b => b.activo).map(b => `<option value="${esc(b.nombre)}">${esc(b.nombre)}</option>`).join('');
+
+    const COLS = 'grid-template-columns:26px 20px minmax(120px,200px) 150px 130px 150px 140px 120px';
+
+    let html = '';
+    Object.keys(grupos).sort().forEach(grp => {
+      const grpId = `p3grp-${grp.replace(/\W/g,'_')}`;
+      const gt    = grpTot(grp);
+      html += `
+      <div class="card mb-8">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;
+                    border-bottom:1px solid #e2e8f0;cursor:pointer;user-select:none"
+             onclick="document.getElementById('${grpId}').style.display=
+                      document.getElementById('${grpId}').style.display==='none'?'':'none';
+                      this.querySelector('.p3-arr').textContent=
+                      document.getElementById('${grpId}').style.display===''?'▾':'▸'">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="p3-arr" style="font-size:12px;color:var(--text-muted)">▸</span>
+            <strong style="font-size:14px">${esc(grp)}</strong>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted)">
+            ${gt.usd ? `USD <strong>${fmtN(gt.usd)}</strong>&nbsp;&nbsp;` : ''}
+            ${gt.sol ? `S/ <strong>${fmtN(gt.sol)}</strong>&nbsp;&nbsp;` : ''}
+            <span style="color:var(--primary);font-weight:700">Todo en S/: ${fmtN(gt.tot)}</span>
+          </div>
+        </div>
+        <div id="${grpId}" style="display:none">
+          <!-- Cabecera de columnas -->
+          <div style="display:grid;${COLS};
+                      align-items:center;padding:5px 16px 5px 20px;
+                      background:#f1f5f9;border-bottom:1px solid #e2e8f0;
+                      font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
+            <div></div><div></div>
+            <div>Beneficiario</div>
+            <div style="text-align:right">Programado</div>
+            <div style="text-align:center">Banco Asignado</div>
+            <div style="text-align:center">Agrupador Pago</div>
+            <div style="text-align:right">Total S/</div>
+          </div>`;
+
+      Object.keys(grupos[grp]).sort().forEach(ben => {
+        const oblList = grupos[grp][ben];
+        const benKey  = ben.toUpperCase().replace(/"/g,'&quot;');
+        const bt      = benTot(ben);
+        const progMon = totStr(bt);
+
+        html += `
+        <div style="border-bottom:1px solid #f1f5f9">
+          <div class="p3-ben-row" onclick="if(!['SELECT','INPUT','BUTTON'].includes(event.target.tagName))p3ToggleBenObl(this)"
+               style="display:grid;${COLS};
+                      align-items:center;padding:7px 16px 7px 20px;
+                      background:#fafbfc;cursor:pointer;user-select:none">
+            <span class="p3-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
+            <div></div>
+            <span style="font-weight:600;font-size:13px">${esc(ben)}</span>
+            <div style="text-align:right;font-size:12px;line-height:1.5">${progMon}</div>
+            <div></div>
+            <div></div>
+            <div style="text-align:right;font-size:13px;font-weight:700;color:var(--primary)">${fmtN(bt.tot)}</div>
+          </div>
+          <div class="p3-obl-div" data-p3-ben="${benKey}" style="display:none">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="background:#f8fafc;color:var(--text-muted)">
+                  <th style="width:36px;padding:4px 8px 4px 36px"></th>
+                  <th style="padding:4px 8px;text-align:left">Tipo Doc</th>
+                  <th style="padding:4px 8px;text-align:left">N° Documento</th>
+                  <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
+                  <th style="padding:4px 8px;text-align:right">Moneda</th>
+                  <th style="padding:4px 8px;text-align:right">Monto</th>
+                  <th style="padding:4px 8px;text-align:center;min-width:140px">Banco Asignado</th>
+                  <th style="padding:4px 8px;text-align:center;min-width:150px">Agrupador Pago</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${oblList.map(ob => {
+                  const obId  = String(ob._id);
+                  const banco = ob.bancoAsignado || '';
+                  const agrup = ob.agrupadorPago || 'INDIVIDUAL';
+                  return `<tr style="border-top:1px solid #f1f5f9">
+                    <td style="padding:5px 8px 5px 36px"></td>
+                    <td style="padding:5px 8px">${esc(ob.tipoDocumento||'')}</td>
+                    <td style="padding:5px 8px">${esc(ob.numeroDocumento||'')}</td>
+                    <td style="padding:5px 8px">${fmtF(ob.fechaVencimiento)}</td>
+                    <td style="padding:5px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+                    <td style="padding:5px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
+                    <td style="padding:4px 8px">
+                      <select class="form-control" style="font-size:11px;padding:2px 6px;height:28px"
+                              onchange="p3SetBanco('${obId}',this.value)">
+                        ${bancosOpts.replace(`value="${esc(banco)}"`,`value="${esc(banco)}" selected`)}
+                      </select>
+                    </td>
+                    <td style="padding:4px 8px">
+                      <input class="form-control p3-agrup-inp" data-obid="${obId}"
+                             style="font-size:11px;padding:2px 6px;height:28px"
+                             value="${esc(agrup)}"
+                             list="p3-agrup-list"
+                             onchange="p3SetAgrup('${obId}',this.value)"
+                             oninput="p3SetAgrup('${obId}',this.value)">
+                    </td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+      });
+
+      html += `</div></div>`;
+    });
+
+    // Datalist para agrupadores usados
+    const agrups = [...new Set(allObs.map(o => o.agrupadorPago||'INDIVIDUAL'))].sort();
+    html += `<datalist id="p3-agrup-list">
+      <option value="INDIVIDUAL">
+      ${agrups.filter(a => a !== 'INDIVIDUAL').map(a => `<option value="${esc(a)}">`).join('')}
+    </datalist>`;
+
+    wrap.innerHTML = html || '<p style="color:var(--text-muted);padding:16px">No hay obligaciones programadas.</p>';
+  }
+
+  // ── Toggle obligaciones de beneficiario ─────────────────────────
+  window.p3ToggleBenObl = function(benRow) {
+    const oblDiv = benRow.nextElementSibling;
+    if (!oblDiv || !oblDiv.classList.contains('p3-obl-div')) return;
+    const open = oblDiv.style.display !== 'none';
+    oblDiv.style.display = open ? 'none' : '';
+    const arr = benRow.querySelector('.p3-ben-arr');
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  // ── Expandir niveles ─────────────────────────────────────────────
+  window.p3Expandir = function(nivel) {
+    document.querySelectorAll('#p3-wrap [id^="p3grp-"]').forEach(b => {
+      b.style.display = nivel === 0 ? 'none' : '';
+      const arr = b.closest('.card')?.querySelector('.p3-arr');
+      if (arr) arr.textContent = nivel === 0 ? '▸' : '▾';
+    });
+    document.querySelectorAll('#p3-wrap .p3-obl-div').forEach(d => {
+      d.style.display = nivel >= 2 ? '' : 'none';
+      const arr = d.previousElementSibling?.querySelector('.p3-ben-arr');
+      if (arr) arr.textContent = nivel >= 2 ? '▾' : '▸';
+    });
+  };
+
+  // ── Setters inline ───────────────────────────────────────────────
+  window.p3SetBanco = function(obId, val) {
+    const ob = p3Prog?.obligaciones?.find(o => String(o._id) === obId);
+    if (ob) { ob.bancoAsignado = val; p3RenderFooter(); }
+  };
+  window.p3SetAgrup = function(obId, val) {
+    const ob = p3Prog?.obligaciones?.find(o => String(o._id) === obId);
+    if (ob) { ob.agrupadorPago = val || 'INDIVIDUAL'; p3RenderFooter(); }
+  };
+
+  // ── Refresh / filtrar ────────────────────────────────────────────
+  window.p3Refresh  = () => { const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter(); };
+  window.p3Filtrar  = () => { const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); };
+  window.p3LimpiarFiltros = () => {
+    ['p3-f-tipodoc','p3-f-numdoc','p3-f-benef','p3-f-grupo','p3-f-banco','p3-f-agrup'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st);
+  };
+
+  // ── Footer con resumen por banco + agrupador ─────────────────────
+  function p3RenderFooter() {
+    const obs = (p3Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const tc  = parseFloat(document.getElementById('p3-tc')?.value) || 1;
+
+    // Resumen agrupado por banco + agrupador, solo en moneda original
+    const resumen = {};
+    obs.forEach(ob => {
+      const banco = ob.bancoAsignado || '(sin banco)';
+      const agrup = ob.agrupadorPago || 'INDIVIDUAL';
+      const key   = `${banco}||${agrup}`;
+      if (!resumen[key]) resumen[key] = { banco, agrup, usd:0, sol:0 };
+      if (ob.moneda !== 'LO') resumen[key].usd += ob.monto;
+      else                     resumen[key].sol += ob.monto;
+    });
+
+    const totalUSD = obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
+    const totalSOL = obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+    const totalTot = totalSOL + totalUSD * tc;
+
+    const resHtml = Object.values(resumen).map(r => `
+      <div style="display:flex;align-items:center;gap:10px;padding:4px 12px;
+                  background:#f8fafc;border-radius:4px;font-size:12px">
+        <span style="font-weight:600;color:#1d4ed8">🏦 ${esc(r.banco)}</span>
+        <span style="color:#64748b">•</span>
+        <span style="color:#7c3aed">${esc(r.agrup)}</span>
+        <span style="color:#64748b">→</span>
+        ${r.usd ? `<span>USD <strong>${fmtN(r.usd)}</strong></span>` : ''}
+        ${r.sol ? `<span>S/ <strong>${fmtN(r.sol)}</strong></span>` : ''}
+      </div>`).join('');
+
+    p3Footer.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-x:auto">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text-muted)">Programadas:&nbsp;<strong style="color:#111">${obs.length}</strong></span>
+          <div style="width:1px;height:16px;background:#e2e8f0"></div>
+          ${totalUSD ? `<span style="font-size:13px">USD&nbsp;<strong>${fmtN(totalUSD)}</strong></span>` : ''}
+          ${totalSOL ? `<span style="font-size:13px">S/&nbsp;<strong>${fmtN(totalSOL)}</strong></span>` : ''}
+          <div style="width:1px;height:16px;background:#e2e8f0"></div>
+          <span style="font-size:13px">Todo en S/:&nbsp;<strong style="color:var(--primary);font-size:14px">${fmtN(totalTot)}</strong></span>
+        </div>
+        ${resHtml ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${resHtml}</div>` : ''}
+      </div>
+      ${p3Prog ? `
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          ${p3Prog.estado === 'preparado'
+            ? `<span style="font-size:11px;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 8px;font-weight:600">🏦 Preparada</span>`
+            : ''}
+          <button class="btn btn-outline btn-sm" onclick="p3Guardar()">💾 Guardar</button>
+          ${puedePagar && p3Prog.estado !== 'preparado' ? `
+            <button class="btn btn-primary btn-sm" onclick="p3Preparar()"
+                    style="background:#1d4ed8;border-color:#1d4ed8">🏦 Enviar a Autorización</button>` : ''}
+        </div>` : ''}`;
+  }
+
+  // ── Guardar / Preparar ───────────────────────────────────────────
+  window.p3Guardar = async function() {
+    if (!p3Prog) return;
+    const asignaciones = (p3Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
+      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL'
+    }));
+    try {
+      await PUT(`/pagos/programaciones/${p3Prog._id}/guardar-p3`, { asignaciones });
+      toast('Preparación guardada', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.p3Preparar = async function() {
+    if (!p3Prog) return;
+    const sin = (p3Prog.obligaciones||[]).filter(o => o.seleccionado && !o.bancoAsignado).length;
+    if (sin > 0 && !confirm(`Hay ${sin} obligaciones sin banco asignado. ¿Continuar de todas formas?`)) return;
+    const n = (p3Prog.obligaciones||[]).filter(o => o.seleccionado).length;
+    if (!confirm(`¿Enviar a Autorización esta preparación con ${n} obligaciones?`)) return;
+    const asignaciones = (p3Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
+      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL'
+    }));
+    try {
+      await PUT(`/pagos/programaciones/${p3Prog._id}/preparar`, { asignaciones });
+      toast('✅ Enviado a Autorización', 'success');
+      p3Prog = null;
+      document.getElementById('p3-wrap').innerHTML = '';
+      document.getElementById('p3-filtros').style.display = 'none';
+      p3RenderFooter();
+      await p3CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  // ── Gestión de bancos (admin) ────────────────────────────────────
+  window.p3GestionBancos = async function() {
+    let bancos = await GET('/pagos/bancos');
+    const renderModal = () => {
+      const content = document.getElementById('p3-modal-bancos-content');
+      if (!content) return;
+      content.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px">
+          <thead><tr style="background:#f1f5f9">
+            <th style="padding:8px;text-align:left">Banco</th>
+            <th style="padding:8px;text-align:left">Código</th>
+            <th style="padding:8px;text-align:center">Activo</th>
+            <th style="padding:8px"></th>
+          </tr></thead>
+          <tbody>
+            ${bancos.map(b => `
+              <tr style="border-top:1px solid #e2e8f0">
+                <td style="padding:6px 8px;font-weight:600">${esc(b.nombre)}</td>
+                <td style="padding:6px 8px;color:var(--text-muted)">${esc(b.codigo||'')}</td>
+                <td style="padding:6px 8px;text-align:center">
+                  <input type="checkbox" ${b.activo?'checked':''} style="width:14px;height:14px"
+                         onchange="p3ToggleBancoActivo('${b._id}',this.checked)">
+                </td>
+                <td style="padding:6px 8px;text-align:right">
+                  <button onclick="p3EliminarBanco('${b._id}')"
+                          style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px">✕</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div style="flex:1">
+            <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Nombre</label>
+            <input id="p3-nuevo-banco" class="form-control" style="font-size:13px" placeholder="Ej: BBVA">
+          </div>
+          <div style="width:100px">
+            <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Código</label>
+            <input id="p3-nuevo-codigo" class="form-control" style="font-size:13px" placeholder="Ej: 011">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="p3AgregarBanco()">＋ Agregar</button>
+        </div>`;
+    };
+
+    // Crear modal
+    let modal = document.getElementById('p3-modal-bancos');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'p3-modal-bancos';
+      modal.style.cssText = `position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center`;
+      modal.innerHTML = `
+        <div style="background:#fff;border-radius:12px;padding:20px;width:520px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <strong style="font-size:16px">🏦 Gestión de Bancos</strong>
+            <button onclick="document.getElementById('p3-modal-bancos').remove()"
+                    style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b">×</button>
+          </div>
+          <div id="p3-modal-bancos-content"></div>
+        </div>`;
+      document.body.appendChild(modal);
+    }
+    renderModal();
+
+    window.p3AgregarBanco = async function() {
+      const nombre = document.getElementById('p3-nuevo-banco').value.trim();
+      const codigo = document.getElementById('p3-nuevo-codigo').value.trim();
+      if (!nombre) return toast('Ingresa el nombre del banco', 'error');
+      try {
+        const b = await POST('/pagos/bancos', { nombre, codigo });
+        bancos.push(b); p3Bancos.push(b);
+        renderModal();
+      } catch(e) { toast(e.message, 'error'); }
+    };
+    window.p3ToggleBancoActivo = async function(id, activo) {
+      try {
+        await PUT(`/pagos/bancos/${id}`, { activo });
+        const b = bancos.find(x => x._id === id);
+        if (b) b.activo = activo;
+        const b2 = p3Bancos.find(x => x._id === id);
+        if (b2) b2.activo = activo;
+      } catch(e) { toast(e.message, 'error'); }
+    };
+    window.p3EliminarBanco = async function(id) {
+      if (!confirm('¿Eliminar este banco?')) return;
+      try {
+        await DEL(`/pagos/bancos/${id}`);
+        bancos = bancos.filter(b => b._id !== id);
+        p3Bancos = p3Bancos.filter(b => b._id !== id);
+        renderModal();
+      } catch(e) { toast(e.message, 'error'); }
+    };
+  };
+
+  // Init
+  p3RenderFooter();
 }
 
 // ─── View: Admin ──────────────────────────────────────────────────
