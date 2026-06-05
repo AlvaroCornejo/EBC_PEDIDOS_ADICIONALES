@@ -341,4 +341,50 @@ router.put('/programaciones/:progId/grupo-beneficiario', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── POST /api/pagos/cargar-pagos ──────────────────────────────────────────────
+// Carga Q PAGOS.csv y devuelve promedio de pago por beneficiario (últimas 4 semanas)
+router.post('/cargar-pagos', upload.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
+    const rows = parseCSV(req.file.buffer);
+
+    // Determinar las últimas 4 semanas ISO desde hoy
+    const hoy   = new Date();
+    const semanas4 = new Set();
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(hoy);
+      d.setDate(d.getDate() - i * 7);
+      semanas4.add(`${d.getFullYear()}-${isoWeek(d)}`);
+    }
+
+    // Acumular por beneficiario
+    const benef = {};  // { pagarA: { total, semanas: Set } }
+    for (const r of rows) {
+      const pagarA = (r['PagarA'] || '').trim();
+      if (!pagarA) continue;
+      const fRaw  = r['FechaPago'] || '';
+      const fecha = parseFecha(fRaw.split(':')[0].trim()); // quitar milisegundos
+      if (!fecha || isNaN(fecha)) continue;
+      const clave = `${fecha.getFullYear()}-${isoWeek(fecha)}`;
+      if (!semanas4.has(clave)) continue;
+
+      const monto = parseFloat(r['PagoMonedaLocal']) || 0;
+      if (!benef[pagarA]) benef[pagarA] = { total: 0, semanas: new Set() };
+      benef[pagarA].total += monto;
+      benef[pagarA].semanas.add(clave);
+    }
+
+    // Calcular promedio
+    const resultado = {};
+    for (const [pa, d] of Object.entries(benef)) {
+      resultado[pa.toUpperCase()] = {
+        total:    d.total,
+        semanas:  d.semanas.size,
+        promedio: d.semanas.size > 0 ? d.total / d.semanas.size : 0,
+      };
+    }
+    res.json(resultado);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

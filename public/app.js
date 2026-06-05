@@ -3579,6 +3579,17 @@ async function renderPaso1(container) {
           <strong style="margin-left:6px" id="pg-fecha-pago">${fechaPagoStr}</strong>
           <span style="color:var(--text-muted);margin-left:10px">Sem. ${fp.semana}/${fp.año}</span>
         </div>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Q PAGOS.csv</label>
+            <input type="file" id="pg-file-pagos" accept=".csv" style="display:none">
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-pagos').click()">
+              📊 Seleccionar Pagos
+            </button>
+          </div>
+          <span id="pg-filename-pagos" style="font-size:11px;color:var(--text-muted);align-self:center">Sin archivo</span>
+          <button class="btn btn-outline btn-sm" id="pg-cargar-pagos">📂 Cargar Pagos</button>
+        </div>
       </div>
     </div>
 
@@ -3671,6 +3682,30 @@ async function renderPaso1(container) {
   document.getElementById('pg-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
     document.getElementById('pg-filename').textContent = f ? f.name : 'Sin archivo';
+  });
+
+  // Q PAGOS: selección y carga
+  document.getElementById('pg-file-pagos').addEventListener('change', e => {
+    const f = e.target.files[0];
+    document.getElementById('pg-filename-pagos').textContent = f ? f.name : 'Sin archivo';
+  });
+  document.getElementById('pg-cargar-pagos').addEventListener('click', async () => {
+    const file = document.getElementById('pg-file-pagos').files[0];
+    if (!file) { toast('Selecciona Q PAGOS.csv', 'error'); return; }
+    const fd = new FormData();
+    fd.append('archivo', file);
+    try {
+      const r = await fetch('/api/pagos/cargar-pagos', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
+        body: fd,
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      pagosPromedios = data;
+      renderResumenes();
+      toast(`Pagos cargados — ${Object.keys(data).length} proveedores`, 'success');
+    } catch(e) { toast(e.message, 'error'); }
   });
 
   // Al cambiar sociedad → mostrar programaciones existentes
@@ -3816,7 +3851,7 @@ async function renderPaso1(container) {
 
   // ── Render tabla + resúmenes ────────────────────────────────────────
   // Cargar grupos y detalles una vez
-  let gruposRef = [], detallesRef = [];
+  let gruposRef = [], detallesRef = [], pagosPromedios = {};
   async function cargarGruposRef() {
     [gruposRef, detallesRef] = await Promise.all([
       GET('/pagos/grupos'), GET('/pagos/detalles'),
@@ -3980,18 +4015,27 @@ async function renderPaso1(container) {
     const tot  = o => o.moneda === 'LO' ? o.monto : o.monto * tc;
     const sumF = (arr, fn) => arr.reduce((s, o) => s + fn(o), 0);
 
-    const THEAD = `<thead><tr>
+    const hasProm = Object.keys(pagosPromedios).length > 0;
+    const THEAD_B = `<thead><tr>
       <th style="width:24px"></th><th>Nombre</th>
       <th class="text-right">USD</th>
       <th class="text-right">S/</th>
       <th class="text-right">Total S/</th>
+      ${hasProm ? '<th class="text-right" style="color:#8b5cf6" title="Promedio últimas 4 semanas (Q Pagos)">Prom. S/</th>' : ''}
     </tr></thead>`;
-    const TFOOT = (arr) => `<tfoot style="border-top:2px solid var(--border);background:var(--bg-secondary);font-weight:700">
+    const THEAD_G = `<thead><tr>
+      <th style="width:24px"></th><th>Grupo</th>
+      <th class="text-right">USD</th>
+      <th class="text-right">S/</th>
+      <th class="text-right">Total S/</th>
+    </tr></thead>`;
+    const TFOOT = (arr, extraCols = 0) => `<tfoot style="border-top:2px solid var(--border);background:var(--bg-secondary);font-weight:700">
       <tr>
         <td colspan="2" style="padding:4px 8px">TOTAL</td>
         <td class="text-right" style="padding:4px 8px">${fmtMonto(sumF(arr, usd))}</td>
         <td class="text-right" style="padding:4px 8px">${fmtMonto(sumF(arr, sol))}</td>
         <td class="text-right" style="padding:4px 8px;color:var(--primary)">${fmtMonto(sumF(arr, tot))}</td>
+        ${'<td></td>'.repeat(extraCols)}
       </tr>
     </tfoot>`;
 
@@ -4004,18 +4048,22 @@ async function renderPaso1(container) {
     const benefRows = Object.entries(byBenef).sort(([a],[b]) => a.localeCompare(b));
     document.getElementById('pg-res-benef').innerHTML = `
       <table class="data-table" style="font-size:11px">
-        ${THEAD}
+        ${THEAD_B}
         <tbody>
-          ${benefRows.length ? benefRows.map(([nombre, d]) => `<tr>
-            <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('benef','${esc(nombre)}',this.checked)"
-                 ${fBenefFilt===nombre.toLowerCase()?'checked':''}></td>
-            <td style="max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(nombre)}">${esc(nombre)}</td>
-            <td class="text-right">${sumF(d.obs,usd)?fmtMonto(sumF(d.obs,usd)):'—'}</td>
-            <td class="text-right">${sumF(d.obs,sol)?fmtMonto(sumF(d.obs,sol)):'—'}</td>
-            <td class="text-right fw-semibold">${fmtMonto(sumF(d.obs,tot))}</td>
-          </tr>`).join('') : '<tr><td colspan="5" class="text-center text-muted py-8" style="font-size:11px">Sin obligaciones seleccionadas</td></tr>'}
+          ${benefRows.length ? benefRows.map(([nombre, d]) => {
+            const prom = pagosPromedios[nombre.toUpperCase()];
+            return `<tr>
+              <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('benef','${esc(nombre)}',this.checked)"
+                   ${fBenefFilt===nombre.toLowerCase()?'checked':''}></td>
+              <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(nombre)}">${esc(nombre)}</td>
+              <td class="text-right">${sumF(d.obs,usd)?fmtMonto(sumF(d.obs,usd)):'—'}</td>
+              <td class="text-right">${sumF(d.obs,sol)?fmtMonto(sumF(d.obs,sol)):'—'}</td>
+              <td class="text-right fw-semibold">${fmtMonto(sumF(d.obs,tot))}</td>
+              ${hasProm?`<td class="text-right" style="color:#8b5cf6">${prom?fmtMonto(prom.promedio):'—'}</td>`:''}
+            </tr>`;
+          }).join('') : `<tr><td colspan="${hasProm?6:5}" class="text-center text-muted py-8" style="font-size:11px">Sin obligaciones seleccionadas</td></tr>`}
         </tbody>
-        ${TFOOT(obs)}
+        ${TFOOT(obs, hasProm?1:0)}
       </table>`;
 
     // ── Por Grupo ─────────────────────────────────────────────────────
@@ -4029,7 +4077,7 @@ async function renderPaso1(container) {
     const grupoRows = Object.entries(byGrupo).sort(([a],[b]) => a.localeCompare(b));
     document.getElementById('pg-res-grupo').innerHTML = `
       <table class="data-table" style="font-size:11px">
-        ${THEAD.replace('Nombre','Grupo')}
+        ${THEAD_G}
         <tbody>
           ${grupoRows.length ? grupoRows.map(([grupo, d]) => `<tr>
             <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('grupo','${esc(grupo)}',this.checked)"
@@ -4040,7 +4088,7 @@ async function renderPaso1(container) {
             <td class="text-right fw-semibold">${fmtMonto(sumF(d.obs,tot))}</td>
           </tr>`).join('') : '<tr><td colspan="5" class="text-center text-muted py-8" style="font-size:11px">Sin obligaciones seleccionadas</td></tr>'}
         </tbody>
-        ${TFOOT(obs)}
+        ${TFOOT(obs, 0)}
       </table>`;
   }
 
@@ -4074,6 +4122,7 @@ async function renderPaso1(container) {
       if (tr) tr.style.background = checked ? '#f0fdf4' : '';
     });
     if (progActual) progActual.obligaciones.forEach(ob => { ob.seleccionado = checked; });
+    renderResumenes();
   };
 
   window.pgToggleObl = (cb) => {
@@ -4084,6 +4133,7 @@ async function renderPaso1(container) {
     const tr = cb.closest('tr');
     if (tr) tr.style.background = cb.checked ? '#f0fdf4' : '';
     if (document.getElementById('f-solo-sel')?.checked) renderTabla();
+    renderResumenes();
   };
 
   window.pgActGrupo = async (pagarA, valor, campo = 'grupo') => {
