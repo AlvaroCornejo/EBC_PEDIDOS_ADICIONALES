@@ -4045,7 +4045,7 @@ async function renderPaso1(container) {
       if (!byBenef[o.pagarA]) byBenef[o.pagarA] = { obs: [], grupo: o.grupo };
       byBenef[o.pagarA].obs.push(o);
     });
-    const benefRows = Object.entries(byBenef).sort(([a],[b]) => a.localeCompare(b));
+    const benefRows = Object.entries(byBenef).sort(([,a],[,b]) => sumF(b.obs,tot) - sumF(a.obs,tot));
     document.getElementById('pg-res-benef').innerHTML = `
       <table class="data-table" style="font-size:11px">
         ${THEAD_B}
@@ -4074,7 +4074,7 @@ async function renderPaso1(container) {
       byGrupo[g].obs.push(o);
       byGrupo[g].beneficiarios.add(o.pagarA);
     });
-    const grupoRows = Object.entries(byGrupo).sort(([a],[b]) => a.localeCompare(b));
+    const grupoRows = Object.entries(byGrupo).sort(([,a],[,b]) => sumF(b.obs,tot) - sumF(a.obs,tot));
     document.getElementById('pg-res-grupo').innerHTML = `
       <table class="data-table" style="font-size:11px">
         ${THEAD_G}
