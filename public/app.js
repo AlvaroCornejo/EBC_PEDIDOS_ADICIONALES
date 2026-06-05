@@ -4501,7 +4501,8 @@ async function renderPaso2(container) {
         const bDeuda  = benDeuda(ben);
         const allSel  = allObs.filter(o => (o.pagarA||'') === ben).every(o => o.seleccionado);
         const prom    = ap2Promedios[ben.toUpperCase()];
-        const promStr = prom?.promedio != null ? `S/ ${fmtN(prom.promedio)}` : '—';
+        const benMon  = allObs.filter(o => (o.pagarA||'') === ben).some(o => o.moneda !== 'LO') ? 'USD' : 'S/';
+        const promStr = prom?.promedio != null ? `${benMon} ${fmtN(prom.promedio)}` : '—';
         const progMoneda = [
           bTot.usd ? `USD&nbsp;${fmtN(bTot.usd)}` : '',
           bTot.sol ? `S/&nbsp;${fmtN(bTot.sol)}`   : '',
