@@ -14,10 +14,13 @@ const obligacionSchema = new mongoose.Schema({
   detalleGrupo:    { type: String, default: 'OTROS' },
   seleccionado:    { type: Boolean, default: false },
   // Paso 3 — Preparación
-  bancoAsignado:   { type: String, default: '' },
-  agrupadorPago:   { type: String, default: 'INDIVIDUAL' },
-  retencion:       { type: Number, default: 0 },
-  observaciones:   { type: String, default: '' },
+  bancoAsignado:    { type: String, default: '' },
+  agrupadorPago:    { type: String, default: 'INDIVIDUAL' },
+  retencion:        { type: Number, default: 0 },
+  observaciones:    { type: String, default: '' },
+  // Paso 5 — Registro Movimiento Bancario
+  operacionBancaria:{ type: String, default: '' },
+  importeBanco:     { type: Number, default: null },
 }, { _id: true });
 
 const schema = new mongoose.Schema({
@@ -35,6 +38,8 @@ const schema = new mongoose.Schema({
   preparadoEn:   Date,
   autorizadoPor: String,
   autorizadoEn:  Date,
+  pagadoPor:     String,
+  pagadoEn:      Date,
   estado:          { type: String, default: 'borrador',
                      enum: ['borrador','pendiente','aprobado','preparado','autorizado','pagado'] },
   promediosPagos:  { type: mongoose.Schema.Types.Mixed, default: {} },

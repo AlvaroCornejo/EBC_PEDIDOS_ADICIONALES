@@ -3545,14 +3545,17 @@ async function renderPasoContent(paso, el) {
   const p2f = document.getElementById('ap2-footer');
   const p3f = document.getElementById('ap3-footer');
   const p4f = document.getElementById('ap4-footer');
+  const p5f = document.getElementById('ap5-footer');
   if (p1f) p1f.style.display = paso === 'p1' ? 'grid' : 'none';
   if (p2f) p2f.style.display = paso === 'p2' ? 'flex' : 'none';
   if (p3f) p3f.style.display = paso === 'p3' ? 'flex' : 'none';
   if (p4f) p4f.style.display = paso === 'p4' ? 'flex' : 'none';
+  if (p5f) p5f.style.display = paso === 'p5' ? 'flex' : 'none';
   if (paso === 'p1') await renderPaso1(el);
   if (paso === 'p2') await renderPaso2(el);
   if (paso === 'p3') await renderPaso3(el);
   if (paso === 'p4') await renderPaso4(el);
+  if (paso === 'p5') await renderPaso5(el);
 }
 
 async function renderPaso1(container) {
@@ -6159,6 +6162,510 @@ async function renderPaso4(container) {
 
   // Init
   p4RenderFooter();
+}
+
+// ─── Paso 5: Registro del Movimiento Bancario ─────────────────────
+async function renderPaso5(container) {
+  let p5Prog = null;
+
+  const rolP       = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
+  const puedePagar = ['pagador','admin'].includes(rolP);
+
+  const fmtN  = v => v == null ? '—' : Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtF  = d => d ? new Date(d).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+  const netoOb = o => o.monto - (o.retencion || 0);
+
+  // ── Footer fijo ──────────────────────────────────────────────────
+  let p5Footer = document.getElementById('ap5-footer');
+  if (!p5Footer) {
+    p5Footer = document.createElement('div');
+    p5Footer.id = 'ap5-footer';
+    p5Footer.style.cssText = `
+      position:fixed;bottom:0;left:220px;right:0;z-index:100;
+      background:#fff;border-top:2px solid #e2e8f0;
+      box-shadow:0 -4px 12px rgba(0,0,0,.08);
+      display:none;align-items:center;gap:12px;padding:10px 20px;min-height:56px`;
+    document.body.appendChild(p5Footer);
+  }
+
+  // ── HTML estático ────────────────────────────────────────────────
+  container.innerHTML = `
+    <div style="padding:16px 20px 80px">
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+        <select id="p5-compania" class="form-control" style="width:180px">
+          <option value="">— Sociedad —</option>
+          ${(S.user.sociedadesPago||[]).map(s=>`<option>${esc(s)}</option>`).join('')}
+        </select>
+        <span style="font-size:12px;color:var(--text-muted)">TC:</span>
+        <input id="p5-tc" type="number" class="form-control" min="1" step="0.001"
+               style="width:90px" value="3.75"
+               oninput="clearTimeout(window._p5TC);window._p5TC=setTimeout(()=>p5RenderFooter(),300)">
+      </div>
+      <div id="p5-lista" style="margin-bottom:12px"></div>
+      <div id="p5-wrap"></div>
+      <div id="p5-comparacion" style="margin-top:20px"></div>
+    </div>`;
+
+  // ── Save / Restore state ─────────────────────────────────────────
+  function p5SaveState() {
+    const st = { bancos:{}, agrups:{} };
+    document.querySelectorAll('[id^="p5banco-body-"]').forEach(el => {
+      st.bancos[el.id] = el.style.display !== 'none';
+    });
+    document.querySelectorAll('[id^="p5agrup-body-"]').forEach(el => {
+      st.agrups[el.id] = el.style.display !== 'none';
+    });
+    return st;
+  }
+  function p5RestoreState(st) {
+    if (!st) return;
+    Object.entries(st.bancos||{}).forEach(([id, open]) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = open ? '' : 'none';
+        const arr = el.previousElementSibling?.querySelector('.p5-banco-arr');
+        if (arr) arr.textContent = open ? '▾' : '▸';
+      }
+    });
+    Object.entries(st.agrups||{}).forEach(([id, open]) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = open ? '' : 'none';
+        const arr = el.previousElementSibling?.querySelector('.p5-agrup-arr');
+        if (arr) arr.textContent = open ? '▾' : '▸';
+      }
+    });
+  }
+
+  // ── Render grupos ────────────────────────────────────────────────
+  function p5RenderGrupos() {
+    const wrap = document.getElementById('p5-wrap');
+    if (!p5Prog) { wrap.innerHTML = ''; return; }
+    const obs = (p5Prog.obligaciones || []).filter(o => o.seleccionado);
+
+    // Agrupar por banco → agrupador
+    const byBanco = {};
+    obs.forEach(ob => {
+      const banco = ob.bancoAsignado || '(sin banco)';
+      const agrup = ob.agrupadorPago  || 'INDIVIDUAL';
+      if (!byBanco[banco]) byBanco[banco] = {};
+      if (!byBanco[banco][agrup]) byBanco[banco][agrup] = [];
+      byBanco[banco][agrup].push(ob);
+    });
+
+    const bancoTot = banco => {
+      const bo = obs.filter(o => (o.bancoAsignado||'(sin banco)') === banco);
+      return {
+        usd: bo.filter(o=>o.moneda!=='LO').reduce((s,o)=>s+netoOb(o),0),
+        sol: bo.filter(o=>o.moneda==='LO').reduce((s,o)=>s+netoOb(o),0)
+      };
+    };
+    const agrupTot = (banco, agrup) => {
+      const ao = obs.filter(o =>
+        (o.bancoAsignado||'(sin banco)') === banco &&
+        (o.agrupadorPago ||'INDIVIDUAL')  === agrup
+      );
+      return {
+        usd: ao.filter(o=>o.moneda!=='LO').reduce((s,o)=>s+netoOb(o),0),
+        sol: ao.filter(o=>o.moneda==='LO').reduce((s,o)=>s+netoOb(o),0)
+      };
+    };
+
+    const AGRUPS_ORDER_P5 = ['INDIVIDUAL','TRANSFERENCIA','TRANSFERENCIA CCI','CHEQUE','EFECTIVO'];
+    let html = '';
+
+    const bancosOrdenados = Object.keys(byBanco).sort((a,b) => {
+      if(a==='(sin banco)') return 1; if(b==='(sin banco)') return -1;
+      return a.localeCompare(b);
+    });
+
+    bancosOrdenados.forEach(banco => {
+      const bKey = banco.replace(/\W/g,'_');
+      const bt   = bancoTot(banco);
+
+      html += `
+      <div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+        <div onclick="p5ToggleBanco('${esc(bKey)}')"
+             style="display:flex;align-items:center;gap:10px;padding:10px 16px;
+                    background:#f0f4ff;cursor:pointer;user-select:none">
+          <span class="p5-banco-arr" style="font-size:11px;color:var(--text-muted)">▾</span>
+          <span style="font-weight:700;font-size:14px;color:#1d4ed8">🏦 ${esc(banco)}</span>
+          <div style="display:flex;flex-direction:column;gap:1px;margin-left:10px">
+            ${bt.usd ? `<span style="font-size:11px;color:#1d4ed8;font-weight:600">USD&nbsp;${fmtN(bt.usd)}</span>` : ''}
+            ${bt.sol ? `<span style="font-size:11px;color:#1d4ed8;font-weight:600">S/&nbsp;&nbsp;${fmtN(bt.sol)}</span>` : ''}
+          </div>
+        </div>
+        <div id="p5banco-body-${bKey}">`;
+
+      const agrups = Object.keys(byBanco[banco]).sort((a,b) => {
+        const ia=AGRUPS_ORDER_P5.indexOf(a), ib=AGRUPS_ORDER_P5.indexOf(b);
+        if(ia!==-1&&ib!==-1) return ia-ib;
+        if(ia!==-1) return -1; if(ib!==-1) return 1;
+        return a.localeCompare(b);
+      });
+
+      agrups.forEach(agrup => {
+        const aKey    = `${bKey}__${agrup.replace(/\W/g,'_')}`;
+        const at      = agrupTot(banco, agrup);
+        const oblList = byBanco[banco][agrup];
+        const esIndiv = agrup === 'INDIVIDUAL';
+        // Para no-INDIVIDUAL: tomar N° op e importe del primer elemento del grupo
+        const agrupOp      = esIndiv ? '' : (oblList[0]?.operacionBancaria || '');
+        const agrupImporte = esIndiv ? '' : (oblList[0]?.importeBanco != null ? oblList[0].importeBanco : '');
+        const monedaStr    = oblList[0]?.moneda === 'LO' ? 'S/' : 'USD';
+
+        html += `
+          <div style="border-top:1px solid #e2e8f0">
+            <div onclick="p5ToggleAgrup('${esc(aKey)}')"
+                 style="display:flex;align-items:center;gap:8px;padding:7px 16px 7px 32px;
+                        background:#f8fafc;cursor:pointer;user-select:none">
+              <span class="p5-agrup-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
+              <span style="font-weight:600;font-size:12px;color:#7c3aed">${esc(agrup)}</span>
+              <div style="display:flex;flex-direction:column;gap:0px;margin-left:8px">
+                ${at.usd ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">USD&nbsp;${fmtN(at.usd)}</span>` : ''}
+                ${at.sol ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">S/&nbsp;&nbsp;${fmtN(at.sol)}</span>` : ''}
+              </div>
+            </div>
+            <div id="p5agrup-body-${aKey}" style="display:none">
+              ${!esIndiv ? `
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 20px 8px 32px;
+                          background:#f5f3ff;border-bottom:1px solid #e2e8f0;flex-wrap:wrap">
+                <span style="font-size:12px;color:#7c3aed;font-weight:600;white-space:nowrap">N° Operación:</span>
+                <input type="text" class="form-control"
+                       style="width:170px;font-size:12px;height:28px"
+                       placeholder="Ej: 0000012345"
+                       value="${esc(agrupOp)}"
+                       oninput="p5SetOpAgrup('${esc(banco)}','${esc(agrup)}',this.value)">
+                <span style="font-size:12px;color:#7c3aed;font-weight:600;white-space:nowrap">Importe banco (${monedaStr}):</span>
+                <input type="number" min="0" step="0.01" class="form-control"
+                       style="width:130px;font-size:12px;height:28px;text-align:right"
+                       placeholder="0.00"
+                       value="${agrupImporte}"
+                       oninput="p5SetImporteAgrup('${esc(banco)}','${esc(agrup)}',this.value)">
+              </div>` : ''}
+              <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead>
+                  <tr style="background:#f1f5f9;color:var(--text-muted)">
+                    <th style="padding:5px 8px 5px 24px;text-align:left;white-space:nowrap">Beneficiario</th>
+                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">Tipo Doc</th>
+                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Documento</th>
+                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">F. Vencimiento</th>
+                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Mon</th>
+                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Monto</th>
+                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Retención</th>
+                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Neto</th>
+                    ${esIndiv ? `
+                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Operación</th>
+                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Importe banco</th>
+                    ` : ''}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${oblList.map(ob => `
+                  <tr style="border-top:1px solid #f1f5f9">
+                    <td style="padding:4px 8px 4px 24px;font-weight:500">${esc(ob.pagarA||'')}</td>
+                    <td style="padding:4px 8px">${esc(ob.tipoDocumento||'')}</td>
+                    <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
+                    <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
+                    <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+                    <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
+                    <td style="padding:4px 8px;text-align:right">${(ob.retencion||0)>0?fmtN(ob.retencion):'—'}</td>
+                    <td style="padding:4px 8px;text-align:right;font-weight:600;color:${(ob.retencion||0)>0?'#059669':'inherit'}">${fmtN(netoOb(ob))}</td>
+                    ${esIndiv ? `
+                    <td style="padding:2px 8px">
+                      <input type="text" class="form-control"
+                             style="font-size:11px;padding:2px 6px;height:26px;width:150px"
+                             placeholder="Ej: 0000012345"
+                             value="${esc(ob.operacionBancaria||'')}"
+                             oninput="p5SetOpOb('${ob._id}',this.value)">
+                    </td>
+                    <td style="padding:2px 8px">
+                      <input type="number" min="0" step="0.01" class="form-control"
+                             style="font-size:11px;padding:2px 6px;height:26px;width:110px;text-align:right"
+                             placeholder="0.00"
+                             value="${ob.importeBanco != null ? ob.importeBanco : ''}"
+                             oninput="p5SetImporteOb('${ob._id}',this.value)">
+                    </td>
+                    ` : ''}
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+              </div>
+            </div>
+          </div>`;
+      });
+
+      html += `</div></div>`;
+    });
+
+    wrap.innerHTML = html || '<p style="color:var(--text-muted);padding:16px">No hay obligaciones seleccionadas.</p>';
+  }
+
+  // ── Tabla de conciliación ────────────────────────────────────────
+  function p5RenderComparacion() {
+    const el = document.getElementById('p5-comparacion');
+    if (!el || !p5Prog) { if (el) el.innerHTML = ''; return; }
+    const obs = (p5Prog.obligaciones || []).filter(o => o.seleccionado);
+
+    // Agrupar por N° operación
+    const opMap = {};
+    obs.forEach(ob => {
+      const opNum = (ob.operacionBancaria || '').trim();
+      if (!opNum) return;
+      if (!opMap[opNum]) opMap[opNum] = {
+        banco: ob.bancoAsignado || '(sin banco)',
+        agrup: ob.agrupadorPago || 'INDIVIDUAL',
+        moneda: ob.moneda === 'LO' ? 'S/' : 'USD',
+        importeBanco: null,
+        totalOblig: 0,
+        count: 0
+      };
+      opMap[opNum].totalOblig += netoOb(ob);
+      opMap[opNum].count++;
+      if (ob.importeBanco != null) opMap[opNum].importeBanco = ob.importeBanco;
+    });
+
+    const entries = Object.entries(opMap).sort(([a],[b]) => a.localeCompare(b));
+    const sinOp   = obs.filter(o => !(o.operacionBancaria||'').trim()).length;
+
+    if (!entries.length && !sinOp) { el.innerHTML = ''; return; }
+
+    const rows = entries.map(([opNum, d]) => {
+      const hayImporte = d.importeBanco != null;
+      const dif  = hayImporte ? d.importeBanco - d.totalOblig : null;
+      const difOk = dif != null && Math.abs(dif) < 0.01;
+      const rowBg = dif != null && !difOk ? 'background:#fee2e2' : (difOk ? 'background:#f0fdf4' : '');
+      return `
+        <tr style="border-top:1px solid #e2e8f0;${rowBg}">
+          <td style="padding:6px 10px;font-family:monospace;font-size:12px;white-space:nowrap">${esc(opNum)}</td>
+          <td style="padding:6px 10px;font-size:12px">${esc(d.banco)}</td>
+          <td style="padding:6px 10px;font-size:12px">${esc(d.moneda)}</td>
+          <td style="padding:6px 10px;font-size:12px">${esc(d.agrup)}</td>
+          <td style="padding:6px 10px;text-align:center;font-size:12px">${d.count}</td>
+          <td style="padding:6px 10px;text-align:right;font-weight:600;font-size:12px">${fmtN(d.totalOblig)}</td>
+          <td style="padding:6px 10px;text-align:right;font-size:12px">${hayImporte ? fmtN(d.importeBanco) : '<span style="color:#94a3b8">—</span>'}</td>
+          <td style="padding:6px 10px;text-align:right;font-weight:700;font-size:12px;color:${dif!=null&&!difOk?'#dc2626':dif!=null&&difOk?'#16a34a':'#94a3b8'}">
+            ${dif != null ? (difOk ? '✓' : fmtN(Math.abs(dif))) : '—'}
+          </td>
+        </tr>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+        <div style="padding:8px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;
+                    display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-weight:700;font-size:13px;color:#374151">📊 Conciliación Bancaria</span>
+          ${sinOp ? `<span style="font-size:11px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px">⚠️ ${sinOp} obligación(es) sin N° operación</span>` : '<span style="font-size:11px;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px">✓ Todas con N° operación</span>'}
+        </div>
+        ${entries.length ? `
+        <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:#f1f5f9;font-size:11px;color:var(--text-muted)">
+              <th style="padding:6px 10px;text-align:left;white-space:nowrap">N° Operación</th>
+              <th style="padding:6px 10px;text-align:left;white-space:nowrap">Banco</th>
+              <th style="padding:6px 10px;text-align:left;white-space:nowrap">Mon</th>
+              <th style="padding:6px 10px;text-align:left;white-space:nowrap">Agrupador</th>
+              <th style="padding:6px 10px;text-align:center;white-space:nowrap"># Oblig</th>
+              <th style="padding:6px 10px;text-align:right;white-space:nowrap">Total Obligaciones</th>
+              <th style="padding:6px 10px;text-align:right;white-space:nowrap">Importe Estado de Cta</th>
+              <th style="padding:6px 10px;text-align:right;white-space:nowrap">Diferencia</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        </div>` : ''}
+      </div>`;
+  }
+
+  // ── Footer ───────────────────────────────────────────────────────
+  function p5RenderFooter() {
+    const obs = (p5Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const tc  = parseFloat(document.getElementById('p5-tc')?.value) || 1;
+    const totalUSD = obs.filter(o=>o.moneda!=='LO').reduce((s,o)=>s+netoOb(o),0);
+    const totalSOL = obs.filter(o=>o.moneda==='LO').reduce((s,o)=>s+netoOb(o),0);
+    const totalTot = totalSOL + totalUSD * tc;
+
+    p5Footer.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-x:auto">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text-muted)">Obligaciones:&nbsp;<strong style="color:#111">${obs.length}</strong></span>
+          <div style="width:1px;height:16px;background:#e2e8f0"></div>
+          <span style="font-size:11px;color:var(--text-muted)">Neto:</span>
+          ${totalUSD ? `<span style="font-size:13px">USD&nbsp;<strong>${fmtN(totalUSD)}</strong></span>` : ''}
+          ${totalSOL ? `<span style="font-size:13px">S/&nbsp;<strong>${fmtN(totalSOL)}</strong></span>` : ''}
+          <div style="width:1px;height:16px;background:#e2e8f0"></div>
+          <span style="font-size:13px">Todo en S/:&nbsp;<strong style="color:var(--primary);font-size:14px">${fmtN(totalTot)}</strong></span>
+        </div>
+      </div>
+      ${p5Prog ? `
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          ${p5Prog.estado === 'pagado'
+            ? `<span style="font-size:11px;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Pagada</span>`
+            : ''}
+          <button class="btn btn-outline btn-sm" onclick="p5Guardar()">💾 Guardar</button>
+          ${puedePagar && p5Prog.estado === 'autorizado' ? `
+            <button class="btn btn-primary btn-sm" onclick="p5Pagar()"
+                    style="background:#15803d;border-color:#15803d">✅ Registrar Pago</button>` : ''}
+        </div>` : ''}`;
+    p5Footer.style.display = p5Prog ? 'flex' : 'none';
+  }
+
+  // ── Cargar lista ─────────────────────────────────────────────────
+  async function p5CargarLista() {
+    const comp = document.getElementById('p5-compania')?.value;
+    const el   = document.getElementById('p5-lista');
+    if (!comp) { el.innerHTML = ''; return; }
+    const BADGES = {
+      autorizado: `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px">🔑 Autorizada</span>`,
+      pagado:     `<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px">✅ Pagada</span>`,
+    };
+    try {
+      const [auth, paid] = await Promise.all([
+        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=autorizado`),
+        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=pagado`),
+      ]);
+      const data = [...auth, ...paid];
+      if (!data.length) {
+        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones autorizadas para <strong>${esc(comp)}</strong>.</p>`;
+        return;
+      }
+      el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${data.map(p => `
+          <button class="p5-prog-btn btn btn-outline btn-sm${p5Prog?._id===p._id?' active':''}"
+                  data-id="${p._id}"
+                  style="font-size:12px;${p5Prog?._id===p._id?'background:#dbeafe;border-color:#3b82f6':''}">
+            Semana ${p.semana||''}/${p.año||''}
+            &nbsp;${BADGES[p.estado]||''}
+          </button>`).join('')}
+      </div>`;
+      document.querySelectorAll('.p5-prog-btn').forEach(btn =>
+        btn.addEventListener('click', () => p5AbrirProg(btn.dataset.id))
+      );
+    } catch(e) { el.innerHTML = `<p style="color:#ef4444">${e.message}</p>`; }
+  }
+
+  // ── Abrir programación ───────────────────────────────────────────
+  async function p5AbrirProg(id) {
+    try {
+      p5Prog = await GET(`/pagos/programaciones/${id}`);
+      p5RenderGrupos();
+      // Expandir todos los bancos por defecto
+      document.querySelectorAll('[id^="p5banco-body-"]').forEach(el => {
+        el.style.display = '';
+        const arr = el.previousElementSibling?.querySelector('.p5-banco-arr');
+        if (arr) arr.textContent = '▾';
+      });
+      p5RenderComparacion();
+      p5RenderFooter();
+      await p5CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  }
+
+  // ── Toggle banco / agrupador ─────────────────────────────────────
+  window.p5ToggleBanco = function(bKey) {
+    const body = document.getElementById(`p5banco-body-${bKey}`);
+    const arr  = body?.previousElementSibling?.querySelector('.p5-banco-arr');
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  window.p5ToggleAgrup = function(aKey) {
+    const body = document.getElementById(`p5agrup-body-${aKey}`);
+    const arr  = body?.previousElementSibling?.querySelector('.p5-agrup-arr');
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  // ── Setters no-INDIVIDUAL (nivel agrupador) ──────────────────────
+  window.p5SetOpAgrup = function(banco, agrup, val) {
+    if (!p5Prog) return;
+    (p5Prog.obligaciones||[]).filter(o => o.seleccionado).forEach(ob => {
+      if ((ob.bancoAsignado||'(sin banco)') === banco &&
+          (ob.agrupadorPago ||'INDIVIDUAL')  === agrup)
+        ob.operacionBancaria = val;
+    });
+    p5RenderComparacion();
+  };
+
+  window.p5SetImporteAgrup = function(banco, agrup, val) {
+    if (!p5Prog) return;
+    const v = val !== '' ? parseFloat(val) || null : null;
+    (p5Prog.obligaciones||[]).filter(o => o.seleccionado).forEach(ob => {
+      if ((ob.bancoAsignado||'(sin banco)') === banco &&
+          (ob.agrupadorPago ||'INDIVIDUAL')  === agrup)
+        ob.importeBanco = v;
+    });
+    p5RenderComparacion();
+  };
+
+  // ── Setters INDIVIDUAL (por obligación) ──────────────────────────
+  window.p5SetOpOb = function(obId, val) {
+    if (!p5Prog) return;
+    const ob = p5Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (ob) ob.operacionBancaria = val;
+    p5RenderComparacion();
+  };
+
+  window.p5SetImporteOb = function(obId, val) {
+    if (!p5Prog) return;
+    const ob = p5Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (ob) ob.importeBanco = val !== '' ? parseFloat(val) || null : null;
+    p5RenderComparacion();
+  };
+
+  // ── Guardar / Registrar Pago ─────────────────────────────────────
+  function p5BuildAsig() {
+    return (p5Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
+      id: ob._id,
+      operacionBancaria: ob.operacionBancaria || '',
+      importeBanco: ob.importeBanco != null ? ob.importeBanco : null
+    }));
+  }
+
+  window.p5Guardar = async function() {
+    if (!p5Prog) return;
+    try {
+      await PUT(`/pagos/programaciones/${p5Prog._id}/guardar-p5`, { asignaciones: p5BuildAsig() });
+      toast('Cambios guardados', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.p5Pagar = async function() {
+    if (!p5Prog) return;
+    const obs   = (p5Prog.obligaciones||[]).filter(o => o.seleccionado);
+    const sinOp = obs.filter(o => !(o.operacionBancaria||'').trim()).length;
+    if (sinOp) {
+      if (!confirm(`⚠️ Hay ${sinOp} obligación(es) sin N° de operación bancaria.\n¿Registrar el pago de todas formas?`)) return;
+    }
+    if (!confirm(`¿Confirmar registro de pago de esta programación con ${obs.length} obligaciones?`)) return;
+    try {
+      await PUT(`/pagos/programaciones/${p5Prog._id}/pagar`, { asignaciones: p5BuildAsig() });
+      toast('✅ Pago registrado', 'success');
+      p5Prog = null;
+      document.getElementById('p5-wrap').innerHTML = '';
+      document.getElementById('p5-comparacion').innerHTML = '';
+      p5RenderFooter();
+      await p5CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  // ── Sociedad onChange ────────────────────────────────────────────
+  document.getElementById('p5-compania').addEventListener('change', async () => {
+    p5Prog = null;
+    document.getElementById('p5-wrap').innerHTML = '';
+    document.getElementById('p5-comparacion').innerHTML = '';
+    p5RenderFooter();
+    await p5CargarLista();
+  });
+
+  // Init
+  p5RenderFooter();
 }
 
 // ─── View: Admin ──────────────────────────────────────────────────

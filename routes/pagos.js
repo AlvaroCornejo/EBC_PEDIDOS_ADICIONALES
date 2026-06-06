@@ -583,4 +583,51 @@ router.put('/programaciones/:id/autorizar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Helper P5 ─────────────────────────────────────────────────────────────────
+function aplicarAsignacionesP5(prog, asignaciones) {
+  (asignaciones || []).forEach(({ id, operacionBancaria, importeBanco }) => {
+    const ob = prog.obligaciones.id(id);
+    if (ob) {
+      if (operacionBancaria !== undefined) ob.operacionBancaria = operacionBancaria || '';
+      if (importeBanco      !== undefined) ob.importeBanco      = importeBanco != null ? parseFloat(importeBanco) || null : null;
+    }
+  });
+}
+
+// ── PUT /api/pagos/programaciones/:id/guardar-p5 ──────────────────────────────
+router.put('/programaciones/:id/guardar-p5', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (!['autorizado','pagado'].includes(prog.estado))
+      return res.status(400).json({ error: 'Estado inválido para guardar P5' });
+    aplicarAsignacionesP5(prog, req.body.asignaciones);
+    await prog.save();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PUT /api/pagos/programaciones/:id/pagar ───────────────────────────────────
+router.put('/programaciones/:id/pagar', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (prog.estado !== 'autorizado')
+      return res.status(400).json({ error: 'Solo se puede registrar el pago desde estado autorizado' });
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['pagador','admin'].includes(rol))
+      return res.status(403).json({ error: 'No tiene permiso para registrar el pago' });
+    aplicarAsignacionesP5(prog, req.body.asignaciones);
+    prog.estado    = 'pagado';
+    prog.pagadoPor = req.user.username;
+    prog.pagadoEn  = new Date();
+    await prog.save();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
