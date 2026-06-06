@@ -5573,6 +5573,7 @@ async function renderPaso4(container) {
   let p4Bancos       = [];
   let p4CustomAgrups = [];
   let p4ObsConError  = new Set();
+  let p4Marcados     = new Set();
 
   const rolP     = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
   const esAdmin  = (S.user.role === 'ADMIN' || rolP === 'admin');
@@ -5729,9 +5730,9 @@ async function renderPaso4(container) {
       byBanco[banco][agrup].push(ob);
     });
 
-    // Totales por banco
+    // Totales por banco (solo marcados)
     const bancoTot = (banco) => {
-      const bo = obs.filter(o => (o.bancoAsignado || '(sin banco)') === banco);
+      const bo = obs.filter(o => (o.bancoAsignado || '(sin banco)') === banco && p4Marcados.has(String(o._id)));
       const usd = bo.filter(o => o.moneda !== 'LO').reduce((s,o) => s + netoOb(o), 0);
       const sol = bo.filter(o => o.moneda === 'LO').reduce((s,o) => s + netoOb(o), 0);
       return { usd, sol };
@@ -5739,7 +5740,8 @@ async function renderPaso4(container) {
     const agrupTot = (banco, agrup) => {
       const ao = obs.filter(o =>
         (o.bancoAsignado||'(sin banco)') === banco &&
-        (o.agrupadorPago ||'INDIVIDUAL')  === agrup
+        (o.agrupadorPago ||'INDIVIDUAL')  === agrup &&
+        p4Marcados.has(String(o._id))
       );
       const usd = ao.filter(o => o.moneda !== 'LO').reduce((s,o) => s + netoOb(o), 0);
       const sol = ao.filter(o => o.moneda === 'LO').reduce((s,o) => s + netoOb(o), 0);
@@ -5763,13 +5765,19 @@ async function renderPaso4(container) {
       const bConErr = p4ObsConError.size > 0 &&
         obs.filter(o => (o.bancoAsignado||'(sin banco)') === banco)
            .some(o => p4ObsConError.has(String(o._id)));
+      const bObsList = obs.filter(o => (o.bancoAsignado||'(sin banco)') === banco);
+      const allBancoMarcado = bObsList.length > 0 && bObsList.every(o => p4Marcados.has(String(o._id)));
 
       html += `
       <div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
-        <div onclick="p4ToggleBanco('${esc(bKey)}')"
+        <div onclick="if(event.target.tagName!=='INPUT')p4ToggleBanco('${esc(bKey)}')"
              style="display:flex;align-items:center;gap:10px;padding:10px 16px;
                     background:${bConErr?'#fef9c3':'#f0f4ff'};cursor:pointer;user-select:none">
           <span class="p4-banco-arr" style="font-size:11px;color:var(--text-muted)">▾</span>
+          <input type="checkbox" ${allBancoMarcado ? 'checked' : ''}
+                 onclick="event.stopPropagation()"
+                 onchange="p4ToggleMarcadoBanco('${esc(bKey)}',this.checked)"
+                 style="width:15px;height:15px;accent-color:#1d4ed8;cursor:pointer;flex-shrink:0">
           <span style="font-weight:700;font-size:14px;color:#1d4ed8">🏦 ${esc(banco)}</span>
           <span style="margin-left:auto;font-size:12px;color:#475569">${totStr(bt)}</span>
         </div>
@@ -5788,13 +5796,18 @@ async function renderPaso4(container) {
         const aKey   = `${bKey}__${agrup.replace(/\W/g,'_')}`;
         const at     = agrupTot(banco, agrup);
         const oblList = byBanco[banco][agrup];
+        const allAgrupMarcado = oblList.length > 0 && oblList.every(o => p4Marcados.has(String(o._id)));
 
         html += `
           <div style="border-top:1px solid #e2e8f0">
-            <div onclick="p4ToggleAgrup('${esc(aKey)}')"
+            <div onclick="if(event.target.tagName!=='INPUT')p4ToggleAgrup('${esc(aKey)}')"
                  style="display:flex;align-items:center;gap:8px;padding:7px 16px 7px 32px;
                         background:#f8fafc;cursor:pointer;user-select:none">
               <span class="p4-agrup-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
+              <input type="checkbox" ${allAgrupMarcado ? 'checked' : ''}
+                     onclick="event.stopPropagation()"
+                     onchange="p4ToggleMarcadoAgrup('${esc(aKey)}',this.checked)"
+                     style="width:13px;height:13px;accent-color:#7c3aed;cursor:pointer;flex-shrink:0">
               <span style="font-weight:600;font-size:12px;color:#7c3aed">${esc(agrup)}</span>
               <span style="margin-left:auto;font-size:11px;color:#64748b">${totStr(at)}</span>
             </div>
@@ -5803,7 +5816,8 @@ async function renderPaso4(container) {
               <table style="width:100%;border-collapse:collapse;font-size:12px">
                 <thead>
                   <tr style="background:#f1f5f9;color:var(--text-muted)">
-                    <th style="padding:5px 8px 5px 24px;text-align:left;white-space:nowrap">Beneficiario</th>
+                    <th style="padding:5px 8px;text-align:center;white-space:nowrap">☑</th>
+                    <th style="padding:5px 8px 5px 8px;text-align:left;white-space:nowrap">Beneficiario</th>
                     <th style="padding:5px 8px;text-align:left;white-space:nowrap">Tipo Doc</th>
                     <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Documento</th>
                     <th style="padding:5px 8px;text-align:left;white-space:nowrap">F. Vencimiento</th>
@@ -5818,8 +5832,14 @@ async function renderPaso4(container) {
                 </thead>
                 <tbody>
                   ${oblList.map(ob => `
-                  <tr style="border-top:1px solid #f1f5f9${p4ObsConError.has(String(ob._id))?';background:#fef9c3':''}">
-                    <td style="padding:4px 8px 4px 24px;font-weight:500">${esc(ob.pagarA||'')}</td>
+                  <tr style="border-top:1px solid #f1f5f9;background:${p4ObsConError.has(String(ob._id))?'#fef9c3':p4Marcados.has(String(ob._id))?'#f0fdf4':''}">
+                    <td style="padding:4px 8px;text-align:center">
+                      <input type="checkbox" ${p4Marcados.has(String(ob._id))?'checked':''}
+                             onclick="event.stopPropagation()"
+                             onchange="p4ToggleMarcadoOb('${ob._id}',this.checked)"
+                             style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer">
+                    </td>
+                    <td style="padding:4px 8px;font-weight:500">${esc(ob.pagarA||'')}</td>
                     <td style="padding:4px 8px">${esc(ob.tipoDocumento||'')}</td>
                     <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
                     <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
@@ -5874,7 +5894,8 @@ async function renderPaso4(container) {
 
   // ── Footer ────────────────────────────────────────────────────────
   function p4RenderFooter() {
-    const obs = (p4Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const obsAll = (p4Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const obs    = obsAll.filter(o => p4Marcados.has(String(o._id)));
     const tc  = parseFloat(document.getElementById('p4-tc')?.value) || 1;
     const netoOb = o => o.monto - (o.retencion || 0);
 
@@ -5901,7 +5922,7 @@ async function renderPaso4(container) {
     p4Footer.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-x:auto">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-size:12px;color:var(--text-muted)">Obligaciones:&nbsp;<strong style="color:#111">${obs.length}</strong></span>
+          <span style="font-size:12px;color:var(--text-muted)">Marcadas:&nbsp;<strong style="color:#111">${obs.length}</strong>${obsAll.length !== obs.length ? `&nbsp;<span style="color:#94a3b8">/ ${obsAll.length}</span>` : ''}</span>
           <div style="width:1px;height:16px;background:#e2e8f0"></div>
           <span style="font-size:11px;color:var(--text-muted)">Neto:</span>
           ${totalUSD ? `<span style="font-size:13px">USD&nbsp;<strong>${fmtN(totalUSD)}</strong></span>` : ''}
@@ -5963,6 +5984,9 @@ async function renderPaso4(container) {
     try {
       p4Prog = await GET(`/pagos/programaciones/${id}`);
       p4ObsConError  = new Set();
+      p4Marcados     = new Set(
+        (p4Prog.obligaciones || []).filter(o => o.seleccionado).map(o => String(o._id))
+      );
       p4CustomAgrups = [];
       p4RenderGrupos();
       // Expandir todos los bancos por defecto
@@ -5993,6 +6017,38 @@ async function renderPaso4(container) {
     const open = body.style.display !== 'none';
     body.style.display = open ? 'none' : '';
     if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  // ── Marcado (checkboxes P4) ───────────────────────────────────────
+  window.p4ToggleMarcadoOb = function(obId, val) {
+    if (val) p4Marcados.add(String(obId));
+    else     p4Marcados.delete(String(obId));
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
+  };
+
+  window.p4ToggleMarcadoBanco = function(bKey, val) {
+    if (!p4Prog) return;
+    (p4Prog.obligaciones || []).filter(o => o.seleccionado).forEach(ob => {
+      const bk = (ob.bancoAsignado || '(sin banco)').replace(/\W/g,'_');
+      if (bk === bKey) {
+        if (val) p4Marcados.add(String(ob._id));
+        else     p4Marcados.delete(String(ob._id));
+      }
+    });
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
+  };
+
+  window.p4ToggleMarcadoAgrup = function(aKey, val) {
+    if (!p4Prog) return;
+    (p4Prog.obligaciones || []).filter(o => o.seleccionado).forEach(ob => {
+      const bk = (ob.bancoAsignado || '(sin banco)').replace(/\W/g,'_');
+      const ak = (ob.agrupadorPago  || 'INDIVIDUAL').replace(/\W/g,'_');
+      if (`${bk}__${ak}` === aKey) {
+        if (val) p4Marcados.add(String(ob._id));
+        else     p4Marcados.delete(String(ob._id));
+      }
+    });
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
   };
 
   // ── Setters ───────────────────────────────────────────────────────
