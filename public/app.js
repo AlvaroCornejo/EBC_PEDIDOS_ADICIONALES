@@ -5730,9 +5730,9 @@ async function renderPaso4(container) {
       byBanco[banco][agrup].push(ob);
     });
 
-    // Totales por banco (solo marcados)
+    // Totales por banco/agrupador (todas las obligaciones del grupo)
     const bancoTot = (banco) => {
-      const bo = obs.filter(o => (o.bancoAsignado || '(sin banco)') === banco && p4Marcados.has(String(o._id)));
+      const bo = obs.filter(o => (o.bancoAsignado || '(sin banco)') === banco);
       const usd = bo.filter(o => o.moneda !== 'LO').reduce((s,o) => s + netoOb(o), 0);
       const sol = bo.filter(o => o.moneda === 'LO').reduce((s,o) => s + netoOb(o), 0);
       return { usd, sol };
@@ -5740,8 +5740,7 @@ async function renderPaso4(container) {
     const agrupTot = (banco, agrup) => {
       const ao = obs.filter(o =>
         (o.bancoAsignado||'(sin banco)') === banco &&
-        (o.agrupadorPago ||'INDIVIDUAL')  === agrup &&
-        p4Marcados.has(String(o._id))
+        (o.agrupadorPago ||'INDIVIDUAL')  === agrup
       );
       const usd = ao.filter(o => o.moneda !== 'LO').reduce((s,o) => s + netoOb(o), 0);
       const sol = ao.filter(o => o.moneda === 'LO').reduce((s,o) => s + netoOb(o), 0);
