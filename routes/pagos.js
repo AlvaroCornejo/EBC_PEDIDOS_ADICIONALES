@@ -496,8 +496,34 @@ router.delete('/bancos/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/** Aplica asignaciones de banco/agrupador a las obligaciones de la prog y guarda defaults en beneficiarios */
+async function aplicarAsignacionesP3(prog, asignaciones) {
+  if (!Array.isArray(asignaciones)) return;
+  // Aplicar a obligaciones
+  asignaciones.forEach(({ id, bancoAsignado, agrupadorPago }) => {
+    const ob = prog.obligaciones.id(id);
+    if (ob) {
+      if (bancoAsignado !== undefined) ob.bancoAsignado = bancoAsignado || '';
+      if (agrupadorPago !== undefined) ob.agrupadorPago = agrupadorPago || 'INDIVIDUAL';
+    }
+  });
+  // Guardar defaults por beneficiario (último banco + agrupador usado)
+  const defMap = {}; // { nombreUpper: { banco, agrupador } }
+  prog.obligaciones.filter(o => o.seleccionado).forEach(ob => {
+    const key = (ob.pagarA || '').toUpperCase();
+    if (!defMap[key]) defMap[key] = { banco: ob.bancoAsignado || '', agrupador: ob.agrupadorPago || 'INDIVIDUAL' };
+  });
+  const ops = Object.entries(defMap).map(([nombre, { banco, agrupador }]) =>
+    PagoBeneficiario.findOneAndUpdate(
+      { nombre: { $regex: new RegExp(`^${nombre}$`, 'i') }, compania: prog.compania },
+      { bancoDefault: banco, agrupadorDefault: agrupador, updatedAt: new Date() },
+      { new: true }
+    )
+  );
+  await Promise.all(ops);
+}
+
 // ── PUT /api/pagos/programaciones/:id/guardar-p3 ─────────────────────────────
-// Guarda bancoAsignado + agrupadorPago de cada obligación (Paso 3)
 router.put('/programaciones/:id/guardar-p3', async (req, res) => {
   try {
     const prog = await PagoProgramacion.findById(req.params.id);
@@ -505,24 +531,14 @@ router.put('/programaciones/:id/guardar-p3', async (req, res) => {
     if (!checkSocAccess(req.user, prog.compania))
       return res.status(403).json({ error: 'Sin acceso' });
     if (!['aprobado','preparado'].includes(prog.estado))
-      return res.status(400).json({ error: 'Solo se puede preparar en estado aprobado o preparado' });
-    const { asignaciones } = req.body; // [{ id, bancoAsignado, agrupadorPago }]
-    if (Array.isArray(asignaciones)) {
-      asignaciones.forEach(({ id, bancoAsignado, agrupadorPago }) => {
-        const ob = prog.obligaciones.id(id);
-        if (ob) {
-          if (bancoAsignado  !== undefined) ob.bancoAsignado  = bancoAsignado  || '';
-          if (agrupadorPago  !== undefined) ob.agrupadorPago  = agrupadorPago  || 'INDIVIDUAL';
-        }
-      });
-    }
+      return res.status(400).json({ error: 'Solo se puede guardar en estado aprobado o preparado' });
+    await aplicarAsignacionesP3(prog, req.body.asignaciones);
     await prog.save();
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── PUT /api/pagos/programaciones/:id/preparar ───────────────────────────────
-// Marca la programación como preparada (Paso 3 → Paso 4)
 router.put('/programaciones/:id/preparar', async (req, res) => {
   try {
     const prog = await PagoProgramacion.findById(req.params.id);
@@ -534,20 +550,10 @@ router.put('/programaciones/:id/preparar', async (req, res) => {
     const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
     if (!['pagador','admin'].includes(rol))
       return res.status(403).json({ error: 'No tiene permiso para preparar pagos' });
-    // Guardar asignaciones
-    const { asignaciones } = req.body;
-    if (Array.isArray(asignaciones)) {
-      asignaciones.forEach(({ id, bancoAsignado, agrupadorPago }) => {
-        const ob = prog.obligaciones.id(id);
-        if (ob) {
-          if (bancoAsignado !== undefined) ob.bancoAsignado = bancoAsignado || '';
-          if (agrupadorPago !== undefined) ob.agrupadorPago = agrupadorPago || 'INDIVIDUAL';
-        }
-      });
-    }
-    prog.estado        = 'preparado';
-    prog.preparadoPor  = req.user.username;
-    prog.preparadoEn   = new Date();
+    await aplicarAsignacionesP3(prog, req.body.asignaciones);
+    prog.estado       = 'preparado';
+    prog.preparadoPor = req.user.username;
+    prog.preparadoEn  = new Date();
     await prog.save();
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }

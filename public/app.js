@@ -4900,6 +4900,30 @@ async function renderPaso3(container) {
   async function p3AbrirProg(id) {
     try {
       p3Prog = await GET(`/pagos/programaciones/${id}`);
+
+      // Pre-cargar defaults de banco/agrupador para obligaciones sin asignar
+      const comp = p3Prog.compania;
+      const bens = await GET(`/pagos/beneficiarios?compania=${encodeURIComponent(comp)}`);
+      const defMap = {}; // nombre.upper → { bancoDefault, agrupadorDefault }
+      bens.forEach(b => {
+        defMap[b.nombre.toUpperCase()] = {
+          banco:    b.bancoDefault    || '',
+          agrupador: b.agrupadorDefault || 'INDIVIDUAL',
+        };
+      });
+      p3Prog.obligaciones.forEach(ob => {
+        if (!ob.seleccionado) return;
+        const key = (ob.pagarA || '').toUpperCase();
+        const def = defMap[key];
+        if (!def) return;
+        if (!ob.bancoAsignado)                         ob.bancoAsignado  = def.banco;
+        if (!ob.agrupadorPago || ob.agrupadorPago === 'INDIVIDUAL') {
+          // Solo sobreescribe si el default es diferente de INDIVIDUAL
+          if (def.agrupador && def.agrupador !== 'INDIVIDUAL')
+            ob.agrupadorPago = def.agrupador;
+        }
+      });
+
       p3PoblarFiltros();
       p3RenderGrupos();
       p3RenderFooter();
@@ -5065,7 +5089,7 @@ async function renderPaso3(container) {
       ).join('');
 
     // COLS: arrow | name | programado | banco | agrupador
-    const COLS = 'grid-template-columns:26px minmax(160px,1fr) 170px 150px 170px;gap:0 12px';
+    const COLS = 'grid-template-columns:26px minmax(150px,250px) 170px 150px 170px;gap:0 12px';
 
     let html = '';
     Object.keys(grupos).sort().forEach(grp => {
