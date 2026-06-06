@@ -6437,27 +6437,33 @@ async function renderPaso5(container) {
       });
     });
 
-    // Agrupar por N° operación
+    // Agrupar por banco + moneda + N° operación (clave compuesta para evitar colisiones)
     const opMap = {};
     obs.forEach(ob => {
       const opNum = (ob.operacionBancaria || '').trim();
       if (!opNum) return;
       const banco  = ob.p5Banco  || ob.bancoAsignado || '(sin banco)';
       const moneda = ob.p5Moneda || (ob.moneda === 'LO' ? 'SOL' : 'USD');
-      if (!opMap[opNum]) opMap[opNum] = { banco, moneda, totalOblig:0, count:0, allPaid:true };
-      opMap[opNum].totalOblig += netoOb(ob);
-      opMap[opNum].count++;
-      if (!ob.pagada) opMap[opNum].allPaid = false;  // basta uno sin pagar
+      const key = `${banco}|${moneda}|${opNum}`;
+      if (!opMap[key]) opMap[key] = { opNum, banco, moneda, totalOblig:0, count:0, allPaid:true };
+      opMap[key].totalOblig += netoOb(ob);
+      opMap[key].count++;
+      if (!ob.pagada) opMap[key].allPaid = false;
     });
 
-    const entries = Object.entries(opMap).sort(([a],[b]) =>
-      Number(a) - Number(b) || a.localeCompare(b));
+    const entries = Object.entries(opMap).sort(([a],[b]) => {
+      const [ab, am, ao] = a.split('|');
+      const [bb, bm, bo] = b.split('|');
+      // ordenar por banco, moneda, luego número de operación
+      return ab.localeCompare(bb) || am.localeCompare(bm) || Number(ao) - Number(bo) || ao.localeCompare(bo);
+    });
     const sinOp = obs.filter(o => !(o.operacionBancaria||'').trim()).length;
 
     if (!entries.length && !sinOp) { el.innerHTML = ''; return; }
 
     const canPayAny = puedePagar && p5Prog.estado === 'autorizado';
-    const rows = entries.map(([opNum, d]) => {
+    const rows = entries.map(([, d]) => {
+      const { opNum } = d;
       const nroKey    = String(parseInt(opNum,10)||0);
       const ecImporte = ecLookup[d.banco]?.[d.moneda]?.[nroKey] ?? null;
       const dif    = ecImporte != null ? ecImporte + d.totalOblig : null;
@@ -6609,14 +6615,23 @@ async function renderPaso5(container) {
     } catch(e) { console.error('estados-cuenta:', e.message); }
   }
 
-  function p5RenderECTabla(trxs) {
+  // ecBanco y ecMoneda filtran el opMap para que solo aparezcan las
+  // obligaciones asignadas a ESE banco+moneda (evita cruce entre tablas)
+  function p5RenderECTabla(trxs, ecBanco, ecMoneda) {
     if (!trxs.length) return '<p style="padding:8px 14px;font-size:12px;color:var(--text-muted)">Sin transacciones.</p>';
-    // Mapa N°op (normalizado sin ceros) → total programación
+    // Mapa N°op (normalizado sin ceros) → total programación SOLO para este banco+moneda
     const opMap = {};
     if (p5Prog) {
       (p5Prog.obligaciones||[]).filter(o => o.seleccionado).forEach(ob => {
         const raw = (ob.operacionBancaria||'').trim();
         if (!raw) return;
+        // Filtrar: solo incluir obligaciones asignadas a este EC (banco+moneda)
+        if (ecBanco || ecMoneda) {
+          const obBanco  = ob.p5Banco  || ob.bancoAsignado || '';
+          const obMoneda = ob.p5Moneda || (ob.moneda === 'LO' ? 'SOL' : 'USD');
+          if (ecBanco  && obBanco  !== ecBanco)  return;
+          if (ecMoneda && obMoneda !== ecMoneda) return;
+        }
         const key = String(parseInt(raw, 10) || 0);
         if (key === '0') return;
         opMap[key] = (opMap[key] || 0) + netoOb(ob);
@@ -6697,7 +6712,7 @@ async function renderPaso5(container) {
               </label>
             </div>
             <div id="p5-ec-tabla-${esc(id)}" style="overflow-x:auto;max-height:320px;overflow-y:auto">
-              ${p5RenderECTabla(ec.transacciones)}
+              ${p5RenderECTabla(ec.transacciones, ec.banco, ec.moneda)}
             </div>
           </div>
         </div>`;
@@ -6727,7 +6742,7 @@ async function renderPaso5(container) {
       (t.concepto||'').toLowerCase().includes(texto));
     if (soloSal)  filtradas = filtradas.filter(t => (t.importe||0) < 0);
     const tablaEl = document.getElementById(`p5-ec-tabla-${id}`);
-    if (tablaEl) tablaEl.innerHTML = p5RenderECTabla(filtradas);
+    if (tablaEl) tablaEl.innerHTML = p5RenderECTabla(filtradas, banco, moneda);
   };
 
   // Re-renderiza todas las tablas EC (útil al cambiar N° op en la programación)
@@ -6745,7 +6760,7 @@ async function renderPaso5(container) {
         (t.nroDoc||'').toLowerCase().includes(texto) ||
         (t.concepto||'').toLowerCase().includes(texto));
       if (soloSal) filtradas = filtradas.filter(t => (t.importe||0) < 0);
-      tablaEl.innerHTML = p5RenderECTabla(filtradas);
+      tablaEl.innerHTML = p5RenderECTabla(filtradas, ec.banco, ec.moneda);
     });
   }
 
