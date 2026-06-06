@@ -42,12 +42,14 @@ function socFilter(user) {
   return { compania: { $in: socs } };
 }
 
-/** Próximo viernes estricto (si hoy es viernes → el siguiente) */
+/** Próximo viernes estricto (si hoy es viernes → el siguiente).
+ *  Usa UTC noon para evitar que medianoche UTC se muestre como día anterior
+ *  en zonas horarias negativas (ej. Peru UTC-5). */
 function proxViernes(desde = new Date()) {
   const d = new Date(desde);
-  d.setHours(0, 0, 0, 0);
-  const diasHasta = ((5 - d.getDay() + 7) % 7) || 7;
-  d.setDate(d.getDate() + diasHasta);
+  d.setUTCHours(12, 0, 0, 0);          // noon UTC — no cae al día anterior en UTC-5
+  const diasHasta = ((5 - d.getUTCDay() + 7) % 7) || 7;
+  d.setUTCDate(d.getUTCDate() + diasHasta);
   return d;
 }
 
@@ -89,7 +91,7 @@ function parseCSVLine(line) {
   return fields;
 }
 
-/** Parsear CSV completo con soporte para campos con comas entre comillas */
+/** Parsear CSV con cabecera en la primera fila (para Q PAGOS y similares) */
 function parseCSV(buffer) {
   const text  = buffer.toString('latin1').replace(/\r/g, '');
   const lines = text.split('\n').filter(l => l.trim());
@@ -101,6 +103,38 @@ function parseCSV(buffer) {
     headers.forEach((h, i) => { obj[h] = (vals[i] || '').trim(); });
     return obj;
   });
+}
+
+/**
+ * Parsear Q PROGRAMACION.csv — SIN cabecera, columnas fijas:
+ *  0  TipoDocumento       (FP / PP / AP / RH / VR)
+ *  1  NumeroDocumento
+ *  4  Banco               (AB=BBVA, IB=IBK, EX=BCP)
+ *  5  FechaVencimiento    "D/MM/YYYY HH:MM:SS"
+ *  7  MonedaDocumento     (LO=SOL, EX=USD)
+ *  8  MontoMoneda
+ *  9  PagarA              nombre del beneficiario
+ * 32  FechaDocumento      "D/MM/YYYY HH:MM:SS"
+ */
+const BANCO_MAP = { AB: 'BBVA', IB: 'IBK', EX: 'BCP' };
+function parseCSVProgramacion(buffer) {
+  const text  = buffer.toString('latin1').replace(/\r/g, '');
+  const lines = text.split('\n').filter(l => l.trim());
+  return lines.map(line => {
+    const v = parseCSVLine(line);
+    const get = i => (v[i] || '').trim();
+    const bancoCode = get(4);
+    return {
+      TipoDocumento:    get(0),
+      NumeroDocumento:  get(1),
+      Banco:            BANCO_MAP[bancoCode] || bancoCode,
+      FechaVencimiento: get(5),
+      MonedaDocumento:  get(7),
+      MontoMoneda:      get(8),
+      PagarA:           get(9),
+      FechaDocumento:   get(32),
+    };
+  }).filter(r => r.TipoDocumento && r.PagarA);
 }
 
 
@@ -224,7 +258,7 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
     if (!checkSocAccess(req.user, compania))
       return res.status(403).json({ error: 'Sociedad no autorizada' });
 
-    const rows = parseCSV(req.file.buffer);
+    const rows = parseCSVProgramacion(req.file.buffer);
     if (!rows.length)  return res.status(400).json({ error: 'Archivo vacío o inválido' });
 
     const fechaPago = proxViernes();
