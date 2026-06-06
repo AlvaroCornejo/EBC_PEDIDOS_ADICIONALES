@@ -6203,44 +6203,48 @@ async function renderPaso5(container) {
                oninput="clearTimeout(window._p5TC);window._p5TC=setTimeout(()=>p5RenderFooter(),300)">
       </div>
       <div id="p5-lista" style="margin-bottom:12px"></div>
-      <!-- Estados de Cuenta -->
-      <div style="margin-bottom:16px;border:1px solid #bae6fd;border-radius:8px;overflow:hidden">
-        <div onclick="p5ToggleEstados()"
-             style="display:flex;align-items:center;gap:8px;padding:9px 16px;
-                    background:#f0f9ff;cursor:pointer;user-select:none">
-          <span id="p5-estados-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
-          <span style="font-weight:700;font-size:13px;color:#0369a1">📄 Estados de Cuenta</span>
-          <span id="p5-estados-badge" style="font-size:11px;color:#64748b;margin-left:4px"></span>
+      <!-- Dos columnas: izquierda=programación, derecha=movimiento bancario -->
+      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+        <!-- ── IZQUIERDA: Programación de pago ── -->
+        <div style="flex:1;min-width:300px">
+          <div id="p5-wrap"></div>
+          <div id="p5-comparacion" style="margin-top:16px"></div>
         </div>
-        <div id="p5-estados-body" style="display:none">
-          <!-- Upload form -->
-          <div style="display:flex;gap:10px;align-items:center;padding:10px 16px;
-                      background:#f8fafc;border-bottom:1px solid #e2e8f0;flex-wrap:wrap">
-            <select id="p5-upload-banco" class="form-control" style="width:110px;font-size:13px">
-              <option value="">— Banco —</option>
-              <option value="BBVA">BBVA</option>
-              <option value="BCP">BCP</option>
-              <option value="IBK">IBK</option>
-            </select>
-            <select id="p5-upload-moneda" class="form-control" style="width:130px;font-size:13px">
-              <option value="">— Moneda —</option>
-              <option value="USD">USD (Dólares)</option>
-              <option value="SOL">SOL (Soles)</option>
-            </select>
-            <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;
-                          background:#fff;border:1px solid #d1d5db;border-radius:6px;
-                          padding:5px 12px;font-size:12px;font-weight:500;color:#374151">
-              📎 Subir estado de cuenta (.xlsx)
-              <input type="file" id="p5-upload-file" accept=".xlsx,.xls" style="display:none"
-                     onchange="p5SubirEstado()">
-            </label>
-            <span id="p5-upload-status" style="font-size:12px;color:var(--text-muted)"></span>
+        <!-- ── DERECHA: Movimiento Bancario ── -->
+        <div style="width:460px;flex-shrink:0;min-width:280px">
+          <div style="border:1px solid #bae6fd;border-radius:8px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:8px;padding:9px 16px;
+                        background:#f0f9ff;border-bottom:1px solid #bae6fd">
+              <span style="font-weight:700;font-size:13px;color:#0369a1">🏦 Movimiento Bancario</span>
+              <span id="p5-estados-badge" style="font-size:11px;color:#64748b;margin-left:4px"></span>
+            </div>
+            <!-- Upload form -->
+            <div style="display:flex;gap:8px;align-items:center;padding:10px 14px;
+                        background:#f8fafc;border-bottom:1px solid #e2e8f0;flex-wrap:wrap">
+              <select id="p5-upload-banco" class="form-control" style="width:100px;font-size:12px">
+                <option value="">— Banco —</option>
+                <option value="BBVA">BBVA</option>
+                <option value="BCP">BCP</option>
+                <option value="IBK">IBK</option>
+              </select>
+              <select id="p5-upload-moneda" class="form-control" style="width:120px;font-size:12px">
+                <option value="">— Moneda —</option>
+                <option value="USD">USD</option>
+                <option value="SOL">Soles</option>
+              </select>
+              <label style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;
+                            background:#fff;border:1px solid #d1d5db;border-radius:6px;
+                            padding:4px 10px;font-size:12px;font-weight:500;color:#374151">
+                📎 Subir .xlsx
+                <input type="file" id="p5-upload-file" accept=".xlsx,.xls" style="display:none"
+                       onchange="p5SubirEstado()">
+              </label>
+              <span id="p5-upload-status" style="font-size:11px;color:var(--text-muted)"></span>
+            </div>
+            <div id="p5-estados-lista" style="padding:10px 14px"></div>
           </div>
-          <div id="p5-estados-lista" style="padding:12px 16px"></div>
         </div>
       </div>
-      <div id="p5-wrap"></div>
-      <div id="p5-comparacion" style="margin-top:20px"></div>
     </div>`;
 
   // ── Save / Restore state ─────────────────────────────────────────
@@ -6368,10 +6372,10 @@ async function renderPaso5(container) {
               <div style="display:flex;align-items:center;gap:10px;padding:8px 20px 8px 32px;
                           background:#f5f3ff;border-bottom:1px solid #e2e8f0;flex-wrap:wrap">
                 <span style="font-size:12px;color:#7c3aed;font-weight:600;white-space:nowrap">N° Operación:</span>
-                <input type="text" class="form-control"
-                       style="width:170px;font-size:12px;height:28px"
-                       placeholder="Ej: 0000012345"
-                       value="${esc(agrupOp)}"
+                <input type="number" min="0" step="1" class="form-control"
+                       style="width:150px;font-size:12px;height:28px"
+                       placeholder="N° operación"
+                       value="${agrupOp}"
                        oninput="p5SetOpAgrup('${esc(banco)}','${esc(agrup)}',this.value)">
                 <span style="font-size:12px;color:#7c3aed;font-weight:600;white-space:nowrap">Importe banco (${monedaStr}):</span>
                 <input type="number" min="0" step="0.01" class="form-control"
@@ -6411,10 +6415,10 @@ async function renderPaso5(container) {
                     <td style="padding:4px 8px;text-align:right;font-weight:600;color:${(ob.retencion||0)>0?'#059669':'inherit'}">${fmtN(netoOb(ob))}</td>
                     ${esIndiv ? `
                     <td style="padding:2px 8px">
-                      <input type="text" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;width:150px"
-                             placeholder="Ej: 0000012345"
-                             value="${esc(ob.operacionBancaria||'')}"
+                      <input type="number" min="0" step="1" class="form-control"
+                             style="font-size:11px;padding:2px 6px;height:26px;width:130px"
+                             placeholder="N° operación"
+                             value="${ob.operacionBancaria||''}"
                              oninput="p5SetOpOb('${ob._id}',this.value)">
                     </td>
                     <td style="padding:2px 8px">
@@ -6596,6 +6600,7 @@ async function renderPaso5(container) {
       });
       p5RenderComparacion();
       p5RenderFooter();
+      p5RefreshECTablas();   // actualizar columnas prog/dif en la tabla bancaria
       await p5CargarLista();
     } catch(e) { toast(e.message, 'error'); }
   }
@@ -6612,21 +6617,50 @@ async function renderPaso5(container) {
 
   function p5RenderECTabla(trxs) {
     if (!trxs.length) return '<p style="padding:8px 14px;font-size:12px;color:var(--text-muted)">Sin transacciones.</p>';
-    return `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    // Mapa N°op (normalizado sin ceros) → total programación
+    const opMap = {};
+    if (p5Prog) {
+      (p5Prog.obligaciones||[]).filter(o => o.seleccionado).forEach(ob => {
+        const raw = (ob.operacionBancaria||'').trim();
+        if (!raw) return;
+        const key = String(parseInt(raw, 10) || 0);
+        if (key === '0') return;
+        opMap[key] = (opMap[key] || 0) + netoOb(ob);
+      });
+    }
+    const hayProg = Object.keys(opMap).length > 0;
+    const fmt = v => Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+    return `<table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="background:#f1f5f9;color:var(--text-muted)">
-        <th style="padding:5px 10px;text-align:left;white-space:nowrap">Fecha</th>
-        <th style="padding:5px 10px;text-align:left;white-space:nowrap">N° Operación</th>
-        <th style="padding:5px 10px;text-align:left">Concepto</th>
-        <th style="padding:5px 10px;text-align:right;white-space:nowrap">Importe</th>
+        <th style="padding:4px 8px;text-align:left;white-space:nowrap">Fecha</th>
+        <th style="padding:4px 8px;text-align:left;white-space:nowrap">N° Op.</th>
+        <th style="padding:4px 8px;text-align:left">Concepto</th>
+        <th style="padding:4px 8px;text-align:right;white-space:nowrap">Importe</th>
+        ${hayProg ? `
+        <th style="padding:4px 8px;text-align:right;white-space:nowrap;color:#7c3aed">Prog.</th>
+        <th style="padding:4px 8px;text-align:right;white-space:nowrap">Dif.</th>` : ''}
       </tr></thead>
       <tbody>${trxs.map(t => {
         const neg = (t.importe||0) < 0;
-        const fmt = v => Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
-        return `<tr style="border-top:1px solid #f1f5f9">
-          <td style="padding:4px 10px;white-space:nowrap;color:#64748b">${t.fecha?new Date(t.fecha).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}):'—'}</td>
-          <td style="padding:4px 10px;font-family:monospace;color:#1d4ed8">${esc(t.nroDoc||'')}</td>
-          <td style="padding:4px 10px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.concepto||'')}</td>
-          <td style="padding:4px 10px;text-align:right;font-weight:600;color:${neg?'#dc2626':'#16a34a'}">${fmt(t.importe||0)}</td>
+        const nroKey = String(parseInt(t.nroDoc||'0', 10) || 0);
+        const totalProg = (nroKey !== '0' && opMap[nroKey] != null) ? opMap[nroKey] : null;
+        // banco negativo + prog positivo → dif ≈ 0 si cuadra
+        const dif   = totalProg != null ? (t.importe||0) + totalProg : null;
+        const difOk = dif != null && Math.abs(dif) < 0.01;
+        const rowBg = dif != null && !difOk ? 'background:#fef2f2' : '';
+        return `<tr style="border-top:1px solid #f1f5f9;${rowBg}">
+          <td style="padding:3px 8px;white-space:nowrap;color:#64748b">${t.fecha?new Date(t.fecha).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit'}):'—'}</td>
+          <td style="padding:3px 8px;font-family:monospace;color:#1d4ed8;white-space:nowrap">${esc(t.nroDoc||'')}</td>
+          <td style="padding:3px 8px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.concepto||'')}</td>
+          <td style="padding:3px 8px;text-align:right;font-weight:600;color:${neg?'#dc2626':'#16a34a'}">${fmt(t.importe||0)}</td>
+          ${hayProg ? `
+          <td style="padding:3px 8px;text-align:right;color:#7c3aed;font-weight:600">
+            ${totalProg != null ? fmt(totalProg) : '<span style="color:#cbd5e1">—</span>'}
+          </td>
+          <td style="padding:3px 8px;text-align:right;font-weight:700;
+                     color:${difOk?'#16a34a':dif!=null?'#dc2626':'#94a3b8'}">
+            ${dif != null ? (difOk ? '✓' : (dif > 0 ? '+' : '') + fmt(dif)) : '—'}
+          </td>` : ''}
         </tr>`;
       }).join('')}</tbody></table>`;
   }
@@ -6655,12 +6689,20 @@ async function renderPaso5(container) {
             <span id="p5-ec-arr-${esc(id)}" style="margin-left:auto;font-size:11px;color:var(--text-muted)">▸</span>
           </div>
           <div id="p5-ec-body-${esc(id)}" style="display:none">
-            <div style="padding:8px 14px;border-bottom:1px solid #f1f5f9">
-              <input type="text" class="form-control" style="font-size:12px;height:28px"
-                     placeholder="Filtrar por N° operación o concepto..."
-                     oninput="p5FiltrarEC('${esc(id)}','${esc(ec.banco)}','${esc(ec.moneda)}',this.value)">
+            <div style="padding:6px 12px;border-bottom:1px solid #f1f5f9;
+                        display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="text" id="p5-ec-q-${esc(id)}" class="form-control"
+                     style="font-size:11px;height:26px;flex:1;min-width:120px"
+                     placeholder="N° operación o concepto…"
+                     oninput="p5FiltrarEC('${esc(id)}','${esc(ec.banco)}','${esc(ec.moneda)}')">
+              <label style="display:flex;align-items:center;gap:4px;font-size:11px;
+                            white-space:nowrap;cursor:pointer;color:#374151;user-select:none">
+                <input type="checkbox" id="p5-ec-sal-${esc(id)}"
+                       onchange="p5FiltrarEC('${esc(id)}','${esc(ec.banco)}','${esc(ec.moneda)}')">
+                Solo salidas
+              </label>
             </div>
-            <div id="p5-ec-tabla-${esc(id)}" style="overflow-x:auto;max-height:280px;overflow-y:auto">
+            <div id="p5-ec-tabla-${esc(id)}" style="overflow-x:auto;max-height:320px;overflow-y:auto">
               ${p5RenderECTabla(ec.transacciones)}
             </div>
           </div>
@@ -6668,14 +6710,7 @@ async function renderPaso5(container) {
     }).join('');
   }
 
-  window.p5ToggleEstados = function() {
-    const body = document.getElementById('p5-estados-body');
-    const arr  = document.getElementById('p5-estados-arr');
-    if (!body) return;
-    const open = body.style.display !== 'none';
-    body.style.display = open ? 'none' : '';
-    if (arr) arr.textContent = open ? '▸' : '▾';
-  };
+  // p5ToggleEstados eliminado — panel bancario siempre visible
 
   window.p5ToggleEstadoCard = function(id) {
     const body = document.getElementById(`p5-ec-body-${id}`);
@@ -6686,18 +6721,39 @@ async function renderPaso5(container) {
     if (arr) arr.textContent = open ? '▸' : '▾';
   };
 
-  window.p5FiltrarEC = function(id, banco, moneda, q) {
+  window.p5FiltrarEC = function(id, banco, moneda) {
     const ec = p5Estados.find(e => e.banco === banco && e.moneda === moneda);
     if (!ec) return;
-    const texto = (q||'').toLowerCase().trim();
-    const filtradas = texto
-      ? ec.transacciones.filter(t =>
-          (t.nroDoc||'').toLowerCase().includes(texto) ||
-          (t.concepto||'').toLowerCase().includes(texto))
-      : ec.transacciones;
+    const q          = document.getElementById(`p5-ec-q-${id}`)?.value || '';
+    const soloSal    = document.getElementById(`p5-ec-sal-${id}`)?.checked || false;
+    const texto      = q.toLowerCase().trim();
+    let filtradas    = ec.transacciones;
+    if (texto)    filtradas = filtradas.filter(t =>
+      (t.nroDoc||'').toLowerCase().includes(texto) ||
+      (t.concepto||'').toLowerCase().includes(texto));
+    if (soloSal)  filtradas = filtradas.filter(t => (t.importe||0) < 0);
     const tablaEl = document.getElementById(`p5-ec-tabla-${id}`);
     if (tablaEl) tablaEl.innerHTML = p5RenderECTabla(filtradas);
   };
+
+  // Re-renderiza todas las tablas EC (útil al cambiar N° op en la programación)
+  function p5RefreshECTablas() {
+    p5Estados.forEach(ec => {
+      const id = `${ec.banco}_${ec.moneda}`;
+      const tablaEl = document.getElementById(`p5-ec-tabla-${id}`);
+      if (!tablaEl) return;
+      // Re-aplicar filtros actuales
+      const q       = document.getElementById(`p5-ec-q-${id}`)?.value || '';
+      const soloSal = document.getElementById(`p5-ec-sal-${id}`)?.checked || false;
+      const texto   = q.toLowerCase().trim();
+      let filtradas = ec.transacciones;
+      if (texto)   filtradas = filtradas.filter(t =>
+        (t.nroDoc||'').toLowerCase().includes(texto) ||
+        (t.concepto||'').toLowerCase().includes(texto));
+      if (soloSal) filtradas = filtradas.filter(t => (t.importe||0) < 0);
+      tablaEl.innerHTML = p5RenderECTabla(filtradas);
+    });
+  }
 
   window.p5SubirEstado = async function() {
     const comp   = document.getElementById('p5-compania')?.value;
@@ -6769,6 +6825,7 @@ async function renderPaso5(container) {
         ob.operacionBancaria = val;
     });
     p5RenderComparacion();
+    p5RefreshECTablas();
   };
 
   window.p5SetImporteAgrup = function(banco, agrup, val) {
@@ -6788,6 +6845,7 @@ async function renderPaso5(container) {
     const ob = p5Prog.obligaciones.find(o => String(o._id) === String(obId));
     if (ob) ob.operacionBancaria = val;
     p5RenderComparacion();
+    p5RefreshECTablas();
   };
 
   window.p5SetImporteOb = function(obId, val) {
