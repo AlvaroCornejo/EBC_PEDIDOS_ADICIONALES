@@ -5928,7 +5928,7 @@ async function renderPaso4(container) {
             ? `<span style="font-size:11px;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Autorizada</span>`
             : ''}
           <button class="btn btn-outline btn-sm" onclick="p4Guardar()">💾 Guardar</button>
-          ${puedeAut && p4Prog.estado === 'preparado' ? `
+          ${puedeAut && ['aprobado','preparado'].includes(p4Prog.estado) ? `
             <button class="btn btn-primary btn-sm" onclick="p4Autorizar()"
                     style="background:#15803d;border-color:#15803d">✅ Autorizar</button>` : ''}
         </div>` : ''}`;
@@ -5940,13 +5940,20 @@ async function renderPaso4(container) {
     const el   = document.getElementById('p4-lista');
     if (!comp) { el.innerHTML = ''; return; }
     const BADGES = {
+      aprobado:  `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px">✅ Aprobada</span>`,
       preparado: `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px">🏦 Preparada</span>`,
-      autorizado:`<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px">✅ Autorizada</span>`,
+      autorizado:`<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px">🔑 Autorizada</span>`,
     };
     try {
-      const data = await GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=preparado`);
+      // Mostrar aprobado (listo para preparar/autorizar), preparado y autorizado
+      const [apro, prep, auth] = await Promise.all([
+        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=aprobado`),
+        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=preparado`),
+        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=autorizado`),
+      ]);
+      const data = [...apro, ...prep, ...auth];
       if (!data.length) {
-        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones preparadas para <strong>${esc(comp)}</strong>.</p>`;
+        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones pendientes de autorización para <strong>${esc(comp)}</strong>.</p>`;
         return;
       }
       el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap">
