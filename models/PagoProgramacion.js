@@ -23,6 +23,7 @@ const obligacionSchema = new mongoose.Schema({
   importeBanco:     { type: Number, default: null }, // legacy
   p5Banco:          { type: String, default: '' },  // banco de pago (def = bancoAsignado P3)
   p5Moneda:         { type: String, default: '' },  // moneda de pago  (def = moneda P3)
+  pagada:           { type: Boolean, default: false }, // true cuando se registra el pago
 }, { _id: true });
 
 const schema = new mongoose.Schema({

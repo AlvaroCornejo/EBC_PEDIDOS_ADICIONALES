@@ -6444,9 +6444,10 @@ async function renderPaso5(container) {
       if (!opNum) return;
       const banco  = ob.p5Banco  || ob.bancoAsignado || '(sin banco)';
       const moneda = ob.p5Moneda || (ob.moneda === 'LO' ? 'SOL' : 'USD');
-      if (!opMap[opNum]) opMap[opNum] = { banco, moneda, totalOblig:0, count:0 };
+      if (!opMap[opNum]) opMap[opNum] = { banco, moneda, totalOblig:0, count:0, allPaid:true };
       opMap[opNum].totalOblig += netoOb(ob);
       opMap[opNum].count++;
+      if (!ob.pagada) opMap[opNum].allPaid = false;  // basta uno sin pagar
     });
 
     const entries = Object.entries(opMap).sort(([a],[b]) =>
@@ -6455,13 +6456,21 @@ async function renderPaso5(container) {
 
     if (!entries.length && !sinOp) { el.innerHTML = ''; return; }
 
+    const canPayAny = puedePagar && p5Prog.estado === 'autorizado';
     const rows = entries.map(([opNum, d]) => {
       const nroKey    = String(parseInt(opNum,10)||0);
       const ecImporte = ecLookup[d.banco]?.[d.moneda]?.[nroKey] ?? null;
-      // banco negativo + prog positivo → dif ≈ 0 si cuadra
       const dif    = ecImporte != null ? ecImporte + d.totalOblig : null;
       const difOk  = dif != null && Math.abs(dif) < 0.01;
-      const rowBg  = dif != null && !difOk ? 'background:#fee2e2' : (difOk ? 'background:#f0fdf4' : '');
+      const rowBg  = d.allPaid ? 'background:#f0fdf4'
+                   : dif != null && !difOk ? 'background:#fee2e2' : '';
+      const pagarBtn = !d.allPaid && canPayAny
+        ? `<button onclick="p5PagarOp('${esc(d.banco)}','${esc(d.moneda)}','${esc(opNum)}')"
+                   style="background:#15803d;color:#fff;border:none;padding:2px 10px;border-radius:4px;
+                          font-size:11px;cursor:pointer;white-space:nowrap">💳 Pagar</button>`
+        : d.allPaid
+          ? `<span style="color:#16a34a;font-weight:700;font-size:12px">✅ Pagada</span>`
+          : '';
       return `
         <tr style="border-top:1px solid #e2e8f0;${rowBg}">
           <td style="padding:6px 10px;font-family:monospace;font-size:12px;white-space:nowrap">${esc(opNum)}</td>
@@ -6476,6 +6485,7 @@ async function renderPaso5(container) {
                      color:${difOk?'#16a34a':dif!=null?'#dc2626':'#94a3b8'}">
             ${dif != null ? (difOk ? '✓' : ((dif>0?'+':'')+fmtN(dif))) : '—'}
           </td>
+          <td style="padding:6px 10px;text-align:center">${pagarBtn}</td>
         </tr>`;
     }).join('');
 
@@ -6498,6 +6508,7 @@ async function renderPaso5(container) {
               <th style="padding:6px 10px;text-align:right;white-space:nowrap">Total Prog.</th>
               <th style="padding:6px 10px;text-align:right;white-space:nowrap">Importe EC</th>
               <th style="padding:6px 10px;text-align:right;white-space:nowrap">Diferencia</th>
+              <th style="padding:6px 10px;text-align:center;white-space:nowrap">Pago</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -6532,9 +6543,6 @@ async function renderPaso5(container) {
             ? `<span style="font-size:11px;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Pagada</span>`
             : ''}
           <button class="btn btn-outline btn-sm" onclick="p5Guardar()">💾 Guardar</button>
-          ${puedePagar && p5Prog.estado === 'autorizado' ? `
-            <button class="btn btn-primary btn-sm" onclick="p5Pagar()"
-                    style="background:#15803d;border-color:#15803d">✅ Registrar Pago</button>` : ''}
         </div>` : ''}`;
     p5Footer.style.display = p5Prog ? 'flex' : 'none';
   }
@@ -6841,6 +6849,22 @@ async function renderPaso5(container) {
     try {
       await PUT(`/pagos/programaciones/${p5Prog._id}/guardar-p5`, { asignaciones: p5BuildAsig() });
       toast('Cambios guardados', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  // ── Pagar operación específica (banco+moneda+N°op) ───────────────
+  window.p5PagarOp = async function(banco, moneda, opNum) {
+    if (!p5Prog) return;
+    if (!confirm(`¿Registrar pago de la operación N° ${opNum}\nBanco: ${banco} | Moneda: ${moneda}?\n\nSolo se marcarán las obligaciones de esta combinación.`)) return;
+    try {
+      const data = await PUT(`/pagos/programaciones/${p5Prog._id}/pagar-op`, {
+        banco, moneda, operacionBancaria: opNum,
+        asignaciones: p5BuildAsig(),
+      });
+      const msg = `✅ ${data.marked} obligación(es) pagada(s)` +
+                  (data.progEstado === 'pagado' ? ' — Programación completamente pagada' : '');
+      toast(msg, 'success');
+      await p5AbrirProg(p5Prog._id);
     } catch(e) { toast(e.message, 'error'); }
   };
 

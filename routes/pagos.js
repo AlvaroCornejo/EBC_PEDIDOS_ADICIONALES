@@ -708,4 +708,55 @@ router.put('/programaciones/:id/pagar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── PUT /api/pagos/programaciones/:id/pagar-op ───────────────────────────────
+// Registra el pago solo para las obligaciones de una combinación banco+moneda+op
+router.put('/programaciones/:id/pagar-op', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (!['autorizado','pagado'].includes(prog.estado))
+      return res.status(400).json({ error: 'Estado no permite registrar pago' });
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['pagador','admin'].includes(rol))
+      return res.status(403).json({ error: 'Sin permiso para registrar pago' });
+
+    const { banco, moneda, operacionBancaria, asignaciones } = req.body;
+    if (!banco || !moneda || !operacionBancaria)
+      return res.status(400).json({ error: 'Faltan banco, moneda u operación' });
+
+    // Primero guardar asignaciones P5 si vienen
+    if (asignaciones) aplicarAsignacionesP5(prog, asignaciones);
+
+    // Marcar como pagadas solo las obligaciones de esa combinación
+    const opStr = String(operacionBancaria).trim();
+    let marked = 0;
+    (prog.obligaciones || []).filter(o => o.seleccionado).forEach(ob => {
+      const obBanco  = ob.p5Banco  || ob.bancoAsignado || '';
+      const obMoneda = ob.p5Moneda || (ob.moneda === 'LO' ? 'SOL' : 'USD');
+      const obOp     = String(ob.operacionBancaria || '').trim();
+      if (obBanco === banco && obMoneda === moneda && obOp === opStr) {
+        ob.pagada = true;
+        marked++;
+      }
+    });
+
+    if (marked === 0)
+      return res.status(400).json({ error: `Sin obligaciones para ${banco}/${moneda}/op.${opStr}` });
+
+    // Si TODAS las obligaciones seleccionadas están pagadas → pasar a 'pagado'
+    const selected = (prog.obligaciones || []).filter(o => o.seleccionado);
+    const allPaid  = selected.length > 0 && selected.every(o => o.pagada);
+    if (allPaid) {
+      prog.estado    = 'pagado';
+      prog.pagadoPor = req.user.username;
+      prog.pagadoEn  = new Date();
+    }
+
+    await prog.save();
+    res.json({ ok: true, marked, progEstado: prog.estado });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
