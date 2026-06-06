@@ -661,11 +661,13 @@ router.get('/estados-cuenta', async (req, res) => {
 
 // ── Helper P5 ─────────────────────────────────────────────────────────────────
 function aplicarAsignacionesP5(prog, asignaciones) {
-  (asignaciones || []).forEach(({ id, operacionBancaria, importeBanco }) => {
+  (asignaciones || []).forEach(({ id, operacionBancaria, importeBanco, p5Banco, p5Moneda }) => {
     const ob = prog.obligaciones.id(id);
     if (ob) {
       if (operacionBancaria !== undefined) ob.operacionBancaria = operacionBancaria || '';
       if (importeBanco      !== undefined) ob.importeBanco      = importeBanco != null ? parseFloat(importeBanco) || null : null;
+      if (p5Banco           !== undefined) ob.p5Banco           = p5Banco  || '';
+      if (p5Moneda          !== undefined) ob.p5Moneda          = p5Moneda || '';
     }
   });
 }

@@ -6284,14 +6284,14 @@ async function renderPaso5(container) {
     if (!p5Prog) { wrap.innerHTML = ''; return; }
     const obs = (p5Prog.obligaciones || []).filter(o => o.seleccionado);
 
-    // Agrupar por banco → agrupador
+    // Agrupar por banco → beneficiario (pagarA)
     const byBanco = {};
     obs.forEach(ob => {
       const banco = ob.bancoAsignado || '(sin banco)';
-      const agrup = ob.agrupadorPago  || 'INDIVIDUAL';
+      const benef = ob.pagarA        || '(sin beneficiario)';
       if (!byBanco[banco]) byBanco[banco] = {};
-      if (!byBanco[banco][agrup]) byBanco[banco][agrup] = [];
-      byBanco[banco][agrup].push(ob);
+      if (!byBanco[banco][benef]) byBanco[banco][benef] = [];
+      byBanco[banco][benef].push(ob);
     });
 
     const bancoTot = banco => {
@@ -6301,20 +6301,18 @@ async function renderPaso5(container) {
         sol: bo.filter(o=>o.moneda==='LO').reduce((s,o)=>s+netoOb(o),0)
       };
     };
-    const agrupTot = (banco, agrup) => {
-      const ao = obs.filter(o =>
+    const benefTot = (banco, benef) => {
+      const bo = obs.filter(o =>
         (o.bancoAsignado||'(sin banco)') === banco &&
-        (o.agrupadorPago ||'INDIVIDUAL')  === agrup
+        (o.pagarA       ||'(sin beneficiario)') === benef
       );
       return {
-        usd: ao.filter(o=>o.moneda!=='LO').reduce((s,o)=>s+netoOb(o),0),
-        sol: ao.filter(o=>o.moneda==='LO').reduce((s,o)=>s+netoOb(o),0)
+        usd: bo.filter(o=>o.moneda!=='LO').reduce((s,o)=>s+netoOb(o),0),
+        sol: bo.filter(o=>o.moneda==='LO').reduce((s,o)=>s+netoOb(o),0)
       };
     };
 
-    const AGRUPS_ORDER_P5 = ['INDIVIDUAL','TRANSFERENCIA','TRANSFERENCIA CCI','CHEQUE','EFECTIVO'];
     let html = '';
-
     const bancosOrdenados = Object.keys(byBanco).sort((a,b) => {
       if(a==='(sin banco)') return 1; if(b==='(sin banco)') return -1;
       return a.localeCompare(b);
@@ -6338,97 +6336,76 @@ async function renderPaso5(container) {
         </div>
         <div id="p5banco-body-${bKey}">`;
 
-      const agrups = Object.keys(byBanco[banco]).sort((a,b) => {
-        const ia=AGRUPS_ORDER_P5.indexOf(a), ib=AGRUPS_ORDER_P5.indexOf(b);
-        if(ia!==-1&&ib!==-1) return ia-ib;
-        if(ia!==-1) return -1; if(ib!==-1) return 1;
-        return a.localeCompare(b);
-      });
-
-      agrups.forEach(agrup => {
-        const aKey    = `${bKey}__${agrup.replace(/\W/g,'_')}`;
-        const at      = agrupTot(banco, agrup);
-        const oblList = byBanco[banco][agrup];
-        const esIndiv = agrup === 'INDIVIDUAL';
-        // Para no-INDIVIDUAL: tomar N° op e importe del primer elemento del grupo
-        const agrupOp      = esIndiv ? '' : (oblList[0]?.operacionBancaria || '');
-        const agrupImporte = esIndiv ? '' : (oblList[0]?.importeBanco != null ? oblList[0].importeBanco : '');
-        const monedaStr    = oblList[0]?.moneda === 'LO' ? 'S/' : 'USD';
+      Object.keys(byBanco[banco]).sort((a,b) => a.localeCompare(b)).forEach(benef => {
+        const benfKey = `${bKey}__${benef.replace(/\W/g,'_')}`;
+        const bt2     = benefTot(banco, benef);
+        const oblList = byBanco[banco][benef];
+        const op      = oblList[0]?.operacionBancaria || '';
+        // Efectivos banco y moneda: p5Banco/p5Moneda si el usuario los cambió, sino defaults de P3
+        const efBanco  = oblList[0]?.p5Banco  || banco;
+        const efMoneda = oblList[0]?.p5Moneda  ||
+                         (oblList[0]?.moneda === 'LO' ? 'SOL' : 'USD');
 
         html += `
           <div style="border-top:1px solid #e2e8f0">
-            <div onclick="p5ToggleAgrup('${esc(aKey)}')"
-                 style="display:flex;align-items:center;gap:8px;padding:7px 16px 7px 32px;
-                        background:#f8fafc;cursor:pointer;user-select:none">
+            <div onclick="p5ToggleAgrup('${esc(benfKey)}')"
+                 style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;
+                        padding:8px 16px 8px 24px;background:#fafafa;
+                        cursor:pointer;user-select:none">
               <span class="p5-agrup-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
-              <span style="font-weight:600;font-size:12px;color:#7c3aed">${esc(agrup)}</span>
-              <div style="display:flex;flex-direction:column;gap:0px;margin-left:8px">
-                ${at.usd ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">USD&nbsp;${fmtN(at.usd)}</span>` : ''}
-                ${at.sol ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">S/&nbsp;&nbsp;${fmtN(at.sol)}</span>` : ''}
+              <span style="font-weight:600;font-size:13px;color:#374151">${esc(benef)}</span>
+              <div style="display:flex;flex-direction:column;gap:0;margin-left:6px">
+                ${bt2.usd ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">USD&nbsp;${fmtN(bt2.usd)}</span>` : ''}
+                ${bt2.sol ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">S/&nbsp;&nbsp;${fmtN(bt2.sol)}</span>` : ''}
               </div>
             </div>
-            <div id="p5agrup-body-${aKey}" style="display:none">
-              ${!esIndiv ? `
-              <div style="display:flex;align-items:center;gap:10px;padding:8px 20px 8px 32px;
-                          background:#f5f3ff;border-bottom:1px solid #e2e8f0;flex-wrap:wrap">
-                <span style="font-size:12px;color:#7c3aed;font-weight:600;white-space:nowrap">N° Operación:</span>
+            <div id="p5agrup-body-${benfKey}" style="display:none">
+              <!-- N° op + banco + moneda al nivel del beneficiario -->
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+                          padding:7px 16px 7px 28px;background:#f5f3ff;
+                          border-bottom:1px solid #e2e8f0" onclick="event.stopPropagation()">
+                <span style="font-size:12px;color:#7c3aed;font-weight:600;white-space:nowrap">N° Op:</span>
                 <input type="number" min="0" step="1" class="form-control"
-                       style="width:150px;font-size:12px;height:28px"
+                       style="width:130px;font-size:12px;height:28px"
                        placeholder="N° operación"
-                       value="${agrupOp}"
-                       oninput="p5SetOpAgrup('${esc(banco)}','${esc(agrup)}',this.value)">
-                <span style="font-size:12px;color:#7c3aed;font-weight:600;white-space:nowrap">Importe banco (${monedaStr}):</span>
-                <input type="number" min="0" step="0.01" class="form-control"
-                       style="width:130px;font-size:12px;height:28px;text-align:right"
-                       placeholder="0.00"
-                       value="${agrupImporte}"
-                       oninput="p5SetImporteAgrup('${esc(banco)}','${esc(agrup)}',this.value)">
-              </div>` : ''}
+                       value="${op}"
+                       oninput="p5SetOpBenef('${esc(banco)}','${esc(benef)}',this.value)">
+                <span style="font-size:12px;color:#7c3aed;font-weight:600;white-space:nowrap">Banco:</span>
+                <input type="text" class="form-control"
+                       style="width:100px;font-size:12px;height:28px"
+                       placeholder="Banco"
+                       value="${esc(efBanco)}"
+                       oninput="p5SetBancoBenef('${esc(banco)}','${esc(benef)}',this.value)">
+                <span style="font-size:12px;color:#7c3aed;font-weight:600;white-space:nowrap">Mon:</span>
+                <select class="form-control" style="width:75px;font-size:12px;height:28px"
+                        onchange="p5SetMonedaBenef('${esc(banco)}','${esc(benef)}',this.value)">
+                  <option value="USD" ${efMoneda==='USD'?'selected':''}>USD</option>
+                  <option value="SOL" ${efMoneda==='SOL'?'selected':''}>SOL</option>
+                </select>
+              </div>
+              <!-- Tabla de obligaciones (sin fecha vencimiento, sin N° op por fila) -->
               <div style="overflow-x:auto">
               <table style="width:100%;border-collapse:collapse;font-size:12px">
                 <thead>
                   <tr style="background:#f1f5f9;color:var(--text-muted)">
-                    <th style="padding:5px 8px 5px 24px;text-align:left;white-space:nowrap">Beneficiario</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">Tipo Doc</th>
+                    <th style="padding:5px 8px 5px 28px;text-align:left;white-space:nowrap">Tipo Doc</th>
                     <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Documento</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">F. Vencimiento</th>
                     <th style="padding:5px 8px;text-align:right;white-space:nowrap">Mon</th>
                     <th style="padding:5px 8px;text-align:right;white-space:nowrap">Monto</th>
                     <th style="padding:5px 8px;text-align:right;white-space:nowrap">Retención</th>
                     <th style="padding:5px 8px;text-align:right;white-space:nowrap">Neto</th>
-                    ${esIndiv ? `
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Operación</th>
-                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Importe banco</th>
-                    ` : ''}
                   </tr>
                 </thead>
                 <tbody>
                   ${oblList.map(ob => `
                   <tr style="border-top:1px solid #f1f5f9">
-                    <td style="padding:4px 8px 4px 24px;font-weight:500">${esc(ob.pagarA||'')}</td>
-                    <td style="padding:4px 8px">${esc(ob.tipoDocumento||'')}</td>
+                    <td style="padding:4px 8px 4px 28px">${esc(ob.tipoDocumento||'')}</td>
                     <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
-                    <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
                     <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
                     <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
                     <td style="padding:4px 8px;text-align:right">${(ob.retencion||0)>0?fmtN(ob.retencion):'—'}</td>
-                    <td style="padding:4px 8px;text-align:right;font-weight:600;color:${(ob.retencion||0)>0?'#059669':'inherit'}">${fmtN(netoOb(ob))}</td>
-                    ${esIndiv ? `
-                    <td style="padding:2px 8px">
-                      <input type="number" min="0" step="1" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;width:130px"
-                             placeholder="N° operación"
-                             value="${ob.operacionBancaria||''}"
-                             oninput="p5SetOpOb('${ob._id}',this.value)">
-                    </td>
-                    <td style="padding:2px 8px">
-                      <input type="number" min="0" step="0.01" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;width:110px;text-align:right"
-                             placeholder="0.00"
-                             value="${ob.importeBanco != null ? ob.importeBanco : ''}"
-                             oninput="p5SetImporteOb('${ob._id}',this.value)">
-                    </td>
-                    ` : ''}
+                    <td style="padding:4px 8px;text-align:right;font-weight:600;
+                               color:${(ob.retencion||0)>0?'#059669':'inherit'}">${fmtN(netoOb(ob))}</td>
                   </tr>`).join('')}
                 </tbody>
               </table>
@@ -6449,45 +6426,55 @@ async function renderPaso5(container) {
     if (!el || !p5Prog) { if (el) el.innerHTML = ''; return; }
     const obs = (p5Prog.obligaciones || []).filter(o => o.seleccionado);
 
+    // Lookup del EC cargado: banco → moneda → nroDoc(norm) → importe
+    const ecLookup = {};
+    p5Estados.forEach(ec => {
+      if (!ecLookup[ec.banco]) ecLookup[ec.banco] = {};
+      if (!ecLookup[ec.banco][ec.moneda]) ecLookup[ec.banco][ec.moneda] = {};
+      (ec.transacciones||[]).forEach(t => {
+        const k = String(parseInt(t.nroDoc||'0',10)||0);
+        if (k !== '0') ecLookup[ec.banco][ec.moneda][k] = t.importe;
+      });
+    });
+
     // Agrupar por N° operación
     const opMap = {};
     obs.forEach(ob => {
       const opNum = (ob.operacionBancaria || '').trim();
       if (!opNum) return;
-      if (!opMap[opNum]) opMap[opNum] = {
-        banco: ob.bancoAsignado || '(sin banco)',
-        agrup: ob.agrupadorPago || 'INDIVIDUAL',
-        moneda: ob.moneda === 'LO' ? 'S/' : 'USD',
-        importeBanco: null,
-        totalOblig: 0,
-        count: 0
-      };
+      const banco  = ob.p5Banco  || ob.bancoAsignado || '(sin banco)';
+      const moneda = ob.p5Moneda || (ob.moneda === 'LO' ? 'SOL' : 'USD');
+      if (!opMap[opNum]) opMap[opNum] = { banco, moneda, totalOblig:0, count:0 };
       opMap[opNum].totalOblig += netoOb(ob);
       opMap[opNum].count++;
-      if (ob.importeBanco != null) opMap[opNum].importeBanco = ob.importeBanco;
     });
 
-    const entries = Object.entries(opMap).sort(([a],[b]) => a.localeCompare(b));
-    const sinOp   = obs.filter(o => !(o.operacionBancaria||'').trim()).length;
+    const entries = Object.entries(opMap).sort(([a],[b]) =>
+      Number(a) - Number(b) || a.localeCompare(b));
+    const sinOp = obs.filter(o => !(o.operacionBancaria||'').trim()).length;
 
     if (!entries.length && !sinOp) { el.innerHTML = ''; return; }
 
     const rows = entries.map(([opNum, d]) => {
-      const hayImporte = d.importeBanco != null;
-      const dif  = hayImporte ? d.importeBanco - d.totalOblig : null;
-      const difOk = dif != null && Math.abs(dif) < 0.01;
-      const rowBg = dif != null && !difOk ? 'background:#fee2e2' : (difOk ? 'background:#f0fdf4' : '');
+      const nroKey    = String(parseInt(opNum,10)||0);
+      const ecImporte = ecLookup[d.banco]?.[d.moneda]?.[nroKey] ?? null;
+      // banco negativo + prog positivo → dif ≈ 0 si cuadra
+      const dif    = ecImporte != null ? ecImporte + d.totalOblig : null;
+      const difOk  = dif != null && Math.abs(dif) < 0.01;
+      const rowBg  = dif != null && !difOk ? 'background:#fee2e2' : (difOk ? 'background:#f0fdf4' : '');
       return `
         <tr style="border-top:1px solid #e2e8f0;${rowBg}">
           <td style="padding:6px 10px;font-family:monospace;font-size:12px;white-space:nowrap">${esc(opNum)}</td>
           <td style="padding:6px 10px;font-size:12px">${esc(d.banco)}</td>
           <td style="padding:6px 10px;font-size:12px">${esc(d.moneda)}</td>
-          <td style="padding:6px 10px;font-size:12px">${esc(d.agrup)}</td>
           <td style="padding:6px 10px;text-align:center;font-size:12px">${d.count}</td>
           <td style="padding:6px 10px;text-align:right;font-weight:600;font-size:12px">${fmtN(d.totalOblig)}</td>
-          <td style="padding:6px 10px;text-align:right;font-size:12px">${hayImporte ? fmtN(d.importeBanco) : '<span style="color:#94a3b8">—</span>'}</td>
-          <td style="padding:6px 10px;text-align:right;font-weight:700;font-size:12px;color:${dif!=null&&!difOk?'#dc2626':dif!=null&&difOk?'#16a34a':'#94a3b8'}">
-            ${dif != null ? (difOk ? '✓' : fmtN(Math.abs(dif))) : '—'}
+          <td style="padding:6px 10px;text-align:right;font-size:12px;color:${ecImporte!=null?'#dc2626':'#94a3b8'}">
+            ${ecImporte != null ? fmtN(ecImporte) : '—'}
+          </td>
+          <td style="padding:6px 10px;text-align:right;font-weight:700;font-size:12px;
+                     color:${difOk?'#16a34a':dif!=null?'#dc2626':'#94a3b8'}">
+            ${dif != null ? (difOk ? '✓' : ((dif>0?'+':'')+fmtN(dif))) : '—'}
           </td>
         </tr>`;
     }).join('');
@@ -6496,8 +6483,8 @@ async function renderPaso5(container) {
       <div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
         <div style="padding:8px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;
                     display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span style="font-weight:700;font-size:13px;color:#374151">📊 Conciliación Bancaria</span>
-          ${sinOp ? `<span style="font-size:11px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px">⚠️ ${sinOp} obligación(es) sin N° operación</span>` : '<span style="font-size:11px;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px">✓ Todas con N° operación</span>'}
+          <span style="font-weight:700;font-size:13px;color:#374151">📊 Conciliación</span>
+          ${sinOp ? `<span style="font-size:11px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px">⚠️ ${sinOp} sin N° operación</span>` : '<span style="font-size:11px;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px">✓ Todas con N° op</span>'}
         </div>
         ${entries.length ? `
         <div style="overflow-x:auto">
@@ -6507,10 +6494,9 @@ async function renderPaso5(container) {
               <th style="padding:6px 10px;text-align:left;white-space:nowrap">N° Operación</th>
               <th style="padding:6px 10px;text-align:left;white-space:nowrap">Banco</th>
               <th style="padding:6px 10px;text-align:left;white-space:nowrap">Mon</th>
-              <th style="padding:6px 10px;text-align:left;white-space:nowrap">Agrupador</th>
               <th style="padding:6px 10px;text-align:center;white-space:nowrap"># Oblig</th>
-              <th style="padding:6px 10px;text-align:right;white-space:nowrap">Total Obligaciones</th>
-              <th style="padding:6px 10px;text-align:right;white-space:nowrap">Importe Estado de Cta</th>
+              <th style="padding:6px 10px;text-align:right;white-space:nowrap">Total Prog.</th>
+              <th style="padding:6px 10px;text-align:right;white-space:nowrap">Importe EC</th>
               <th style="padding:6px 10px;text-align:right;white-space:nowrap">Diferencia</th>
             </tr>
           </thead>
@@ -6816,42 +6802,26 @@ async function renderPaso5(container) {
     if (arr) arr.textContent = open ? '▸' : '▾';
   };
 
-  // ── Setters no-INDIVIDUAL (nivel agrupador) ──────────────────────
-  window.p5SetOpAgrup = function(banco, agrup, val) {
+  // ── Setters nivel beneficiario ───────────────────────────────────
+  function obsBenef(banco, benef) {
+    return (p5Prog?.obligaciones||[]).filter(o => o.seleccionado &&
+      (o.bancoAsignado||'(sin banco)') === banco &&
+      (o.pagarA       ||'(sin beneficiario)') === benef);
+  }
+  window.p5SetOpBenef = function(banco, benef, val) {
     if (!p5Prog) return;
-    (p5Prog.obligaciones||[]).filter(o => o.seleccionado).forEach(ob => {
-      if ((ob.bancoAsignado||'(sin banco)') === banco &&
-          (ob.agrupadorPago ||'INDIVIDUAL')  === agrup)
-        ob.operacionBancaria = val;
-    });
+    obsBenef(banco, benef).forEach(ob => ob.operacionBancaria = val);
     p5RenderComparacion();
     p5RefreshECTablas();
   };
-
-  window.p5SetImporteAgrup = function(banco, agrup, val) {
+  window.p5SetBancoBenef = function(banco, benef, val) {
     if (!p5Prog) return;
-    const v = val !== '' ? parseFloat(val) || null : null;
-    (p5Prog.obligaciones||[]).filter(o => o.seleccionado).forEach(ob => {
-      if ((ob.bancoAsignado||'(sin banco)') === banco &&
-          (ob.agrupadorPago ||'INDIVIDUAL')  === agrup)
-        ob.importeBanco = v;
-    });
+    obsBenef(banco, benef).forEach(ob => ob.p5Banco = val);
     p5RenderComparacion();
   };
-
-  // ── Setters INDIVIDUAL (por obligación) ──────────────────────────
-  window.p5SetOpOb = function(obId, val) {
+  window.p5SetMonedaBenef = function(banco, benef, val) {
     if (!p5Prog) return;
-    const ob = p5Prog.obligaciones.find(o => String(o._id) === String(obId));
-    if (ob) ob.operacionBancaria = val;
-    p5RenderComparacion();
-    p5RefreshECTablas();
-  };
-
-  window.p5SetImporteOb = function(obId, val) {
-    if (!p5Prog) return;
-    const ob = p5Prog.obligaciones.find(o => String(o._id) === String(obId));
-    if (ob) ob.importeBanco = val !== '' ? parseFloat(val) || null : null;
+    obsBenef(banco, benef).forEach(ob => ob.p5Moneda = val);
     p5RenderComparacion();
   };
 
@@ -6860,7 +6830,9 @@ async function renderPaso5(container) {
     return (p5Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
       id: ob._id,
       operacionBancaria: ob.operacionBancaria || '',
-      importeBanco: ob.importeBanco != null ? ob.importeBanco : null
+      importeBanco: ob.importeBanco != null ? ob.importeBanco : null,
+      p5Banco:  ob.p5Banco  || '',
+      p5Moneda: ob.p5Moneda || '',
     }));
   }
 

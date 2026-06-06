@@ -20,7 +20,9 @@ const obligacionSchema = new mongoose.Schema({
   observaciones:    { type: String, default: '' },
   // Paso 5 — Registro Movimiento Bancario
   operacionBancaria:{ type: String, default: '' },
-  importeBanco:     { type: Number, default: null },
+  importeBanco:     { type: Number, default: null }, // legacy
+  p5Banco:          { type: String, default: '' },  // banco de pago (def = bancoAsignado P3)
+  p5Moneda:         { type: String, default: '' },  // moneda de pago  (def = moneda P3)
 }, { _id: true });
 
 const schema = new mongoose.Schema({
