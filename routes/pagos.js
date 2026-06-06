@@ -568,8 +568,8 @@ router.put('/programaciones/:id/autorizar', async (req, res) => {
     if (!prog) return res.status(404).json({ error: 'No encontrada' });
     if (!checkSocAccess(req.user, prog.compania))
       return res.status(403).json({ error: 'Sin acceso' });
-    if (!['aprobado','preparado'].includes(prog.estado))
-      return res.status(400).json({ error: 'Solo se puede autorizar desde estado aprobado o preparado' });
+    if (prog.estado !== 'preparado')
+      return res.status(400).json({ error: 'Solo se puede autorizar desde estado preparado' });
     const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
     if (!['autorizador','admin'].includes(rol))
       return res.status(403).json({ error: 'No tiene permiso para autorizar pagos' });

@@ -4344,19 +4344,13 @@ async function renderPaso2(container) {
     if (!comp) { el.innerHTML = ''; return; }
     const esAdmin = (S.user.role === 'ADMIN' || rolP === 'admin');
     let data;
-    if (esAdmin) {
-      // Admin ve todas (sin filtro de estado, excepto 'pagado')
-      const todas = await GET(`/pagos/programaciones?compania=${comp}`);
-      data = todas.filter(p => p.estado !== 'pagado');
-    } else {
-      const [pend, apro] = await Promise.all([
-        GET(`/pagos/programaciones?compania=${comp}&estado=pendiente`),
-        GET(`/pagos/programaciones?compania=${comp}&estado=aprobado`),
-      ]);
-      data = [...pend, ...apro];
-    }
+    const [pend, apro] = await Promise.all([
+      GET(`/pagos/programaciones?compania=${comp}&estado=pendiente`),
+      GET(`/pagos/programaciones?compania=${comp}&estado=aprobado`),
+    ]);
+    data = [...pend, ...apro];
     if (!data.length) {
-      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones para revisar en <strong>${esc(comp)}</strong>.</p>`;
+      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones pendientes de aprobación en <strong>${esc(comp)}</strong>.</p>`;
       return;
     }
     const BADGES = {
@@ -4859,17 +4853,12 @@ async function renderPaso3(container) {
     const comp = document.getElementById('p3-compania').value;
     const el   = document.getElementById('p3-lista');
     if (!comp) { el.innerHTML = ''; return; }
-    let data;
-    if (esAdmin) {
-      const todas = await GET(`/pagos/programaciones?compania=${comp}`);
-      data = todas.filter(p => ['aprobado','preparado'].includes(p.estado));
-    } else {
-      const [apro, prep] = await Promise.all([
-        GET(`/pagos/programaciones?compania=${comp}&estado=aprobado`),
-        GET(`/pagos/programaciones?compania=${comp}&estado=preparado`),
-      ]);
-      data = [...apro, ...prep];
-    }
+    // Paso 3 ve aprobado (confirmado en Paso 2) + preparado (ya procesado aquí)
+    const [apro, prep] = await Promise.all([
+      GET(`/pagos/programaciones?compania=${comp}&estado=aprobado`),
+      GET(`/pagos/programaciones?compania=${comp}&estado=preparado`),
+    ]);
+    const data = [...apro, ...prep];
     if (!data.length) {
       el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones aprobadas para preparar en <strong>${esc(comp)}</strong>.</p>`;
       return;
@@ -5928,7 +5917,7 @@ async function renderPaso4(container) {
             ? `<span style="font-size:11px;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Autorizada</span>`
             : ''}
           <button class="btn btn-outline btn-sm" onclick="p4Guardar()">💾 Guardar</button>
-          ${puedeAut && ['aprobado','preparado'].includes(p4Prog.estado) ? `
+          ${puedeAut && p4Prog.estado === 'preparado' ? `
             <button class="btn btn-primary btn-sm" onclick="p4Autorizar()"
                     style="background:#15803d;border-color:#15803d">✅ Autorizar</button>` : ''}
         </div>` : ''}`;
@@ -5940,20 +5929,18 @@ async function renderPaso4(container) {
     const el   = document.getElementById('p4-lista');
     if (!comp) { el.innerHTML = ''; return; }
     const BADGES = {
-      aprobado:  `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px">✅ Aprobada</span>`,
       preparado: `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px">🏦 Preparada</span>`,
       autorizado:`<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px">🔑 Autorizada</span>`,
     };
     try {
-      // Mostrar aprobado (listo para preparar/autorizar), preparado y autorizado
-      const [apro, prep, auth] = await Promise.all([
-        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=aprobado`),
+      // Paso 4 ve preparado (confirmado en Paso 3) + autorizado (ya procesado aquí)
+      const [prep, auth] = await Promise.all([
         GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=preparado`),
         GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=autorizado`),
       ]);
-      const data = [...apro, ...prep, ...auth];
+      const data = [...prep, ...auth];
       if (!data.length) {
-        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones pendientes de autorización para <strong>${esc(comp)}</strong>.</p>`;
+        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones preparadas para <strong>${esc(comp)}</strong>.</p>`;
         return;
       }
       el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap">
