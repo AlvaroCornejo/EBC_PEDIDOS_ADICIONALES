@@ -5000,7 +5000,10 @@ async function renderPaso3(container) {
   function p3AgrupOpts(selVal) {
     const extra = p3CustomAgrups.filter(a => !AGRUPS_FIJOS.includes(a));
     const todos = [...AGRUPS_FIJOS, ...extra];
-    return todos.map(a =>
+    const ph = !selVal
+      ? `<option value="" selected>— Agrupador —</option>`
+      : `<option value="">— Agrupador —</option>`;
+    return ph + todos.map(a =>
       `<option value="${esc(a)}" ${a === selVal ? 'selected' : ''}>${esc(a)}</option>`
     ).join('') + `<option value="__nuevo__">＋ Nuevo agrupador...</option>`;
   }
@@ -5032,6 +5035,36 @@ async function renderPaso3(container) {
       return { ok: false, msg: `El agrupador "${nuevoAgrup}" ya contiene obligaciones en ${otroMon}, pero "${benKey}" tiene en ${benMon}.` };
 
     // Validar mismo banco
+    if (nuevoBanco) {
+      const otrosBancos = [...new Set(otrosEnGrupo.map(o => o.bancoAsignado).filter(Boolean))];
+      if (otrosBancos.length && !otrosBancos.includes(nuevoBanco))
+        return { ok: false, msg: `El agrupador "${nuevoAgrup}" ya usa el banco "${otrosBancos[0]}". Un agrupado solo puede tener un banco.` };
+    }
+    return { ok: true };
+  }
+
+  // ── Validar agrupador a nivel de obligación individual ──────────
+  function p3ValidarAgrupOb(obId, nuevoAgrup, nuevoBanco) {
+    if (nuevoAgrup === 'INDIVIDUAL') return { ok: true };
+    const allObs = (p3Prog.obligaciones || []).filter(o => o.seleccionado);
+    const thisOb = allObs.find(o => String(o._id) === String(obId));
+    if (!thisOb) return { ok: true };
+
+    // Otras obligaciones ya en ese agrupador
+    const otrosEnGrupo = allObs.filter(o =>
+      String(o._id) !== String(obId) &&
+      (o.agrupadorPago || 'INDIVIDUAL') === nuevoAgrup
+    );
+    if (!otrosEnGrupo.length) return { ok: true };
+
+    // Misma moneda
+    const thisMon = thisOb.moneda === 'LO' ? 'S/' : 'USD';
+    const otroUSD = otrosEnGrupo.some(o => o.moneda !== 'LO');
+    const otroMon = otroUSD ? 'USD' : 'S/';
+    if (thisMon !== otroMon)
+      return { ok: false, msg: `El agrupador "${nuevoAgrup}" ya contiene obligaciones en ${otroMon}, pero esta obligación es en ${thisMon}.` };
+
+    // Mismo banco
     if (nuevoBanco) {
       const otrosBancos = [...new Set(otrosEnGrupo.map(o => o.bancoAsignado).filter(Boolean))];
       if (otrosBancos.length && !otrosBancos.includes(nuevoBanco))
@@ -5131,10 +5164,12 @@ async function renderPaso3(container) {
         const benKey  = ben.toUpperCase().replace(/"/g,'&quot;').replace(/'/g,'&#39;');
         const bt      = benTot(ben);
         const progMon = totStr(bt);
-        // Banco y agrupador actuales del beneficiario (primer ob = referencia)
-        const benFirstOb = allObs.find(o => (o.pagarA||'').toUpperCase() === ben.toUpperCase());
-        const curBanco = benFirstOb?.bancoAsignado || '';
-        const curAgrup = benFirstOb?.agrupadorPago || 'INDIVIDUAL';
+        // Banco y agrupador del beneficiario — detectar mixto si difieren entre obligaciones
+        const benObsList = allObs.filter(o => (o.pagarA||'').toUpperCase() === ben.toUpperCase());
+        const benBancos = [...new Set(benObsList.map(o => o.bancoAsignado || ''))];
+        const benAgrups = [...new Set(benObsList.map(o => o.agrupadorPago || 'INDIVIDUAL'))];
+        const curBanco = benBancos.length === 1 ? benBancos[0] : '';
+        const curAgrup = benAgrups.length === 1 ? benAgrups[0] : '';
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
@@ -5179,8 +5214,18 @@ async function renderPaso3(container) {
                     <td style="padding:4px 8px">${fmtF(ob.fechaVencimiento)}</td>
                     <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
                     <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
-                    <td style="padding:4px 8px;text-align:center;color:#1d4ed8;font-size:11px">${esc(ob.bancoAsignado||'—')}</td>
-                    <td style="padding:4px 8px;text-align:center;color:#7c3aed;font-size:11px">${esc(ob.agrupadorPago||'INDIVIDUAL')}</td>
+                    <td style="padding:2px 8px;text-align:center">
+                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
+                              onchange="p3SetBancoOb('${ob._id}',this.value)">
+                        ${bancosOpts(ob.bancoAsignado||'')}
+                      </select>
+                    </td>
+                    <td style="padding:2px 8px;text-align:center">
+                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
+                              onchange="p3SetAgrupOb('${ob._id}',this.value)">
+                        ${p3AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
+                      </select>
+                    </td>
                   </tr>`).join('')}
               </tbody>
             </table>
@@ -5230,6 +5275,7 @@ async function renderPaso3(container) {
 
   window.p3SetAgrupBen = function(benKey, val) {
     if (!p3Prog) return;
+    if (!val) return; // placeholder "— Agrupador —"
 
     // Nuevo agrupador personalizado
     if (val === '__nuevo__') {
@@ -5255,6 +5301,39 @@ async function renderPaso3(container) {
       if ((ob.pagarA||'').toUpperCase() === benKey.toUpperCase() && ob.seleccionado)
         ob.agrupadorPago = val;
     });
+    const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
+  };
+
+  // ── Setters a nivel de obligación individual ─────────────────────
+  window.p3SetBancoOb = function(obId, val) {
+    if (!p3Prog) return;
+    const ob = p3Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (!ob) return;
+    ob.bancoAsignado = val;
+    const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
+  };
+
+  window.p3SetAgrupOb = function(obId, val) {
+    if (!p3Prog) return;
+    if (!val) return; // placeholder "— Agrupador —"
+
+    // Nuevo agrupador personalizado
+    if (val === '__nuevo__') {
+      const nuevo = prompt('Ingresa el nombre del nuevo agrupador:');
+      if (!nuevo || !nuevo.trim()) { const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); return; }
+      const nombre = nuevo.trim().toUpperCase();
+      if (!AGRUPS_FIJOS.includes(nombre) && !p3CustomAgrups.includes(nombre))
+        p3CustomAgrups.push(nombre);
+      val = nombre;
+    }
+
+    const ob = p3Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (!ob) return;
+
+    const v = p3ValidarAgrupOb(obId, val, ob.bancoAsignado || '');
+    if (!v.ok) { toast(v.msg, 'error'); const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); return; }
+
+    ob.agrupadorPago = val;
     const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
   };
 
