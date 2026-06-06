@@ -14,8 +14,9 @@ const obligacionSchema = new mongoose.Schema({
   detalleGrupo:    { type: String, default: 'OTROS' },
   seleccionado:    { type: Boolean, default: false },
   // Paso 3 — Preparación
-  bancoAsignado:   { type: String, default: '' },   // banco de pago asignado en Paso 3
-  agrupadorPago:   { type: String, default: 'INDIVIDUAL' }, // agrupador de pago
+  bancoAsignado:   { type: String, default: '' },
+  agrupadorPago:   { type: String, default: 'INDIVIDUAL' },
+  observaciones:   { type: String, default: '' },
 }, { _id: true });
 
 const schema = new mongoose.Schema({

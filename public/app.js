@@ -4915,11 +4915,10 @@ async function renderPaso3(container) {
         if (!ob.seleccionado) return;
         const key = (ob.pagarA || '').toUpperCase();
         const def = defMap[key];
-        if (!def) return;
-        if (!ob.bancoAsignado)                         ob.bancoAsignado  = def.banco;
+        if (!ob.bancoAsignado)
+          ob.bancoAsignado = (def?.banco) || 'BBVA';
         if (!ob.agrupadorPago || ob.agrupadorPago === 'INDIVIDUAL') {
-          // Solo sobreescribe si el default es diferente de INDIVIDUAL
-          if (def.agrupador && def.agrupador !== 'INDIVIDUAL')
+          if (def?.agrupador && def.agrupador !== 'INDIVIDUAL')
             ob.agrupadorPago = def.agrupador;
         }
       });
@@ -5042,6 +5041,12 @@ async function renderPaso3(container) {
         msgs.push(`Agrupador "${agrup}": mezcla de bancos (${bancos.join(', ')}). Un agrupado solo puede tener un banco.`);
       }
     });
+
+    // Sin banco → observaciones obligatorio
+    const sinBancoSinObs = allObs.filter(o => !o.bancoAsignado && !(o.observaciones||'').trim());
+    sinBancoSinObs.forEach(o => errIds.add(String(o._id)));
+    if (sinBancoSinObs.length)
+      msgs.push(`${sinBancoSinObs.length} obligación(es) sin banco asignado requieren Observaciones.`);
 
     return { ok: errIds.size === 0, obIds: errIds, mensajes: msgs };
   }
@@ -5178,6 +5183,7 @@ async function renderPaso3(container) {
                   <th style="padding:4px 8px;text-align:right">Monto</th>
                   <th style="padding:4px 8px;text-align:center">Banco</th>
                   <th style="padding:4px 8px;text-align:center">Agrupador</th>
+                  <th style="padding:4px 8px;text-align:left">Observaciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -5199,6 +5205,14 @@ async function renderPaso3(container) {
                               onchange="p3SetAgrupOb('${ob._id}',this.value)">
                         ${p3AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
                       </select>
+                    </td>
+                    <td style="padding:2px 8px">
+                      <input type="text" class="form-control"
+                             style="font-size:11px;padding:2px 6px;height:26px;min-width:160px;
+                                    ${!ob.bancoAsignado ? 'border-color:#f59e0b;background:#fffbeb' : ''}"
+                             placeholder="${!ob.bancoAsignado ? 'Requerido ⚠' : 'Observaciones...'}"
+                             value="${esc(ob.observaciones||'')}"
+                             oninput="p3SetObsOb('${ob._id}',this.value)">
                     </td>
                   </tr>`).join('')}
               </tbody>
@@ -5301,6 +5315,19 @@ async function renderPaso3(container) {
     const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
   };
 
+  // ── Setter observaciones (sin re-render para no perder el foco) ──
+  window.p3SetObsOb = function(obId, val) {
+    if (!p3Prog) return;
+    const ob = p3Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (ob) ob.observaciones = val;
+    // limpiar marcado de error si ahora tiene observaciones o banco
+    if (p3ObsConError.has(String(obId)) && (val.trim() || ob?.bancoAsignado)) {
+      p3ObsConError.delete(String(obId));
+      const tr = document.querySelector(`[oninput="p3SetObsOb('${obId}',this.value)"]`)?.closest('tr');
+      if (tr) tr.style.background = '';
+    }
+  };
+
   // ── Refresh / filtrar ────────────────────────────────────────────
   window.p3Refresh  = () => { const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter(); };
   window.p3Filtrar  = () => { const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); };
@@ -5374,7 +5401,7 @@ async function renderPaso3(container) {
     p3ObsConError = val.obIds;
     const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
     const asignaciones = (p3Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
-      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL'
+      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL', observaciones: ob.observaciones||''
     }));
     try {
       await PUT(`/pagos/programaciones/${p3Prog._id}/guardar-p3`, { asignaciones });
@@ -5401,7 +5428,7 @@ async function renderPaso3(container) {
     const n = (p3Prog.obligaciones||[]).filter(o => o.seleccionado).length;
     if (!confirm(`¿Enviar a Autorización esta preparación con ${n} obligaciones?`)) return;
     const asignaciones = (p3Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
-      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL'
+      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL', observaciones: ob.observaciones||''
     }));
     try {
       await PUT(`/pagos/programaciones/${p3Prog._id}/preparar`, { asignaciones });
