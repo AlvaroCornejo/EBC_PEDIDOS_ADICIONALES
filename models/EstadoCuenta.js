@@ -1,0 +1,21 @@
+const mongoose = require('mongoose');
+
+const trxSchema = new mongoose.Schema({
+  fecha:    Date,
+  nroDoc:   String,
+  concepto: String,
+  importe:  Number,
+}, { _id: false });
+
+const schema = new mongoose.Schema({
+  compania:  { type: String, required: true },
+  banco:     { type: String, required: true },  // BBVA, BCP, IBK
+  moneda:    { type: String, required: true },  // USD, SOL
+  cargadoPor: String,
+  cargadoEn: { type: Date, default: Date.now },
+  transacciones: [trxSchema],
+});
+
+schema.index({ compania: 1, banco: 1, moneda: 1 }, { unique: true });
+
+module.exports = mongoose.model('EstadoCuenta', schema);

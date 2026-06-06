@@ -6166,7 +6166,8 @@ async function renderPaso4(container) {
 
 // ─── Paso 5: Registro del Movimiento Bancario ─────────────────────
 async function renderPaso5(container) {
-  let p5Prog = null;
+  let p5Prog    = null;
+  let p5Estados = [];   // estados de cuenta cargados para la sociedad
 
   const rolP       = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
   const puedePagar = ['pagador','admin'].includes(rolP);
@@ -6202,6 +6203,42 @@ async function renderPaso5(container) {
                oninput="clearTimeout(window._p5TC);window._p5TC=setTimeout(()=>p5RenderFooter(),300)">
       </div>
       <div id="p5-lista" style="margin-bottom:12px"></div>
+      <!-- Estados de Cuenta -->
+      <div style="margin-bottom:16px;border:1px solid #bae6fd;border-radius:8px;overflow:hidden">
+        <div onclick="p5ToggleEstados()"
+             style="display:flex;align-items:center;gap:8px;padding:9px 16px;
+                    background:#f0f9ff;cursor:pointer;user-select:none">
+          <span id="p5-estados-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
+          <span style="font-weight:700;font-size:13px;color:#0369a1">📄 Estados de Cuenta</span>
+          <span id="p5-estados-badge" style="font-size:11px;color:#64748b;margin-left:4px"></span>
+        </div>
+        <div id="p5-estados-body" style="display:none">
+          <!-- Upload form -->
+          <div style="display:flex;gap:10px;align-items:center;padding:10px 16px;
+                      background:#f8fafc;border-bottom:1px solid #e2e8f0;flex-wrap:wrap">
+            <select id="p5-upload-banco" class="form-control" style="width:110px;font-size:13px">
+              <option value="">— Banco —</option>
+              <option value="BBVA">BBVA</option>
+              <option value="BCP">BCP</option>
+              <option value="IBK">IBK</option>
+            </select>
+            <select id="p5-upload-moneda" class="form-control" style="width:130px;font-size:13px">
+              <option value="">— Moneda —</option>
+              <option value="USD">USD (Dólares)</option>
+              <option value="SOL">SOL (Soles)</option>
+            </select>
+            <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+                          background:#fff;border:1px solid #d1d5db;border-radius:6px;
+                          padding:5px 12px;font-size:12px;font-weight:500;color:#374151">
+              📎 Subir estado de cuenta (.xlsx)
+              <input type="file" id="p5-upload-file" accept=".xlsx,.xls" style="display:none"
+                     onchange="p5SubirEstado()">
+            </label>
+            <span id="p5-upload-status" style="font-size:12px;color:var(--text-muted)"></span>
+          </div>
+          <div id="p5-estados-lista" style="padding:12px 16px"></div>
+        </div>
+      </div>
       <div id="p5-wrap"></div>
       <div id="p5-comparacion" style="margin-top:20px"></div>
     </div>`;
@@ -6563,6 +6600,148 @@ async function renderPaso5(container) {
     } catch(e) { toast(e.message, 'error'); }
   }
 
+  // ── Estados de Cuenta ────────────────────────────────────────────
+  async function p5CargarEstados() {
+    const comp = document.getElementById('p5-compania')?.value;
+    if (!comp) return;
+    try {
+      p5Estados = await GET(`/pagos/estados-cuenta?compania=${encodeURIComponent(comp)}`);
+      p5RenderEstados();
+    } catch(e) { console.error('estados-cuenta:', e.message); }
+  }
+
+  function p5RenderECTabla(trxs) {
+    if (!trxs.length) return '<p style="padding:8px 14px;font-size:12px;color:var(--text-muted)">Sin transacciones.</p>';
+    return `<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f1f5f9;color:var(--text-muted)">
+        <th style="padding:5px 10px;text-align:left;white-space:nowrap">Fecha</th>
+        <th style="padding:5px 10px;text-align:left;white-space:nowrap">N° Operación</th>
+        <th style="padding:5px 10px;text-align:left">Concepto</th>
+        <th style="padding:5px 10px;text-align:right;white-space:nowrap">Importe</th>
+      </tr></thead>
+      <tbody>${trxs.map(t => {
+        const neg = (t.importe||0) < 0;
+        const fmt = v => Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+        return `<tr style="border-top:1px solid #f1f5f9">
+          <td style="padding:4px 10px;white-space:nowrap;color:#64748b">${t.fecha?new Date(t.fecha).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}):'—'}</td>
+          <td style="padding:4px 10px;font-family:monospace;color:#1d4ed8">${esc(t.nroDoc||'')}</td>
+          <td style="padding:4px 10px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.concepto||'')}</td>
+          <td style="padding:4px 10px;text-align:right;font-weight:600;color:${neg?'#dc2626':'#16a34a'}">${fmt(t.importe||0)}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  }
+
+  function p5RenderEstados() {
+    const badge = document.getElementById('p5-estados-badge');
+    if (badge) badge.textContent = p5Estados.length ? `(${p5Estados.length} cargado${p5Estados.length>1?'s':''})` : '';
+    const el = document.getElementById('p5-estados-lista');
+    if (!el) return;
+    if (!p5Estados.length) {
+      el.innerHTML = '<p style="font-size:13px;color:var(--text-muted)">Sin estados de cuenta cargados. Seleccione banco, moneda y suba el archivo .xlsx.</p>';
+      return;
+    }
+    el.innerHTML = p5Estados.map(ec => {
+      const id    = `${ec.banco}_${ec.moneda}`;
+      const fecha = new Date(ec.cargadoEn).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'});
+      return `
+        <div style="border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px;overflow:hidden">
+          <div onclick="p5ToggleEstadoCard('${esc(id)}')"
+               style="display:flex;align-items:center;gap:10px;padding:8px 14px;
+                      background:#f8fafc;cursor:pointer;user-select:none">
+            <span style="font-size:11px;background:#dbeafe;color:#1d4ed8;padding:2px 7px;border-radius:3px;font-weight:700">🏦 ${esc(ec.banco)}</span>
+            <span style="font-size:11px;background:#f0fdf4;color:#15803d;padding:2px 7px;border-radius:3px;font-weight:700">${esc(ec.moneda)}</span>
+            <span style="font-size:12px;color:#374151;font-weight:500">${ec.transacciones.length} transacciones</span>
+            <span style="font-size:11px;color:#94a3b8">Subido ${fecha}</span>
+            <span id="p5-ec-arr-${esc(id)}" style="margin-left:auto;font-size:11px;color:var(--text-muted)">▸</span>
+          </div>
+          <div id="p5-ec-body-${esc(id)}" style="display:none">
+            <div style="padding:8px 14px;border-bottom:1px solid #f1f5f9">
+              <input type="text" class="form-control" style="font-size:12px;height:28px"
+                     placeholder="Filtrar por N° operación o concepto..."
+                     oninput="p5FiltrarEC('${esc(id)}','${esc(ec.banco)}','${esc(ec.moneda)}',this.value)">
+            </div>
+            <div id="p5-ec-tabla-${esc(id)}" style="overflow-x:auto;max-height:280px;overflow-y:auto">
+              ${p5RenderECTabla(ec.transacciones)}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  window.p5ToggleEstados = function() {
+    const body = document.getElementById('p5-estados-body');
+    const arr  = document.getElementById('p5-estados-arr');
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  window.p5ToggleEstadoCard = function(id) {
+    const body = document.getElementById(`p5-ec-body-${id}`);
+    const arr  = document.getElementById(`p5-ec-arr-${id}`);
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  window.p5FiltrarEC = function(id, banco, moneda, q) {
+    const ec = p5Estados.find(e => e.banco === banco && e.moneda === moneda);
+    if (!ec) return;
+    const texto = (q||'').toLowerCase().trim();
+    const filtradas = texto
+      ? ec.transacciones.filter(t =>
+          (t.nroDoc||'').toLowerCase().includes(texto) ||
+          (t.concepto||'').toLowerCase().includes(texto))
+      : ec.transacciones;
+    const tablaEl = document.getElementById(`p5-ec-tabla-${id}`);
+    if (tablaEl) tablaEl.innerHTML = p5RenderECTabla(filtradas);
+  };
+
+  window.p5SubirEstado = async function() {
+    const comp   = document.getElementById('p5-compania')?.value;
+    const banco  = document.getElementById('p5-upload-banco')?.value;
+    const moneda = document.getElementById('p5-upload-moneda')?.value;
+    const fileEl = document.getElementById('p5-upload-file');
+    const file   = fileEl?.files[0];
+    const status = document.getElementById('p5-upload-status');
+    if (!comp)   { toast('Seleccione una sociedad primero', 'warning'); return; }
+    if (!banco)  { toast('Seleccione el banco', 'warning'); return; }
+    if (!moneda) { toast('Seleccione la moneda', 'warning'); return; }
+    if (!file)   return;
+    if (status) status.textContent = '⏳ Procesando...';
+    try {
+      const fd = new FormData();
+      fd.append('compania', comp);
+      fd.append('banco', banco);
+      fd.append('moneda', moneda);
+      fd.append('archivo', file);
+      const token = localStorage.getItem('pedidos_token');
+      const resp  = await fetch('/pagos/estados-cuenta', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error);
+      if (status) status.textContent = `✅ ${data.count} transacciones cargadas`;
+      if (fileEl)  fileEl.value = '';
+      await p5CargarEstados();
+      // Auto-expandir la tarjeta recién subida
+      const id = `${banco}_${moneda}`;
+      const body = document.getElementById(`p5-ec-body-${id}`);
+      const arr  = document.getElementById(`p5-ec-arr-${id}`);
+      if (body && body.style.display === 'none') {
+        body.style.display = '';
+        if (arr) arr.textContent = '▾';
+      }
+    } catch(e) {
+      if (status) status.textContent = `❌ ${e.message}`;
+      toast(e.message, 'error');
+    }
+  };
+
   // ── Toggle banco / agrupador ─────────────────────────────────────
   window.p5ToggleBanco = function(bKey) {
     const body = document.getElementById(`p5banco-body-${bKey}`);
@@ -6661,7 +6840,7 @@ async function renderPaso5(container) {
     document.getElementById('p5-wrap').innerHTML = '';
     document.getElementById('p5-comparacion').innerHTML = '';
     p5RenderFooter();
-    await p5CargarLista();
+    await Promise.all([p5CargarLista(), p5CargarEstados()]);
   });
 
   // Init

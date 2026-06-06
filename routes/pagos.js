@@ -1,11 +1,13 @@
 const express        = require('express');
 const multer         = require('multer');
+const ExcelJS        = require('exceljs');
 const auth           = require('../middleware/auth');
 const PagoBeneficiario  = require('../models/PagoBeneficiario');
 const PagoProgramacion  = require('../models/PagoProgramacion');
 const PagoGrupoProveedor = require('../models/PagoGrupoProveedor');
 const PagoDetalleGrupo   = require('../models/PagoDetalleGrupo');
 const PagoBanco          = require('../models/PagoBanco');
+const EstadoCuenta       = require('../models/EstadoCuenta');
 
 const router  = express.Router();
 const upload  = multer({ storage: multer.memoryStorage() });
@@ -580,6 +582,80 @@ router.put('/programaciones/:id/autorizar', async (req, res) => {
     prog.autorizadoEn  = new Date();
     await prog.save();
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Helper: parsear estado de cuenta Excel ────────────────────────────────────
+async function parsearEstadoCuenta(buffer, banco) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const ws = wb.worksheets[0];
+  const trxs = [];
+  let primera = true;
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    if (primera) { primera = false; return; }   // saltar cabecera
+    const v = row.values;                        // índice 1-based en ExcelJS
+    try {
+      if (banco === 'BBVA') {
+        // A=fecha, D=Nº.Doc, E=Concepto, F=Importe
+        if (!v[1]) return;                       // filas de saldo no tienen fecha
+        const nroDoc = String(v[4] || '').trim();
+        if (!nroDoc || nroDoc === 'undefined') return;
+        trxs.push({ fecha: v[1] instanceof Date ? v[1] : null,
+                    nroDoc, concepto: String(v[5]||'').trim(),
+                    importe: parseFloat(v[6]) || 0 });
+      } else if (banco === 'BCP') {
+        // A=Fecha, C=Desc, D=Monto, G=Operación-Número
+        if (!v[1] || !v[7]) return;
+        trxs.push({ fecha: v[1] instanceof Date ? v[1] : null,
+                    nroDoc: String(v[7]).trim(),
+                    concepto: String(v[3]||'').trim(),
+                    importe: parseFloat(v[4]) || 0 });
+      } else if (banco === 'IBK') {
+        // A=Fecha, C=Nro.Operación, D=Movimiento, G=Cargo, H=Abono
+        if (!v[1] || !v[3]) return;
+        const nroDoc = String(v[3]).trim();
+        if (!nroDoc || nroDoc === '-') return;
+        const cargo = parseFloat(v[7]) || 0;
+        const abono = parseFloat(v[8]) || 0;
+        trxs.push({ fecha: v[1] instanceof Date ? v[1] : null,
+                    nroDoc,
+                    concepto: String(v[4] || v[5] || '').trim(),
+                    importe: cargo !== 0 ? cargo : abono });
+      }
+    } catch (_) {}
+  });
+  return trxs;
+}
+
+// ── POST /api/pagos/estados-cuenta ────────────────────────────────────────────
+router.post('/estados-cuenta', upload.single('archivo'), async (req, res) => {
+  try {
+    const { compania, banco, moneda } = req.body;
+    if (!compania || !banco || !moneda || !req.file)
+      return res.status(400).json({ error: 'Faltan campos: compania, banco, moneda o archivo' });
+    if (!checkSocAccess(req.user, compania))
+      return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
+    const transacciones = await parsearEstadoCuenta(req.file.buffer, banco);
+    await EstadoCuenta.findOneAndUpdate(
+      { compania, banco, moneda },
+      { compania, banco, moneda,
+        cargadoPor: req.user.username, cargadoEn: new Date(), transacciones },
+      { upsert: true, new: true }
+    );
+    res.json({ ok: true, count: transacciones.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/pagos/estados-cuenta ─────────────────────────────────────────────
+router.get('/estados-cuenta', async (req, res) => {
+  try {
+    const { compania } = req.query;
+    if (!compania) return res.json([]);
+    if (!checkSocAccess(req.user, compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    const estados = await EstadoCuenta.find({ compania }).sort({ banco: 1, moneda: 1 });
+    res.json(estados);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
