@@ -6307,6 +6307,7 @@ async function renderPaso5(container) {
               <input type="number" min="0" step="1" class="form-control"
                      style="width:90px;font-size:11px;height:24px;text-align:center"
                      placeholder="N° Op"
+                     data-obid="${esc(String(ob._id))}"
                      value="${esc(ob.operacionBancaria||'')}"
                      oninput="p5SetOpOb('${esc(String(ob._id))}',this.value)">
             </td>
@@ -6868,7 +6869,12 @@ async function renderPaso5(container) {
   }
   window.p5SetOpBenef = function(agrup, benef, val) {
     if (!p5Prog) return;
-    obsBenef(agrup, benef).forEach(ob => ob.operacionBancaria = val);
+    obsBenef(agrup, benef).forEach(ob => {
+      ob.operacionBancaria = val;
+      // Sincronizar input individual si está visible en el DOM
+      const inp = document.querySelector(`input[data-obid="${ob._id}"]`);
+      if (inp) inp.value = val;
+    });
     p5RefreshECTablas();
   };
   window.p5SetBancoBenef = function(agrup, benef, val) {
@@ -6890,7 +6896,11 @@ async function renderPaso5(container) {
   }
   window.p5SetOpAgrup = function(agrup, val) {
     if (!p5Prog) return;
-    obsAgrup(agrup).forEach(ob => ob.operacionBancaria = val);
+    obsAgrup(agrup).forEach(ob => {
+      ob.operacionBancaria = val;
+      const inp = document.querySelector(`input[data-obid="${ob._id}"]`);
+      if (inp) inp.value = val;
+    });
     p5RefreshECTablas();
   };
   window.p5SetBancoAgrup = function(agrup, val) {
