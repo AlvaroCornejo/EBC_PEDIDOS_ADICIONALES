@@ -5779,7 +5779,10 @@ async function renderPaso4(container) {
                  onchange="p4ToggleMarcadoBanco('${esc(bKey)}',this.checked)"
                  style="width:15px;height:15px;accent-color:#1d4ed8;cursor:pointer;flex-shrink:0">
           <span style="font-weight:700;font-size:14px;color:#1d4ed8">🏦 ${esc(banco)}</span>
-          <span style="margin-left:auto;font-size:12px;color:#475569">${totStr(bt)}</span>
+          <div style="display:flex;flex-direction:column;gap:1px;margin-left:10px">
+            ${bt.usd ? `<span style="font-size:11px;color:#1d4ed8;font-weight:600">USD&nbsp;${fmtN(bt.usd)}</span>` : ''}
+            ${bt.sol ? `<span style="font-size:11px;color:#1d4ed8;font-weight:600">S/&nbsp;&nbsp;${fmtN(bt.sol)}</span>` : ''}
+          </div>
         </div>
         <div id="p4banco-body-${bKey}">`;
 
@@ -5809,7 +5812,10 @@ async function renderPaso4(container) {
                      onchange="p4ToggleMarcadoAgrup('${esc(aKey)}',this.checked)"
                      style="width:13px;height:13px;accent-color:#7c3aed;cursor:pointer;flex-shrink:0">
               <span style="font-weight:600;font-size:12px;color:#7c3aed">${esc(agrup)}</span>
-              <span style="margin-left:auto;font-size:11px;color:#64748b">${totStr(at)}</span>
+              <div style="display:flex;flex-direction:column;gap:0px;margin-left:8px">
+                ${at.usd ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">USD&nbsp;${fmtN(at.usd)}</span>` : ''}
+                ${at.sol ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">S/&nbsp;&nbsp;${fmtN(at.sol)}</span>` : ''}
+              </div>
             </div>
             <div id="p4agrup-body-${aKey}" style="display:none">
               <div style="overflow-x:auto">
@@ -5984,9 +5990,7 @@ async function renderPaso4(container) {
     try {
       p4Prog = await GET(`/pagos/programaciones/${id}`);
       p4ObsConError  = new Set();
-      p4Marcados     = new Set(
-        (p4Prog.obligaciones || []).filter(o => o.seleccionado).map(o => String(o._id))
-      );
+      p4Marcados     = new Set();
       p4CustomAgrups = [];
       p4RenderGrupos();
       // Expandir todos los bancos por defecto
