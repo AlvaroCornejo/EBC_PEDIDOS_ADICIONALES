@@ -500,11 +500,12 @@ router.delete('/bancos/:id', async (req, res) => {
 async function aplicarAsignacionesP3(prog, asignaciones) {
   if (!Array.isArray(asignaciones)) return;
   // Aplicar a obligaciones
-  asignaciones.forEach(({ id, bancoAsignado, agrupadorPago, observaciones }) => {
+  asignaciones.forEach(({ id, bancoAsignado, agrupadorPago, retencion, observaciones }) => {
     const ob = prog.obligaciones.id(id);
     if (ob) {
       if (bancoAsignado  !== undefined) ob.bancoAsignado  = bancoAsignado  || '';
       if (agrupadorPago  !== undefined) ob.agrupadorPago  = agrupadorPago  || 'INDIVIDUAL';
+      if (retencion      !== undefined) ob.retencion      = parseFloat(retencion) || 0;
       if (observaciones  !== undefined) ob.observaciones  = observaciones  || '';
     }
   });

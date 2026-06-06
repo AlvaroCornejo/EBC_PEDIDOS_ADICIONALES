@@ -5075,16 +5075,17 @@ async function renderPaso3(container) {
       grupos[g][b].push(ob);
     });
 
+    const neto = o => o.monto - (o.retencion || 0);
     const grpTot = (g) => {
       const go = obs.filter(o => (o.grupo||'OTROS') === g);
-      const usd = go.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
-      const sol = go.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+      const usd = go.filter(o => o.moneda !== 'LO').reduce((s,o) => s + neto(o), 0);
+      const sol = go.filter(o => o.moneda === 'LO').reduce((s,o) => s + neto(o), 0);
       return { usd, sol, tot: sol + usd * tc };
     };
     const benTot = (ben) => {
       const bo = obs.filter(o => (o.pagarA||'') === ben);
-      const usd = bo.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
-      const sol = bo.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+      const usd = bo.filter(o => o.moneda !== 'LO').reduce((s,o) => s + neto(o), 0);
+      const sol = bo.filter(o => o.moneda === 'LO').reduce((s,o) => s + neto(o), 0);
       return { usd, sol, tot: sol + usd * tc };
     };
     const totStr = ({usd, sol}) => [
@@ -5181,6 +5182,8 @@ async function renderPaso3(container) {
                   <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
                   <th style="padding:4px 8px;text-align:right">Moneda</th>
                   <th style="padding:4px 8px;text-align:right">Monto</th>
+                  <th style="padding:4px 8px;text-align:right">Retención</th>
+                  <th style="padding:4px 8px;text-align:right">Neto</th>
                   <th style="padding:4px 8px;text-align:center">Banco</th>
                   <th style="padding:4px 8px;text-align:center">Agrupador</th>
                   <th style="padding:4px 8px;text-align:left">Observaciones</th>
@@ -5194,6 +5197,19 @@ async function renderPaso3(container) {
                     <td style="padding:4px 8px">${fmtF(ob.fechaVencimiento)}</td>
                     <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
                     <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
+                    <td style="padding:2px 8px;text-align:right">
+                      <input type="number" min="0" step="0.01" class="form-control"
+                             style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
+                             placeholder="0.00"
+                             value="${ob.retencion ? ob.retencion : ''}"
+                             oninput="p3SetRetOb('${ob._id}',this.value)"
+                             onblur="p3RetBlur()">
+                    </td>
+                    <td id="p3-neto-${ob._id}"
+                        style="padding:4px 8px;text-align:right;font-weight:600;
+                               color:${(ob.retencion||0)>0?'#059669':'inherit'}">
+                      ${fmtN(ob.monto - (ob.retencion||0))}
+                    </td>
                     <td style="padding:2px 8px;text-align:center">
                       <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
                               onchange="p3SetBancoOb('${ob._id}',this.value)">
@@ -5315,6 +5331,26 @@ async function renderPaso3(container) {
     const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
   };
 
+  // ── Setter retención (actualiza neto en DOM, re-render en blur) ──
+  window.p3SetRetOb = function(obId, val) {
+    if (!p3Prog) return;
+    const ob = p3Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (!ob) return;
+    ob.retencion = parseFloat(val) || 0;
+    // Actualizar celda Neto en el DOM sin re-render (preserva el foco)
+    const netoEl = document.getElementById(`p3-neto-${obId}`);
+    if (netoEl) {
+      const n = ob.monto - ob.retencion;
+      netoEl.textContent = fmtN(n);
+      netoEl.style.color = ob.retencion > 0 ? '#059669' : '';
+    }
+  };
+
+  // Re-render completo al salir del campo retención (actualiza totales de beneficiario/grupo/footer)
+  window.p3RetBlur = function() {
+    const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
+  };
+
   // ── Setter observaciones (sin re-render para no perder el foco) ──
   window.p3SetObsOb = function(obId, val) {
     if (!p3Prog) return;
@@ -5343,19 +5379,20 @@ async function renderPaso3(container) {
     const obs = (p3Prog?.obligaciones || []).filter(o => o.seleccionado);
     const tc  = parseFloat(document.getElementById('p3-tc')?.value) || 1;
 
-    // Resumen agrupado por banco + agrupador, solo en moneda original
+    // Resumen agrupado por banco + agrupador — importes NETOS (monto − retención)
+    const netoOb = o => o.monto - (o.retencion || 0);
     const resumen = {};
     obs.forEach(ob => {
       const banco = ob.bancoAsignado || '(sin banco)';
       const agrup = ob.agrupadorPago || 'INDIVIDUAL';
       const key   = `${banco}||${agrup}`;
       if (!resumen[key]) resumen[key] = { banco, agrup, usd:0, sol:0 };
-      if (ob.moneda !== 'LO') resumen[key].usd += ob.monto;
-      else                     resumen[key].sol += ob.monto;
+      if (ob.moneda !== 'LO') resumen[key].usd += netoOb(ob);
+      else                     resumen[key].sol += netoOb(ob);
     });
 
-    const totalUSD = obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
-    const totalSOL = obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
+    const totalUSD = obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + netoOb(o), 0);
+    const totalSOL = obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + netoOb(o), 0);
     const totalTot = totalSOL + totalUSD * tc;
 
     const resHtml = Object.values(resumen).map(r => `
@@ -5374,6 +5411,7 @@ async function renderPaso3(container) {
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:12px;color:var(--text-muted)">Programadas:&nbsp;<strong style="color:#111">${obs.length}</strong></span>
           <div style="width:1px;height:16px;background:#e2e8f0"></div>
+          <span style="font-size:11px;color:var(--text-muted)">Neto:</span>
           ${totalUSD ? `<span style="font-size:13px">USD&nbsp;<strong>${fmtN(totalUSD)}</strong></span>` : ''}
           ${totalSOL ? `<span style="font-size:13px">S/&nbsp;<strong>${fmtN(totalSOL)}</strong></span>` : ''}
           <div style="width:1px;height:16px;background:#e2e8f0"></div>
@@ -5401,7 +5439,7 @@ async function renderPaso3(container) {
     p3ObsConError = val.obIds;
     const st = p3SaveState(); p3RenderGrupos(); p3RestoreState(st); p3RenderFooter();
     const asignaciones = (p3Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
-      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL', observaciones: ob.observaciones||''
+      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL', retencion: ob.retencion||0, observaciones: ob.observaciones||''
     }));
     try {
       await PUT(`/pagos/programaciones/${p3Prog._id}/guardar-p3`, { asignaciones });
@@ -5428,7 +5466,7 @@ async function renderPaso3(container) {
     const n = (p3Prog.obligaciones||[]).filter(o => o.seleccionado).length;
     if (!confirm(`¿Enviar a Autorización esta preparación con ${n} obligaciones?`)) return;
     const asignaciones = (p3Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
-      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL', observaciones: ob.observaciones||''
+      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL', retencion: ob.retencion||0, observaciones: ob.observaciones||''
     }));
     try {
       await PUT(`/pagos/programaciones/${p3Prog._id}/preparar`, { asignaciones });

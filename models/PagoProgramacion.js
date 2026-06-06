@@ -16,6 +16,7 @@ const obligacionSchema = new mongoose.Schema({
   // Paso 3 — Preparación
   bancoAsignado:   { type: String, default: '' },
   agrupadorPago:   { type: String, default: 'INDIVIDUAL' },
+  retencion:       { type: Number, default: 0 },
   observaciones:   { type: String, default: '' },
 }, { _id: true });
 
