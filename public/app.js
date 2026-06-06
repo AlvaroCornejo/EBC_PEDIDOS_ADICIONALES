@@ -6717,10 +6717,9 @@ async function renderPaso5(container) {
       fd.append('banco', banco);
       fd.append('moneda', moneda);
       fd.append('archivo', file);
-      const token = localStorage.getItem('pedidos_token');
       const resp  = await fetch('/api/pagos/estados-cuenta', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${S.token}` },
         body: fd
       });
       const data = await resp.json();
