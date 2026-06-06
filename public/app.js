@@ -5064,8 +5064,8 @@ async function renderPaso3(container) {
         `<option value="${esc(b.nombre)}" ${b.nombre === sel ? 'selected' : ''}>${esc(b.nombre)}</option>`
       ).join('');
 
-    // COLS: arrow | name | programado | banco | agrupador | total
-    const COLS = 'grid-template-columns:26px minmax(140px,220px) 140px 120px 130px 110px';
+    // COLS: arrow | name | programado | banco | agrupador
+    const COLS = 'grid-template-columns:26px minmax(160px,1fr) 170px 150px 170px;gap:0 12px';
 
     let html = '';
     Object.keys(grupos).sort().forEach(grp => {
@@ -5099,8 +5099,7 @@ async function renderPaso3(container) {
             <div>Beneficiario</div>
             <div style="text-align:right">Programado</div>
             <div style="text-align:center">Banco</div>
-            <div style="text-align:center">Agrupador</div>
-            <div style="text-align:right">Total S/</div>
+            <div style="text-align:center">Agrupador de Pago</div>
           </div>`;
 
       Object.keys(grupos[grp]).sort().forEach(ben => {
@@ -5134,7 +5133,6 @@ async function renderPaso3(container) {
                 ${p3AgrupOpts(curAgrup)}
               </select>
             </div>
-            <div style="text-align:right;font-size:13px;font-weight:700;color:var(--primary)">${fmtN(bt.tot)}</div>
           </div>
           <div class="p3-obl-div" data-p3-ben="${benKey}" style="display:none">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
