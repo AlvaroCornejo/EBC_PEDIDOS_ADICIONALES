@@ -84,6 +84,8 @@ function toast(msg, type = 'info') {
 }
 
 // ─── Modal ───────────────────────────────────────────────────────
+function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+
 function openModal(title, html, onClose, opts = {}) {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = html;
@@ -6613,8 +6615,12 @@ async function renderPaso5(container) {
             ? `<span style="font-size:11px;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Pagada</span>`
             : ''}
           <button class="btn btn-outline btn-sm" onclick="p5Guardar()">💾 Grabar</button>
-          <button class="btn btn-outline btn-sm" disabled title="Próximamente"
-                  style="opacity:0.5;cursor:not-allowed">✉️ Enviar correo</button>
+          <button class="btn btn-outline btn-sm" onclick="p5CargaMasiva()"
+                  title="Ver beneficiarios y asignar correos">👥 Beneficiarios</button>
+          <button class="btn btn-outline btn-sm" onclick="p5VerSinCorreo()"
+                  title="Beneficiarios sin correo en esta programación">⚠️ Sin correo</button>
+          <button class="btn btn-primary btn-sm" onclick="p5EnviarCorreo()"
+                  title="Enviar notificación de pago por correo">✉️ Enviar correo</button>
         </div>` : ''}`;
     p5Footer.style.display = p5Prog ? 'flex' : 'none';
   }
@@ -6658,6 +6664,17 @@ async function renderPaso5(container) {
     try {
       p5Prog = await GET(`/pagos/programaciones/${id}`);
       p5RenderGrupos();
+      // Auto-upsert de beneficiarios en Personas (en background, sin bloquear UI)
+      {
+        const benefs = [...new Set(
+          (p5Prog.obligaciones||[]).filter(o=>o.seleccionado).map(o=>o.pagarA||'').filter(Boolean)
+        )];
+        if (benefs.length && p5Prog.compania) {
+          POST('/personas/bulk-upsert', {
+            personas: benefs.map(b => ({ nombre: b, compania: p5Prog.compania }))
+          }).catch(() => {});
+        }
+      }
       // Expandir todos los bancos por defecto
       document.querySelectorAll('[id^="p5banco-body-"]').forEach(el => {
         el.style.display = '';
@@ -6971,6 +6988,192 @@ async function renderPaso5(container) {
     } catch(e) { toast(e.message, 'error'); }
   };
 
+  // ── Carga masiva de personas ──────────────────────────────────────
+  // Muestra modal con todos los beneficiarios de la programación,
+  // su correo actual (si existe en Personas) y permite asignarlo.
+  window.p5CargaMasiva = async function() {
+    if (!p5Prog) return;
+    const comp  = p5Prog.compania;
+    const benefs = [...new Set(
+      (p5Prog.obligaciones||[]).filter(o=>o.seleccionado).map(o=>o.pagarA||'').filter(Boolean)
+    )].sort();
+
+    // Traer personas existentes de esta compañía
+    let personas = [];
+    try { personas = await GET(`/personas?compania=${encodeURIComponent(comp)}`); } catch(_){}
+
+    const porNombre = {};
+    personas.forEach(p => { porNombre[p.nombre] = p; });
+
+    // Upsert básico: crear las que no existen aún (sin correo)
+    const nuevas = benefs.filter(b => !porNombre[b]);
+    if (nuevas.length) {
+      try {
+        await POST('/personas/bulk-upsert', {
+          personas: nuevas.map(b => ({ nombre: b, compania: comp }))
+        });
+        // Recargar
+        personas = await GET(`/personas?compania=${encodeURIComponent(comp)}`);
+        personas.forEach(p => { porNombre[p.nombre] = p; });
+      } catch(_){}
+    }
+
+    const filas = benefs.map(b => {
+      const p  = porNombre[b];
+      const cs = (p?.correos||[]).join(', ');
+      const id = p?._id || '';
+      return `<tr>
+        <td style="padding:6px 10px;font-size:13px;font-weight:500">${esc(b)}</td>
+        <td style="padding:6px 10px">
+          <input class="form-control" style="font-size:12px;height:28px" id="cm-correo-${esc(id||b)}"
+                 placeholder="correo1@ej.com, correo2@ej.com"
+                 value="${esc(cs)}"
+                 data-id="${esc(id)}" data-nombre="${esc(b)}">
+        </td>
+      </tr>`;
+    }).join('');
+
+    const html = `
+      <div style="max-height:60vh;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#f1f5f9;font-size:12px;color:var(--text-muted)">
+            <th style="padding:6px 10px;text-align:left">Beneficiario</th>
+            <th style="padding:6px 10px;text-align:left">Correos (separados por coma)</th>
+          </tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" id="cm-guardar-btn">💾 Guardar todos</button>
+        <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancelar</button>
+      </div>`;
+
+    openModal('👥 Beneficiarios — Asignación de correos', html);
+
+    document.getElementById('cm-guardar-btn').addEventListener('click', async () => {
+      const inputs = document.querySelectorAll('#modal-body input[data-id]');
+      let ok = 0, err = 0;
+      for (const inp of inputs) {
+        const id     = inp.dataset.id;
+        const nombre = inp.dataset.nombre;
+        const correos = inp.value.split(',').map(s=>s.trim()).filter(Boolean);
+        try {
+          if (id) {
+            await PUT(`/personas/${id}/correo-rapido`, { correos });
+          } else {
+            // Crear si no tiene id
+            await POST('/personas', { nombre, telefono:'', correos, compania: comp });
+          }
+          ok++;
+        } catch(_) { err++; }
+      }
+      toast(`✅ ${ok} guardados${err?' | ⚠️ '+err+' errores':''}`, ok ? 'success' : 'error');
+      closeModal();
+    });
+  };
+
+  // ── Ver beneficiarios sin correo ──────────────────────────────────
+  window.p5VerSinCorreo = async function() {
+    if (!p5Prog) return;
+    const comp   = p5Prog.compania;
+    const benefs = new Set(
+      (p5Prog.obligaciones||[]).filter(o=>o.seleccionado).map(o=>o.pagarA||'').filter(Boolean)
+    );
+    let sinCorreo = [];
+    try {
+      const todos = await GET(`/personas?compania=${encodeURIComponent(comp)}`);
+      sinCorreo = todos.filter(p => benefs.has(p.nombre) && !(p.correos||[]).length);
+      // También incluir beneficiarios que no están aún en Personas
+      const enPersonas = new Set(todos.map(p=>p.nombre));
+      [...benefs].forEach(b => { if (!enPersonas.has(b)) sinCorreo.push({ nombre: b, _id: null }); });
+    } catch(_){}
+
+    if (!sinCorreo.length) {
+      return openModal('✅ Sin correo', '<p style="padding:16px">Todos los beneficiarios de esta programación tienen correo asignado.</p>');
+    }
+
+    const filas = sinCorreo.map(p => `
+      <tr>
+        <td style="padding:6px 10px;font-size:13px">${esc(p.nombre)}</td>
+        <td style="padding:6px 10px">
+          <input class="form-control" style="font-size:12px;height:28px" required
+                 id="sc-correo-${esc(p._id||p.nombre)}"
+                 placeholder="correo@empresa.com (obligatorio)"
+                 data-id="${esc(p._id||'')}" data-nombre="${esc(p.nombre)}">
+        </td>
+      </tr>`).join('');
+
+    const html = `
+      <p style="font-size:13px;color:#dc2626;margin-bottom:12px">
+        Los siguientes beneficiarios <strong>no tienen correo</strong> asignado. Ingrese al menos uno para poder enviarles la notificación.
+      </p>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:#fef2f2;font-size:12px;color:var(--text-muted)">
+          <th style="padding:6px 10px;text-align:left">Beneficiario</th>
+          <th style="padding:6px 10px;text-align:left">Correo *</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" id="sc-guardar-btn">💾 Guardar correos</button>
+        <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancelar</button>
+      </div>`;
+
+    openModal('⚠️ Beneficiarios sin correo', html);
+
+    document.getElementById('sc-guardar-btn').addEventListener('click', async () => {
+      const inputs = document.querySelectorAll('#modal-body input[data-id]');
+      let ok = 0;
+      for (const inp of inputs) {
+        const correos = inp.value.split(',').map(s=>s.trim()).filter(Boolean);
+        if (!correos.length) continue;
+        const id     = inp.dataset.id;
+        const nombre = inp.dataset.nombre;
+        try {
+          if (id) {
+            await PUT(`/personas/${id}/correo-rapido`, { correos });
+          } else {
+            await POST('/personas', { nombre, telefono:'', correos, compania: comp });
+          }
+          ok++;
+        } catch(_){}
+      }
+      toast(`✅ ${ok} correos guardados`, 'success');
+      closeModal();
+    });
+  };
+
+  // ── Enviar correo de pago ─────────────────────────────────────────
+  // Envía notificación a los beneficiarios con obligaciones pagadas.
+  // Si no se especifica banco/moneda/op, aplica a todas las pagadas.
+  window.p5EnviarCorreo = async function(banco, moneda, operacionBancaria) {
+    if (!p5Prog) return;
+    const obs = (p5Prog.obligaciones||[]).filter(o=>o.seleccionado && o.pagada);
+    if (!obs.length) return toast('No hay obligaciones pagadas en esta programación', 'error');
+
+    const label = banco && moneda && operacionBancaria
+      ? `\nBanco: ${banco} | Moneda: ${moneda} | Op. ${operacionBancaria}`
+      : '\n(Se incluirán todas las obligaciones pagadas)';
+    if (!confirm(`¿Enviar correo de notificación de pago?${label}`)) return;
+
+    try {
+      const data = await POST('/personas/enviar-correo-pago', {
+        progId: p5Prog._id,
+        banco:  banco  || '',
+        moneda: moneda || '',
+        operacionBancaria: operacionBancaria || '',
+      });
+      let msg = `✅ ${data.sent} correo(s) enviado(s)`;
+      if (data.sinCorreo?.length) msg += ` | ⚠️ Sin correo: ${data.sinCorreo.join(', ')}`;
+      toast(msg, data.sent ? 'success' : 'error');
+      if (data.sinCorreo?.length) {
+        if (confirm(`Hay ${data.sinCorreo.length} beneficiario(s) sin correo. ¿Desea asignarles uno ahora?`)) {
+          await p5VerSinCorreo();
+        }
+      }
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
   // ── Pagar operación específica (banco+moneda+N°op) ───────────────
   window.p5PagarOp = async function(banco, moneda, opNum) {
     if (!p5Prog) return;
@@ -7034,6 +7237,8 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="config">⚙️ Configuración</button>
         <button class="tab-btn" data-tab="grupos-pago">💳 Grupos de Pago</button>
         <button class="tab-btn" data-tab="bancos-pago">🏦 Bancos</button>
+        <button class="tab-btn" data-tab="personas">👤 Personas</button>
+        <button class="tab-btn" data-tab="cc-correo">📧 CC Correo</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -7043,6 +7248,8 @@ async function viewAdmin(container) {
       <div id="tab-config" class="tab-panel"></div>
       <div id="tab-grupos-pago" class="tab-panel"></div>
       <div id="tab-bancos-pago" class="tab-panel"></div>
+      <div id="tab-personas" class="tab-panel"></div>
+      <div id="tab-cc-correo" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -7062,6 +7269,174 @@ async function viewAdmin(container) {
   renderAdminConfig(document.getElementById('tab-config'));
   renderAdminGruposPago(document.getElementById('tab-grupos-pago'));
   renderAdminBancos(document.getElementById('tab-bancos-pago'));
+  renderAdminPersonas(document.getElementById('tab-personas'));
+  renderAdminCCCorreo(document.getElementById('tab-cc-correo'));
+}
+
+// ─── Admin: Personas ─────────────────────────────────────────────
+async function renderAdminPersonas(container) {
+  const COMPANIAS = ['EBC','ERSAC','FRQ1','GB','CORP'];
+
+  async function load(comp) {
+    const personas = await GET(`/personas?compania=${encodeURIComponent(comp)}`);
+    container.querySelector('#adm-pers-tabla').innerHTML = personas.length
+      ? `<table class="data-table" style="font-size:13px">
+          <thead><tr>
+            <th>Nombre</th><th>Teléfono</th><th>Correos</th>
+            <th class="text-center" style="width:80px">Acciones</th>
+          </tr></thead>
+          <tbody>${personas.map(p => `
+            <tr id="adm-pers-row-${p._id}">
+              <td>${esc(p.nombre)}</td>
+              <td>${esc(p.telefono||'—')}</td>
+              <td style="font-size:12px">${(p.correos||[]).join(', ') || '<span style="color:#94a3b8">sin correo</span>'}</td>
+              <td class="text-center" style="white-space:nowrap">
+                <button class="btn btn-xs btn-outline" onclick="admEditPersona('${p._id}')">✏️</button>
+                <button class="btn btn-xs btn-danger"  onclick="admDelPersona('${p._id}','${esc(p.nombre)}')">✕</button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`
+      : '<p style="padding:16px;color:var(--text-muted)">Sin personas registradas para esta sociedad.</p>';
+  }
+
+  const compSel = COMPANIAS[0];
+  container.innerHTML = `
+    <div style="padding:16px;max-width:900px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <strong style="font-size:14px">👤 Personas / Beneficiarios</strong>
+        <select id="adm-pers-comp" class="form-control" style="width:140px">
+          ${COMPANIAS.map(c=>`<option value="${c}"${c===compSel?' selected':''}>${c}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="admNuevaPersona()">+ Nueva persona</button>
+      </div>
+      <div id="adm-pers-tabla"></div>
+
+      <!-- Form nueva/edición -->
+      <div id="adm-pers-form" style="display:none;margin-top:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;max-width:500px">
+        <h4 style="margin:0 0 12px;font-size:14px" id="adm-pers-form-title">Nueva persona</h4>
+        <input type="hidden" id="adm-pers-id">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div>
+            <label style="font-size:12px;font-weight:600">Nombre *</label>
+            <input id="adm-pers-nombre" class="form-control" style="margin-top:3px" placeholder="Nombre del beneficiario">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600">Teléfono</label>
+            <input id="adm-pers-telefono" class="form-control" style="margin-top:3px" placeholder="Teléfono opcional">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600">Correos (uno por línea)</label>
+            <textarea id="adm-pers-correos" class="form-control" rows="3" style="margin-top:3px;font-size:12px"
+                      placeholder="correo1@ejemplo.com&#10;correo2@ejemplo.com"></textarea>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" onclick="admGuardarPersona()">💾 Guardar</button>
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('adm-pers-form').style.display='none'">Cancelar</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  const sel = container.querySelector('#adm-pers-comp');
+  sel.addEventListener('change', () => load(sel.value));
+  load(compSel);
+
+  window.admNuevaPersona = function() {
+    document.getElementById('adm-pers-id').value = '';
+    document.getElementById('adm-pers-nombre').value = '';
+    document.getElementById('adm-pers-telefono').value = '';
+    document.getElementById('adm-pers-correos').value = '';
+    document.getElementById('adm-pers-form-title').textContent = 'Nueva persona';
+    document.getElementById('adm-pers-form').style.display = '';
+  };
+
+  window.admEditPersona = async function(id) {
+    try {
+      const comp = document.getElementById('adm-pers-comp').value;
+      const personas = await GET(`/personas?compania=${encodeURIComponent(comp)}`);
+      const p = personas.find(x => x._id === id);
+      if (!p) return;
+      document.getElementById('adm-pers-id').value = id;
+      document.getElementById('adm-pers-nombre').value = p.nombre;
+      document.getElementById('adm-pers-telefono').value = p.telefono || '';
+      document.getElementById('adm-pers-correos').value = (p.correos||[]).join('\n');
+      document.getElementById('adm-pers-form-title').textContent = `Editar: ${p.nombre}`;
+      document.getElementById('adm-pers-form').style.display = '';
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.admGuardarPersona = async function() {
+    const id      = document.getElementById('adm-pers-id').value;
+    const nombre  = document.getElementById('adm-pers-nombre').value.trim();
+    const tel     = document.getElementById('adm-pers-telefono').value.trim();
+    const correos = document.getElementById('adm-pers-correos').value
+                    .split('\n').map(s=>s.trim()).filter(Boolean);
+    const comp    = document.getElementById('adm-pers-comp').value;
+    if (!nombre) return toast('El nombre es obligatorio', 'error');
+    try {
+      if (id) {
+        await PUT(`/personas/${id}`, { nombre, telefono: tel, correos });
+      } else {
+        await POST('/personas', { nombre, telefono: tel, correos, compania: comp });
+      }
+      document.getElementById('adm-pers-form').style.display = 'none';
+      toast('Guardado', 'success');
+      load(comp);
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.admDelPersona = async function(id, nombre) {
+    if (!confirm(`¿Eliminar a "${nombre}"?`)) return;
+    try {
+      await DEL(`/personas/${id}`);
+      toast('Eliminada', 'success');
+      load(document.getElementById('adm-pers-comp').value);
+    } catch(e) { toast(e.message, 'error'); }
+  };
+}
+
+// ─── Admin: CC Correo por sociedad ────────────────────────────────
+async function renderAdminCCCorreo(container) {
+  const COMPANIAS = ['EBC','ERSAC','FRQ1','GB','CORP'];
+
+  async function load(comp) {
+    const lista = await GET(`/personas/copias-correo?compania=${encodeURIComponent(comp)}`);
+    const doc   = lista.find(d => d.compania === comp);
+    container.querySelector('#adm-cc-correos').value = (doc?.correos||[]).join('\n');
+  }
+
+  container.innerHTML = `
+    <div style="padding:16px;max-width:600px">
+      <strong style="font-size:14px">📧 Correos en Copia (CC) por Sociedad</strong>
+      <p style="font-size:12px;color:var(--text-muted);margin:4px 0 16px">
+        Estos correos recibirán copia en cada notificación de pago enviada para la sociedad seleccionada.
+      </p>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <label style="font-size:13px;font-weight:600">Sociedad:</label>
+        <select id="adm-cc-comp" class="form-control" style="width:140px">
+          ${COMPANIAS.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        </select>
+      </div>
+      <label style="font-size:12px;font-weight:600">Correos CC (uno por línea)</label>
+      <textarea id="adm-cc-correos" class="form-control" rows="5" style="margin-top:4px;font-size:13px"
+                placeholder="jefe@empresa.com&#10;contabilidad@empresa.com"></textarea>
+      <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="admGuardarCC()">💾 Guardar CC</button>
+    </div>`;
+
+  const sel = container.querySelector('#adm-cc-comp');
+  sel.addEventListener('change', () => load(sel.value));
+  load(COMPANIAS[0]);
+
+  window.admGuardarCC = async function() {
+    const comp    = document.getElementById('adm-cc-comp').value;
+    const correos = document.getElementById('adm-cc-correos').value
+                    .split('\n').map(s=>s.trim()).filter(Boolean);
+    try {
+      await PUT(`/personas/copias-correo/${encodeURIComponent(comp)}`, { correos });
+      toast('CC guardado', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  };
 }
 
 // ─── Admin: Grupos de Pago ────────────────────────────────────────
