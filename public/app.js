@@ -3544,12 +3544,15 @@ async function renderPasoContent(paso, el) {
   const p1f = document.getElementById('pg-resumenes-footer');
   const p2f = document.getElementById('ap2-footer');
   const p3f = document.getElementById('ap3-footer');
+  const p4f = document.getElementById('ap4-footer');
   if (p1f) p1f.style.display = paso === 'p1' ? 'grid' : 'none';
   if (p2f) p2f.style.display = paso === 'p2' ? 'flex' : 'none';
   if (p3f) p3f.style.display = paso === 'p3' ? 'flex' : 'none';
+  if (p4f) p4f.style.display = paso === 'p4' ? 'flex' : 'none';
   if (paso === 'p1') await renderPaso1(el);
   if (paso === 'p2') await renderPaso2(el);
   if (paso === 'p3') await renderPaso3(el);
+  if (paso === 'p4') await renderPaso4(el);
 }
 
 async function renderPaso1(container) {
@@ -5573,6 +5576,536 @@ async function renderPaso3(container) {
 
   // Init
   p3RenderFooter();
+}
+
+// ─── Paso 4: Autorización en Bancos ──────────────────────────────
+async function renderPaso4(container) {
+  let p4Prog         = null;
+  let p4Bancos       = [];
+  let p4CustomAgrups = [];
+  let p4ObsConError  = new Set();
+
+  const rolP     = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
+  const esAdmin  = (S.user.role === 'ADMIN' || rolP === 'admin');
+  const puedeAut = ['autorizador','admin'].includes(rolP);
+
+  const fmtN = v => v == null ? '—' : Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtF = d => d ? new Date(d).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+
+  // ── Footer fijo ──────────────────────────────────────────────────
+  let p4Footer = document.getElementById('ap4-footer');
+  if (!p4Footer) {
+    p4Footer = document.createElement('div');
+    p4Footer.id = 'ap4-footer';
+    p4Footer.style.cssText = `
+      position:fixed;bottom:0;left:220px;right:0;z-index:100;
+      background:#fff;border-top:2px solid #e2e8f0;
+      box-shadow:0 -4px 12px rgba(0,0,0,.08);
+      display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap;
+    `;
+    document.body.appendChild(p4Footer);
+  }
+  p4Footer.style.display = 'flex';
+
+  // Bancos
+  p4Bancos = await GET('/pagos/bancos');
+
+  // ── HTML principal ───────────────────────────────────────────────
+  container.innerHTML = `
+    <div class="card mb-16" style="padding:14px">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+          <select id="p4-compania" class="form-control" style="width:150px">
+            <option value="">— Seleccionar —</option>
+            ${(esAdmin ? ALL_SOCS_COMPRA : (S.user.sociedadesPago || []))
+              .map(s => `<option value="${s}">${s}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo de Cambio (USD→S/)</label>
+          <input id="p4-tc" type="number" step="0.001" min="0" class="form-control"
+                 style="width:90px;font-size:13px" value="3.700"
+                 oninput="clearTimeout(window._p4TC);window._p4TC=setTimeout(()=>{const s=p4SaveState();p4RenderGrupos();p4RestoreState(s);p4RenderFooter();},300)">
+        </div>
+      </div>
+    </div>
+    <div id="p4-lista" class="mb-16"></div>
+    <div id="p4-wrap" style="padding-bottom:80px"></div>`;
+
+  // ── Agrupadores ──────────────────────────────────────────────────
+  const AGRUPS_FIJOS_4 = ['INDIVIDUAL','AGRUPADO 1','AGRUPADO 2','AGRUPADO 3','AGRUPADO 4',
+                          'AGRUPADO 5','AGRUPADO 6','AGRUPADO 7','AGRUPADO 8','AGRUPADO 9','AGRUPADO 10'];
+
+  function p4AgrupOpts(selVal) {
+    const extra = p4CustomAgrups.filter(a => !AGRUPS_FIJOS_4.includes(a));
+    const todos = [...AGRUPS_FIJOS_4, ...extra];
+    const ph = !selVal ? `<option value="" selected>— Agrupador —</option>` : `<option value="">— Agrupador —</option>`;
+    return ph + todos.map(a =>
+      `<option value="${esc(a)}" ${a === selVal ? 'selected' : ''}>${esc(a)}</option>`
+    ).join('') + `<option value="__nuevo__">＋ Nuevo agrupador...</option>`;
+  }
+
+  function p4BancosOpts(sel) {
+    return `<option value="">— Banco —</option>` +
+      p4Bancos.filter(b => b.activo).map(b =>
+        `<option value="${esc(b.nombre)}" ${b.nombre === sel ? 'selected' : ''}>${esc(b.nombre)}</option>`
+      ).join('');
+  }
+
+  // ── Guardar estado (qué bancos/agrupadores están abiertos) ────────
+  function p4SaveState() {
+    const st = { bancos: {}, agrups: {} };
+    document.querySelectorAll('[id^="p4banco-body-"]').forEach(el => {
+      st.bancos[el.id] = el.style.display !== 'none';
+    });
+    document.querySelectorAll('[id^="p4agrup-body-"]').forEach(el => {
+      st.agrups[el.id] = el.style.display !== 'none';
+    });
+    return st;
+  }
+  function p4RestoreState(st) {
+    if (!st) return;
+    Object.entries(st.bancos||{}).forEach(([id, open]) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = open ? '' : 'none';
+        const arr = el.previousElementSibling?.querySelector('.p4-banco-arr');
+        if (arr) arr.textContent = open ? '▾' : '▸';
+      }
+    });
+    Object.entries(st.agrups||{}).forEach(([id, open]) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = open ? '' : 'none';
+        const arr = el.previousElementSibling?.querySelector('.p4-agrup-arr');
+        if (arr) arr.textContent = open ? '▾' : '▸';
+      }
+    });
+  }
+
+  // ── Validación ───────────────────────────────────────────────────
+  function p4ValidarTodo() {
+    const allObs = (p4Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const errIds = new Set();
+    const msgs   = [];
+    const byAgrup = {};
+    allObs.forEach(ob => {
+      const ag = ob.agrupadorPago || 'INDIVIDUAL';
+      if (ag === 'INDIVIDUAL') return;
+      if (!byAgrup[ag]) byAgrup[ag] = [];
+      byAgrup[ag].push(ob);
+    });
+    Object.entries(byAgrup).forEach(([agrup, obs]) => {
+      const monedas = [...new Set(obs.map(o => o.moneda === 'LO' ? 'S/' : 'USD'))];
+      if (monedas.length > 1) {
+        obs.forEach(o => errIds.add(String(o._id)));
+        msgs.push(`Agrupador "${agrup}": mezcla de monedas (${monedas.join(' y ')}).`);
+      }
+      const bancos = [...new Set(obs.map(o => o.bancoAsignado || '').filter(Boolean))];
+      if (bancos.length > 1) {
+        obs.forEach(o => errIds.add(String(o._id)));
+        msgs.push(`Agrupador "${agrup}": mezcla de bancos (${bancos.join(', ')}).`);
+      }
+    });
+    const sinBancoSinObs = allObs.filter(o => !o.bancoAsignado && !(o.observaciones||'').trim());
+    sinBancoSinObs.forEach(o => errIds.add(String(o._id)));
+    if (sinBancoSinObs.length)
+      msgs.push(`${sinBancoSinObs.length} obligación(es) sin banco requieren Observaciones.`);
+    return { ok: errIds.size === 0, obIds: errIds, mensajes: msgs };
+  }
+
+  // ── Renderizar árbol banco → agrupador → obligaciones ────────────
+  function p4RenderGrupos() {
+    const wrap = document.getElementById('p4-wrap');
+    if (!p4Prog) { wrap.innerHTML = ''; return; }
+    const tc  = parseFloat(document.getElementById('p4-tc')?.value) || 1;
+    const obs = (p4Prog.obligaciones || []).filter(o => o.seleccionado);
+
+    // Sync custom agrupadores
+    obs.forEach(o => {
+      const ag = o.agrupadorPago || 'INDIVIDUAL';
+      if (!AGRUPS_FIJOS_4.includes(ag) && !p4CustomAgrups.includes(ag)) p4CustomAgrups.push(ag);
+    });
+
+    const netoOb = o => o.monto - (o.retencion || 0);
+
+    // Agrupar por banco → agrupador
+    const byBanco = {};
+    obs.forEach(ob => {
+      const banco = ob.bancoAsignado || '(sin banco)';
+      const agrup = ob.agrupadorPago  || 'INDIVIDUAL';
+      if (!byBanco[banco]) byBanco[banco] = {};
+      if (!byBanco[banco][agrup]) byBanco[banco][agrup] = [];
+      byBanco[banco][agrup].push(ob);
+    });
+
+    // Totales por banco
+    const bancoTot = (banco) => {
+      const bo = obs.filter(o => (o.bancoAsignado || '(sin banco)') === banco);
+      const usd = bo.filter(o => o.moneda !== 'LO').reduce((s,o) => s + netoOb(o), 0);
+      const sol = bo.filter(o => o.moneda === 'LO').reduce((s,o) => s + netoOb(o), 0);
+      return { usd, sol };
+    };
+    const agrupTot = (banco, agrup) => {
+      const ao = obs.filter(o =>
+        (o.bancoAsignado||'(sin banco)') === banco &&
+        (o.agrupadorPago ||'INDIVIDUAL')  === agrup
+      );
+      const usd = ao.filter(o => o.moneda !== 'LO').reduce((s,o) => s + netoOb(o), 0);
+      const sol = ao.filter(o => o.moneda === 'LO').reduce((s,o) => s + netoOb(o), 0);
+      return { usd, sol };
+    };
+    const totStr = ({usd,sol}) => [
+      usd ? `USD&nbsp;${fmtN(usd)}` : '',
+      sol ? `S/&nbsp;${fmtN(sol)}`  : '',
+    ].filter(Boolean).join('&emsp;') || '—';
+
+    let html = '';
+    const bancosOrdenados = Object.keys(byBanco).sort((a,b) => {
+      if (a === '(sin banco)') return 1;
+      if (b === '(sin banco)') return -1;
+      return a.localeCompare(b);
+    });
+
+    bancosOrdenados.forEach(banco => {
+      const bKey   = banco.replace(/\W/g,'_');
+      const bt     = bancoTot(banco);
+      const bConErr = p4ObsConError.size > 0 &&
+        obs.filter(o => (o.bancoAsignado||'(sin banco)') === banco)
+           .some(o => p4ObsConError.has(String(o._id)));
+
+      html += `
+      <div style="margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+        <div onclick="p4ToggleBanco('${esc(bKey)}')"
+             style="display:flex;align-items:center;gap:10px;padding:10px 16px;
+                    background:${bConErr?'#fef9c3':'#f0f4ff'};cursor:pointer;user-select:none">
+          <span class="p4-banco-arr" style="font-size:11px;color:var(--text-muted)">▾</span>
+          <span style="font-weight:700;font-size:14px;color:#1d4ed8">🏦 ${esc(banco)}</span>
+          <span style="margin-left:auto;font-size:12px;color:#475569">${totStr(bt)}</span>
+        </div>
+        <div id="p4banco-body-${bKey}">`;
+
+      // Agrupadores dentro del banco, ordenados
+      const agrups = Object.keys(byBanco[banco]).sort((a,b) => {
+        const ia = AGRUPS_FIJOS_4.indexOf(a), ib = AGRUPS_FIJOS_4.indexOf(b);
+        if (ia !== -1 && ib !== -1) return ia - ib;
+        if (ia !== -1) return -1;
+        if (ib !== -1) return 1;
+        return a.localeCompare(b);
+      });
+
+      agrups.forEach(agrup => {
+        const aKey   = `${bKey}__${agrup.replace(/\W/g,'_')}`;
+        const at     = agrupTot(banco, agrup);
+        const oblList = byBanco[banco][agrup];
+
+        html += `
+          <div style="border-top:1px solid #e2e8f0">
+            <div onclick="p4ToggleAgrup('${esc(aKey)}')"
+                 style="display:flex;align-items:center;gap:8px;padding:7px 16px 7px 32px;
+                        background:#f8fafc;cursor:pointer;user-select:none">
+              <span class="p4-agrup-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
+              <span style="font-weight:600;font-size:12px;color:#7c3aed">${esc(agrup)}</span>
+              <span style="margin-left:auto;font-size:11px;color:#64748b">${totStr(at)}</span>
+            </div>
+            <div id="p4agrup-body-${aKey}" style="display:none">
+              <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead>
+                  <tr style="background:#f1f5f9;color:var(--text-muted)">
+                    <th style="padding:5px 8px 5px 24px;text-align:left;white-space:nowrap">Beneficiario</th>
+                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">Tipo Doc</th>
+                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Documento</th>
+                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">F. Vencimiento</th>
+                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Mon</th>
+                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Monto</th>
+                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Retención</th>
+                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Neto</th>
+                    <th style="padding:5px 8px;text-align:center;white-space:nowrap">Banco</th>
+                    <th style="padding:5px 8px;text-align:center;white-space:nowrap">Agrupador</th>
+                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">Observaciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${oblList.map(ob => `
+                  <tr style="border-top:1px solid #f1f5f9${p4ObsConError.has(String(ob._id))?';background:#fef9c3':''}">
+                    <td style="padding:4px 8px 4px 24px;font-weight:500">${esc(ob.pagarA||'')}</td>
+                    <td style="padding:4px 8px">${esc(ob.tipoDocumento||'')}</td>
+                    <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
+                    <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
+                    <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+                    <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
+                    <td style="padding:2px 8px;text-align:right">
+                      <input type="number" min="0" step="0.01" class="form-control"
+                             style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
+                             placeholder="0.00"
+                             value="${ob.retencion ? ob.retencion : ''}"
+                             oninput="p4SetRetOb('${ob._id}',this.value)"
+                             onblur="p4RetBlur()">
+                    </td>
+                    <td id="p4-neto-${ob._id}"
+                        style="padding:4px 8px;text-align:right;font-weight:600;
+                               color:${(ob.retencion||0)>0?'#059669':'inherit'}">
+                      ${fmtN(netoOb(ob))}
+                    </td>
+                    <td style="padding:2px 8px;text-align:center">
+                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
+                              onchange="p4SetBancoOb('${ob._id}',this.value)">
+                        ${p4BancosOpts(ob.bancoAsignado||'')}
+                      </select>
+                    </td>
+                    <td style="padding:2px 8px;text-align:center">
+                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
+                              onchange="p4SetAgrupOb('${ob._id}',this.value)">
+                        ${p4AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
+                      </select>
+                    </td>
+                    <td style="padding:2px 8px">
+                      <input type="text" class="form-control"
+                             style="font-size:11px;padding:2px 6px;height:26px;min-width:150px;
+                                    ${!ob.bancoAsignado?'border-color:#f59e0b;background:#fffbeb':''}"
+                             placeholder="${!ob.bancoAsignado?'Requerido ⚠':'Observaciones...'}"
+                             value="${esc(ob.observaciones||'')}"
+                             oninput="p4SetObsOb('${ob._id}',this.value)">
+                    </td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+              </div>
+            </div>
+          </div>`;
+      });
+
+      html += `</div></div>`;
+    });
+
+    wrap.innerHTML = html || '<p style="color:var(--text-muted);padding:16px">No hay obligaciones.</p>';
+  }
+
+  // ── Footer ────────────────────────────────────────────────────────
+  function p4RenderFooter() {
+    const obs = (p4Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const tc  = parseFloat(document.getElementById('p4-tc')?.value) || 1;
+    const netoOb = o => o.monto - (o.retencion || 0);
+
+    // Totales por banco
+    const byBanco = {};
+    obs.forEach(ob => {
+      const banco = ob.bancoAsignado || '(sin banco)';
+      if (!byBanco[banco]) byBanco[banco] = { usd:0, sol:0 };
+      if (ob.moneda !== 'LO') byBanco[banco].usd += netoOb(ob);
+      else                     byBanco[banco].sol += netoOb(ob);
+    });
+    const totalUSD = obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + netoOb(o), 0);
+    const totalSOL = obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + netoOb(o), 0);
+    const totalTot = totalSOL + totalUSD * tc;
+
+    const bancosHtml = Object.entries(byBanco).sort(([a],[b]) => a.localeCompare(b)).map(([banco,{usd,sol}]) => `
+      <div style="display:flex;align-items:center;gap:8px;padding:3px 10px;background:#f0f4ff;border-radius:4px;font-size:12px">
+        <span style="font-weight:600;color:#1d4ed8">🏦 ${esc(banco)}</span>
+        <span style="color:#64748b">→</span>
+        ${usd ? `<span>USD <strong>${fmtN(usd)}</strong></span>` : ''}
+        ${sol ? `<span>S/ <strong>${fmtN(sol)}</strong></span>` : ''}
+      </div>`).join('');
+
+    p4Footer.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-x:auto">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text-muted)">Obligaciones:&nbsp;<strong style="color:#111">${obs.length}</strong></span>
+          <div style="width:1px;height:16px;background:#e2e8f0"></div>
+          <span style="font-size:11px;color:var(--text-muted)">Neto:</span>
+          ${totalUSD ? `<span style="font-size:13px">USD&nbsp;<strong>${fmtN(totalUSD)}</strong></span>` : ''}
+          ${totalSOL ? `<span style="font-size:13px">S/&nbsp;<strong>${fmtN(totalSOL)}</strong></span>` : ''}
+          <div style="width:1px;height:16px;background:#e2e8f0"></div>
+          <span style="font-size:13px">Todo en S/:&nbsp;<strong style="color:var(--primary);font-size:14px">${fmtN(totalTot)}</strong></span>
+        </div>
+        ${bancosHtml ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${bancosHtml}</div>` : ''}
+      </div>
+      ${p4Prog ? `
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          ${p4Prog.estado === 'autorizado'
+            ? `<span style="font-size:11px;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Autorizada</span>`
+            : ''}
+          <button class="btn btn-outline btn-sm" onclick="p4Guardar()">💾 Guardar</button>
+          ${puedeAut && p4Prog.estado === 'preparado' ? `
+            <button class="btn btn-primary btn-sm" onclick="p4Autorizar()"
+                    style="background:#15803d;border-color:#15803d">✅ Autorizar</button>` : ''}
+        </div>` : ''}`;
+  }
+
+  // ── Cargar lista de preparadas ────────────────────────────────────
+  async function p4CargarLista() {
+    const comp = document.getElementById('p4-compania')?.value;
+    const el   = document.getElementById('p4-lista');
+    if (!comp) { el.innerHTML = ''; return; }
+    const BADGES = {
+      preparado: `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px">🏦 Preparada</span>`,
+      autorizado:`<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px">✅ Autorizada</span>`,
+    };
+    try {
+      const data = await GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=preparado`);
+      if (!data.length) {
+        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones preparadas para <strong>${esc(comp)}</strong>.</p>`;
+        return;
+      }
+      el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${data.map(p => `
+          <button class="p4-prog-btn btn btn-outline btn-sm${p4Prog?._id===p._id?' active':''}"
+                  data-id="${p._id}"
+                  style="font-size:12px;${p4Prog?._id===p._id?'background:#dbeafe;border-color:#3b82f6':''}">
+            Semana ${p.semana||''}/${p.año||''}
+            &nbsp;${BADGES[p.estado]||''}
+          </button>`).join('')}
+      </div>`;
+      document.querySelectorAll('.p4-prog-btn').forEach(btn =>
+        btn.addEventListener('click', () => p4AbrirProg(btn.dataset.id))
+      );
+    } catch(e) { el.innerHTML = `<p style="color:#ef4444">${e.message}</p>`; }
+  }
+
+  // ── Abrir programación ────────────────────────────────────────────
+  async function p4AbrirProg(id) {
+    try {
+      p4Prog = await GET(`/pagos/programaciones/${id}`);
+      p4ObsConError  = new Set();
+      p4CustomAgrups = [];
+      p4RenderGrupos();
+      // Expandir todos los bancos por defecto
+      document.querySelectorAll('[id^="p4banco-body-"]').forEach(el => {
+        el.style.display = '';
+        const arr = el.previousElementSibling?.querySelector('.p4-banco-arr');
+        if (arr) arr.textContent = '▾';
+      });
+      p4RenderFooter();
+      await p4CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  }
+
+  // ── Toggle banco / agrupador ─────────────────────────────────────
+  window.p4ToggleBanco = function(bKey) {
+    const body = document.getElementById(`p4banco-body-${bKey}`);
+    const arr  = body?.previousElementSibling?.querySelector('.p4-banco-arr');
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  window.p4ToggleAgrup = function(aKey) {
+    const body = document.getElementById(`p4agrup-body-${aKey}`);
+    const arr  = body?.previousElementSibling?.querySelector('.p4-agrup-arr');
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  // ── Setters ───────────────────────────────────────────────────────
+  window.p4SetBancoOb = function(obId, val) {
+    if (!p4Prog) return;
+    const ob = p4Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (!ob) return;
+    ob.bancoAsignado = val;
+    p4ObsConError = new Set();
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
+  };
+
+  window.p4SetAgrupOb = function(obId, val) {
+    if (!p4Prog) return;
+    if (!val) return;
+    if (val === '__nuevo__') {
+      const nuevo = prompt('Ingresa el nombre del nuevo agrupador:');
+      if (!nuevo || !nuevo.trim()) { const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); return; }
+      const nombre = nuevo.trim().toUpperCase();
+      if (!AGRUPS_FIJOS_4.includes(nombre) && !p4CustomAgrups.includes(nombre)) p4CustomAgrups.push(nombre);
+      val = nombre;
+    }
+    const ob = p4Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (!ob) return;
+    ob.agrupadorPago = val;
+    p4ObsConError = new Set();
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
+  };
+
+  window.p4SetRetOb = function(obId, val) {
+    if (!p4Prog) return;
+    const ob = p4Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (!ob) return;
+    ob.retencion = parseFloat(val) || 0;
+    const netoEl = document.getElementById(`p4-neto-${obId}`);
+    if (netoEl) {
+      netoEl.textContent = (v => Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2}))(ob.monto - ob.retencion);
+      netoEl.style.color = ob.retencion > 0 ? '#059669' : '';
+    }
+  };
+
+  window.p4RetBlur = function() {
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
+  };
+
+  window.p4SetObsOb = function(obId, val) {
+    if (!p4Prog) return;
+    const ob = p4Prog.obligaciones.find(o => String(o._id) === String(obId));
+    if (ob) ob.observaciones = val;
+    if (p4ObsConError.has(String(obId)) && (val.trim() || ob?.bancoAsignado)) {
+      p4ObsConError.delete(String(obId));
+      const tr = document.querySelector(`[oninput="p4SetObsOb('${obId}',this.value)"]`)?.closest('tr');
+      if (tr) tr.style.background = '';
+    }
+  };
+
+  // ── Guardar / Autorizar ───────────────────────────────────────────
+  window.p4Guardar = async function() {
+    if (!p4Prog) return;
+    const val = p4ValidarTodo();
+    p4ObsConError = val.obIds;
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
+    const asignaciones = (p4Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
+      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL',
+      retencion: ob.retencion||0, observaciones: ob.observaciones||''
+    }));
+    try {
+      await PUT(`/pagos/programaciones/${p4Prog._id}/guardar-p3`, { asignaciones });
+      toast(val.ok ? 'Cambios guardados' : '💾 Guardado con advertencias — revise los campos en amarillo', val.ok ? 'success' : 'warning');
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.p4Autorizar = async function() {
+    if (!p4Prog) return;
+    const val = p4ValidarTodo();
+    p4ObsConError = val.obIds;
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
+    if (!val.ok) {
+      alert(`⚠️ Corrija los errores antes de autorizar:\n\n• ${val.mensajes.join('\n• ')}`);
+      return;
+    }
+    const n = (p4Prog.obligaciones||[]).filter(o => o.seleccionado).length;
+    if (!confirm(`¿Autorizar esta preparación con ${n} obligaciones?`)) return;
+    const asignaciones = (p4Prog.obligaciones||[]).filter(o => o.seleccionado).map(ob => ({
+      id: ob._id, bancoAsignado: ob.bancoAsignado||'', agrupadorPago: ob.agrupadorPago||'INDIVIDUAL',
+      retencion: ob.retencion||0, observaciones: ob.observaciones||''
+    }));
+    try {
+      await PUT(`/pagos/programaciones/${p4Prog._id}/autorizar`, { asignaciones });
+      toast('✅ Programación autorizada', 'success');
+      p4Prog = null;
+      document.getElementById('p4-wrap').innerHTML = '';
+      p4RenderFooter();
+      await p4CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  // ── Sociedad onChange ─────────────────────────────────────────────
+  document.getElementById('p4-compania').addEventListener('change', async () => {
+    p4Prog = null;
+    document.getElementById('p4-wrap').innerHTML = '';
+    p4RenderFooter();
+    await p4CargarLista();
+  });
+
+  // Init
+  p4RenderFooter();
 }
 
 // ─── View: Admin ──────────────────────────────────────────────────

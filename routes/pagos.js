@@ -561,4 +561,26 @@ router.put('/programaciones/:id/preparar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── PUT /api/pagos/programaciones/:id/autorizar ──────────────────────────────
+router.put('/programaciones/:id/autorizar', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (prog.estado !== 'preparado')
+      return res.status(400).json({ error: 'Solo se puede autorizar desde estado preparado' });
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['autorizador','admin'].includes(rol))
+      return res.status(403).json({ error: 'No tiene permiso para autorizar pagos' });
+    // Guardar cambios de Paso 4 antes de autorizar
+    await aplicarAsignacionesP3(prog, req.body.asignaciones);
+    prog.estado        = 'autorizado';
+    prog.autorizadoPor = req.user.username;
+    prog.autorizadoEn  = new Date();
+    await prog.save();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
