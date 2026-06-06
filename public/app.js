@@ -6413,15 +6413,45 @@ async function renderPaso5(container) {
         html += `</div>`;
 
       } else {
-        // ── AGRUPADO X: N°op/banco/moneda en la cabecera del grupo ──
-        const agTot    = totObs(agrupObs);
-        const op       = agrupObs[0]?.operacionBancaria || '';
-        const efBanco  = agrupObs[0]?.p5Banco  || agrupObs[0]?.bancoAsignado || '';
-        const efMon    = agrupObs[0]?.p5Moneda || (agrupObs[0]?.moneda==='LO'?'SOL':'USD');
+        // ── AGRUPADO X: cabecera con N°op/banco/moneda → beneficiarios → obligaciones ──
+        const agTot   = totObs(agrupObs);
+        const op      = agrupObs[0]?.operacionBancaria || '';
+        const efBanco = agrupObs[0]?.p5Banco  || agrupObs[0]?.bancoAsignado || '';
+        const efMon   = agrupObs[0]?.p5Moneda || (agrupObs[0]?.moneda==='LO'?'SOL':'USD');
+
+        // Sub-agrupar por beneficiario
+        const byBenef = {};
+        agrupObs.forEach(ob => {
+          const k = ob.pagarA || '(sin beneficiario)';
+          if (!byBenef[k]) byBenef[k] = [];
+          byBenef[k].push(ob);
+        });
+
+        // Filas de beneficiarios (expandibles a obligaciones)
+        let benefRows = '';
+        Object.keys(byBenef).sort((a,b)=>a.localeCompare(b)).forEach(benef => {
+          const bObs  = byBenef[benef];
+          const bTot  = totObs(bObs);
+          const bKey  = `${agKey}__${benef.replace(/\W/g,'_')}`;
+          benefRows += `
+          <div style="border-top:1px solid #e2e8f0">
+            <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;
+                        padding:5px 12px 5px 28px;background:#f8faff" onclick="event.stopPropagation()">
+              <span onclick="p5ToggleAgrup('${esc(bKey)}')" class="p5-agrup-arr"
+                    style="cursor:pointer;font-size:10px;color:#94a3b8;padding:2px 4px">▸</span>
+              <span style="font-size:12px;color:#374151;font-weight:600;flex:1;min-width:120px">${esc(benef)}</span>
+              ${totBadges(bTot,'10px')}
+              <span style="font-size:10px;color:#94a3b8">${bObs.length} oblig.</span>
+            </div>
+            <div id="p5agrup-body-${esc(bKey)}" style="display:none;background:#faf5ff">
+              ${p5TablaObs(bObs)}
+            </div>
+          </div>`;
+        });
 
         html += `
         <div style="margin-bottom:14px;border:1px solid #c7d7f8;border-radius:8px;overflow:hidden">
-          <!-- Cabecera: nombre agrupador + banco/mon/N°op inline -->
+          <!-- Cabecera agrupador: nombre + banco/mon/N°op inline -->
           <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;
                       padding:10px 16px;background:#f0f4ff" onclick="event.stopPropagation()">
             <span onclick="p5ToggleBanco('${esc(agKey)}')" class="p5-banco-arr"
@@ -6443,9 +6473,9 @@ async function renderPaso5(container) {
                    value="${op}"
                    oninput="p5SetOpAgrup('${esc(agrup)}',this.value)">
           </div>
-          <!-- Detalle expandible con N°op por obligación -->
+          <!-- Nivel 2: beneficiarios expandibles -->
           <div id="p5banco-body-${esc(agKey)}" style="display:none">
-            ${p5TablaObs(agrupObs)}
+            ${benefRows}
           </div>
         </div>`;
       }
