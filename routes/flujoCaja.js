@@ -123,11 +123,19 @@ router.put('/lineas/:id', async (req, res) => {
       if (!FlujoCajaLinea.SECCIONES.includes(seccion)) return res.status(400).json({ error: 'Sección inválida' });
       linea.seccion = seccion;
     }
+    let propagarTipo = false;
     if (tipoActividad !== undefined) {
       if (!FlujoCajaLinea.TIPOS_ACTIVIDAD.includes(tipoActividad)) return res.status(400).json({ error: 'Tipo de actividad inválido' });
+      if (linea.compania === BASE && linea.tipoActividad !== tipoActividad) propagarTipo = true;
       linea.tipoActividad = tipoActividad;
     }
     await linea.save();
+    // Si se cambió el tipo de actividad de una línea __BASE__, sincronizarlo en
+    // todas las líneas heredadas de cada sociedad (la clasificación contable
+    // debe ser consistente entre la base y sus líneas hijas).
+    if (propagarTipo) {
+      await FlujoCajaLinea.updateMany({ baseLineaId: linea._id }, { $set: { tipoActividad: linea.tipoActividad } });
+    }
     res.json(linea);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
