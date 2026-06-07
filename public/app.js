@@ -6994,11 +6994,14 @@ async function renderPaso5(container) {
   // Muestra modal con todos los beneficiarios de la programación,
   // su correo actual (si existe en Personas) y permite asignarlo.
   window.p5CargaMasiva = async function() {
-    if (!p5Prog) return;
+   try {
+    if (!p5Prog) { toast('Abra primero una programación', 'error'); return; }
     const comp  = p5Prog.compania;
     const benefs = [...new Set(
       (p5Prog.obligaciones||[]).filter(o=>o.seleccionado).map(o=>o.pagarA||'').filter(Boolean)
     )].sort();
+
+    if (!benefs.length) { toast('No hay beneficiarios seleccionados en esta programación', 'error'); return; }
 
     // Traer personas existentes de esta compañía
     let personas = [];
@@ -7072,6 +7075,7 @@ async function renderPaso5(container) {
       toast(`✅ ${ok} guardados${err?' | ⚠️ '+err+' errores':''}`, ok ? 'success' : 'error');
       closeModal();
     });
+   } catch(e) { console.error('p5CargaMasiva', e); toast('Error al abrir beneficiarios: ' + e.message, 'error'); }
   };
 
   // ── Ver beneficiarios sin correo ──────────────────────────────────
