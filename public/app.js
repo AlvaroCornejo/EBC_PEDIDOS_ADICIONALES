@@ -3681,6 +3681,11 @@ async function renderPaso1(container) {
       </div>
     </div>
 
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+      <button class="btn btn-outline btn-sm" onclick="imprimirVista('pg-tabla-wrap','Paso 1 — Programación de Pagos')">🖨️ Imprimir</button>
+      <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('pg-tabla-wrap','paso1-programacion')">📥 Bajar a Excel</button>
+    </div>
+
     <!-- Tabla de obligaciones (scrollable) — con espacio para el footer fijo -->
     <div id="pg-tabla-wrap" style="padding-bottom:180px"></div>
 
@@ -3759,7 +3764,8 @@ async function renderPaso1(container) {
       const progs = await GET(`/pagos/programaciones?compania=${encodeURIComponent(compania)}`);
       if (!progs.length) { wrap.innerHTML = `<p style="font-size:12px;color:var(--text-muted);margin:6px 0">Sin programaciones anteriores para ${compania}</p>`; return; }
       const fmtEstado = e => ({ borrador:'🔵 Borrador', pendiente:'🟡 Pendiente', aprobado:'🟢 Aprobado', pagado:'✅ Pagado' }[e] || e);
-      const editable  = e => ['borrador','pendiente'].includes(e);
+      const esAdmin   = S.user.role === 'ADMIN';
+      const editable  = e => ['borrador','pendiente'].includes(e) || esAdmin;
       wrap.innerHTML = `
         <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Programaciones — ${compania}</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
@@ -4337,6 +4343,10 @@ async function renderPaso2(container) {
         <button class="btn btn-outline btn-sm" onclick="ap2LimpiarFiltros()">✕ Limpiar</button>
       </div>
     </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+      <button class="btn btn-outline btn-sm" onclick="imprimirVista('ap2-wrap','Paso 2 — Aprobación de Pagos')">🖨️ Imprimir</button>
+      <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('ap2-wrap','paso2-aprobacion')">📥 Bajar a Excel</button>
+    </div>
     <div id="ap2-wrap" style="padding-bottom:72px"></div>`;
 
   document.getElementById('ap2-compania').addEventListener('change', async () => {
@@ -4643,7 +4653,7 @@ async function renderPaso2(container) {
           ${puedeAprobar && ap2Prog.estado !== 'aprobado' ? `
             <button class="btn btn-primary btn-sm" onclick="ap2Aprobar()"
                     style="background:#16a34a;border-color:#16a34a">✅ Aprobar</button>` : ''}
-          ${ap2Prog.estado !== 'aprobado' ? `
+          ${(ap2Prog.estado !== 'aprobado' || S.user.role === 'ADMIN') ? `
             <button class="btn btn-sm" onclick="ap2Eliminar()"
                     style="border:1px solid #dc2626;color:#dc2626;background:#fff">🗑️ Eliminar</button>` : ''}
         </div>` : ''}`;
@@ -4846,6 +4856,10 @@ async function renderPaso3(container) {
         </div>
         <button class="btn btn-outline btn-sm" onclick="p3LimpiarFiltros()">✕ Limpiar</button>
       </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+      <button class="btn btn-outline btn-sm" onclick="imprimirVista('p3-wrap','Paso 3 — Preparación de Pagos')">🖨️ Imprimir</button>
+      <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('p3-wrap','paso3-preparacion')">📥 Bajar a Excel</button>
     </div>
     <div id="p3-wrap" style="padding-bottom:120px"></div>`;
 
@@ -5631,6 +5645,10 @@ async function renderPaso4(container) {
       </div>
     </div>
     <div id="p4-lista" class="mb-16"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+      <button class="btn btn-outline btn-sm" onclick="imprimirVista('p4-wrap','Paso 4 — Autorización en Bancos')">🖨️ Imprimir</button>
+      <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('p4-wrap','paso4-autorizacion')">📥 Bajar a Excel</button>
+    </div>
     <div id="p4-wrap" style="padding-bottom:80px"></div>`;
 
   // ── Agrupadores ──────────────────────────────────────────────────
@@ -6216,6 +6234,10 @@ async function renderPaso5(container) {
       <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
         <!-- ── IZQUIERDA: Programación de pago ── -->
         <div style="flex:1;min-width:320px">
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+            <button class="btn btn-outline btn-sm" onclick="imprimirVista('p5-wrap','Paso 5 — Registro del Movimiento Bancario')">🖨️ Imprimir</button>
+            <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('p5-wrap','paso5-movimiento-bancario')">📥 Bajar a Excel</button>
+          </div>
           <div id="p5-wrap"></div>
         </div>
         <!-- ── DERECHA: Movimiento Bancario ── -->
@@ -6632,6 +6654,10 @@ async function renderPaso5(container) {
                   title="Beneficiarios sin correo en esta programación">⚠️ Sin correo</button>
           <button class="btn btn-primary btn-sm" onclick="p5EnviarCorreo()"
                   title="Enviar notificación de pago por correo">✉️ Enviar correo</button>
+          ${S.user.role === 'ADMIN' ? `
+            <button class="btn btn-sm" onclick="p5EliminarProg()"
+                    style="border:1px solid #dc2626;color:#dc2626;background:#fff"
+                    title="Eliminar esta programación (solo ADMIN)">🗑️ Eliminar</button>` : ''}
         </div>` : ''}`;
     p5Footer.style.display = p5Prog ? 'flex' : 'none';
   }
@@ -7189,14 +7215,30 @@ async function renderPaso5(container) {
         moneda: moneda || '',
         operacionBancaria: operacionBancaria || '',
       });
-      let msg = `✅ ${data.sent} correo(s) enviado(s)`;
-      if (data.sinCorreo?.length) msg += ` | ⚠️ Sin correo: ${data.sinCorreo.join(', ')}`;
-      toast(msg, data.sent ? 'success' : 'error');
-      if (data.sinCorreo?.length) {
-        if (confirm(`Hay ${data.sinCorreo.length} beneficiario(s) sin correo. ¿Desea asignarles uno ahora?`)) {
-          await p5VerSinCorreo();
-        }
-      }
+      const sent      = data?.sent ?? 0;
+      const sinCorreo = data?.sinCorreo || [];
+
+      toast(`✅ ${sent} correo${sent === 1 ? '' : 's'} de notificación enviado${sent === 1 ? '' : 's'}`, sent ? 'success' : 'error');
+
+      openModal('✉️ Notificación de pago — resultado del envío', `
+        <div style="padding:4px 0">
+          <p style="font-size:14px;margin-bottom:10px">
+            ${sent
+              ? `✅ Se ${sent === 1 ? 'envió' : 'enviaron'} <strong>${sent}</strong> correo${sent === 1 ? '' : 's'} de notificación de pago${label.replace(/\n/g, ' — ').trim()}.`
+              : `⚠️ No se envió ningún correo${label.replace(/\n/g, ' — ').trim()}.`}
+          </p>
+          ${sinCorreo.length ? `
+            <p style="font-size:13px;color:#dc2626;margin:12px 0 6px;font-weight:600">⚠️ ${sinCorreo.length} beneficiario(s) sin correo asignado (no recibieron notificación):</p>
+            <ul style="font-size:12px;color:#6b7280;margin:0 0 12px 18px;max-height:140px;overflow-y:auto">
+              ${sinCorreo.map(b => `<li>${esc(b)}</li>`).join('')}
+            </ul>
+            <button class="btn btn-outline btn-sm" onclick="closeModal();p5VerSinCorreo()">📧 Asignar correos ahora</button>
+          ` : ''}
+          <div style="margin-top:16px;text-align:right">
+            <button class="btn btn-primary btn-sm" onclick="closeModal()">Cerrar</button>
+          </div>
+        </div>
+      `);
     } catch(e) { toast(e.message, 'error'); }
   };
 
@@ -7227,6 +7269,21 @@ async function renderPaso5(container) {
     try {
       await PUT(`/pagos/programaciones/${p5Prog._id}/pagar`, { asignaciones: p5BuildAsig() });
       toast('✅ Pago registrado', 'success');
+      p5Prog = null;
+      document.getElementById('p5-wrap').innerHTML = '';
+      p5RenderFooter();
+      await p5CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  // ── Eliminar programación (solo ADMIN) ───────────────────────────
+  window.p5EliminarProg = async function() {
+    if (!p5Prog) return;
+    if (S.user.role !== 'ADMIN') return;
+    if (!confirm(`⚠️ ¿Eliminar definitivamente la programación Sem ${p5Prog.semana}/${p5Prog.año} de ${p5Prog.compania} (estado: ${p5Prog.estado})?\n\nEsta acción no se puede deshacer.`)) return;
+    try {
+      await DEL(`/pagos/programaciones/${p5Prog._id}`);
+      toast('🗑️ Programación eliminada', 'success');
       p5Prog = null;
       document.getElementById('p5-wrap').innerHTML = '';
       p5RenderFooter();
@@ -9124,6 +9181,71 @@ function imprimirPedidos(pedidos, titulo = 'EBC — Pedidos Adicionales', gestio
   win.document.close();
   win.focus();
   setTimeout(() => win.print(), 400);
+}
+
+// ─── Genérico: Imprimir / Exportar a Excel lo visible en un contenedor ───
+// Captura las tablas (<table>) renderizadas dentro de #containerId tal
+// como se ven en pantalla (filtros aplicados, agrupaciones, etc).
+function imprimirVista(containerId, titulo) {
+  const cont   = document.getElementById(containerId);
+  const tablas = cont ? [...cont.querySelectorAll('table')] : [];
+  if (!tablas.length) { toast('No hay datos para imprimir', 'error'); return; }
+
+  const tablasHtml = tablas.map(t => t.outerHTML).join('<div style="height:18px"></div>');
+  const html = `<!DOCTYPE html><html><head>
+    <meta charset="utf-8">
+    <title>${esc(titulo)}</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 16px; }
+      h2 { font-size: 16px; color: #1a1f3a; margin-bottom: 4px; }
+      .meta { font-size: 11px; color: #6b7280; margin-bottom: 14px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+      th { background: #1a1f3a; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; white-space: nowrap; }
+      td { padding: 5px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: middle; font-size: 11px; }
+      tr:nth-child(even) td { background: #f9fafb; }
+      button, input, select, textarea, .btn { display: none !important; }
+      @media print { @page { margin: 1cm; } body { padding: 0; } }
+    </style>
+  </head><body>
+    <h2>${esc(titulo)}</h2>
+    <div class="meta">Generado: ${new Date().toLocaleString('es-PE')}</div>
+    ${tablasHtml}
+  </body></html>`;
+
+  const win = window.open('', '_blank', 'width=1100,height=750');
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 400);
+}
+
+function exportarVistaExcel(containerId, nombreArchivo) {
+  const cont   = document.getElementById(containerId);
+  const tablas = cont ? [...cont.querySelectorAll('table')] : [];
+  if (!tablas.length) { toast('No hay datos para exportar', 'error'); return; }
+
+  const csvCell = s => {
+    const v = String(s ?? '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
+    return `"${v.replace(/"/g, '""')}"`;
+  };
+  let csv = '';
+  tablas.forEach((t, ti) => {
+    if (ti) csv += '\r\n';
+    [...t.rows].forEach(row => {
+      const cells = [...row.cells]
+        .filter(c => getComputedStyle(c).display !== 'none')
+        .map(c => csvCell(c.innerText || c.textContent || ''));
+      if (cells.length) csv += cells.join(',') + '\r\n';
+    });
+  });
+
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `${nombreArchivo}-${today()}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  toast('✅ Exportando a Excel', 'success');
 }
 
 // ─── App Init ─────────────────────────────────────────────────────

@@ -183,7 +183,8 @@ router.delete('/programaciones/:id', async (req, res) => {
     if (!prog) return res.status(404).json({ error: 'No encontrada' });
     if (!checkSocAccess(req.user, prog.compania))
       return res.status(403).json({ error: 'Sin acceso' });
-    if (!['borrador','pendiente'].includes(prog.estado))
+    // Los ADMIN pueden eliminar programaciones en cualquier estado
+    if (req.user.role !== 'ADMIN' && !['borrador','pendiente'].includes(prog.estado))
       return res.status(400).json({ error: 'Solo se pueden eliminar programaciones en borrador o pendiente de aprobación' });
     await prog.deleteOne();
     res.json({ ok: true });
