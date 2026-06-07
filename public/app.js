@@ -52,7 +52,12 @@ async function api(method, path, body) {
       throw new Error('Sesión expirada');
     }
   }
-  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Error ${res.status}`);
+    err.status = res.status;
+    err.data   = data;          // permite leer campos extra como { requiereCascada, hijas }
+    throw err;
+  }
   return data;
 }
 const GET  = (p)    => api('GET', p);
@@ -7765,9 +7770,25 @@ async function renderAdminFlujoCaja(container) {
     } catch(e) { toast(e.message, 'error'); }
   };
   window.fcBaseEliminar = async (id) => {
-    if (!confirm('¿Eliminar esta línea base? Solo se puede si ninguna sociedad la tiene enlazada (desactívala si está en uso).')) return;
-    try { await DEL(`/flujo-caja/lineas/${id}`); toast('Eliminada', 'success'); await renderBase(); }
-    catch(e) { toast(e.message, 'error'); }
+    if (!confirm('¿Eliminar esta línea base?')) return;
+    try {
+      await DEL(`/flujo-caja/lineas/${id}`);
+      toast('Eliminada', 'success');
+      await renderBase();
+    } catch(e) {
+      if (e.data?.requiereCascada) {
+        const n = e.data.hijas || 0;
+        if (confirm(`⚠️ Esta línea base tiene ${n} línea(s) heredada(s) en las sociedades (y posiblemente mapeos que la usan).\n\n¿Eliminar TODO en cascada (la línea base + sus ${n} línea(s) de sociedad + los mapeos asociados)?\n\nEsta acción no se puede deshacer. Si solo quieres dejar de usarla sin perder datos, cancela y desactívala en su lugar.`)) {
+          try {
+            await DEL(`/flujo-caja/lineas/${id}?cascade=true`);
+            toast(`🗑️ Línea base y ${n} línea(s) de sociedad eliminadas`, 'success');
+            await renderBase();
+          } catch(e2) { toast(e2.message, 'error'); }
+        }
+      } else {
+        toast(e.message, 'error');
+      }
+    }
   };
 
   // ── 2) Estructura por Sociedad ───────────────────────────────────

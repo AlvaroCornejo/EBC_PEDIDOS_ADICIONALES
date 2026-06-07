@@ -131,8 +131,32 @@ router.delete('/lineas/:id', async (req, res) => {
     const linea = await FlujoCajaLinea.findById(req.params.id);
     if (!linea) return res.status(404).json({ error: 'No encontrada' });
     if (linea.compania === BASE) {
-      const hijas = await FlujoCajaLinea.countDocuments({ baseLineaId: linea._id });
-      if (hijas > 0) return res.status(400).json({ error: `No se puede eliminar: hay ${hijas} línea(s) de sociedad enlazadas. Desactívela en su lugar.` });
+      const hijas = await FlujoCajaLinea.find({ baseLineaId: linea._id });
+      if (hijas.length > 0) {
+        if (req.query.cascade !== 'true') {
+          return res.status(409).json({
+            error: `Hay ${hijas.length} línea(s) de sociedad enlazadas a esta línea base.`,
+            requiereCascada: true,
+            hijas: hijas.length,
+          });
+        }
+        // Eliminar también las líneas heredadas de cada sociedad (y, de paso, los
+        // mapeos que pudieran apuntar a ellas, para no dejar referencias rotas)
+        const hijaIds = hijas.map(h => h._id);
+        await Promise.all([
+          FlujoCajaMovBancario.deleteMany({ lineaId: { $in: hijaIds } }),
+          FlujoCajaProveedor.deleteMany({ lineaId: { $in: hijaIds } }),
+          FlujoCajaOperacion.deleteMany({ lineaId: { $in: hijaIds } }),
+          FlujoCajaLinea.deleteMany({ _id: { $in: hijaIds } }),
+        ]);
+      }
+    } else {
+      // Línea de sociedad: limpiar también los mapeos que la referencian
+      await Promise.all([
+        FlujoCajaMovBancario.deleteMany({ lineaId: linea._id }),
+        FlujoCajaProveedor.deleteMany({ lineaId: linea._id }),
+        FlujoCajaOperacion.deleteMany({ lineaId: linea._id }),
+      ]);
     }
     await linea.deleteOne();
     res.json({ ok: true });
