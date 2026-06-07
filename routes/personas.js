@@ -38,7 +38,8 @@ router.get('/personas/sin-correo', async (req, res) => {
 // POST /personas
 router.post('/personas', async (req, res) => {
   try {
-    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo admin' });
+    const puedeGestionar = req.user.role === 'ADMIN' || ['pagador','admin'].includes(req.user.rolPago);
+    if (!puedeGestionar) return res.status(403).json({ error: 'No autorizado' });
     const { nombre, telefono, correos, compania } = req.body;
     const persona = await Persona.create({
       nombre, telefono: telefono || '',

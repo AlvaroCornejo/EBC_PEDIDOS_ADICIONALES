@@ -7134,7 +7134,7 @@ async function renderPaso5(container) {
 
     document.getElementById('sc-guardar-btn').addEventListener('click', async () => {
       const inputs = document.querySelectorAll('#modal-body input[data-id]');
-      let ok = 0;
+      let ok = 0, err = 0, lastErr = '';
       for (const inp of inputs) {
         const correos = inp.value.split(',').map(s=>s.trim()).filter(Boolean);
         if (!correos.length) continue;
@@ -7144,13 +7144,24 @@ async function renderPaso5(container) {
           if (id) {
             await PUT(`/personas/${id}/correo-rapido`, { correos });
           } else {
-            await POST('/personas', { nombre, telefono:'', correos, compania: comp });
+            try {
+              await POST('/personas', { nombre, telefono:'', correos, compania: comp });
+            } catch (e1) {
+              // Si ya existe (carrera con otro proceso o no se detectó antes), buscar y actualizar
+              const existente = arr(await GET(`/personas?compania=${encodeURIComponent(comp)}`))
+                .find(p => p.nombre === nombre);
+              if (existente?._id) {
+                await PUT(`/personas/${existente._id}/correo-rapido`, { correos });
+              } else {
+                throw e1;
+              }
+            }
           }
           ok++;
-        } catch(_){}
+        } catch(e) { err++; lastErr = e.message || ''; }
       }
-      toast(`✅ ${ok} correos guardados`, 'success');
-      closeModal();
+      toast(`✅ ${ok} correo(s) guardado(s)${err ? ` | ⚠️ ${err} con error${lastErr ? ': ' + lastErr : ''}` : ''}`, err && !ok ? 'error' : 'success');
+      if (ok) closeModal();
     });
   };
 
@@ -7286,7 +7297,7 @@ async function viewAdmin(container) {
 
 // ─── Admin: Personas ─────────────────────────────────────────────
 async function renderAdminPersonas(container) {
-  const COMPANIAS = ['EBC','ERSAC','FRQ1','GB','CORP'];
+  const COMPANIAS = ALL_SOCS_COMPRA;
 
   async function load(comp) {
     const personas = arr(await GET(`/personas?compania=${encodeURIComponent(comp)}`));
@@ -7409,7 +7420,7 @@ async function renderAdminPersonas(container) {
 
 // ─── Admin: CC Correo por sociedad ────────────────────────────────
 async function renderAdminCCCorreo(container) {
-  const COMPANIAS = ['EBC','ERSAC','FRQ1','GB','CORP'];
+  const COMPANIAS = ALL_SOCS_COMPRA;
 
   async function load(comp) {
     const lista = await GET(`/personas/copias-correo?compania=${encodeURIComponent(comp)}`);
