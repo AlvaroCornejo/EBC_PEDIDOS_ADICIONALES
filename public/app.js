@@ -6173,6 +6173,8 @@ async function renderPaso5(container) {
 
   const rolP       = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
   const puedePagar = ['pagador','admin'].includes(rolP);
+  const esAdminP5  = (S.user.role === 'ADMIN' || rolP === 'admin');
+  const socsP5     = esAdminP5 ? ALL_SOCS_COMPRA : (S.user.sociedadesPago || []);
 
   const fmtN  = v => v == null ? '—' : Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmtF  = d => d ? new Date(d).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
@@ -6197,7 +6199,7 @@ async function renderPaso5(container) {
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
         <select id="p5-compania" class="form-control" style="width:180px">
           <option value="">— Sociedad —</option>
-          ${(S.user.sociedadesPago||[]).map(s=>`<option>${esc(s)}</option>`).join('')}
+          ${socsP5.map(s=>`<option>${esc(s)}</option>`).join('')}
         </select>
         <span style="font-size:12px;color:var(--text-muted)">TC:</span>
         <input id="p5-tc" type="number" class="form-control" min="1" step="0.001"
