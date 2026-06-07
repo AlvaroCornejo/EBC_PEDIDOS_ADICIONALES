@@ -65,16 +65,19 @@ router.get('/lineas', async (req, res) => {
 router.post('/lineas', async (req, res) => {
   try {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Solo ADMIN' });
-    const { compania, seccion, nombre, orden, baseLineaId } = req.body;
+    const { compania, seccion, nombre, orden, baseLineaId, tipoActividad } = req.body;
     if (!compania || !seccion || !nombre?.trim())
       return res.status(400).json({ error: 'Faltan campos: compania, seccion, nombre' });
     if (!FlujoCajaLinea.SECCIONES.includes(seccion))
       return res.status(400).json({ error: 'Sección inválida' });
+    if (tipoActividad !== undefined && tipoActividad !== '' && !FlujoCajaLinea.TIPOS_ACTIVIDAD.includes(tipoActividad))
+      return res.status(400).json({ error: 'Tipo de actividad inválido' });
+    const tipoAct = FlujoCajaLinea.TIPOS_ACTIVIDAD.includes(tipoActividad) ? tipoActividad : 'OPERACION';
 
     if (compania === BASE) {
       const base = await FlujoCajaLinea.create({
         compania: BASE, seccion, nombre: nombre.trim(),
-        orden: Number(orden) || 0, baseLineaId: null,
+        orden: Number(orden) || 0, baseLineaId: null, tipoActividad: tipoAct,
       });
       // Propagar a todas las sociedades que aún no tengan una línea ligada a esta base
       for (const soc of ALL_SOCS) {
@@ -82,7 +85,7 @@ router.post('/lineas', async (req, res) => {
         if (!existe) {
           await FlujoCajaLinea.create({
             compania: soc, seccion, nombre: nombre.trim(),
-            orden: Number(orden) || 0, baseLineaId: base._id,
+            orden: Number(orden) || 0, baseLineaId: base._id, tipoActividad: tipoAct,
           });
         }
       }
@@ -97,6 +100,7 @@ router.post('/lineas', async (req, res) => {
     const linea = await FlujoCajaLinea.create({
       compania, seccion, nombre: nombre.trim(),
       orden: Number(orden) || 0, baseLineaId: baseLinea._id,
+      tipoActividad: tipoActividad !== undefined ? tipoAct : baseLinea.tipoActividad,
     });
     res.json(linea);
   } catch (e) {
@@ -111,13 +115,17 @@ router.put('/lineas/:id', async (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Solo ADMIN' });
     const linea = await FlujoCajaLinea.findById(req.params.id);
     if (!linea) return res.status(404).json({ error: 'No encontrada' });
-    const { nombre, orden, seccion, activa } = req.body;
+    const { nombre, orden, seccion, activa, tipoActividad } = req.body;
     if (nombre !== undefined) linea.nombre = String(nombre).trim();
     if (orden  !== undefined) linea.orden  = Number(orden) || 0;
     if (activa !== undefined) linea.activa = !!activa;
     if (seccion !== undefined) {
       if (!FlujoCajaLinea.SECCIONES.includes(seccion)) return res.status(400).json({ error: 'Sección inválida' });
       linea.seccion = seccion;
+    }
+    if (tipoActividad !== undefined) {
+      if (!FlujoCajaLinea.TIPOS_ACTIVIDAD.includes(tipoActividad)) return res.status(400).json({ error: 'Tipo de actividad inválido' });
+      linea.tipoActividad = tipoActividad;
     }
     await linea.save();
     res.json(linea);
@@ -384,11 +392,13 @@ router.get('/resumen', async (req, res) => {
       // Consolidado: una fila por línea base; agrupa todas las líneas de sociedad que la referencian
       filas = lineasBase.map(b => ({
         id: String(b._id), nombre: b.nombre, seccion: b.seccion, orden: b.orden,
+        tipoActividad: b.tipoActividad || 'OPERACION',
         lineasHijas: lineasSoc.filter(l => String(l.baseLineaId) === String(b._id)).map(l => l._id),
       }));
       // Líneas de sociedad sin línea base activa visible (caso límite) → las agrega sueltas
     } else {
-      filas = lineasSoc.map(l => ({ id: String(l._id), nombre: l.nombre, seccion: l.seccion, orden: l.orden, lineasHijas: [l._id] }));
+      filas = lineasSoc.map(l => ({ id: String(l._id), nombre: l.nombre, seccion: l.seccion, orden: l.orden,
+        tipoActividad: l.tipoActividad || 'OPERACION', lineasHijas: [l._id] }));
     }
 
     // ── Saldo inicial real desde las cuentas bancarias ──
@@ -413,7 +423,7 @@ router.get('/resumen', async (req, res) => {
         if (f.seccion === 'SALDO_INICIAL' && i === 0) return saldoInicialTotal;
         return 0;
       });
-      return { id: f.id, nombre: f.nombre, seccion: f.seccion, valores };
+      return { id: f.id, nombre: f.nombre, seccion: f.seccion, tipoActividad: f.tipoActividad, valores };
     });
 
     // SALDO_FINAL = inicial + ingresos - egresos ± otros ± por identificar (queda la fórmula lista)

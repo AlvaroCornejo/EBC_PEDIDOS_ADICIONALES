@@ -7324,6 +7324,8 @@ async function viewFlujoCaja(container) {
     POR_IDENTIFICAR: '5. POR IDENTIFICAR',
     SALDO_FINAL:     '6. SALDO FINAL',
   };
+  const TIPO_ACT_LABEL = { OPERACION: 'Operación', FINANCIAMIENTO: 'Financiamiento', INVERSION: 'Inversión' };
+  const TIPO_ACT_COLOR = { OPERACION: '#2563eb', FINANCIAMIENTO: '#9333ea', INVERSION: '#ea580c' };
 
   container.innerHTML = `
     <div class="page-header">
@@ -7395,8 +7397,10 @@ async function viewFlujoCaja(container) {
           </tr>`;
         }
         const destacar = ['SALDO_INICIAL','SALDO_FINAL'].includes(f.seccion);
+        const tipoAct  = f.tipoActividad && TIPO_ACT_LABEL[f.tipoActividad];
+        const tipoActBadge = tipoAct ? `<span style="margin-left:8px;font-size:9px;font-weight:600;padding:1px 6px;border-radius:8px;color:#fff;background:${TIPO_ACT_COLOR[f.tipoActividad]}">${esc(tipoAct)}</span>` : '';
         filasHtml += `<tr ${destacar?'style="font-weight:700;background:#f0fdf4"':''}>
-          <td style="padding:5px 10px 5px 24px">${esc(f.nombre)}</td>
+          <td style="padding:5px 10px 5px 24px">${esc(f.nombre)}${tipoActBadge}</td>
           ${f.valores.map(v => `<td style="padding:5px 10px;text-align:right;${v<0?'color:#dc2626':''}">${fmtMonto(v)}</td>`).join('')}
         </tr>`;
       });
@@ -7658,6 +7662,16 @@ async function renderAdminFlujoCaja(container) {
     ['POR_IDENTIFICAR', '5. Por Identificar'],
     ['SALDO_FINAL',     '6. Saldo Final'],
   ];
+  const TIPOS_ACTIVIDAD = [
+    ['OPERACION',      'Operación'],
+    ['FINANCIAMIENTO', 'Financiamiento'],
+    ['INVERSION',      'Inversión'],
+  ];
+  const tipoActLabel = (k) => (TIPOS_ACTIVIDAD.find(t=>t[0]===k)||[,k])[1] || '—';
+  const tipoActSelectHtml = (cls, id, current) => `
+    <select class="form-control ${cls}" data-id="${id}" style="font-size:12px">
+      ${TIPOS_ACTIVIDAD.map(([tk,tl])=>`<option value="${tk}" ${current===tk?'selected':''}>${esc(tl)}</option>`).join('')}
+    </select>`;
   const SUBTABS = [
     ['base',      '🧱 Estructura Base'],
     ['sociedad',  '🏢 Estructura por Sociedad'],
@@ -7704,16 +7718,17 @@ async function renderAdminFlujoCaja(container) {
       </p>
       <div class="card" style="overflow:hidden;max-width:760px;margin-bottom:16px">
         <table class="data-table" style="font-size:13px">
-          <thead><tr><th>Sección</th><th>Línea</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
+          <thead><tr><th>Sección</th><th>Línea</th><th style="width:160px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
           <tbody>
             ${SECCIONES.map(([sk,sl]) => {
               const filas = lineas.filter(l => l.seccion === sk);
-              if (!filas.length) return `<tr><td colspan="5" style="background:#f9fafb;font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
-              return `<tr><td colspan="5" style="background:#f9fafb;font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>` +
+              if (!filas.length) return `<tr><td colspan="6" style="background:#f9fafb;font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
+              return `<tr><td colspan="6" style="background:#f9fafb;font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>` +
                 filas.map(l => `
                 <tr>
                   <td class="text-muted" style="font-size:11px">${esc(sl)}</td>
                   <td><input class="form-control fc-base-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
+                  <td>${tipoActSelectHtml('fc-base-tipo', l._id, l.tipoActividad || 'OPERACION')}</td>
                   <td><input type="number" class="form-control fc-base-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
                   <td class="text-center"><input type="checkbox" class="fc-base-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
                   <td class="text-center" style="white-space:nowrap">
@@ -7722,7 +7737,7 @@ async function renderAdminFlujoCaja(container) {
                   </td>
                 </tr>`).join('');
             }).join('')}
-            ${!lineas.length ? '<tr><td colspan="5" class="text-muted text-center py-8">Sin líneas. Agrega la primera abajo.</td></tr>' : ''}
+            ${!lineas.length ? '<tr><td colspan="6" class="text-muted text-center py-8">Sin líneas. Agrega la primera abajo.</td></tr>' : ''}
           </tbody>
         </table>
       </div>
@@ -7740,6 +7755,12 @@ async function renderAdminFlujoCaja(container) {
             <input id="fc-base-new-nombre" class="form-control" style="width:240px;font-size:12px" placeholder="Ej: Cobranza Clientes">
           </div>
           <div>
+            <label style="font-size:11px;color:var(--text-muted);display:block">Tipo de Actividad</label>
+            <select id="fc-base-new-tipo" class="form-control" style="width:160px;font-size:12px">
+              ${TIPOS_ACTIVIDAD.map(([tk,tl])=>`<option value="${tk}">${esc(tl)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
             <label style="font-size:11px;color:var(--text-muted);display:block">Orden</label>
             <input id="fc-base-new-orden" type="number" class="form-control" style="width:70px;font-size:12px" value="0">
           </div>
@@ -7751,20 +7772,22 @@ async function renderAdminFlujoCaja(container) {
   window.fcBaseAgregar = async () => {
     const seccion = document.getElementById('fc-base-new-seccion').value;
     const nombre  = document.getElementById('fc-base-new-nombre').value.trim();
+    const tipoActividad = document.getElementById('fc-base-new-tipo').value;
     const orden   = document.getElementById('fc-base-new-orden').value;
     if (!nombre) { toast('Ingresa el nombre de la línea', 'warning'); return; }
     try {
-      await POST('/flujo-caja/lineas', { compania: BASE, seccion, nombre, orden });
+      await POST('/flujo-caja/lineas', { compania: BASE, seccion, nombre, tipoActividad, orden });
       toast('✅ Línea base creada y propagada a todas las sociedades', 'success');
       await renderBase();
     } catch(e) { toast(e.message, 'error'); }
   };
   window.fcBaseGuardar = async (id) => {
     const nombre = container.querySelector(`.fc-base-nombre[data-id="${id}"]`)?.value.trim();
+    const tipoActividad = container.querySelector(`.fc-base-tipo[data-id="${id}"]`)?.value;
     const orden  = container.querySelector(`.fc-base-orden[data-id="${id}"]`)?.value;
     const activa = container.querySelector(`.fc-base-activa[data-id="${id}"]`)?.checked;
     try {
-      await PUT(`/flujo-caja/lineas/${id}`, { nombre, orden, activa });
+      await PUT(`/flujo-caja/lineas/${id}`, { nombre, tipoActividad, orden, activa });
       toast('Guardado', 'success');
       await renderBase();
     } catch(e) { toast(e.message, 'error'); }
@@ -7813,20 +7836,21 @@ async function renderAdminFlujoCaja(container) {
       cont.innerHTML = `
         <div class="card" style="overflow:hidden;max-width:840px;margin-bottom:16px">
           <table class="data-table" style="font-size:13px">
-            <thead><tr><th>Sección</th><th>Línea</th><th>Línea base</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
+            <thead><tr><th>Sección</th><th>Línea</th><th>Línea base</th><th style="width:130px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
             <tbody>
               ${lineas.map(l => `
               <tr>
                 <td class="text-muted" style="font-size:11px">${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])}</td>
                 <td><input class="form-control fc-soc-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
                 <td class="text-muted" style="font-size:11px">${esc(baseById[l.baseLineaId]?.nombre || '—')}</td>
+                <td class="text-muted" style="font-size:11px">${esc(tipoActLabel(l.tipoActividad || baseById[l.baseLineaId]?.tipoActividad))}</td>
                 <td><input type="number" class="form-control fc-soc-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
                 <td class="text-center"><input type="checkbox" class="fc-soc-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
                 <td class="text-center" style="white-space:nowrap">
                   <button class="btn btn-xs btn-primary" onclick="fcSocGuardar('${l._id}')" title="Guardar">💾</button>
                   <button class="btn btn-xs btn-danger" onclick="fcSocEliminar('${l._id}')" title="Eliminar">✕</button>
                 </td>
-              </tr>`).join('') || '<tr><td colspan="6" class="text-muted text-center py-8">Sin líneas para esta sociedad todavía (crea líneas en Estructura Base para que se hereden).</td></tr>'}
+              </tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center py-8">Sin líneas para esta sociedad todavía (crea líneas en Estructura Base para que se hereden).</td></tr>'}
             </tbody>
           </table>
         </div>
