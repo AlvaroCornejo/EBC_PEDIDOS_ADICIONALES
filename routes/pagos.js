@@ -734,6 +734,9 @@ router.put('/programaciones/:id/pagar', async (req, res) => {
     if (!['pagador','admin'].includes(rol))
       return res.status(403).json({ error: 'No tiene permiso para registrar el pago' });
     aplicarAsignacionesP5(prog, req.body.asignaciones);
+    // Marcar como pagadas todas las obligaciones seleccionadas (para que
+    // luego se puedan filtrar/notificar por correo como "pagadas")
+    (prog.obligaciones || []).filter(o => o.seleccionado).forEach(ob => { ob.pagada = true; });
     prog.estado    = 'pagado';
     prog.pagadoPor = req.user.username;
     prog.pagadoEn  = new Date();
