@@ -6622,6 +6622,10 @@ async function renderPaso5(container) {
             ? `<span style="font-size:11px;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Pagada</span>`
             : ''}
           <button class="btn btn-outline btn-sm" onclick="p5Guardar()">💾 Grabar</button>
+          ${(puedePagar && p5Prog.estado === 'autorizado')
+            ? `<button class="btn btn-success btn-sm" onclick="p5Pagar()" style="background:#15803d;color:#fff;border:none"
+                       title="Registrar el pago de todas las obligaciones seleccionadas de esta programación">💳 Pagar</button>`
+            : ''}
           <button class="btn btn-outline btn-sm" onclick="p5CargaMasiva()"
                   title="Ver beneficiarios y asignar correos">👥 Beneficiarios</button>
           <button class="btn btn-outline btn-sm" onclick="p5VerSinCorreo()"
