@@ -246,6 +246,7 @@ const NAV_ITEMS = [
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
   { id: 'items',         label: 'Creación Ítems',  icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'itemsRol' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
+  { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -302,7 +303,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -7304,6 +7305,122 @@ async function renderPaso5(container) {
 }
 
 // ─── View: Admin ──────────────────────────────────────────────────
+// ─── View: Flujo de Caja ─────────────────────────────────────────
+async function viewFlujoCaja(container) {
+  const esAdminFC = S.user.role === 'ADMIN' || S.user.rolPago === 'admin';
+  const socsFC    = esAdminFC ? ALL_SOCS_COMPRA : (S.user.sociedadesPago || []);
+
+  const fmtMonto = n => (n||0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const SECCION_LABEL = {
+    SALDO_INICIAL:   '1. SALDO INICIAL',
+    INGRESOS:        '2. INGRESOS',
+    EGRESOS:         '3. EGRESOS',
+    OTROS:           '4. OTROS',
+    POR_IDENTIFICAR: '5. POR IDENTIFICAR',
+    SALDO_FINAL:     '6. SALDO FINAL',
+  };
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">💵 Flujo de Caja</div>
+    </div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:16px">
+        <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px">Sociedad(es)</label>
+            <div id="fc-socs" style="display:flex;flex-wrap:wrap;gap:10px;max-width:520px">
+              ${socsFC.map((s,i) => `
+                <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
+                  <input type="checkbox" class="fc-soc-chk" value="${esc(s)}" ${i===0?'checked':''}> ${esc(s)}
+                </label>`).join('') || '<span class="text-muted" style="font-size:13px">Sin sociedades asignadas</span>'}
+            </div>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
+            <select id="fc-moneda" class="form-control" style="width:170px">
+              <option value="SOL">Soles (S/)</option>
+              <option value="USD">Dólares (US$)</option>
+              <option value="COMBO">Combinado (en soles)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Periodo</label>
+            <select id="fc-granularidad" class="form-control" style="width:130px">
+              <option value="semana">Semanal</option>
+              <option value="mes">Mensual</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px"># Periodos</label>
+            <input id="fc-periodos" type="number" min="1" max="52" value="12" class="form-control" style="width:90px">
+          </div>
+          <div>
+            <button class="btn btn-primary btn-sm" onclick="fcVerFlujo()">🔍 Ver Flujo</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+        <button class="btn btn-outline btn-sm" onclick="imprimirVista('fc-wrap','Flujo de Caja')">🖨️ Imprimir</button>
+        <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-wrap','flujo-de-caja')">📥 Bajar a Excel</button>
+      </div>
+      <div id="fc-wrap"><div class="text-muted text-center py-24">Selecciona sociedad(es) y presiona "Ver Flujo".</div></div>
+    </div>`;
+
+  window.fcVerFlujo = async function() {
+    const companias = [...document.querySelectorAll('.fc-soc-chk:checked')].map(c => c.value);
+    const moneda    = document.getElementById('fc-moneda').value;
+    const granularidad = document.getElementById('fc-granularidad').value;
+    const periodos  = document.getElementById('fc-periodos').value || 12;
+    const wrap = document.getElementById('fc-wrap');
+    if (!companias.length) { toast('Selecciona al menos una sociedad', 'warning'); return; }
+    wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const data = await GET(`/flujo-caja/resumen?companias=${encodeURIComponent(companias.join(','))}&moneda=${moneda}&granularidad=${granularidad}&periodos=${periodos}`);
+      const simbolo = moneda === 'USD' ? 'US$' : 'S/';
+
+      let filasHtml = '';
+      let seccionActual = null;
+      data.filas.forEach(f => {
+        if (f.seccion !== seccionActual) {
+          seccionActual = f.seccion;
+          filasHtml += `<tr style="background:#1a1f3a">
+            <td colspan="${data.periodos.length + 1}" style="padding:6px 10px;color:#fff;font-weight:700;font-size:12px">${esc(SECCION_LABEL[f.seccion] || f.seccion)}</td>
+          </tr>`;
+        }
+        const destacar = ['SALDO_INICIAL','SALDO_FINAL'].includes(f.seccion);
+        filasHtml += `<tr ${destacar?'style="font-weight:700;background:#f0fdf4"':''}>
+          <td style="padding:5px 10px 5px 24px">${esc(f.nombre)}</td>
+          ${f.valores.map(v => `<td style="padding:5px 10px;text-align:right;${v<0?'color:#dc2626':''}">${fmtMonto(v)}</td>`).join('')}
+        </tr>`;
+      });
+
+      wrap.innerHTML = `
+        <div class="card" style="overflow:auto">
+          <table class="data-table" style="font-size:12px;white-space:nowrap">
+            <thead>
+              <tr>
+                <th style="position:sticky;left:0;background:#1a1f3a;z-index:1">Línea (${esc(simbolo)}) — ${esc(companias.join(', '))}</th>
+                ${data.periodos.map(p => `<th style="text-align:right">${esc(p.label)}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>${filasHtml}</tbody>
+          </table>
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:8px">
+          ℹ️ Por ahora se muestra el saldo inicial real (desde Cuentas Bancarias) y la estructura completa del flujo;
+          los movimientos reales y proyectados se incorporarán en una próxima entrega.
+        </p>`;
+    } catch(e) {
+      wrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`;
+    }
+  };
+
+  // Carga inicial automática si hay al menos una sociedad
+  if (socsFC.length) await window.fcVerFlujo();
+}
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -7322,6 +7439,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="bancos-pago">🏦 Bancos</button>
         <button class="tab-btn" data-tab="personas">👤 Personas</button>
         <button class="tab-btn" data-tab="cc-correo">📧 CC Correo</button>
+        <button class="tab-btn" data-tab="flujo-caja">💵 Flujo de Caja</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -7333,6 +7451,7 @@ async function viewAdmin(container) {
       <div id="tab-bancos-pago" class="tab-panel"></div>
       <div id="tab-personas" class="tab-panel"></div>
       <div id="tab-cc-correo" class="tab-panel"></div>
+      <div id="tab-flujo-caja" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -7354,6 +7473,7 @@ async function viewAdmin(container) {
   renderAdminBancos(document.getElementById('tab-bancos-pago'));
   renderAdminPersonas(document.getElementById('tab-personas'));
   renderAdminCCCorreo(document.getElementById('tab-cc-correo'));
+  renderAdminFlujoCaja(document.getElementById('tab-flujo-caja'));
 }
 
 // ─── Admin: Personas ─────────────────────────────────────────────
@@ -7520,6 +7640,491 @@ async function renderAdminCCCorreo(container) {
       toast('CC guardado', 'success');
     } catch(e) { toast(e.message, 'error'); }
   };
+}
+
+// ─── Admin: Flujo de Caja ─────────────────────────────────────────
+async function renderAdminFlujoCaja(container) {
+  const BASE = '__BASE__';
+  const SECCIONES = [
+    ['SALDO_INICIAL',   '1. Saldo Inicial'],
+    ['INGRESOS',        '2. Ingresos'],
+    ['EGRESOS',         '3. Egresos'],
+    ['OTROS',           '4. Otros'],
+    ['POR_IDENTIFICAR', '5. Por Identificar'],
+    ['SALDO_FINAL',     '6. Saldo Final'],
+  ];
+  const SUBTABS = [
+    ['base',      '🧱 Estructura Base'],
+    ['sociedad',  '🏢 Estructura por Sociedad'],
+    ['cuentas',   '🏦 Cuentas Bancarias'],
+    ['movb',      '💳 Mapeo Mov. Bancario'],
+    ['provs',     '🧾 Mapeo Proveedores'],
+    ['opers',     '📄 Mapeo Operaciones'],
+    ['tc',        '💱 Tipo de Cambio'],
+  ];
+
+  container.innerHTML = `
+    <div style="padding:8px">
+      <div class="tabs" style="flex-wrap:wrap">
+        ${SUBTABS.map(([k,l],i) => `<button class="tab-btn fc-adm-tab ${i===0?'active':''}" data-sub="${k}">${l}</button>`).join('')}
+      </div>
+      ${SUBTABS.map(([k],i) => `<div id="fc-adm-${k}" class="tab-panel ${i===0?'active':''}"></div>`).join('')}
+    </div>`;
+
+  container.querySelectorAll('.fc-adm-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.fc-adm-tab').forEach(b=>b.classList.remove('active'));
+      container.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(`fc-adm-${btn.dataset.sub}`).classList.add('active');
+    });
+  });
+
+  const socSelectorHtml = (selectId) => `
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+      <label style="font-size:13px;font-weight:600">Sociedad:</label>
+      <select id="${selectId}" class="form-control" style="width:160px">
+        ${ALL_SOCS_COMPRA.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+      </select>
+    </div>`;
+
+  // ── 1) Estructura Base ──────────────────────────────────────────
+  async function renderBase() {
+    const el = document.getElementById('fc-adm-base');
+    const lineas = await GET(`/flujo-caja/lineas?compania=${encodeURIComponent(BASE)}`);
+    el.innerHTML = `
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+        Esta es la estructura base que aplica a todas las sociedades. Al crear una línea aquí,
+        se propaga automáticamente como línea heredada en cada sociedad.
+      </p>
+      <div class="card" style="overflow:hidden;max-width:760px;margin-bottom:16px">
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th>Sección</th><th>Línea</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
+          <tbody>
+            ${SECCIONES.map(([sk,sl]) => {
+              const filas = lineas.filter(l => l.seccion === sk);
+              if (!filas.length) return `<tr><td colspan="5" style="background:#f9fafb;font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
+              return `<tr><td colspan="5" style="background:#f9fafb;font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>` +
+                filas.map(l => `
+                <tr>
+                  <td class="text-muted" style="font-size:11px">${esc(sl)}</td>
+                  <td><input class="form-control fc-base-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
+                  <td><input type="number" class="form-control fc-base-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
+                  <td class="text-center"><input type="checkbox" class="fc-base-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
+                  <td class="text-center" style="white-space:nowrap">
+                    <button class="btn btn-xs btn-primary" onclick="fcBaseGuardar('${l._id}')" title="Guardar">💾</button>
+                    <button class="btn btn-xs btn-danger" onclick="fcBaseEliminar('${l._id}')" title="Eliminar">✕</button>
+                  </td>
+                </tr>`).join('');
+            }).join('')}
+            ${!lineas.length ? '<tr><td colspan="5" class="text-muted text-center py-8">Sin líneas. Agrega la primera abajo.</td></tr>' : ''}
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="padding:14px;max-width:760px">
+        <strong style="font-size:13px">+ Nueva línea base</strong>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <label style="font-size:11px;color:var(--text-muted);display:block">Sección</label>
+            <select id="fc-base-new-seccion" class="form-control" style="width:170px;font-size:12px">
+              ${SECCIONES.map(([sk,sl])=>`<option value="${sk}">${esc(sl)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-muted);display:block">Nombre de la línea</label>
+            <input id="fc-base-new-nombre" class="form-control" style="width:240px;font-size:12px" placeholder="Ej: Cobranza Clientes">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-muted);display:block">Orden</label>
+            <input id="fc-base-new-orden" type="number" class="form-control" style="width:70px;font-size:12px" value="0">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="fcBaseAgregar()">+ Agregar</button>
+        </div>
+      </div>`;
+  }
+
+  window.fcBaseAgregar = async () => {
+    const seccion = document.getElementById('fc-base-new-seccion').value;
+    const nombre  = document.getElementById('fc-base-new-nombre').value.trim();
+    const orden   = document.getElementById('fc-base-new-orden').value;
+    if (!nombre) { toast('Ingresa el nombre de la línea', 'warning'); return; }
+    try {
+      await POST('/flujo-caja/lineas', { compania: BASE, seccion, nombre, orden });
+      toast('✅ Línea base creada y propagada a todas las sociedades', 'success');
+      await renderBase();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+  window.fcBaseGuardar = async (id) => {
+    const nombre = container.querySelector(`.fc-base-nombre[data-id="${id}"]`)?.value.trim();
+    const orden  = container.querySelector(`.fc-base-orden[data-id="${id}"]`)?.value;
+    const activa = container.querySelector(`.fc-base-activa[data-id="${id}"]`)?.checked;
+    try {
+      await PUT(`/flujo-caja/lineas/${id}`, { nombre, orden, activa });
+      toast('Guardado', 'success');
+      await renderBase();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+  window.fcBaseEliminar = async (id) => {
+    if (!confirm('¿Eliminar esta línea base? Solo se puede si ninguna sociedad la tiene enlazada (desactívala si está en uso).')) return;
+    try { await DEL(`/flujo-caja/lineas/${id}`); toast('Eliminada', 'success'); await renderBase(); }
+    catch(e) { toast(e.message, 'error'); }
+  };
+
+  // ── 2) Estructura por Sociedad ───────────────────────────────────
+  async function renderSociedad() {
+    const el = document.getElementById('fc-adm-sociedad');
+    el.innerHTML = `
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+        Cada sociedad hereda las líneas de la estructura base (puedes renombrarlas, reordenarlas
+        o desactivarlas) y puede agregar líneas adicionales propias, siempre enlazadas a una línea base.
+      </p>
+      ${socSelectorHtml('fc-soc-comp')}
+      <div id="fc-soc-cont"></div>`;
+
+    async function load() {
+      const comp = document.getElementById('fc-soc-comp').value;
+      const [lineas, basesRaw] = await Promise.all([
+        GET(`/flujo-caja/lineas?compania=${encodeURIComponent(comp)}`),
+        GET(`/flujo-caja/lineas?compania=${encodeURIComponent(BASE)}`),
+      ]);
+      const baseById = {}; basesRaw.forEach(b => baseById[b._id] = b);
+      const cont = document.getElementById('fc-soc-cont');
+      cont.innerHTML = `
+        <div class="card" style="overflow:hidden;max-width:840px;margin-bottom:16px">
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Sección</th><th>Línea</th><th>Línea base</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
+            <tbody>
+              ${lineas.map(l => `
+              <tr>
+                <td class="text-muted" style="font-size:11px">${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])}</td>
+                <td><input class="form-control fc-soc-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
+                <td class="text-muted" style="font-size:11px">${esc(baseById[l.baseLineaId]?.nombre || '—')}</td>
+                <td><input type="number" class="form-control fc-soc-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
+                <td class="text-center"><input type="checkbox" class="fc-soc-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
+                <td class="text-center" style="white-space:nowrap">
+                  <button class="btn btn-xs btn-primary" onclick="fcSocGuardar('${l._id}')" title="Guardar">💾</button>
+                  <button class="btn btn-xs btn-danger" onclick="fcSocEliminar('${l._id}')" title="Eliminar">✕</button>
+                </td>
+              </tr>`).join('') || '<tr><td colspan="6" class="text-muted text-center py-8">Sin líneas para esta sociedad todavía (crea líneas en Estructura Base para que se hereden).</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        <div class="card" style="padding:14px;max-width:840px">
+          <strong style="font-size:13px">+ Nueva línea propia de ${esc(comp)}</strong>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+            <div>
+              <label style="font-size:11px;color:var(--text-muted);display:block">Sección</label>
+              <select id="fc-soc-new-seccion" class="form-control" style="width:170px;font-size:12px">
+                ${SECCIONES.map(([sk,sl])=>`<option value="${sk}">${esc(sl)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-muted);display:block">Nombre de la línea</label>
+              <input id="fc-soc-new-nombre" class="form-control" style="width:220px;font-size:12px" placeholder="Ej: Venta Local Tienda X">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-muted);display:block">Línea base (obligatorio)</label>
+              <select id="fc-soc-new-base" class="form-control" style="width:220px;font-size:12px">
+                ${basesRaw.map(b=>`<option value="${b._id}">${esc((SECCIONES.find(s=>s[0]===b.seccion)||[,b.seccion])[1])} — ${esc(b.nombre)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-muted);display:block">Orden</label>
+              <input id="fc-soc-new-orden" type="number" class="form-control" style="width:70px;font-size:12px" value="0">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="fcSocAgregar()">+ Agregar</button>
+          </div>
+        </div>`;
+    }
+
+    document.getElementById('fc-soc-comp').addEventListener('change', load);
+    await load();
+
+    window.fcSocAgregar = async () => {
+      const comp    = document.getElementById('fc-soc-comp').value;
+      const seccion = document.getElementById('fc-soc-new-seccion').value;
+      const nombre  = document.getElementById('fc-soc-new-nombre').value.trim();
+      const baseLineaId = document.getElementById('fc-soc-new-base').value;
+      const orden   = document.getElementById('fc-soc-new-orden').value;
+      if (!nombre)      { toast('Ingresa el nombre de la línea', 'warning'); return; }
+      if (!baseLineaId) { toast('Selecciona la línea base a enlazar', 'warning'); return; }
+      try {
+        await POST('/flujo-caja/lineas', { compania: comp, seccion, nombre, baseLineaId, orden });
+        toast('✅ Línea agregada', 'success');
+        await load();
+      } catch(e) { toast(e.message, 'error'); }
+    };
+    window.fcSocGuardar = async (id) => {
+      const nombre = container.querySelector(`.fc-soc-nombre[data-id="${id}"]`)?.value.trim();
+      const orden  = container.querySelector(`.fc-soc-orden[data-id="${id}"]`)?.value;
+      const activa = container.querySelector(`.fc-soc-activa[data-id="${id}"]`)?.checked;
+      try { await PUT(`/flujo-caja/lineas/${id}`, { nombre, orden, activa }); toast('Guardado', 'success'); await load(); }
+      catch(e) { toast(e.message, 'error'); }
+    };
+    window.fcSocEliminar = async (id) => {
+      if (!confirm('¿Eliminar esta línea?')) return;
+      try { await DEL(`/flujo-caja/lineas/${id}`); toast('Eliminada', 'success'); await load(); }
+      catch(e) { toast(e.message, 'error'); }
+    };
+  }
+
+  // ── 3) Cuentas Bancarias ─────────────────────────────────────────
+  async function renderCuentas() {
+    const el = document.getElementById('fc-adm-cuentas');
+    el.innerHTML = `${socSelectorHtml('fc-cta-comp')}<div id="fc-cta-cont"></div>`;
+
+    async function load() {
+      const comp    = document.getElementById('fc-cta-comp').value;
+      const cuentas = await GET(`/flujo-caja/cuentas?compania=${encodeURIComponent(comp)}`);
+      const cont = document.getElementById('fc-cta-cont');
+      cont.innerHTML = `
+        <div class="card" style="overflow:hidden;max-width:920px;margin-bottom:16px">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr><th>Banco</th><th style="width:80px">Moneda</th><th>N° Cuenta</th><th>Alias</th><th style="width:120px">Saldo Inicial</th><th style="width:130px">Fecha Saldo</th><th style="width:80px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
+            <tbody>
+              ${cuentas.map(c => `
+              <tr>
+                <td><input class="form-control fc-cta-banco" data-id="${c._id}" value="${esc(c.banco)}" style="font-size:12px;width:90px"></td>
+                <td>
+                  <select class="form-control fc-cta-moneda" data-id="${c._id}" style="font-size:12px">
+                    <option value="SOL" ${c.moneda==='SOL'?'selected':''}>SOL</option>
+                    <option value="USD" ${c.moneda==='USD'?'selected':''}>USD</option>
+                  </select>
+                </td>
+                <td><input class="form-control fc-cta-numero" data-id="${c._id}" value="${esc(c.numeroCuenta||'')}" style="font-size:12px"></td>
+                <td><input class="form-control fc-cta-alias" data-id="${c._id}" value="${esc(c.alias||'')}" style="font-size:12px"></td>
+                <td><input type="number" step="0.01" class="form-control fc-cta-saldo" data-id="${c._id}" value="${c.saldoInicial||0}" style="font-size:12px;text-align:right"></td>
+                <td><input type="date" class="form-control fc-cta-fecha" data-id="${c._id}" value="${c.fechaSaldoInicial ? new Date(c.fechaSaldoInicial).toISOString().slice(0,10) : ''}" style="font-size:11px"></td>
+                <td class="text-center"><input type="checkbox" class="fc-cta-activa" data-id="${c._id}" ${c.activa!==false?'checked':''}></td>
+                <td class="text-center" style="white-space:nowrap">
+                  <button class="btn btn-xs btn-primary" onclick="fcCtaGuardar('${c._id}')" title="Guardar">💾</button>
+                  <button class="btn btn-xs btn-danger" onclick="fcCtaEliminar('${c._id}')" title="Eliminar">✕</button>
+                </td>
+              </tr>`).join('') || '<tr><td colspan="8" class="text-muted text-center py-8">Sin cuentas registradas</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        <div class="card" style="padding:14px;max-width:920px">
+          <strong style="font-size:13px">+ Nueva cuenta bancaria</strong>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+            <div><label style="font-size:11px;color:var(--text-muted);display:block">Banco</label>
+              <input id="fc-cta-new-banco" class="form-control" style="width:110px;font-size:12px" placeholder="BCP"></div>
+            <div><label style="font-size:11px;color:var(--text-muted);display:block">Moneda</label>
+              <select id="fc-cta-new-moneda" class="form-control" style="width:90px;font-size:12px">
+                <option value="SOL">SOL</option><option value="USD">USD</option>
+              </select></div>
+            <div><label style="font-size:11px;color:var(--text-muted);display:block">N° Cuenta</label>
+              <input id="fc-cta-new-numero" class="form-control" style="width:160px;font-size:12px"></div>
+            <div><label style="font-size:11px;color:var(--text-muted);display:block">Alias</label>
+              <input id="fc-cta-new-alias" class="form-control" style="width:140px;font-size:12px"></div>
+            <div><label style="font-size:11px;color:var(--text-muted);display:block">Saldo Inicial</label>
+              <input id="fc-cta-new-saldo" type="number" step="0.01" class="form-control" style="width:110px;font-size:12px" value="0"></div>
+            <div><label style="font-size:11px;color:var(--text-muted);display:block">Fecha Saldo</label>
+              <input id="fc-cta-new-fecha" type="date" class="form-control" style="font-size:12px"></div>
+            <button class="btn btn-primary btn-sm" onclick="fcCtaAgregar()">+ Agregar</button>
+          </div>
+        </div>`;
+    }
+
+    document.getElementById('fc-cta-comp').addEventListener('change', load);
+    await load();
+
+    window.fcCtaAgregar = async () => {
+      const compania = document.getElementById('fc-cta-comp').value;
+      const banco    = document.getElementById('fc-cta-new-banco').value.trim();
+      const moneda   = document.getElementById('fc-cta-new-moneda').value;
+      const numeroCuenta = document.getElementById('fc-cta-new-numero').value.trim();
+      const alias    = document.getElementById('fc-cta-new-alias').value.trim();
+      const saldoInicial = document.getElementById('fc-cta-new-saldo').value;
+      const fechaSaldoInicial = document.getElementById('fc-cta-new-fecha').value;
+      if (!banco) { toast('Ingresa el banco', 'warning'); return; }
+      try {
+        await POST('/flujo-caja/cuentas', { compania, banco, moneda, numeroCuenta, alias, saldoInicial, fechaSaldoInicial });
+        toast('✅ Cuenta agregada', 'success');
+        await load();
+      } catch(e) { toast(e.message, 'error'); }
+    };
+    window.fcCtaGuardar = async (id) => {
+      const q = sel => container.querySelector(`${sel}[data-id="${id}"]`);
+      try {
+        await PUT(`/flujo-caja/cuentas/${id}`, {
+          banco: q('.fc-cta-banco')?.value.trim(),
+          moneda: q('.fc-cta-moneda')?.value,
+          numeroCuenta: q('.fc-cta-numero')?.value.trim(),
+          alias: q('.fc-cta-alias')?.value.trim(),
+          saldoInicial: q('.fc-cta-saldo')?.value,
+          fechaSaldoInicial: q('.fc-cta-fecha')?.value || null,
+          activa: q('.fc-cta-activa')?.checked,
+        });
+        toast('Guardado', 'success');
+        await load();
+      } catch(e) { toast(e.message, 'error'); }
+    };
+    window.fcCtaEliminar = async (id) => {
+      if (!confirm('¿Eliminar esta cuenta?')) return;
+      try { await DEL(`/flujo-caja/cuentas/${id}`); toast('Eliminada', 'success'); await load(); }
+      catch(e) { toast(e.message, 'error'); }
+    };
+  }
+
+  // ── 4/5/6) Tablas de mapeo (genérico: clave → línea) ─────────────
+  // cfg = { tabKey, endpoint, titulo, campos: [{id,label,placeholder}], buildClaveCols(row), needsCuenta }
+  async function renderMapeoGenerico(cfg) {
+    const el = document.getElementById(`fc-adm-${cfg.tabKey}`);
+    el.innerHTML = `${socSelectorHtml(`fc-${cfg.tabKey}-comp`)}<div id="fc-${cfg.tabKey}-cont"></div>`;
+
+    async function load() {
+      const comp = document.getElementById(`fc-${cfg.tabKey}-comp`).value;
+      const [rows, lineas, cuentas] = await Promise.all([
+        GET(`/flujo-caja/${cfg.endpoint}?compania=${encodeURIComponent(comp)}`),
+        GET(`/flujo-caja/lineas?compania=${encodeURIComponent(comp)}`),
+        cfg.needsCuenta ? GET(`/flujo-caja/cuentas?compania=${encodeURIComponent(comp)}`) : Promise.resolve([]),
+      ]);
+      const cuentaLabel = c => `${c.banco} ${c.moneda}${c.numeroCuenta?` — ${c.numeroCuenta}`:''}${c.alias?` (${c.alias})`:''}`;
+      const cont = document.getElementById(`fc-${cfg.tabKey}-cont`);
+
+      const colHeaders = cfg.campos.map(c => `<th>${esc(c.label)}</th>`).join('');
+
+      cont.innerHTML = `
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${esc(cfg.descripcion)}</p>
+        <div class="card" style="overflow:hidden;max-width:920px;margin-bottom:16px">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr>${colHeaders}<th>Línea del Flujo</th><th style="width:60px">Acciones</th></tr></thead>
+            <tbody>
+              ${rows.map(r => `
+              <tr>
+                ${cfg.buildClaveCols(r, cuentas, cuentaLabel)}
+                <td class="text-muted" style="font-size:11px">${esc(r.lineaId?.nombre || '—')}</td>
+                <td class="text-center"><button class="btn btn-xs btn-danger" onclick="fcMapEliminar('${cfg.endpoint}','${cfg.tabKey}','${r._id}')" title="Eliminar">✕</button></td>
+              </tr>`).join('') || `<tr><td colspan="${cfg.campos.length+2}" class="text-muted text-center py-8">Sin registros</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        <div class="card" style="padding:14px;max-width:920px">
+          <strong style="font-size:13px">+ Nuevo mapeo</strong>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+            ${cfg.campos.map(c => `<div><label style="font-size:11px;color:var(--text-muted);display:block">${esc(c.label)}</label>${
+              c.id === 'cuentaId'
+                ? `<select id="fc-${cfg.tabKey}-new-${c.id}" class="form-control" style="font-size:12px;width:200px">${cuentas.map(ct=>`<option value="${ct._id}">${esc(cuentaLabel(ct))}</option>`).join('') || '<option value="">— Sin cuentas —</option>'}</select>`
+                : `<input id="fc-${cfg.tabKey}-new-${c.id}" class="form-control" style="font-size:12px;width:200px" placeholder="${esc(c.placeholder||'')}">`
+            }</div>`).join('')}
+            <div>
+              <label style="font-size:11px;color:var(--text-muted);display:block">Línea del flujo</label>
+              <select id="fc-${cfg.tabKey}-new-linea" class="form-control" style="font-size:12px;width:240px">
+                ${lineas.map(l=>`<option value="${l._id}">${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}</option>`).join('') || '<option value="">— Sin líneas —</option>'}
+              </select>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="fcMapAgregar('${cfg.endpoint}','${cfg.tabKey}',${JSON.stringify(cfg.campos.map(c=>c.id))})">+ Agregar</button>
+          </div>
+        </div>`;
+    }
+
+    document.getElementById(`fc-${cfg.tabKey}-comp`).addEventListener('change', load);
+    await load();
+
+    window.fcMapAgregar = async (endpoint, tabKey, camposIds) => {
+      const compania = document.getElementById(`fc-${tabKey}-comp`).value;
+      const lineaId  = document.getElementById(`fc-${tabKey}-new-linea`).value;
+      if (!lineaId) { toast('Selecciona la línea del flujo', 'warning'); return; }
+      const body = { compania, lineaId };
+      for (const id of camposIds) {
+        const v = document.getElementById(`fc-${tabKey}-new-${id}`)?.value?.trim?.() ?? document.getElementById(`fc-${tabKey}-new-${id}`)?.value;
+        if (!v) { toast('Completa todos los campos', 'warning'); return; }
+        body[id] = v;
+      }
+      try {
+        await POST(`/flujo-caja/${endpoint}`, body);
+        toast('✅ Agregado', 'success');
+        await load();
+      } catch(e) { toast(e.message, 'error'); }
+    };
+    window.fcMapEliminar = async (endpoint, tabKey, id) => {
+      if (!confirm('¿Eliminar este registro?')) return;
+      try { await DEL(`/flujo-caja/${endpoint}/${id}`); toast('Eliminado', 'success'); await load(); }
+      catch(e) { toast(e.message, 'error'); }
+    };
+  }
+
+  // ── 7) Tipo de Cambio (global) ───────────────────────────────────
+  async function renderTipoCambio() {
+    const el = document.getElementById('fc-adm-tc');
+    async function load() {
+      const rows = await GET('/flujo-caja/tipo-cambio');
+      el.innerHTML = `
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+          Tabla manual de tipo de cambio (soles por dólar), usada para combinar el flujo de
+          caja de varias monedas en la vista "Combinado en Soles".
+        </p>
+        <div class="card" style="overflow:hidden;max-width:480px;margin-bottom:16px">
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Fecha</th><th>Tipo de Cambio (S/ x US$)</th><th style="width:60px">Eliminar</th></tr></thead>
+            <tbody>
+              ${rows.map(r => `<tr>
+                <td>${new Date(r.fecha).toLocaleDateString('es-PE',{timeZone:'UTC'})}</td>
+                <td>${(r.valor||0).toFixed(4)}</td>
+                <td class="text-center"><button class="btn btn-xs btn-danger" onclick="fcTcEliminar('${r._id}')">✕</button></td>
+              </tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center py-8">Sin registros</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        <div class="card" style="padding:14px;max-width:480px">
+          <strong style="font-size:13px">+ Nuevo / actualizar tipo de cambio</strong>
+          <div style="display:flex;gap:8px;margin-top:8px;align-items:flex-end">
+            <div><label style="font-size:11px;color:var(--text-muted);display:block">Fecha</label>
+              <input id="fc-tc-new-fecha" type="date" class="form-control" style="font-size:12px"></div>
+            <div><label style="font-size:11px;color:var(--text-muted);display:block">Valor</label>
+              <input id="fc-tc-new-valor" type="number" step="0.0001" class="form-control" style="font-size:12px;width:110px" placeholder="3.7500"></div>
+            <button class="btn btn-primary btn-sm" onclick="fcTcAgregar()">💾 Guardar</button>
+          </div>
+        </div>`;
+    }
+    await load();
+    window.fcTcAgregar = async () => {
+      const fecha = document.getElementById('fc-tc-new-fecha').value;
+      const valor = document.getElementById('fc-tc-new-valor').value;
+      if (!fecha || !valor) { toast('Completa fecha y valor', 'warning'); return; }
+      try { await POST('/flujo-caja/tipo-cambio', { fecha, valor }); toast('✅ Guardado', 'success'); await load(); }
+      catch(e) { toast(e.message, 'error'); }
+    };
+    window.fcTcEliminar = async (id) => {
+      if (!confirm('¿Eliminar este tipo de cambio?')) return;
+      try { await DEL(`/flujo-caja/tipo-cambio/${id}`); toast('Eliminado', 'success'); await load(); }
+      catch(e) { toast(e.message, 'error'); }
+    };
+  }
+
+  // ── Init ─────────────────────────────────────────────────────────
+  await renderBase();
+  await renderSociedad();
+  await renderCuentas();
+  await renderMapeoGenerico({
+    tabKey: 'movb', endpoint: 'mov-bancario',
+    descripcion: 'Identifica la línea del flujo según la cuenta bancaria y el número de operación del movimiento (1er criterio de conciliación).',
+    campos: [
+      { id: 'cuentaId', label: 'Cuenta Bancaria' },
+      { id: 'numeroOperacion', label: 'N° Operación', placeholder: 'Ej: 00123456' },
+    ],
+    needsCuenta: true,
+    buildClaveCols: (r, cuentas, cuentaLabel) => {
+      const cta = cuentas.find(c => c._id === (r.cuentaId?._id || r.cuentaId));
+      return `<td class="text-muted" style="font-size:11px">${esc(cta ? cuentaLabel(cta) : '—')}</td><td>${esc(r.numeroOperacion)}</td>`;
+    },
+  });
+  await renderMapeoGenerico({
+    tabKey: 'provs', endpoint: 'proveedores',
+    descripcion: 'Identifica la línea del flujo según el nombre del proveedor/beneficiario que recibió el pago (2do criterio, usado al conciliar por cuadre de totales).',
+    campos: [{ id: 'nombreProveedor', label: 'Nombre del Proveedor', placeholder: 'Ej: ACME S.A.C.' }],
+    needsCuenta: false,
+    buildClaveCols: (r) => `<td>${esc(r.nombreProveedor)}</td>`,
+  });
+  await renderMapeoGenerico({
+    tabKey: 'opers', endpoint: 'operaciones',
+    descripcion: 'Identifica la línea del flujo según la descripción de la operación bancaria (3er criterio de conciliación).',
+    campos: [{ id: 'descripcion', label: 'Descripción de la Operación', placeholder: 'Ej: COMISION MANTENIMIENTO' }],
+    needsCuenta: false,
+    buildClaveCols: (r) => `<td>${esc(r.descripcion)}</td>`,
+  });
+  await renderTipoCambio();
 }
 
 // ─── Admin: Grupos de Pago ────────────────────────────────────────
