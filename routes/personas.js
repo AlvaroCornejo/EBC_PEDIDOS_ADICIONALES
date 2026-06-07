@@ -1,12 +1,12 @@
 const express  = require('express');
 const router   = express.Router();
-const { authenticateToken } = require('./auth');
+const auth            = require('../middleware/auth');
 const Persona          = require('../models/Persona');
 const CopiaCorreo      = require('../models/CopiaCorreo');
 const PagoProgramacion = require('../models/PagoProgramacion');
 const { getSmtpConfig, buildTransport } = require('../utils/sendEmail');
 
-router.use(authenticateToken);
+router.use(auth);
 
 // ── helpers ───────────────────────────────────────────────────────
 const esc  = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
