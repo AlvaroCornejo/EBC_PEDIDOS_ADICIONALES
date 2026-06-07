@@ -7662,6 +7662,18 @@ async function renderAdminFlujoCaja(container) {
     ['POR_IDENTIFICAR', '5. Por Identificar'],
     ['SALDO_FINAL',     '6. Saldo Final'],
   ];
+  // Color identificador por sección (RGB base; se aplica con distinta opacidad
+  // para encabezados de sección vs. filas de detalle, y se reutiliza en ambas
+  // estructuras — Base y por Sociedad — para que sea fácil ubicar cada sección).
+  const SECCION_RGB = {
+    SALDO_INICIAL:   '59,130,246',   // azul
+    INGRESOS:        '34,197,94',    // verde
+    EGRESOS:         '239,68,68',    // rojo
+    OTROS:           '234,179,8',    // ámbar
+    POR_IDENTIFICAR: '168,85,247',   // morado
+    SALDO_FINAL:     '20,184,166',   // verde azulado
+  };
+  const seccionBg = (sk, alpha) => `rgba(${SECCION_RGB[sk] || '107,114,128'},${alpha})`;
   const TIPOS_ACTIVIDAD = [
     ['OPERACION',      'Operación'],
     ['FINANCIAMIENTO', 'Financiamiento'],
@@ -7721,11 +7733,12 @@ async function renderAdminFlujoCaja(container) {
           <thead><tr><th>Sección</th><th>Línea</th><th style="width:160px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
           <tbody>
             ${SECCIONES.map(([sk,sl]) => {
-              const filas = lineas.filter(l => l.seccion === sk);
-              if (!filas.length) return `<tr><td colspan="6" style="background:#f9fafb;font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
-              return `<tr><td colspan="6" style="background:#f9fafb;font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>` +
+              const filas = lineas.filter(l => l.seccion === sk).sort((a,b) => (a.orden||0) - (b.orden||0));
+              const headerRow = `<tr><td colspan="6" style="background:${seccionBg(sk,0.28)};font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
+              if (!filas.length) return headerRow;
+              return headerRow +
                 filas.map(l => `
-                <tr>
+                <tr style="background:${seccionBg(sk,0.07)}">
                   <td class="text-muted" style="font-size:11px">${esc(sl)}</td>
                   <td><input class="form-control fc-base-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
                   <td>${tipoActSelectHtml('fc-base-tipo', l._id, l.tipoActividad || 'OPERACION')}</td>
@@ -7838,19 +7851,24 @@ async function renderAdminFlujoCaja(container) {
           <table class="data-table" style="font-size:13px">
             <thead><tr><th>Sección</th><th>Línea</th><th>Línea base</th><th style="width:130px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
             <tbody>
-              ${lineas.map(l => `
-              <tr>
-                <td class="text-muted" style="font-size:11px">${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])}</td>
-                <td><input class="form-control fc-soc-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
-                <td class="text-muted" style="font-size:11px">${esc(baseById[l.baseLineaId]?.nombre || '—')}</td>
-                <td class="text-muted" style="font-size:11px">${esc(tipoActLabel(l.tipoActividad || baseById[l.baseLineaId]?.tipoActividad))}</td>
-                <td><input type="number" class="form-control fc-soc-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
-                <td class="text-center"><input type="checkbox" class="fc-soc-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
-                <td class="text-center" style="white-space:nowrap">
-                  <button class="btn btn-xs btn-primary" onclick="fcSocGuardar('${l._id}')" title="Guardar">💾</button>
-                  <button class="btn btn-xs btn-danger" onclick="fcSocEliminar('${l._id}')" title="Eliminar">✕</button>
-                </td>
-              </tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center py-8">Sin líneas para esta sociedad todavía (crea líneas en Estructura Base para que se hereden).</td></tr>'}
+              ${lineas.length ? SECCIONES.map(([sk,sl]) => {
+                const filas = lineas.filter(l => l.seccion === sk).sort((a,b) => (a.orden||0) - (b.orden||0));
+                const headerRow = `<tr><td colspan="7" style="background:${seccionBg(sk,0.28)};font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
+                if (!filas.length) return headerRow;
+                return headerRow + filas.map(l => `
+                <tr style="background:${seccionBg(sk,0.07)}">
+                  <td class="text-muted" style="font-size:11px">${esc(sl)}</td>
+                  <td><input class="form-control fc-soc-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
+                  <td class="text-muted" style="font-size:11px">${esc(baseById[l.baseLineaId]?.nombre || '—')}</td>
+                  <td class="text-muted" style="font-size:11px">${esc(tipoActLabel(l.tipoActividad || baseById[l.baseLineaId]?.tipoActividad))}</td>
+                  <td><input type="number" class="form-control fc-soc-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
+                  <td class="text-center"><input type="checkbox" class="fc-soc-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
+                  <td class="text-center" style="white-space:nowrap">
+                    <button class="btn btn-xs btn-primary" onclick="fcSocGuardar('${l._id}')" title="Guardar">💾</button>
+                    <button class="btn btn-xs btn-danger" onclick="fcSocEliminar('${l._id}')" title="Eliminar">✕</button>
+                  </td>
+                </tr>`).join('');
+              }).join('') : '<tr><td colspan="7" class="text-muted text-center py-8">Sin líneas para esta sociedad todavía (crea líneas en Estructura Base para que se hereden).</td></tr>'}
             </tbody>
           </table>
         </div>
