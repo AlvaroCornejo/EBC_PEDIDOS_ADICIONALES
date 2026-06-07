@@ -31,11 +31,14 @@ function today() {
 async function api(method, path, body) {
   const opts = {
     method,
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', ...(S.token ? { Authorization: `Bearer ${S.token}` } : {}) }
   };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(API + path, opts);
-  const data = await res.json().catch(() => ({}));
+  const text = await res.text();
+  let data = {};
+  if (text) { try { data = JSON.parse(text); } catch(_) { data = {}; } }
   if (res.status === 401) {
     // Solo hacer auto-logout si la petición llevaba token (ruta protegida)
     // Si no llevaba token (ej: /auth/login con contraseña incorrecta), mostrar el error normal
@@ -56,6 +59,8 @@ const GET  = (p)    => api('GET', p);
 const POST = (p, b) => api('POST', p, b);
 const PUT  = (p, b) => api('PUT', p, b);
 const DEL  = (p)    => api('DELETE', p);
+// Defensivo: algunos endpoints pueden devolver {} (p.ej. respuesta vacía/no-JSON) en vez de array
+const arr  = (x)    => Array.isArray(x) ? x : [];
 
 // Upload helper (multipart)
 async function upload(file, tipo) {
@@ -7005,7 +7010,7 @@ async function renderPaso5(container) {
 
     // Traer personas existentes de esta compañía
     let personas = [];
-    try { personas = await GET(`/personas?compania=${encodeURIComponent(comp)}`); } catch(_){}
+    try { personas = arr(await GET(`/personas?compania=${encodeURIComponent(comp)}`)); } catch(_){}
 
     const porNombre = {};
     personas.forEach(p => { porNombre[p.nombre] = p; });
@@ -7018,7 +7023,7 @@ async function renderPaso5(container) {
           personas: nuevas.map(b => ({ nombre: b, compania: comp }))
         });
         // Recargar
-        personas = await GET(`/personas?compania=${encodeURIComponent(comp)}`);
+        personas = arr(await GET(`/personas?compania=${encodeURIComponent(comp)}`));
         personas.forEach(p => { porNombre[p.nombre] = p; });
       } catch(_){}
     }
@@ -7087,7 +7092,7 @@ async function renderPaso5(container) {
     );
     let sinCorreo = [];
     try {
-      const todos = await GET(`/personas?compania=${encodeURIComponent(comp)}`);
+      const todos = arr(await GET(`/personas?compania=${encodeURIComponent(comp)}`));
       sinCorreo = todos.filter(p => benefs.has(p.nombre) && !(p.correos||[]).length);
       // También incluir beneficiarios que no están aún en Personas
       const enPersonas = new Set(todos.map(p=>p.nombre));
@@ -7284,7 +7289,7 @@ async function renderAdminPersonas(container) {
   const COMPANIAS = ['EBC','ERSAC','FRQ1','GB','CORP'];
 
   async function load(comp) {
-    const personas = await GET(`/personas?compania=${encodeURIComponent(comp)}`);
+    const personas = arr(await GET(`/personas?compania=${encodeURIComponent(comp)}`));
     container.querySelector('#adm-pers-tabla').innerHTML = personas.length
       ? `<table class="data-table" style="font-size:13px">
           <thead><tr>
@@ -7360,7 +7365,7 @@ async function renderAdminPersonas(container) {
   window.admEditPersona = async function(id) {
     try {
       const comp = document.getElementById('adm-pers-comp').value;
-      const personas = await GET(`/personas?compania=${encodeURIComponent(comp)}`);
+      const personas = arr(await GET(`/personas?compania=${encodeURIComponent(comp)}`));
       const p = personas.find(x => x._id === id);
       if (!p) return;
       document.getElementById('adm-pers-id').value = id;
