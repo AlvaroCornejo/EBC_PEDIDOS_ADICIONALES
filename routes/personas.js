@@ -15,8 +15,8 @@ const fmtD = d => d ? new Date(d).toLocaleDateString('es-PE',{day:'2-digit',mont
 
 // ── Personas ──────────────────────────────────────────────────────
 
-// GET /personas?compania=X
-router.get('/personas', async (req, res) => {
+// GET /personas?compania=X  (montado en /api/personas)
+router.get('/', async (req, res) => {
   try {
     const filter = {};
     if (req.query.compania) filter.compania = req.query.compania;
@@ -26,7 +26,7 @@ router.get('/personas', async (req, res) => {
 });
 
 // GET /personas/sin-correo?compania=X
-router.get('/personas/sin-correo', async (req, res) => {
+router.get('/sin-correo', async (req, res) => {
   try {
     const filter = { $or: [{ correos: { $size: 0 } }, { correos: { $exists: false } }] };
     if (req.query.compania) filter.compania = req.query.compania;
@@ -36,7 +36,7 @@ router.get('/personas/sin-correo', async (req, res) => {
 });
 
 // POST /personas
-router.post('/personas', async (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const puedeGestionar = req.user.role === 'ADMIN' || ['pagador','admin'].includes(req.user.rolPago);
     if (!puedeGestionar) return res.status(403).json({ error: 'No autorizado' });
@@ -54,7 +54,7 @@ router.post('/personas', async (req, res) => {
 });
 
 // PUT /personas/:id
-router.put('/personas/:id', async (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo admin' });
     const { nombre, telefono, correos } = req.body;
@@ -71,7 +71,7 @@ router.put('/personas/:id', async (req, res) => {
 });
 
 // DELETE /personas/:id
-router.delete('/personas/:id', async (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo admin' });
     await Persona.findByIdAndDelete(req.params.id);
@@ -80,7 +80,7 @@ router.delete('/personas/:id', async (req, res) => {
 });
 
 // POST /personas/bulk-upsert  — inserta personas nuevas, no toca las existentes
-router.post('/personas/bulk-upsert', async (req, res) => {
+router.post('/bulk-upsert', async (req, res) => {
   try {
     const { personas } = req.body; // [{ nombre, compania }]
     if (!Array.isArray(personas)) return res.status(400).json({ error: 'personas debe ser array' });
@@ -103,7 +103,7 @@ router.post('/personas/bulk-upsert', async (req, res) => {
 });
 
 // PUT /personas/:id/correo-rapido  — agrega correo a persona existente (desde P5)
-router.put('/personas/:id/correo-rapido', async (req, res) => {
+router.put('/:id/correo-rapido', async (req, res) => {
   try {
     const { correos } = req.body;
     const persona = await Persona.findByIdAndUpdate(
