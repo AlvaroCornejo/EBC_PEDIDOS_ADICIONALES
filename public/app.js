@@ -8725,17 +8725,17 @@ function showUserModal(user, onSave) {
           ${PAGO_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolPago||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group" id="um-socs-pago-section"><label>Sociedades Autorizadas para Pagos</label>
+      <div class="form-group" id="um-socs-pago-section"><label>Sociedades Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
             <input type="checkbox" name="um-soc-pago" value="${s}"
-              ${(user?.sociedadesPago||[]).includes(s)?'checked':''}
+              ${((user?.sociedadesPago||[]).includes(s)||(user?.sociedadesCompra||[]).includes(s))?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             ${s}
           </label>`).join('')}
         </div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
-          Define qué sociedades puede ver este usuario en Gestión de Pagos. Los administradores de pagos ven todas sin restricción.
+          Define qué sociedades puede ver este usuario en Gestión de Pagos, Flujo de Caja y Precios de Compra.
         </div>
       </div>
       <div class="form-group" id="um-ops-section"><label>Operaciones Autorizadas</label>
@@ -8746,16 +8746,6 @@ function showUserModal(user, onSave) {
           </label>`).join('')}
         </div>
       </div>
-      <div class="form-group" id="um-socs-section"><label>Sociedades Autorizadas</label>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
-          ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-            <input type="checkbox" name="um-soc-compra" value="${s}"
-              ${(user?.sociedadesCompra||[]).includes(s)?'checked':''}
-              style="width:15px;height:15px;accent-color:var(--primary)">
-            ${s}
-          </label>`).join('')}
-        </div>
-      </div>
       <div id="um-consulta-perms" class="form-group" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px">
         <label style="display:block;font-weight:600;margin-bottom:10px;color:#0369a1">🔍 Otros Permisos</label>
         <div style="display:flex;flex-direction:column;gap:10px">
@@ -8763,11 +8753,6 @@ function showUserModal(user, onSave) {
             <input type="checkbox" id="um-kardex" ${user?.puedeVerKardex?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>📊 <strong>Kardex</strong></span>
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
-            <input type="checkbox" id="um-precios" ${(user?.sociedadesCompra||[]).length>0?'checked':''}
-              style="width:15px;height:15px;accent-color:var(--primary)">
-            <span>💰 <strong>Precios de Compra</strong></span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-comparativo" ${user?.puedeVerComparativo?'checked':''}
@@ -8799,9 +8784,9 @@ function showUserModal(user, onSave) {
   function syncRoleUI() {
     const role    = document.getElementById('um-role').value;
     const isAdmin = role === ROLES.ADMIN;
-    document.getElementById('um-ops-section').style.display       = isAdmin ? 'none' : 'block';
-    document.getElementById('um-socs-section').style.display      = isAdmin ? 'none' : 'block';
-    document.getElementById('um-consulta-perms').style.display    = isAdmin ? 'none' : 'block';
+    document.getElementById('um-ops-section').style.display        = isAdmin ? 'none' : 'block';
+    document.getElementById('um-socs-pago-section').style.display  = isAdmin ? 'none' : 'block';
+    document.getElementById('um-consulta-perms').style.display     = isAdmin ? 'none' : 'block';
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
@@ -8811,10 +8796,9 @@ function showUserModal(user, onSave) {
     errEl.classList.add('hidden');
     const role = document.getElementById('um-role').value;
     const isAdmin = role === ROLES.ADMIN;
-    const selectedSocs     = [...document.querySelectorAll('input[name="um-soc-compra"]:checked')].map(cb => cb.value);
-    // Sociedades activas si el permiso de Precios está marcado (o si es admin se ignoran)
-    const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? selectedSocs : [];
-    const sociedadesPago   = [...document.querySelectorAll('input[name="um-soc-pago"]:checked')].map(cb => cb.value);
+    // Lista unificada: la misma selección aplica a Pagos, Flujo de Caja y Precios de Compra
+    const sociedadesPago   = isAdmin ? [] : [...document.querySelectorAll('input[name="um-soc-pago"]:checked')].map(cb => cb.value);
+    const sociedadesCompra = sociedadesPago;
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
