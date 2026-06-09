@@ -8755,6 +8755,11 @@ function showUserModal(user, onSave) {
             <span>📊 <strong>Kardex</strong></span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-precios" ${(user?.sociedadesCompra||[]).length>0?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>💰 <strong>Precios de Compra</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-comparativo" ${user?.puedeVerComparativo?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>📈 <strong>OC / Ingresos al Almacén</strong></span>
@@ -8796,9 +8801,9 @@ function showUserModal(user, onSave) {
     errEl.classList.add('hidden');
     const role = document.getElementById('um-role').value;
     const isAdmin = role === ROLES.ADMIN;
-    // Lista unificada: la misma selección aplica a Pagos, Flujo de Caja y Precios de Compra
+    // Lista unificada de sociedades para Pagos, Flujo de Caja y (si tiene el permiso) Precios de Compra
     const sociedadesPago   = isAdmin ? [] : [...document.querySelectorAll('input[name="um-soc-pago"]:checked')].map(cb => cb.value);
-    const sociedadesCompra = sociedadesPago;
+    const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? sociedadesPago : [];
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
@@ -9341,8 +9346,8 @@ async function viewPrecios(container) {
       <div class="card mb-16" style="padding:16px">
         <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
           <div>
-            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Sociedad</label>
-            <select id="pr-sociedad" class="form-control" style="width:160px">
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Operación</label>
+            <select id="pr-operacion" class="form-control" style="width:160px">
               <option value="">Cargando...</option>
             </select>
           </div>
@@ -9380,40 +9385,40 @@ async function viewPrecios(container) {
       <div id="pr-result"></div>
     </div>`;
 
-  // Cargar sociedades y luego grupos filtrados por la sociedad por omisión
+  // Cargar operaciones y luego grupos filtrados por la operación por omisión
   try {
-    const socs = await GET('/compras/sociedades');
+    const ops = await GET('/compras/operaciones');
 
-    // Sociedades
-    const selSoc = document.getElementById('pr-sociedad');
-    selSoc.innerHTML = '<option value="">Todas las sociedades</option>';
-    if (socs.length === 0) {
-      selSoc.innerHTML = '<option value="">Sin datos</option>';
+    // Operaciones
+    const selOper = document.getElementById('pr-operacion');
+    selOper.innerHTML = '<option value="">Todas las operaciones</option>';
+    if (ops.length === 0) {
+      selOper.innerHTML = '<option value="">Sin datos</option>';
     } else {
-      socs.forEach(s => {
+      ops.forEach(o => {
         const opt = document.createElement('option');
-        opt.value = s; opt.textContent = String(s);
-        selSoc.appendChild(opt);
+        opt.value = o; opt.textContent = String(o);
+        selOper.appendChild(opt);
       });
-      selSoc.selectedIndex = 1;
+      selOper.selectedIndex = 1;
     }
 
-    // Cargar grupos filtrados por la sociedad seleccionada por omisión
-    const socDefault = selSoc.value;
+    // Cargar grupos filtrados por la operación seleccionada por omisión
+    const operDefault = selOper.value;
     const [gruposItem, gruposCompra] = await Promise.all([
-      GET(socDefault ? `/compras/grupos-item?sociedad=${encodeURIComponent(socDefault)}` : '/compras/grupos-item'),
-      GET(socDefault ? `/compras/grupos?sociedad=${encodeURIComponent(socDefault)}` : '/compras/grupos'),
+      GET(operDefault ? `/compras/grupos-item?operacion=${encodeURIComponent(operDefault)}` : '/compras/grupos-item'),
+      GET(operDefault ? `/compras/grupos?operacion=${encodeURIComponent(operDefault)}` : '/compras/grupos'),
     ]);
     cargarGruposItem(gruposItem);
     cargarGrupos(gruposCompra);
 
-    // Cascada: Sociedad → recarga Grupo y Grupo Compra, luego busca
-    selSoc.addEventListener('change', async () => {
-      const soc = selSoc.value;
+    // Cascada: Operación → recarga Grupo y Grupo Compra, luego busca
+    selOper.addEventListener('change', async () => {
+      const oper = selOper.value;
       try {
         const [gi, gc] = await Promise.all([
-          GET(soc ? `/compras/grupos-item?sociedad=${encodeURIComponent(soc)}` : '/compras/grupos-item'),
-          GET(soc ? `/compras/grupos?sociedad=${encodeURIComponent(soc)}` : '/compras/grupos'),
+          GET(oper ? `/compras/grupos-item?operacion=${encodeURIComponent(oper)}` : '/compras/grupos-item'),
+          GET(oper ? `/compras/grupos?operacion=${encodeURIComponent(oper)}` : '/compras/grupos'),
         ]);
         cargarGruposItem(gi);
         cargarGrupos(gc);
@@ -9423,12 +9428,12 @@ async function viewPrecios(container) {
 
     // Cascada: Grupo → recarga Grupo Compra, luego busca
     document.getElementById('pr-grupo-item').addEventListener('change', async () => {
-      const soc  = selSoc.value;
+      const oper = selOper.value;
       const grp  = document.getElementById('pr-grupo-item').value;
       try {
         const params = new URLSearchParams();
-        if (soc) params.set('sociedad', soc);
-        if (grp) params.set('grupoItem', grp);
+        if (oper) params.set('operacion', oper);
+        if (grp)  params.set('grupoItem', grp);
         const gc = await GET(`/compras/grupos?${params}`);
         cargarGrupos(gc);
       } catch (_) {}
@@ -9436,7 +9441,7 @@ async function viewPrecios(container) {
     });
 
   } catch (err) {
-    document.getElementById('pr-sociedad').innerHTML = '<option value="">Error al cargar</option>';
+    document.getElementById('pr-operacion').innerHTML = '<option value="">Error al cargar</option>';
     toast('Error cargando filtros: ' + err.message, 'error');
   }
 
@@ -9461,12 +9466,12 @@ async function viewPrecios(container) {
   });
 
   // Auto-buscar al cambiar cualquier selector
-  ['pr-sociedad', 'pr-grupo-item', 'pr-grupo', 'pr-n'].forEach(id => {
+  ['pr-operacion', 'pr-grupo-item', 'pr-grupo', 'pr-n'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => buscarPrecios());
   });
 
   async function buscarPrecios() {
-    const sociedad   = document.getElementById('pr-sociedad').value;
+    const operacion  = document.getElementById('pr-operacion').value;
     const grupoItem  = document.getElementById('pr-grupo-item').value;
     const grupo      = document.getElementById('pr-grupo').value;
     const pareto     = document.getElementById('pr-pareto').value;
@@ -9476,17 +9481,18 @@ async function viewPrecios(container) {
     res.innerHTML = `<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span> Consultando...</div>`;
 
     try {
-      const params = new URLSearchParams({ sociedad, pareto });
+      const params = new URLSearchParams({ pareto });
+      if (operacion) params.set('operacion', operacion);
       if (grupoItem) params.set('grupoItem', grupoItem);
       if (grupo)     params.set('grupo', grupo);
       const data = await GET(`/compras/items?${params}`);
-      renderPreciosResult(res, data, sociedad, n, pareto);
+      renderPreciosResult(res, data, operacion, n, pareto);
     } catch (err) {
       res.innerHTML = `<div class="empty-state"><p style="color:var(--danger)">Error: ${esc(err.message)}</p></div>`;
     }
   }
 
-  function renderPreciosResult(container, data, sociedad, n, pareto) {
+  function renderPreciosResult(container, data, operacion, n, pareto) {
     const { items, otros } = data;
     if (!items.length && !otros.count) {
       container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin datos para los filtros seleccionados</p></div>`;
@@ -9555,7 +9561,7 @@ async function viewPrecios(container) {
         <td id="pr-total-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
         <td id="pr-prom-${it.item}" style="text-align:right;font-size:12px;color:#d1d5db">·</td>
         <td style="text-align:center">
-          <button onclick="verComprasItem(${it.item},'${esc(it.nombre||'')}','${encodeURIComponent(sociedad)}')"
+          <button onclick="verComprasItem(${it.item},'${esc(it.nombre||'')}','${encodeURIComponent(operacion)}')"
             style="font-size:11px;padding:2px 7px;border:1px solid var(--primary);border-radius:4px;background:#fff;color:var(--primary);cursor:pointer">
             📋 Ver
           </button>
@@ -9618,10 +9624,10 @@ async function viewPrecios(container) {
     // Cargar precios en paralelo — compras de las últimas nSemanas semanas
     items.forEach(async it => {
       try {
-        const socParam = encodeURIComponent(sociedad);
+        const operParam = encodeURIComponent(operacion);
         const [compras, totData] = await Promise.all([
-          GET(`/compras/precios/${it.item}?sociedad=${socParam}&desde=${encodeURIComponent(desdeISO)}`),
-          GET(`/compras/total/${it.item}?sociedad=${socParam}`),
+          GET(`/compras/precios/${it.item}?operacion=${operParam}&desde=${encodeURIComponent(desdeISO)}`),
+          GET(`/compras/total/${it.item}?operacion=${operParam}`),
         ]);
 
         // Columnas de precio
@@ -9677,8 +9683,8 @@ async function viewPrecios(container) {
   }
 
   // Modal: ver todas las compras de un item
-  window.verComprasItem = async function(itemId, nombre, socEnc) {
-    const sociedad   = decodeURIComponent(socEnc);
+  window.verComprasItem = async function(itemId, nombre, operEnc) {
+    const operacion  = decodeURIComponent(operEnc);
     // Leer N directamente del selector en la cabecera en el momento de abrir
     const nSemanas   = Math.max(parseInt(document.getElementById('pr-n')?.value) || 8, 1);
     const desdeModal = new Date(Date.now() - nSemanas * 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -9690,7 +9696,7 @@ async function viewPrecios(container) {
           <div>
             <div style="font-weight:700;font-size:15px">#${itemId} — ${esc(nombre)}</div>
             <div style="font-size:12px;color:var(--text-muted)">
-              ${sociedad ? 'Sociedad: ' + esc(sociedad) + ' · ' : ''}Últimas ${nSemanas} semanas
+              ${operacion ? 'Operación: ' + esc(operacion) + ' · ' : ''}Últimas ${nSemanas} semanas
             </div>
           </div>
           <button id="pr-modal-close" style="font-size:20px;background:none;border:none;cursor:pointer;color:#6b7280">✕</button>
@@ -9704,7 +9710,7 @@ async function viewPrecios(container) {
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
 
     try {
-      const compras = await GET(`/compras/precios/${itemId}?sociedad=${encodeURIComponent(sociedad)}&desde=${encodeURIComponent(desdeModal)}`);
+      const compras = await GET(`/compras/precios/${itemId}?operacion=${encodeURIComponent(operacion)}&desde=${encodeURIComponent(desdeModal)}`);
       const body = overlay.querySelector('#pr-modal-body');
       const fmtP2 = v => v == null ? '—' : Number(v).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       if (!compras.length) { body.innerHTML = '<p style="color:var(--text-muted)">Sin compras en las últimas ' + nSemanas + ' semanas</p>'; return; }

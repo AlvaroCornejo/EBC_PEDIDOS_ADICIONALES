@@ -15,43 +15,27 @@ function checkAccess(req, res) {
   return true;
 }
 
-// GET /api/compras/grupos-item?sociedad=ERSAC
-// Devuelve valores distintos del campo "grupo" (clasificación amplia), filtrado por sociedad
-router.get('/grupos-item', async (req, res) => {
+// Helper: dado un nombre de operación, devuelve las sociedades a las que pertenece
+// (restringidas a las permitidas del usuario si no es admin).
+async function socsDeOperacion(operacion, permitidas) {
+  const q = { operacion };
+  if (permitidas) q.sociedad = { $in: permitidas };
+  return CompraRoc.distinct('sociedad', q);
+}
+
+// GET /api/compras/operaciones — ADMIN ve todas; otros solo las de sus sociedades asignadas
+router.get('/operaciones', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { sociedad } = req.query;
-    let grupos;
-    if (sociedad) {
-      const itemsConPareto = await CompraPareto.distinct('item', { sociedad });
-      grupos = await CompraItem.distinct('grupo', { item: { $in: itemsConPareto } });
-    } else {
-      grupos = await CompraItem.distinct('grupo');
-    }
-    res.json(grupos.filter(Boolean).sort());
+    const esAdmin = req.user.role === 'ADMIN';
+    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
+    const query = permitidas ? { sociedad: { $in: permitidas } } : {};
+    const ops = await CompraRoc.distinct('operacion', query);
+    res.json(ops.filter(Boolean).sort());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/grupos?sociedad=ERSAC&grupoItem=ALIMENTOS
-// Devuelve grupoCompra filtrado por sociedad y opcionalmente por grupo (campo "grupo")
-router.get('/grupos', async (req, res) => {
-  if (!checkAccess(req, res)) return;
-  try {
-    const { sociedad, grupoItem } = req.query;
-    let itemFilter = {};
-    if (grupoItem) itemFilter.grupo = grupoItem;
-    let grupos;
-    if (sociedad) {
-      const itemsConPareto = await CompraPareto.distinct('item', { sociedad });
-      grupos = await CompraItem.distinct('grupoCompra', { item: { $in: itemsConPareto }, ...itemFilter });
-    } else {
-      grupos = await CompraItem.distinct('grupoCompra', itemFilter);
-    }
-    res.json(grupos.filter(Boolean).sort());
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// GET /api/compras/sociedades — ADMIN ve todas; otros solo sus sociedades asignadas
+// Mantenemos /sociedades por compatibilidad con código existente
 router.get('/sociedades', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
@@ -63,17 +47,72 @@ router.get('/sociedades', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/items?sociedad=100&grupoItem=ALIMENTOS&grupo=ABARROTES&pareto=80
+// GET /api/compras/grupos-item?operacion=GBSRQ
+// Devuelve valores distintos del campo "grupo" filtrado por operacion (→ sociedad)
+router.get('/grupos-item', async (req, res) => {
+  if (!checkAccess(req, res)) return;
+  try {
+    const { operacion, sociedad } = req.query;
+    const esAdmin = req.user.role === 'ADMIN';
+    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
+    let grupos;
+    const filtro = operacion || sociedad;
+    if (filtro) {
+      const socs = operacion
+        ? await socsDeOperacion(operacion, permitidas)
+        : (permitidas ? [sociedad].filter(s => permitidas.includes(s)) : [sociedad]);
+      const itemsConPareto = await CompraPareto.distinct('item', { sociedad: { $in: socs } });
+      grupos = await CompraItem.distinct('grupo', { item: { $in: itemsConPareto } });
+    } else {
+      grupos = await CompraItem.distinct('grupo');
+    }
+    res.json(grupos.filter(Boolean).sort());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/compras/grupos?operacion=GBSRQ&grupoItem=ALIMENTOS
+// Devuelve grupoCompra filtrado por operacion (→ sociedad) y opcionalmente por grupo
+router.get('/grupos', async (req, res) => {
+  if (!checkAccess(req, res)) return;
+  try {
+    const { operacion, sociedad, grupoItem } = req.query;
+    const esAdmin = req.user.role === 'ADMIN';
+    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
+    let itemFilter = {};
+    if (grupoItem) itemFilter.grupo = grupoItem;
+    let grupos;
+    const filtro = operacion || sociedad;
+    if (filtro) {
+      const socs = operacion
+        ? await socsDeOperacion(operacion, permitidas)
+        : (permitidas ? [sociedad].filter(s => permitidas.includes(s)) : [sociedad]);
+      const itemsConPareto = await CompraPareto.distinct('item', { sociedad: { $in: socs } });
+      grupos = await CompraItem.distinct('grupoCompra', { item: { $in: itemsConPareto }, ...itemFilter });
+    } else {
+      grupos = await CompraItem.distinct('grupoCompra', itemFilter);
+    }
+    res.json(grupos.filter(Boolean).sort());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/compras/items?operacion=GBSRQ&grupoItem=ALIMENTOS&grupo=ABARROTES&pareto=80
 // Devuelve items ordenados por participación desc, con flag isPareto y resumen "otros"
 router.get('/items', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { sociedad, grupo, grupoItem, pareto = '80' } = req.query;
+    const { operacion, sociedad, grupo, grupoItem, pareto = '80' } = req.query;
+    const esAdmin = req.user.role === 'ADMIN';
+    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
     const pct = Math.min(Math.max(parseFloat(pareto) / 100, 0), 1);
 
-    // Pareto data para la sociedad, ordenado de mayor a menor participación
+    // Pareto data para la operacion/sociedad, ordenado de mayor a menor participación
     const paretoQuery = {};
-    if (sociedad) paretoQuery.sociedad = sociedad;
+    if (operacion) {
+      const socs = await socsDeOperacion(operacion, permitidas);
+      if (socs.length) paretoQuery.sociedad = { $in: socs };
+    } else if (sociedad) {
+      paretoQuery.sociedad = sociedad;
+    }
     const paretoData = await CompraPareto.find(paretoQuery).sort({ basePareto: -1 }).lean();
 
     // Maestro de items (con filtro de grupo si aplica)
@@ -125,21 +164,21 @@ router.get('/items', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/precios/:item?sociedad=100&desde=2025-01-01
+// GET /api/compras/precios/:item?operacion=GBSRQ&desde=2025-01-01
 // Compras del item desde una fecha dada (precio unitario = importe / cantidad)
 router.get('/precios/:item', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { sociedad, desde } = req.query;
+    const { operacion, sociedad, desde } = req.query;
     const itemId = parseInt(req.params.item);
 
     const query = { item: itemId };
-    if (sociedad) query.sociedad = sociedad;
+    if (operacion) query.operacion = operacion;
+    else if (sociedad) query.sociedad = sociedad;
     if (desde) {
       const desdeDate = new Date(desde);
       if (!isNaN(desdeDate)) query.fecha = { $gte: desdeDate };
     }
-    // Nota: NO filtramos por operacion — los precios de compra aplican a toda la sociedad
 
     const compras = await CompraRoc.find(query)
       .sort({ fecha: -1 })
@@ -158,15 +197,15 @@ router.get('/precios/:item', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/total/:item?sociedad= — importe total histórico del item
+// GET /api/compras/total/:item?operacion=GBSRQ — importe total histórico del item
 router.get('/total/:item', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
     const itemId = parseInt(req.params.item);
-    const { sociedad } = req.query;
+    const { operacion, sociedad } = req.query;
     const match = { item: itemId };
-    if (sociedad) match.sociedad = sociedad;
-    // Nota: NO filtramos por operacion — los precios de compra aplican a toda la sociedad
+    if (operacion) match.operacion = operacion;
+    else if (sociedad) match.sociedad = sociedad;
     const agg = await CompraRoc.aggregate([
       { $match: match },
       { $group: { _id: null, total: { $sum: '$importe' }, cant: { $sum: 1 } } },
