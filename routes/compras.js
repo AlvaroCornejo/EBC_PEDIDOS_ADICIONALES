@@ -15,53 +15,30 @@ function checkAccess(req, res) {
   return true;
 }
 
-// Helper: dado un nombre de operación, devuelve las sociedades a las que pertenece
-// (restringidas a las permitidas del usuario si no es admin).
-async function socsDeOperacion(operacion, permitidas) {
-  const q = { operacion };
-  if (permitidas) q.sociedad = { $in: permitidas };
-  return CompraRoc.distinct('sociedad', q);
-}
-
-// GET /api/compras/operaciones — ADMIN ve todas; otros solo las de sus sociedades asignadas
+// GET /api/compras/operaciones
+// ADMIN ve todas las operaciones del pareto; otros solo las de sus sociedades permitidas
 router.get('/operaciones', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
     const esAdmin = req.user.role === 'ADMIN';
-    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
-    const query = permitidas ? { sociedad: { $in: permitidas } } : {};
-    const ops = await CompraRoc.distinct('operacion', query);
-    res.json(ops.filter(Boolean).sort());
+    const allOps = await CompraPareto.distinct('operacion');
+    if (esAdmin) return res.json(allOps.filter(Boolean).sort());
+    // No-admin: cruzar con operaciones reales de sus sociedades permitidas en CompraRoc
+    const permitidas = req.user.sociedadesCompra || [];
+    const rocOps = await CompraRoc.distinct('operacion', { sociedad: { $in: permitidas } });
+    res.json(allOps.filter(op => op && rocOps.includes(op)).sort());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Mantenemos /sociedades por compatibilidad con código existente
-router.get('/sociedades', async (req, res) => {
-  if (!checkAccess(req, res)) return;
-  try {
-    const esAdmin = req.user.role === 'ADMIN';
-    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
-    const query = permitidas ? { sociedad: { $in: permitidas } } : {};
-    const socs = await CompraRoc.distinct('sociedad', query);
-    res.json(socs.filter(Boolean).sort());
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// GET /api/compras/grupos-item?operacion=GBSRQ
-// Devuelve valores distintos del campo "grupo" filtrado por operacion (→ sociedad)
+// GET /api/compras/grupos-item?operacion=AASI
+// Devuelve grupos (clasificación amplia) de los items con pareto para esa operacion
 router.get('/grupos-item', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { operacion, sociedad } = req.query;
-    const esAdmin = req.user.role === 'ADMIN';
-    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
+    const { operacion } = req.query;
     let grupos;
-    const filtro = operacion || sociedad;
-    if (filtro) {
-      const socs = operacion
-        ? await socsDeOperacion(operacion, permitidas)
-        : (permitidas ? [sociedad].filter(s => permitidas.includes(s)) : [sociedad]);
-      const itemsConPareto = await CompraPareto.distinct('item', { sociedad: { $in: socs } });
+    if (operacion) {
+      const itemsConPareto = await CompraPareto.distinct('item', { operacion });
       grupos = await CompraItem.distinct('grupo', { item: { $in: itemsConPareto } });
     } else {
       grupos = await CompraItem.distinct('grupo');
@@ -70,23 +47,17 @@ router.get('/grupos-item', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/grupos?operacion=GBSRQ&grupoItem=ALIMENTOS
-// Devuelve grupoCompra filtrado por operacion (→ sociedad) y opcionalmente por grupo
+// GET /api/compras/grupos?operacion=AASI&grupoItem=ALIMENTOS
+// Devuelve grupoCompra filtrado por operacion y opcionalmente por grupo
 router.get('/grupos', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { operacion, sociedad, grupoItem } = req.query;
-    const esAdmin = req.user.role === 'ADMIN';
-    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
-    let itemFilter = {};
+    const { operacion, grupoItem } = req.query;
+    const itemFilter = {};
     if (grupoItem) itemFilter.grupo = grupoItem;
     let grupos;
-    const filtro = operacion || sociedad;
-    if (filtro) {
-      const socs = operacion
-        ? await socsDeOperacion(operacion, permitidas)
-        : (permitidas ? [sociedad].filter(s => permitidas.includes(s)) : [sociedad]);
-      const itemsConPareto = await CompraPareto.distinct('item', { sociedad: { $in: socs } });
+    if (operacion) {
+      const itemsConPareto = await CompraPareto.distinct('item', { operacion });
       grupos = await CompraItem.distinct('grupoCompra', { item: { $in: itemsConPareto }, ...itemFilter });
     } else {
       grupos = await CompraItem.distinct('grupoCompra', itemFilter);
@@ -95,30 +66,23 @@ router.get('/grupos', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/items?operacion=GBSRQ&grupoItem=ALIMENTOS&grupo=ABARROTES&pareto=80
+// GET /api/compras/items?operacion=AASI&grupoItem=ALIMENTOS&grupo=ABARROTES&pareto=80
 // Devuelve items ordenados por participación desc, con flag isPareto y resumen "otros"
 router.get('/items', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { operacion, sociedad, grupo, grupoItem, pareto = '80' } = req.query;
-    const esAdmin = req.user.role === 'ADMIN';
-    const permitidas = esAdmin ? null : (req.user.sociedadesCompra || []);
+    const { operacion, grupo, grupoItem, pareto = '80' } = req.query;
     const pct = Math.min(Math.max(parseFloat(pareto) / 100, 0), 1);
 
-    // Pareto data para la operacion/sociedad, ordenado de mayor a menor participación
+    // Pareto data para la operacion, ordenado de mayor a menor participación
     const paretoQuery = {};
-    if (operacion) {
-      const socs = await socsDeOperacion(operacion, permitidas);
-      if (socs.length) paretoQuery.sociedad = { $in: socs };
-    } else if (sociedad) {
-      paretoQuery.sociedad = sociedad;
-    }
+    if (operacion) paretoQuery.operacion = operacion;
     const paretoData = await CompraPareto.find(paretoQuery).sort({ basePareto: -1 }).lean();
 
     // Maestro de items (con filtro de grupo si aplica)
     const itemQuery = {};
-    if (grupoItem) itemQuery.grupo = grupoItem;   // clasificación amplia (ALIMENTOS, etc.)
-    if (grupo)     itemQuery.grupoCompra = grupo;  // subgrupo (ABARROTES, etc.)
+    if (grupoItem) itemQuery.grupo = grupoItem;
+    if (grupo)     itemQuery.grupoCompra = grupo;
     const itemsArr = await CompraItem.find(itemQuery).lean();
     const itemMap = {};
     itemsArr.forEach(i => { itemMap[i.item] = i; });
@@ -139,7 +103,7 @@ router.get('/items', async (req, res) => {
     for (const p of paretoData) {
       const item = itemMap[p.item];
       if (!item) continue;
-      const pctGrupo = p.basePareto / totalGrupoPareto; // % relativo al grupo
+      const pctGrupo = p.basePareto / totalGrupoPareto;
       const prevCumulative = cumulative;
       cumulative += pctGrupo;
       if (prevCumulative < pct) {
@@ -164,27 +128,20 @@ router.get('/items', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/precios/:item?operacion=GBSRQ&desde=2025-01-01
-// Compras del item desde una fecha dada (precio unitario = importe / cantidad)
+// GET /api/compras/precios/:item?operacion=AASI&desde=2025-01-01
+// Compras del item en esa operacion desde una fecha dada
 router.get('/precios/:item', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { operacion, sociedad, desde } = req.query;
+    const { operacion, desde } = req.query;
     const itemId = parseInt(req.params.item);
-
     const query = { item: itemId };
     if (operacion) query.operacion = operacion;
-    else if (sociedad) query.sociedad = sociedad;
     if (desde) {
       const desdeDate = new Date(desde);
       if (!isNaN(desdeDate)) query.fecha = { $gte: desdeDate };
     }
-
-    const compras = await CompraRoc.find(query)
-      .sort({ fecha: -1 })
-      .limit(5000)
-      .lean();
-
+    const compras = await CompraRoc.find(query).sort({ fecha: -1 }).limit(5000).lean();
     res.json(compras.map(c => ({
       fecha:          c.fecha,
       sociedad:       c.sociedad,
@@ -197,15 +154,14 @@ router.get('/precios/:item', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/total/:item?operacion=GBSRQ — importe total histórico del item
+// GET /api/compras/total/:item?operacion=AASI — importe total histórico del item en la operacion
 router.get('/total/:item', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
     const itemId = parseInt(req.params.item);
-    const { operacion, sociedad } = req.query;
+    const { operacion } = req.query;
     const match = { item: itemId };
     if (operacion) match.operacion = operacion;
-    else if (sociedad) match.sociedad = sociedad;
     const agg = await CompraRoc.aggregate([
       { $match: match },
       { $group: { _id: null, total: { $sum: '$importe' }, cant: { $sum: 1 } } },
@@ -214,19 +170,18 @@ router.get('/total/:item', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/compras/muestra?sociedad=GB — muestra algunos registros reales para diagnóstico
+// GET /api/compras/muestra?operacion=AASI — muestra algunos registros para diagnóstico
 router.get('/muestra', async (req, res) => {
   if (!checkAccess(req, res)) return;
   try {
-    const { sociedad } = req.query;
-    const filter = sociedad ? { sociedad } : {};
-    const [socs, ops, muestra, totalRoc] = await Promise.all([
-      CompraRoc.distinct('sociedad'),
-      CompraRoc.distinct('operacion', filter),
+    const { operacion } = req.query;
+    const filter = operacion ? { operacion } : {};
+    const [ops, muestra, totalRoc] = await Promise.all([
+      CompraRoc.distinct('operacion'),
       CompraRoc.find(filter).sort({ fecha: -1 }).limit(5).lean(),
       CompraRoc.countDocuments(filter),
     ]);
-    res.json({ sociedades: socs, operaciones: ops.slice(0, 30), muestra, totalRoc });
+    res.json({ operaciones: ops.slice(0, 30), muestra, totalRoc });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -61,12 +61,12 @@ async function main() {
   if (wsPareto) {
     wsPareto.eachRow((row, i) => {
       if (i === 1) return;
-      const soc  = row.getCell(1).value;
+      const oper = row.getCell(1).value;   // col 1 = OPERACION
       const item = row.getCell(2).value;
       const bp   = row.getCell(3).value;
-      if (!soc || !item) return;
+      if (!oper || !item) return;
       pareto.push({
-        sociedad:   String(typeof soc  === 'object' ? soc?.result  ?? soc  : soc).trim(),
+        operacion:  String(typeof oper === 'object' ? oper?.result ?? oper : oper).trim(),
         item:       Number(typeof item === 'object' ? item?.result ?? item : item),
         basePareto: Number(typeof bp   === 'object' ? bp?.result   ?? bp   : bp) || 0,
       });
