@@ -15,7 +15,13 @@ const userSchema = new mongoose.Schema({
   itemsRol:            { type: String, default: '' },
   rolPago:             { type: String, default: '' },
   sociedadesPago:      { type: [String], default: [] },
-  sociedadesCompra:    { type: [String], default: [] }
+  sociedadesCompra:    { type: [String], default: [] },
+  rolBCT:               { type: String, default: '', enum: ['', 'SOLICITUD', 'REGISTRO', 'CONSULTA'] },
+  rol86:                { type: String, default: '', enum: ['', 'REGISTRO', 'CONSULTA'] },
+  accesoBajas:          { type: Boolean, default: false },
+  accesoConsumos:       { type: Boolean, default: false },
+  accesoTransferencias: { type: Boolean, default: false },
+  acceso86:             { type: Boolean, default: false }
 });
 
 module.exports = mongoose.model('User', userSchema);

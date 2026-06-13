@@ -8,6 +8,8 @@ const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBA
 const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta', OPERADOR_CONSULTA: 'Consultas' };
 const ITEMS_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador / Aprobador'],['registrador','Registrador ERP'],['admin','Administrador']];
 const PAGO_ROLES  = [['','— Sin acceso —'],['programador','Programador (Paso 1)'],['aprobador','Aprobador (Paso 2)'],['pagador','Pagador (Paso 3 y 5)'],['autorizador','Autorizador (Paso 4)'],['admin','Administrador']];
+const BCT_ROLES   = [['','— Sin acceso —'],['SOLICITUD','Solicitud'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
+const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
@@ -252,6 +254,7 @@ const NAV_ITEMS = [
   { id: 'items',         label: 'Creación Ítems',  icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'itemsRol' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
+  { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -262,6 +265,9 @@ function canSeeNav(n) {
     const val = S.user[n.extraPerm];
     // Soporta tanto boolean como array (ej: sociedadesCompra)
     if (Array.isArray(val) ? val.length > 0 : !!val) return true;
+  }
+  if (n.extraPermAny) {
+    if (n.extraPermAny.some(field => !!S.user[field])) return true;
   }
   return false;
 }
@@ -308,7 +314,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -7430,6 +7436,340 @@ async function viewFlujoCaja(container) {
   if (socsFC.length) await window.fcVerFlujo();
 }
 
+// ─── View: Registro de Bajas, Consumos, Transferencias y 86 ───────
+const MOV_FLUJOS = {
+  BAJA:          { label: 'Bajas',          icon: '🔻', accesoField: 'accesoBajas',          rolField: 'rolBCT', tipos: ['MANIPULACIÓN', 'CALIDAD', 'VENCIMIENTO'], tipoLabel: 'Tipo de Baja' },
+  CONSUMO:       { label: 'Consumos',       icon: '🍽️', accesoField: 'accesoConsumos',       rolField: 'rolBCT', tipos: ['CONSUMO TIENDAS', 'RANCHO', 'PRUEBAS'], tipoLabel: 'Tipo de Consumo' },
+  TRANSFERENCIA: { label: 'Transferencias', icon: '🔄', accesoField: 'accesoTransferencias', rolField: 'rolBCT' },
+  '86':          { label: '86',             icon: '🗑️', accesoField: 'acceso86',             rolField: 'rol86' },
+};
+
+async function viewMovimientos(container) {
+  const isAdmin = S.user.role === 'ADMIN';
+  const tabs = Object.keys(MOV_FLUJOS).filter(f => isAdmin || S.user[MOV_FLUJOS[f].accesoField]);
+
+  if (!tabs.length) {
+    container.innerHTML = `
+      <div class="page-header"><div class="page-title">🗑️ Bajas / Consumos / Transferencias / 86</div></div>
+      <div class="page-body"><div class="empty-state"><div class="empty-icon">🔒</div><p>No tienes acceso a este módulo.</p></div></div>`;
+    return;
+  }
+
+  let flujoActual = tabs[0];
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">🗑️ Bajas / Consumos / Transferencias / 86</div>
+    </div>
+    <div class="page-body">
+      <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:16px;width:fit-content">
+        ${tabs.map(f => `<button class="mv-tab" data-flujo="${f}" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer;background:${f === flujoActual ? 'var(--primary)' : 'var(--bg-secondary)'};color:${f === flujoActual ? '#fff' : 'var(--text)'}">${MOV_FLUJOS[f].icon} ${MOV_FLUJOS[f].label}</button>`).join('')}
+      </div>
+      <div id="mv-content"></div>
+    </div>`;
+
+  container.querySelectorAll('.mv-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      flujoActual = btn.dataset.flujo;
+      container.querySelectorAll('.mv-tab').forEach(b => {
+        const active = b.dataset.flujo === flujoActual;
+        b.style.background = active ? 'var(--primary)' : 'var(--bg-secondary)';
+        b.style.color = active ? '#fff' : 'var(--text)';
+      });
+      renderTab();
+    });
+  });
+
+  function toDatetimeLocal(date) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  async function loadItemsFor(operacion) {
+    if (!operacion) return [];
+    try { return await GET(`/items?operacion=${operacion}`); } catch { return []; }
+  }
+
+  async function renderTab() {
+    const cfg = MOV_FLUJOS[flujoActual];
+    const content = document.getElementById('mv-content');
+    content.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+
+    let opsData = {};
+    try { opsData = await GET(`/movimientos/operaciones?flujo=${flujoActual}`); }
+    catch (err) { content.innerHTML = `<div class="msg-error">${err.message}</div>`; return; }
+
+    const operaciones = opsData.operaciones || [];
+    const destinos = opsData.destinos || [];
+    const es86 = flujoActual === '86';
+    const rol = isAdmin ? 'REGISTRO' : (S.user[cfg.rolField] || '');
+    const puedeCrear = es86 ? rol === 'REGISTRO' : ['SOLICITUD', 'REGISTRO'].includes(rol);
+
+    content.innerHTML = `
+      <div class="card mb-16" style="padding:16px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+          ${operaciones.length > 1 ? `
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Operación</label>
+            <select id="mv-f-op" class="form-control" style="width:140px">
+              <option value="">Todas</option>
+              ${operaciones.map(o => `<option value="${o}">${o}</option>`).join('')}
+            </select>
+          </div>` : ''}
+          ${!es86 ? `
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Estado</label>
+            <select id="mv-f-estado" class="form-control" style="width:140px">
+              <option value="">Todos</option>
+              <option value="REGISTRADO">Registrado</option>
+              <option value="PROCESADO">Procesado</option>
+            </select>
+          </div>` : ''}
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Desde</label>
+            <input type="date" id="mv-f-desde" class="form-control" style="width:140px">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Hasta</label>
+            <input type="date" id="mv-f-hasta" class="form-control" style="width:140px">
+          </div>
+          <button class="btn btn-primary" id="mv-buscar">🔍 Buscar</button>
+          ${puedeCrear ? `<button class="btn btn-success" id="mv-nuevo" style="margin-left:auto">+ Nuevo</button>` : ''}
+        </div>
+      </div>
+      <div id="mv-table-wrap"></div>`;
+
+    document.getElementById('mv-buscar').addEventListener('click', buscar);
+    if (puedeCrear) document.getElementById('mv-nuevo').addEventListener('click', () => openMovModal(null, operaciones, destinos, rol));
+
+    async function buscar() {
+      const wrap = document.getElementById('mv-table-wrap');
+      wrap.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+      const params = new URLSearchParams({ flujo: flujoActual });
+      const opSel = document.getElementById('mv-f-op')?.value;
+      if (opSel) params.set('operacion', opSel);
+      const estadoSel = document.getElementById('mv-f-estado')?.value;
+      if (estadoSel) params.set('estado', estadoSel);
+      const desde = document.getElementById('mv-f-desde')?.value;
+      if (desde) params.set('desde', desde);
+      const hasta = document.getElementById('mv-f-hasta')?.value;
+      if (hasta) params.set('hasta', hasta);
+
+      try {
+        const registros = await GET(`/movimientos?${params.toString()}`);
+        renderTable(wrap, registros, rol, operaciones, destinos);
+      } catch (err) { wrap.innerHTML = `<div class="msg-error">${err.message}</div>`; }
+    }
+
+    await buscar();
+  }
+
+  function renderTable(wrap, registros, rol, operaciones, destinos) {
+    const cfg = MOV_FLUJOS[flujoActual];
+    const esTransferencia = flujoActual === 'TRANSFERENCIA';
+    const es86 = flujoActual === '86';
+    const tieneTipo = !!cfg.tipos;
+
+    if (!registros.length) {
+      wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin registros.</p></div>`;
+      return;
+    }
+
+    const fmtCant = v => Number(v).toLocaleString('es-CL', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+    const fmtFechaHora = d => d ? new Date(d).toLocaleString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+    function puedeEditarRegistro(r) {
+      if (isAdmin) return true;
+      if (es86) return rol === 'REGISTRO';
+      if (r.estado === 'PROCESADO') return false;
+      if (rol === 'SOLICITUD') return r.creadoPorId === S.user.id;
+      return rol === 'REGISTRO';
+    }
+
+    wrap.innerHTML = `
+      <div class="card">
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead><tr>
+              <th>Fecha${es86 ? ' / Hora' : ''}</th>
+              <th>Operación</th>
+              ${esTransferencia ? '<th>Destino</th>' : ''}
+              <th>Ítem</th>
+              ${tieneTipo ? '<th>Tipo</th>' : ''}
+              ${!es86 ? '<th class="text-right">Cantidad</th>' : ''}
+              <th>Comentarios</th>
+              ${!es86 ? '<th>Estado</th>' : ''}
+              <th>Creado por</th>
+              <th>Acciones</th>
+            </tr></thead>
+            <tbody>
+              ${registros.map(r => {
+                const editable = puedeEditarRegistro(r);
+                const procesable = !es86 && rol === 'REGISTRO' && r.estado === 'REGISTRADO';
+                return `<tr>
+                  <td>${es86 ? fmtFechaHora(r.fecha) : fmtDate(r.fecha)}</td>
+                  <td>${esc(r.operacion)}</td>
+                  ${esTransferencia ? `<td>${esc(r.operacionDestino)}</td>` : ''}
+                  <td>${esc(String(r.item))}${r.itemNombre ? ' - ' + esc(r.itemNombre) : ''}</td>
+                  ${tieneTipo ? `<td>${esc(r.tipo)}</td>` : ''}
+                  ${!es86 ? `<td class="text-right">${fmtCant(r.cantidad)}</td>` : ''}
+                  <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.comentarios || '')}</td>
+                  ${!es86 ? `<td><span class="badge" style="background:${r.estado === 'PROCESADO' ? '#d1fae5' : '#f3f4f6'};color:${r.estado === 'PROCESADO' ? '#059669' : '#6b7280'}">${r.estado}</span></td>` : ''}
+                  <td style="font-size:12px">${esc(r.creadoPorNombre || '')}</td>
+                  <td style="white-space:nowrap">
+                    ${editable ? `<button class="btn btn-xs btn-outline" onclick="mvEditar('${r.id}')" title="Editar">✏️</button>` : ''}
+                    ${editable ? `<button class="btn btn-xs btn-outline" style="color:#ef4444;border-color:#ef4444" onclick="mvEliminar('${r.id}')" title="Eliminar">🗑️</button>` : ''}
+                    ${procesable ? `<button class="btn btn-xs btn-outline" style="color:#059669;border-color:#059669" onclick="mvProcesar('${r.id}')" title="Procesar">✅</button>` : ''}
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    window.mvEditar = (id) => {
+      const r = registros.find(x => x.id === id);
+      openMovModal(r, operaciones, destinos, rol);
+    };
+
+    window.mvEliminar = async (id) => {
+      if (!confirm('¿Eliminar este registro?')) return;
+      try {
+        await DEL(`/movimientos/${id}`);
+        toast('Registro eliminado', 'success');
+        renderTab();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+
+    window.mvProcesar = async (id) => {
+      if (!confirm('¿Marcar este registro como procesado?')) return;
+      try {
+        await PUT(`/movimientos/${id}/procesar`);
+        toast('Registro procesado', 'success');
+        renderTab();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  }
+
+  async function openMovModal(record, operaciones, destinos, rol) {
+    const cfg = MOV_FLUJOS[flujoActual];
+    const esTransferencia = flujoActual === 'TRANSFERENCIA';
+    const es86 = flujoActual === '86';
+    const tieneTipo = !!cfg.tipos;
+
+    const opDefault = record?.operacion || (operaciones.length === 1 ? operaciones[0] : '');
+    const fechaDefault = record?.fecha ? record.fecha.slice(0, 10) : today();
+    const fechaHoraDefault = toDatetimeLocal(record?.fecha ? new Date(record.fecha) : new Date());
+
+    const html = `
+      <div class="form-group">
+        <label>Fecha${es86 ? ' y Hora' : ''}</label>
+        <input type="${es86 ? 'datetime-local' : 'date'}" id="mv-fecha" class="form-control" value="${es86 ? fechaHoraDefault : fechaDefault}">
+      </div>
+      ${operaciones.length > 1 ? `
+      <div class="form-group">
+        <label>Operación${esTransferencia ? ' Origen' : ''}</label>
+        <select id="mv-operacion" class="form-control">
+          ${operaciones.map(o => `<option value="${o}" ${o === opDefault ? 'selected' : ''}>${o}</option>`).join('')}
+        </select>
+      </div>` : `<input type="hidden" id="mv-operacion" value="${opDefault}">`}
+      <div class="form-group">
+        <label>Ítem</label>
+        <select id="mv-item" class="form-control"><option value="">Cargando...</option></select>
+      </div>
+      ${esTransferencia ? `
+      <div class="form-group">
+        <label>Operación Destino</label>
+        <select id="mv-op-destino" class="form-control"></select>
+      </div>` : ''}
+      ${tieneTipo ? `
+      <div class="form-group">
+        <label>${cfg.tipoLabel}</label>
+        <select id="mv-tipo" class="form-control">
+          ${cfg.tipos.map(t => `<option value="${t}" ${record?.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>
+      </div>` : ''}
+      ${!es86 ? `
+      <div class="form-group">
+        <label>Cantidad</label>
+        <input type="number" id="mv-cantidad" class="form-control" step="0.0001" min="0.0001" value="${record?.cantidad ?? ''}">
+      </div>` : ''}
+      <div class="form-group">
+        <label>Comentarios</label>
+        <textarea id="mv-comentarios" class="form-control" rows="3">${esc(record?.comentarios || '')}</textarea>
+      </div>`;
+
+    openModal(record ? 'Editar registro' : 'Nuevo registro', html + `
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button class="btn btn-outline" id="mv-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="mv-save">Guardar</button>
+      </div>`);
+
+    document.getElementById('mv-cancel').onclick = closeModal;
+
+    const operacionEl = document.getElementById('mv-operacion');
+
+    async function populateItems(operacion, selectedItem) {
+      const itemSel = document.getElementById('mv-item');
+      itemSel.innerHTML = `<option value="">Cargando...</option>`;
+      const items = await loadItemsFor(operacion);
+      itemSel.innerHTML = `<option value="">Seleccione...</option>` +
+        items.map(it => `<option value="${esc(it.item)}" ${String(selectedItem) === String(it.item) ? 'selected' : ''}>${esc(it.item)} - ${esc(it.nombre)}</option>`).join('');
+    }
+
+    await populateItems(operacionEl.value, record?.item);
+
+    function refreshDestinos() {
+      if (!esTransferencia) return;
+      const destSel = document.getElementById('mv-op-destino');
+      const origen = operacionEl.value;
+      destSel.innerHTML = destinos.filter(d => d !== origen).map(o => `<option value="${o}" ${record?.operacionDestino === o ? 'selected' : ''}>${o}</option>`).join('');
+    }
+    refreshDestinos();
+
+    if (operacionEl.tagName === 'SELECT') {
+      operacionEl.addEventListener('change', () => { populateItems(operacionEl.value, null); refreshDestinos(); });
+    }
+
+    document.getElementById('mv-save').onclick = async () => {
+      const fechaVal = document.getElementById('mv-fecha').value;
+      if (!fechaVal) return toast('Ingrese fecha', 'error');
+      const item = document.getElementById('mv-item').value;
+      if (!item) return toast('Seleccione un ítem', 'error');
+
+      const body = {
+        flujo: flujoActual,
+        operacion: operacionEl.value,
+        fecha: es86 ? new Date(fechaVal).toISOString() : fechaVal,
+        item,
+        comentarios: document.getElementById('mv-comentarios').value.trim(),
+      };
+      if (esTransferencia) {
+        const destino = document.getElementById('mv-op-destino').value;
+        if (!destino) return toast('Seleccione operación destino', 'error');
+        body.operacionDestino = destino;
+      }
+      if (tieneTipo) body.tipo = document.getElementById('mv-tipo').value;
+      if (!es86) {
+        const cant = Number(document.getElementById('mv-cantidad').value);
+        if (!cant || cant <= 0) return toast('Cantidad debe ser mayor a 0', 'error');
+        body.cantidad = cant;
+      }
+
+      try {
+        if (record) await PUT(`/movimientos/${record.id}`, body);
+        else await POST('/movimientos', body);
+        toast('Guardado correctamente', 'success');
+        closeModal();
+        renderTab();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  }
+
+  await renderTab();
+}
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -8725,6 +9065,16 @@ function showUserModal(user, onSave) {
           ${PAGO_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolPago||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Rol para Bajas / Consumos / Transferencias</label>
+        <select id="um-rol-bct">
+          ${BCT_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolBCT||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Rol para 86</label>
+        <select id="um-rol-86">
+          ${ROL86.map(([k,v])=>`<option value="${k}" ${(user?.rol86||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-group" id="um-socs-pago-section"><label>Sociedades Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
@@ -8744,6 +9094,31 @@ function showUserModal(user, onSave) {
             <input type="checkbox" name="um-op" value="${op}" ${(user?.operations||[]).includes(op)?'checked':''}>
             ${op}
           </label>`).join('')}
+        </div>
+      </div>
+      <div id="um-bct86-perms" class="form-group" style="background:#fef3f2;border:1px solid #fecdca;border-radius:8px;padding:12px">
+        <label style="display:block;font-weight:600;margin-bottom:10px;color:#b42318">🗑️ Bajas / Consumos / Transferencias / 86</label>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-acc-bajas" ${user?.accesoBajas?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>📉 <strong>Bajas</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-acc-consumos" ${user?.accesoConsumos?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🍽️ <strong>Consumos</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-acc-transferencias" ${user?.accesoTransferencias?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🔁 <strong>Transferencias</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-acc-86" ${user?.acceso86?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🚫 <strong>86</strong></span>
+          </label>
         </div>
       </div>
       <div id="um-consulta-perms" class="form-group" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px">
@@ -8792,6 +9167,7 @@ function showUserModal(user, onSave) {
     document.getElementById('um-ops-section').style.display        = isAdmin ? 'none' : 'block';
     document.getElementById('um-socs-pago-section').style.display  = isAdmin ? 'none' : 'block';
     document.getElementById('um-consulta-perms').style.display     = isAdmin ? 'none' : 'block';
+    document.getElementById('um-bct86-perms').style.display        = isAdmin ? 'none' : 'block';
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
@@ -8810,11 +9186,17 @@ function showUserModal(user, onSave) {
       role,
       itemsRol: document.getElementById('um-items-role').value,
       rolPago:      document.getElementById('um-pago-role').value,
+      rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
+      rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
       puedeVerComparativo: !isAdmin && (document.getElementById('um-comparativo')?.checked ?? false),
       puedeVerVentas:      !isAdmin && (document.getElementById('um-ventas')?.checked      ?? false),
       puedeVerBajas:       !isAdmin && (document.getElementById('um-bajas')?.checked       ?? false),
+      accesoBajas:          !isAdmin && (document.getElementById('um-acc-bajas')?.checked          ?? false),
+      accesoConsumos:       !isAdmin && (document.getElementById('um-acc-consumos')?.checked       ?? false),
+      accesoTransferencias: !isAdmin && (document.getElementById('um-acc-transferencias')?.checked ?? false),
+      acceso86:             !isAdmin && (document.getElementById('um-acc-86')?.checked              ?? false),
       sociedadesCompra,
       sociedadesPago,
     };
