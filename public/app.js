@@ -9096,9 +9096,17 @@ function showUserModal(user, onSave) {
           </label>`).join('')}
         </div>
       </div>
-      <div id="um-bct86-perms" class="form-group" style="background:#fef3f2;border:1px solid #fecdca;border-radius:8px;padding:12px">
+      <div class="form-group" id="um-transf-dest-section"><label>Operaciones Destino para Transferencias</label>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
+          ${ALL_OPS.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" name="um-transf-dest" value="${op}" ${(user?.transferenciaDestinos||[]).includes(op)?'checked':''}>
+            ${op}
+          </label>`).join('')}
+        </div>
+      </div>
+      <div id="um-permisos-extra" class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
         <label style="display:block;font-weight:600;margin-bottom:10px;color:#b42318">🗑️ Bajas / Consumos / Transferencias / 86</label>
-        <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-acc-bajas" ${user?.accesoBajas?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
@@ -9120,8 +9128,6 @@ function showUserModal(user, onSave) {
             <span>🚫 <strong>86</strong></span>
           </label>
         </div>
-      </div>
-      <div id="um-consulta-perms" class="form-group" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px">
         <label style="display:block;font-weight:600;margin-bottom:10px;color:#0369a1">🔍 Otros Permisos</label>
         <div style="display:flex;flex-direction:column;gap:10px">
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
@@ -9165,9 +9171,9 @@ function showUserModal(user, onSave) {
     const role    = document.getElementById('um-role').value;
     const isAdmin = role === ROLES.ADMIN;
     document.getElementById('um-ops-section').style.display        = isAdmin ? 'none' : 'block';
+    document.getElementById('um-transf-dest-section').style.display = isAdmin ? 'none' : 'block';
     document.getElementById('um-socs-pago-section').style.display  = isAdmin ? 'none' : 'block';
-    document.getElementById('um-consulta-perms').style.display     = isAdmin ? 'none' : 'block';
-    document.getElementById('um-bct86-perms').style.display        = isAdmin ? 'none' : 'block';
+    document.getElementById('um-permisos-extra').style.display     = isAdmin ? 'none' : 'block';
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
@@ -9189,6 +9195,7 @@ function showUserModal(user, onSave) {
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
+      transferenciaDestinos: isAdmin ? [] : [...document.querySelectorAll('input[name="um-transf-dest"]:checked')].map(cb => cb.value),
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
       puedeVerComparativo: !isAdmin && (document.getElementById('um-comparativo')?.checked ?? false),
       puedeVerVentas:      !isAdmin && (document.getElementById('um-ventas')?.checked      ?? false),

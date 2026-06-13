@@ -21,7 +21,8 @@ const userSchema = new mongoose.Schema({
   accesoBajas:          { type: Boolean, default: false },
   accesoConsumos:       { type: Boolean, default: false },
   accesoTransferencias: { type: Boolean, default: false },
-  acceso86:             { type: Boolean, default: false }
+  acceso86:             { type: Boolean, default: false },
+  transferenciaDestinos: { type: [String], default: [] }
 });
 
 module.exports = mongoose.model('User', userSchema);
