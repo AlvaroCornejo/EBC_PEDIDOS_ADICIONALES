@@ -7463,7 +7463,7 @@ async function viewMovimientos(container) {
     </div>
     <div class="page-body">
       <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:16px;width:fit-content">
-        ${tabs.map(f => `<button class="mv-tab" data-flujo="${f}" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer;background:${f === flujoActual ? 'var(--primary)' : 'var(--bg-secondary)'};color:${f === flujoActual ? '#fff' : 'var(--text)'}">${MOV_FLUJOS[f].icon} ${MOV_FLUJOS[f].label}</button>`).join('')}
+        ${tabs.map(f => `<button class="mv-tab" data-flujo="${f}" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer;background:${f === flujoActual ? 'var(--accent)' : 'var(--bg-secondary)'};color:${f === flujoActual ? '#fff' : 'var(--text)'}">${MOV_FLUJOS[f].icon} ${MOV_FLUJOS[f].label}</button>`).join('')}
       </div>
       <div id="mv-content"></div>
     </div>`;
@@ -7473,7 +7473,7 @@ async function viewMovimientos(container) {
       flujoActual = btn.dataset.flujo;
       container.querySelectorAll('.mv-tab').forEach(b => {
         const active = b.dataset.flujo === flujoActual;
-        b.style.background = active ? 'var(--primary)' : 'var(--bg-secondary)';
+        b.style.background = active ? 'var(--accent)' : 'var(--bg-secondary)';
         b.style.color = active ? '#fff' : 'var(--text)';
       });
       renderTab();
@@ -7585,9 +7585,15 @@ async function viewMovimientos(container) {
     function puedeEditarRegistro(r) {
       if (isAdmin) return true;
       if (es86) return rol === 'REGISTRO';
-      if (r.estado === 'PROCESADO') return false;
+      if (r.estado !== 'REGISTRADO') return false;
       if (rol === 'SOLICITUD') return r.creadoPorId === S.user.id;
       return rol === 'REGISTRO';
+    }
+
+    function estadoBadge(estado) {
+      if (estado === 'PROCESADO') return { bg: '#d1fae5', color: '#059669' };
+      if (estado === 'RECHAZADO') return { bg: '#fee2e2', color: '#dc2626' };
+      return { bg: '#f3f4f6', color: '#6b7280' };
     }
 
     function editRowHtml(record) {
@@ -7600,11 +7606,15 @@ async function viewMovimientos(container) {
           ? `<select id="mv-edit-operacion" class="form-control">${operaciones.map(o => `<option value="${o}" ${o === opDefault ? 'selected' : ''}>${o}</option>`).join('')}</select>`
           : `${esc(opDefault)}<input type="hidden" id="mv-edit-operacion" value="${esc(opDefault)}">`}</td>
         ${esTransferencia ? `<td><select id="mv-edit-destino" class="form-control"></select></td>` : ''}
-        <td><select id="mv-edit-item" class="form-control" style="min-width:220px"><option value="">Cargando...</option></select></td>
+        <td style="position:relative">
+          <input type="text" id="mv-edit-item-search" class="form-control" style="min-width:220px" autocomplete="off" placeholder="Buscar por código o nombre...">
+          <input type="hidden" id="mv-edit-item" value="${record?.item ?? ''}">
+          <div id="mv-edit-item-results" style="position:absolute;z-index:10;left:0;top:100%;background:var(--white);border:1px solid var(--border);max-height:220px;overflow-y:auto;width:100%;display:none;box-shadow:0 2px 6px rgba(0,0,0,.1)"></div>
+        </td>
         ${tieneTipo ? `<td><select id="mv-edit-tipo" class="form-control">${cfg.tipos.map(t => `<option value="${t}" ${record?.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></td>` : ''}
         ${!es86 ? `<td><input type="number" id="mv-edit-cantidad" class="form-control" style="width:100px" step="0.0001" min="0.0001" value="${record?.cantidad ?? ''}"></td>` : ''}
         <td><input type="text" id="mv-edit-comentarios" class="form-control" value="${esc(record?.comentarios || '')}"></td>
-        ${!es86 ? `<td>${record ? `<span class="badge" style="background:${record.estado === 'PROCESADO' ? '#d1fae5' : '#f3f4f6'};color:${record.estado === 'PROCESADO' ? '#059669' : '#6b7280'}">${record.estado}</span>` : '—'}</td>` : ''}
+        ${!es86 ? `<td>${record ? (() => { const b = estadoBadge(record.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}">${record.estado}</span>`; })() : '—'}</td>` : ''}
         <td style="font-size:12px">${esc(record?.creadoPorNombre || '—')}</td>
         <td style="white-space:nowrap">
           <button class="btn btn-xs btn-primary" id="mv-edit-save" title="Guardar">💾</button>
@@ -7625,12 +7635,13 @@ async function viewMovimientos(container) {
         ${tieneTipo ? `<td>${esc(r.tipo)}</td>` : ''}
         ${!es86 ? `<td class="text-right">${fmtCant(r.cantidad)}</td>` : ''}
         <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.comentarios || '')}</td>
-        ${!es86 ? `<td><span class="badge" style="background:${r.estado === 'PROCESADO' ? '#d1fae5' : '#f3f4f6'};color:${r.estado === 'PROCESADO' ? '#059669' : '#6b7280'}">${r.estado}</span></td>` : ''}
+        ${!es86 ? `<td>${(() => { const b = estadoBadge(r.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}" title="${esc(r.comentarioProceso || '')}">${r.estado}</span>`; })()}</td>` : ''}
         <td style="font-size:12px">${esc(r.creadoPorNombre || '')}</td>
         <td style="white-space:nowrap">
           ${editable ? `<button class="btn btn-xs btn-outline" onclick="mvEditar('${r.id}')" title="Editar">✏️</button>` : ''}
           ${editable ? `<button class="btn btn-xs btn-outline" style="color:#ef4444;border-color:#ef4444" onclick="mvEliminar('${r.id}')" title="Eliminar">🗑️</button>` : ''}
-          ${procesable ? `<button class="btn btn-xs btn-outline" style="color:#059669;border-color:#059669" onclick="mvProcesar('${r.id}')" title="Procesar">✅</button>` : ''}
+          ${procesable ? `<button class="btn btn-xs btn-outline" style="color:#059669;border-color:#059669" onclick="mvProcesar('${r.id}','PROCESADO')" title="Procesar">✅</button>` : ''}
+          ${procesable ? `<button class="btn btn-xs btn-outline" style="color:#ef4444;border-color:#ef4444" onclick="mvProcesar('${r.id}','RECHAZADO')" title="Rechazar">❌</button>` : ''}
         </td>
       </tr>`;
     }).join('');
@@ -7672,11 +7683,13 @@ async function viewMovimientos(container) {
       } catch (err) { toast(err.message, 'error'); }
     };
 
-    window.mvProcesar = async (id) => {
-      if (!confirm('¿Marcar este registro como procesado?')) return;
+    window.mvProcesar = async (id, estado) => {
+      const label = estado === 'PROCESADO' ? 'procesado' : 'rechazado';
+      const comentario = prompt(`Comentario (opcional) para marcar como ${label}:`, '');
+      if (comentario === null) return;
       try {
-        await PUT(`/movimientos/${id}/procesar`);
-        toast('Registro procesado', 'success');
+        await PUT(`/movimientos/${id}/procesar`, { estado, comentario: comentario.trim() });
+        toast(`Registro ${label}`, 'success');
         buscar();
       } catch (err) { toast(err.message, 'error'); }
     };
@@ -7687,13 +7700,55 @@ async function viewMovimientos(container) {
     const record = editingId === 'new' ? null : registros.find(r => r.id === editingId);
     const operacionEl = document.getElementById('mv-edit-operacion');
 
-    async function populateItems(operacion, selectedItem) {
-      const itemSel = document.getElementById('mv-edit-item');
-      itemSel.innerHTML = `<option value="">Cargando...</option>`;
-      const items = await loadItemsFor(operacion);
-      itemSel.innerHTML = `<option value="">Seleccione...</option>` +
-        items.map(it => `<option value="${esc(it.item)}" ${String(selectedItem) === String(it.item) ? 'selected' : ''}>${esc(it.item)} - ${esc(it.nombre)}</option>`).join('');
+    let itemsCache = [];
+    const itemSearchEl = document.getElementById('mv-edit-item-search');
+    const itemHiddenEl = document.getElementById('mv-edit-item');
+    const itemResultsEl = document.getElementById('mv-edit-item-results');
+
+    function renderItemResults(filter) {
+      const f = filter.trim().toLowerCase();
+      const matches = (f
+        ? itemsCache.filter(it => String(it.item).toLowerCase().includes(f) || (it.nombre || '').toLowerCase().includes(f))
+        : itemsCache).slice(0, 50);
+      if (!matches.length) { itemResultsEl.style.display = 'none'; itemResultsEl.innerHTML = ''; return; }
+      itemResultsEl.innerHTML = matches.map(it =>
+        `<div class="mv-item-option" data-item="${esc(it.item)}" data-nombre="${esc(it.nombre)}" style="padding:6px 8px;cursor:pointer;font-size:13px">${esc(it.item)} - ${esc(it.nombre)}</div>`
+      ).join('');
+      itemResultsEl.style.display = 'block';
     }
+
+    async function populateItems(operacion, selectedItem) {
+      itemSearchEl.disabled = true;
+      itemSearchEl.value = 'Cargando...';
+      itemsCache = await loadItemsFor(operacion);
+      itemSearchEl.disabled = false;
+      if (selectedItem) {
+        const found = itemsCache.find(it => String(it.item) === String(selectedItem));
+        itemSearchEl.value = found ? `${found.item} - ${found.nombre}` : String(selectedItem);
+        itemHiddenEl.value = selectedItem;
+      } else {
+        itemSearchEl.value = '';
+        itemHiddenEl.value = '';
+      }
+    }
+
+    itemSearchEl.addEventListener('input', () => {
+      itemHiddenEl.value = '';
+      renderItemResults(itemSearchEl.value);
+    });
+    itemSearchEl.addEventListener('focus', () => renderItemResults(itemSearchEl.value));
+    itemResultsEl.addEventListener('click', (e) => {
+      const opt = e.target.closest('.mv-item-option');
+      if (!opt) return;
+      itemHiddenEl.value = opt.dataset.item;
+      itemSearchEl.value = `${opt.dataset.item} - ${opt.dataset.nombre}`;
+      itemResultsEl.style.display = 'none';
+    });
+    if (window._mvItemDocClick) document.removeEventListener('click', window._mvItemDocClick);
+    window._mvItemDocClick = (e) => {
+      if (e.target !== itemSearchEl && !itemResultsEl.contains(e.target)) itemResultsEl.style.display = 'none';
+    };
+    document.addEventListener('click', window._mvItemDocClick);
 
     function refreshDestinos() {
       if (!esTransferencia) return;

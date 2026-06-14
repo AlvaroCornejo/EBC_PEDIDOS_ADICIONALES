@@ -191,7 +191,11 @@ router.put('/:id/procesar', async (req, res) => {
     if (rol !== 'REGISTRO') return res.status(403).json({ error: 'No autorizado para procesar' });
     if (registro.estado !== 'REGISTRADO') return res.status(400).json({ error: 'El registro ya fue procesado' });
 
-    registro.estado = 'PROCESADO';
+    const { estado, comentario } = req.body;
+    if (!['PROCESADO', 'RECHAZADO'].includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+
+    registro.estado = estado;
+    registro.comentarioProceso = comentario || '';
     registro.procesadoPorId = req.user.id;
     registro.procesadoPorNombre = req.user.username;
     registro.procesadoEn = new Date();
