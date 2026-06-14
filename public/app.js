@@ -7609,7 +7609,7 @@ async function viewMovimientos(container) {
         <td style="position:relative">
           <input type="text" id="mv-edit-item-search" class="form-control" style="min-width:220px" autocomplete="off" placeholder="Buscar por código o nombre...">
           <input type="hidden" id="mv-edit-item" value="${record?.item ?? ''}">
-          <div id="mv-edit-item-results" style="position:absolute;z-index:10;left:0;top:100%;background:var(--white);border:1px solid var(--border);max-height:220px;overflow-y:auto;width:100%;display:none;box-shadow:0 2px 6px rgba(0,0,0,.1)"></div>
+          <div id="mv-edit-item-results" style="position:fixed;z-index:1000;background:var(--white);border:1px solid var(--border);max-height:220px;overflow-y:auto;display:none;box-shadow:0 2px 6px rgba(0,0,0,.1)"></div>
         </td>
         ${tieneTipo ? `<td><select id="mv-edit-tipo" class="form-control">${cfg.tipos.map(t => `<option value="${t}" ${record?.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></td>` : ''}
         ${!es86 ? `<td><input type="number" id="mv-edit-cantidad" class="form-control" style="width:100px" step="0.0001" min="0.0001" value="${record?.cantidad ?? ''}"></td>` : ''}
@@ -7714,6 +7714,10 @@ async function viewMovimientos(container) {
       itemResultsEl.innerHTML = matches.map(it =>
         `<div class="mv-item-option" data-item="${esc(it.item)}" data-nombre="${esc(it.nombre)}" style="padding:6px 8px;cursor:pointer;font-size:13px">${esc(it.item)} - ${esc(it.nombre)}</div>`
       ).join('');
+      const rect = itemSearchEl.getBoundingClientRect();
+      itemResultsEl.style.left = `${rect.left}px`;
+      itemResultsEl.style.top = `${rect.bottom}px`;
+      itemResultsEl.style.width = `${rect.width}px`;
       itemResultsEl.style.display = 'block';
     }
 
