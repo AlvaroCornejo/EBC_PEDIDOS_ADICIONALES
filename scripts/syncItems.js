@@ -1,0 +1,54 @@
+/**
+ * Sincroniza la colección Item desde los Excel ADICIONALES de cada operación.
+ *
+ * Uso:
+ *   node scripts/syncItems.js
+ *
+ * Lee data/{OPERACION} - ADICIONALES.xlsx (ya sincronizados por sync-excel.bat)
+ * y hace upsert en la colección Item (misma lógica que POST /api/items/sync).
+ */
+
+require('dotenv').config();
+const dns = require('dns');
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+const mongoose = require('mongoose');
+
+const Item = require('../models/Item');
+const { readItems, findFile, loadWB } = require('../routes/datos');
+
+const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
+
+async function main() {
+  console.log('Conectando a MongoDB...');
+  await mongoose.connect(process.env.MONGODB_URI);
+  console.log('Conectado.\n');
+
+  for (const operacion of ALL_OPS) {
+    process.stdout.write(`${operacion}...`);
+    const fp = findFile(operacion);
+    if (!fp) { console.log(' sin archivo, omitido'); continue; }
+
+    const wb = await loadWB(fp);
+    const excelItems = readItems(wb).map(i => ({ ...i, operacion, loteCompra: 1 }));
+    if (!excelItems.length) { console.log(' sin items en hoja "Items"'); continue; }
+
+    const ops = excelItems.map(it => ({
+      updateOne: {
+        filter: { operacion: it.operacion, item: it.item },
+        update: {
+          $set:         { nombre: it.nombre, grupoCompra: it.grupoCompra, gestion: it.gestion, activo: true },
+          $setOnInsert: { loteCompra: 1 }
+        },
+        upsert: true
+      }
+    }));
+    const result = await Item.bulkWrite(ops, { ordered: false });
+    const insertados = result.upsertedCount || 0;
+    const actualizados = result.modifiedCount || 0;
+    console.log(` total ${excelItems.length}, nuevos ${insertados}, actualizados ${actualizados}`);
+  }
+
+  await mongoose.disconnect();
+}
+
+main().catch(err => { console.error('Error:', err.message); process.exit(1); });

@@ -56,18 +56,18 @@
 
 | Colección | Script | Fuente | Frecuencia |
 |-----------|--------|--------|------------|
-| Item | `/api/items/sync` (browser) | Excel ADICIONALES | ocasional |
+| Item | `scripts/syncItems.js` (vía `sync-items.bat`) | data/*ADICIONALES.xlsx | diario |
 | CompraPareto / CompraRoc | `scripts/importCompras.js` | EBC COMPRAS HISTORICAS.xlsx | semanal |
 | ComparativoOC | `scripts/importComparativoOC.js` | COMPARATIVO OC INGRESOS.xlsx | diario |
 | VentasTip | `scripts/importVentasTip.js` | EBC VENTAS TIP RESUMEN.xlsx | diario |
 | KardexBajaVenta | `scripts/importBajas.js` | data/*ADICIONALES.xlsx | diario |
 
-- Sync items desde consola del navegador (admin logueado):
+- Sync manual de items desde consola del navegador (admin logueado), si se necesita fuera del horario del bat:
 ```javascript
 (async () => {
   const ops = ['AASI','CDLAO','CDL28','CORP','DOSIMETRIA','PREP','GBADC','GBCFR','GBCFR2','GBCRP','GBGOL','GBSRQ','GBPLANTA'];
   for(const op of ops) {
-    const r = await fetch(`/api/items/sync?operacion=${op}`, {method:'POST', headers:{Authorization:'Bearer '+localStorage.getItem('pedidos_token')}});
+    const r = await fetch(`/api/items/sync?operacion=${op}`, {method:'POST', headers:{Authorization:'Bearer '+localStorage.getItem('ebc_token')}});
     console.log(op, JSON.stringify(await r.json()));
   }
 })();
@@ -89,6 +89,7 @@
 | 4 | `sync-ventas.bat` | `importVentasTip.js` → MongoDB |
 | 5 | `sync-bajas.bat` | `importBajas.js` → MongoDB |
 | 6 | `scripts\ejecutar-importacion.bat` | `importCompras.js` → MongoDB |
+| 7 | `sync-items.bat` | `syncItems.js` → MongoDB (colección Item) |
 
 > **Para agregar una nueva consulta**: crear `sync-nueva.bat` + agregar paso `[N/X]` en `sync-master.bat` antes del bloque de Resumen. Los bats hijos solo hacen `echo` a stdout (sin `>>` internos); el master redirige todo al log con una sola apertura externa.
 

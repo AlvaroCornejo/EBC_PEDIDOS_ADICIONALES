@@ -11,6 +11,7 @@
 ::    4. Ventas / TIP    -> MongoDB
 ::    5. Bajas           -> MongoDB
 ::    6. Compras Hist.   -> MongoDB
+::    7. Items           -> MongoDB
 :: ============================================================
 
 setlocal
@@ -32,39 +33,45 @@ echo ============================================================
 
 :: ── 1. Sync Excel ADICIONALES ───────────────────────────────────
 echo.
-echo [1/6] Sync Excel Pedidos (ADICIONALES + git push)
+echo [1/7] Sync Excel Pedidos (ADICIONALES + git push)
 call "%APP%\sync-excel.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-excel & set ERRORES=1) else echo  OK
 
 :: ── 2. OC Ingresos Actualizacion ────────────────────────────────
 echo.
-echo [2/6] OC Ingresos Actualizacion
+echo [2/7] OC Ingresos Actualizacion
 call "%APP%\sync-oc-ingresos.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-oc-ingresos & set ERRORES=1) else echo  OK
 
 :: ── 3. Comparativo OC -> MongoDB ────────────────────────────────
 echo.
-echo [3/6] Comparativo OC
+echo [3/7] Comparativo OC
 call "%APP%\sync-comparativo.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-comparativo & set ERRORES=1) else echo  OK
 
 :: ── 4. Ventas / TIP -> MongoDB ──────────────────────────────────
 echo.
-echo [4/6] Ventas / TIP
+echo [4/7] Ventas / TIP
 call "%APP%\sync-ventas.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-ventas & set ERRORES=1) else echo  OK
 
 :: ── 5. Bajas -> MongoDB ─────────────────────────────────────────
 echo.
-echo [5/6] Bajas
+echo [5/7] Bajas
 call "%APP%\sync-bajas.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-bajas & set ERRORES=1) else echo  OK
 
 :: ── 6. Compras Historicas -> MongoDB ────────────────────────────
 echo.
-echo [6/6] Compras Historicas
+echo [6/7] Compras Historicas
 call "%APP%\scripts\ejecutar-importacion.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en importacion compras & set ERRORES=1) else echo  OK
+
+:: ── 7. Items -> MongoDB ──────────────────────────────────────────
+echo.
+echo [7/7] Items
+call "%APP%\sync-items.bat"
+if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-items & set ERRORES=1) else echo  OK
 
 :: ── Resumen ─────────────────────────────────────────────────────
 echo.
