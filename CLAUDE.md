@@ -191,6 +191,7 @@ Recuadro azul, solo visible para rol `OPERADOR_CONSULTA`:
   - Solo cubre 8 de las 13 operaciones; `GET /api/items/venta?operacion=` filtra por operación
   - `buscarNombreItem()` en `routes/movimientos.js` usa `ItemVenta` para 86 e `Item` para el resto
   - Sync incluido en `scripts/syncItems.js` (dedup por `operacion|item`, último gana)
-- Rediseño de columnas de la tabla de Movimientos (4 flujos): se combinó Fecha+Operación
-  (+Destino para Transferencias) en una sola columna, y Estado+Creado por en otra, para dar
-  más ancho a Ítem y Comentarios
+- Rediseño de columnas de la tabla de Movimientos (4 flujos): columnas Fecha/Operación
+  (+Destino para Transferencias) separadas, Estado+Creado por combinados, Ítem a 330px
+  (+50%) y Comentarios a 450px (x2); clase `.mv-table` agrega `padding-right:24px` entre
+  columnas (ancho de "MMM"); botón "+ Nuevo" junto a "Buscar" (sin `margin-left:auto`)

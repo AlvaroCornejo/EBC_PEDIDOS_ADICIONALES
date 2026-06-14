@@ -7539,7 +7539,7 @@ async function viewMovimientos(container) {
             <input type="date" id="mv-f-hasta" class="form-control" style="width:140px">
           </div>
           <button class="btn btn-primary" id="mv-buscar">🔍 Buscar</button>
-          ${puedeCrear ? `<button class="btn btn-success" id="mv-nuevo" style="margin-left:auto">+ Nuevo</button>` : ''}
+          ${puedeCrear ? `<button class="btn btn-success" id="mv-nuevo">+ Nuevo</button>` : ''}
         </div>
       </div>
       <div id="mv-table-wrap"></div>`;
@@ -7606,21 +7606,19 @@ async function viewMovimientos(container) {
       const fechaDefault = record?.fecha ? record.fecha.slice(0, 10) : today();
       const fechaHoraDefault = toDatetimeLocal(record?.fecha ? new Date(record.fecha) : new Date());
       return `<tr data-edit-row="1">
-        <td style="min-width:160px">
-          <input type="${es86 ? 'datetime-local' : 'date'}" id="mv-edit-fecha" class="form-control" style="min-width:160px" value="${es86 ? fechaHoraDefault : fechaDefault}">
-          ${operaciones.length > 1
-            ? `<select id="mv-edit-operacion" class="form-control mt-8">${operaciones.map(o => `<option value="${o}" ${o === opDefault ? 'selected' : ''}>${o}</option>`).join('')}</select>`
-            : `<div class="mt-8" style="font-size:12px;color:var(--text-muted)">${esc(opDefault)}</div><input type="hidden" id="mv-edit-operacion" value="${esc(opDefault)}">`}
-          ${esTransferencia ? `<select id="mv-edit-destino" class="form-control mt-8"></select>` : ''}
-        </td>
-        <td style="position:relative;min-width:280px">
-          <input type="text" id="mv-edit-item-search" class="form-control" style="min-width:260px" autocomplete="off" placeholder="Buscar por código o nombre...">
+        <td><input type="${es86 ? 'datetime-local' : 'date'}" id="mv-edit-fecha" class="form-control" style="min-width:160px" value="${es86 ? fechaHoraDefault : fechaDefault}"></td>
+        <td>${operaciones.length > 1
+          ? `<select id="mv-edit-operacion" class="form-control">${operaciones.map(o => `<option value="${o}" ${o === opDefault ? 'selected' : ''}>${o}</option>`).join('')}</select>`
+          : `${esc(opDefault)}<input type="hidden" id="mv-edit-operacion" value="${esc(opDefault)}">`}</td>
+        ${esTransferencia ? `<td><select id="mv-edit-destino" class="form-control"></select></td>` : ''}
+        <td style="position:relative;min-width:330px">
+          <input type="text" id="mv-edit-item-search" class="form-control" style="min-width:330px" autocomplete="off" placeholder="Buscar por código o nombre...">
           <input type="hidden" id="mv-edit-item" value="${record?.item ?? ''}">
           <div id="mv-edit-item-results" style="position:fixed;z-index:1000;background:var(--white);border:1px solid var(--border);max-height:220px;overflow-y:auto;display:none;box-shadow:0 2px 6px rgba(0,0,0,.1)"></div>
         </td>
         ${tieneTipo ? `<td><select id="mv-edit-tipo" class="form-control">${cfg.tipos.map(t => `<option value="${t}" ${record?.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></td>` : ''}
         ${!es86 ? `<td><input type="number" id="mv-edit-cantidad" class="form-control" style="width:100px" step="0.0001" min="0.0001" value="${record?.cantidad ?? ''}"></td>` : ''}
-        <td style="min-width:280px"><input type="text" id="mv-edit-comentarios" class="form-control" value="${esc(record?.comentarios || '')}"></td>
+        <td style="min-width:450px"><input type="text" id="mv-edit-comentarios" class="form-control" value="${esc(record?.comentarios || '')}"></td>
         <td style="font-size:12px">
           ${!es86 && record ? (() => { const b = estadoBadge(record.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}">${record.estado}</span><br>`; })() : ''}
           ${esc(record?.creadoPorNombre || '—')}
@@ -7637,14 +7635,13 @@ async function viewMovimientos(container) {
       const editable = puedeEditarRegistro(r);
       const procesable = !es86 && rol === 'REGISTRO' && r.estado === 'REGISTRADO';
       return `<tr>
-        <td>
-          ${es86 ? fmtFechaHora(r.fecha) : fmtDate(r.fecha)}<br>
-          <span style="font-size:12px;color:var(--text-muted)">${esc(r.operacion)}${esTransferencia ? ' → ' + esc(r.operacionDestino) : ''}</span>
-        </td>
-        <td style="min-width:260px">${esc(String(r.item))}${r.itemNombre ? ' - ' + esc(r.itemNombre) : ''}</td>
+        <td>${es86 ? fmtFechaHora(r.fecha) : fmtDate(r.fecha)}</td>
+        <td>${esc(r.operacion)}</td>
+        ${esTransferencia ? `<td>${esc(r.operacionDestino)}</td>` : ''}
+        <td style="min-width:330px">${esc(String(r.item))}${r.itemNombre ? ' - ' + esc(r.itemNombre) : ''}</td>
         ${tieneTipo ? `<td>${esc(r.tipo)}</td>` : ''}
         ${!es86 ? `<td class="text-right">${fmtCant(r.cantidad)}</td>` : ''}
-        <td style="min-width:260px;white-space:normal">${esc(r.comentarios || '')}</td>
+        <td style="min-width:450px;white-space:normal">${esc(r.comentarios || '')}</td>
         <td style="font-size:12px">
           ${!es86 ? (() => { const b = estadoBadge(r.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}" title="${esc(r.comentarioProceso || '')}">${r.estado}</span><br>`; })() : ''}
           ${esc(r.creadoPorNombre || '')}
@@ -7663,13 +7660,15 @@ async function viewMovimientos(container) {
     wrap.innerHTML = `
       <div class="card">
         <div style="overflow-x:auto">
-          <table class="data-table">
+          <table class="data-table mv-table">
             <thead><tr>
-              <th>Fecha${es86 ? ' / Hora' : ''} / Operación</th>
-              <th style="min-width:260px">Ítem</th>
+              <th>Fecha${es86 ? ' / Hora' : ''}</th>
+              <th>Operación</th>
+              ${esTransferencia ? '<th>Destino</th>' : ''}
+              <th style="min-width:330px">Ítem</th>
               ${tieneTipo ? '<th>Tipo</th>' : ''}
               ${!es86 ? '<th class="text-right">Cantidad</th>' : ''}
-              <th style="min-width:260px">Comentarios</th>
+              <th style="min-width:450px">Comentarios</th>
               <th>${es86 ? 'Creado por' : 'Estado / Creado por'}</th>
               <th>Acciones</th>
             </tr></thead>
