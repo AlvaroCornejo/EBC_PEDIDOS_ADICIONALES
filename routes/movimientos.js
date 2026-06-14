@@ -94,7 +94,7 @@ router.post('/', async (req, res) => {
     if (!checkAccess(req, res, flujo)) return;
 
     const rol = rolPara(req.user, flujo);
-    const puedeCrear = flujo === '86' ? rol === 'REGISTRO' : ['SOLICITUD', 'REGISTRO'].includes(rol);
+    const puedeCrear = req.user.role === 'ADMIN' || (flujo === '86' ? rol === 'REGISTRO' : rol === 'SOLICITUD');
     if (!puedeCrear) return res.status(403).json({ error: 'No autorizado para registrar' });
 
     if (!operacion) return res.status(400).json({ error: 'Operación requerida' });

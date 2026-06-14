@@ -7508,7 +7508,7 @@ async function viewMovimientos(container) {
     const destinos = opsData.destinos || [];
     const es86 = flujoActual === '86';
     const rol = isAdmin ? 'REGISTRO' : (S.user[cfg.rolField] || '');
-    const puedeCrear = es86 ? rol === 'REGISTRO' : ['SOLICITUD', 'REGISTRO'].includes(rol);
+    const puedeCrear = isAdmin || (es86 ? rol === 'REGISTRO' : rol === 'SOLICITUD');
 
     content.innerHTML = `
       <div class="card mb-16" style="padding:16px">
