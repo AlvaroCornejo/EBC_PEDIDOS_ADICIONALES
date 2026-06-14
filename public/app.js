@@ -7539,8 +7539,12 @@ async function viewMovimientos(container) {
       </div>
       <div id="mv-table-wrap"></div>`;
 
-    document.getElementById('mv-buscar').addEventListener('click', buscar);
-    if (puedeCrear) document.getElementById('mv-nuevo').addEventListener('click', () => openMovModal(null, operaciones, destinos, rol));
+    let currentRegistros = [];
+
+    document.getElementById('mv-buscar').addEventListener('click', () => buscar());
+    if (puedeCrear) document.getElementById('mv-nuevo').addEventListener('click', () => {
+      renderTable(document.getElementById('mv-table-wrap'), currentRegistros, rol, operaciones, destinos, 'new', buscar);
+    });
 
     async function buscar() {
       const wrap = document.getElementById('mv-table-wrap');
@@ -7556,21 +7560,21 @@ async function viewMovimientos(container) {
       if (hasta) params.set('hasta', hasta);
 
       try {
-        const registros = await GET(`/movimientos?${params.toString()}`);
-        renderTable(wrap, registros, rol, operaciones, destinos);
+        currentRegistros = await GET(`/movimientos?${params.toString()}`);
+        await renderTable(wrap, currentRegistros, rol, operaciones, destinos, null, buscar);
       } catch (err) { wrap.innerHTML = `<div class="msg-error">${err.message}</div>`; }
     }
 
     await buscar();
   }
 
-  function renderTable(wrap, registros, rol, operaciones, destinos) {
+  async function renderTable(wrap, registros, rol, operaciones, destinos, editingId = null, buscar) {
     const cfg = MOV_FLUJOS[flujoActual];
     const esTransferencia = flujoActual === 'TRANSFERENCIA';
     const es86 = flujoActual === '86';
     const tieneTipo = !!cfg.tipos;
 
-    if (!registros.length) {
+    if (!registros.length && editingId === null) {
       wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin registros.</p></div>`;
       return;
     }
@@ -7585,6 +7589,53 @@ async function viewMovimientos(container) {
       if (rol === 'SOLICITUD') return r.creadoPorId === S.user.id;
       return rol === 'REGISTRO';
     }
+
+    function editRowHtml(record) {
+      const opDefault = record?.operacion || (operaciones.length === 1 ? operaciones[0] : '');
+      const fechaDefault = record?.fecha ? record.fecha.slice(0, 10) : today();
+      const fechaHoraDefault = toDatetimeLocal(record?.fecha ? new Date(record.fecha) : new Date());
+      return `<tr data-edit-row="1">
+        <td><input type="${es86 ? 'datetime-local' : 'date'}" id="mv-edit-fecha" class="form-control" style="min-width:130px" value="${es86 ? fechaHoraDefault : fechaDefault}"></td>
+        <td>${operaciones.length > 1
+          ? `<select id="mv-edit-operacion" class="form-control">${operaciones.map(o => `<option value="${o}" ${o === opDefault ? 'selected' : ''}>${o}</option>`).join('')}</select>`
+          : `${esc(opDefault)}<input type="hidden" id="mv-edit-operacion" value="${esc(opDefault)}">`}</td>
+        ${esTransferencia ? `<td><select id="mv-edit-destino" class="form-control"></select></td>` : ''}
+        <td><select id="mv-edit-item" class="form-control" style="min-width:220px"><option value="">Cargando...</option></select></td>
+        ${tieneTipo ? `<td><select id="mv-edit-tipo" class="form-control">${cfg.tipos.map(t => `<option value="${t}" ${record?.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></td>` : ''}
+        ${!es86 ? `<td><input type="number" id="mv-edit-cantidad" class="form-control" style="width:100px" step="0.0001" min="0.0001" value="${record?.cantidad ?? ''}"></td>` : ''}
+        <td><input type="text" id="mv-edit-comentarios" class="form-control" value="${esc(record?.comentarios || '')}"></td>
+        ${!es86 ? `<td>${record ? `<span class="badge" style="background:${record.estado === 'PROCESADO' ? '#d1fae5' : '#f3f4f6'};color:${record.estado === 'PROCESADO' ? '#059669' : '#6b7280'}">${record.estado}</span>` : '—'}</td>` : ''}
+        <td style="font-size:12px">${esc(record?.creadoPorNombre || '—')}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-xs btn-primary" id="mv-edit-save" title="Guardar">💾</button>
+          <button class="btn btn-xs btn-outline" id="mv-edit-cancel" title="Cancelar">✕</button>
+        </td>
+      </tr>`;
+    }
+
+    const rowsHtml = registros.map(r => {
+      if (r.id === editingId) return editRowHtml(r);
+      const editable = puedeEditarRegistro(r);
+      const procesable = !es86 && rol === 'REGISTRO' && r.estado === 'REGISTRADO';
+      return `<tr>
+        <td>${es86 ? fmtFechaHora(r.fecha) : fmtDate(r.fecha)}</td>
+        <td>${esc(r.operacion)}</td>
+        ${esTransferencia ? `<td>${esc(r.operacionDestino)}</td>` : ''}
+        <td>${esc(String(r.item))}${r.itemNombre ? ' - ' + esc(r.itemNombre) : ''}</td>
+        ${tieneTipo ? `<td>${esc(r.tipo)}</td>` : ''}
+        ${!es86 ? `<td class="text-right">${fmtCant(r.cantidad)}</td>` : ''}
+        <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.comentarios || '')}</td>
+        ${!es86 ? `<td><span class="badge" style="background:${r.estado === 'PROCESADO' ? '#d1fae5' : '#f3f4f6'};color:${r.estado === 'PROCESADO' ? '#059669' : '#6b7280'}">${r.estado}</span></td>` : ''}
+        <td style="font-size:12px">${esc(r.creadoPorNombre || '')}</td>
+        <td style="white-space:nowrap">
+          ${editable ? `<button class="btn btn-xs btn-outline" onclick="mvEditar('${r.id}')" title="Editar">✏️</button>` : ''}
+          ${editable ? `<button class="btn btn-xs btn-outline" style="color:#ef4444;border-color:#ef4444" onclick="mvEliminar('${r.id}')" title="Eliminar">🗑️</button>` : ''}
+          ${procesable ? `<button class="btn btn-xs btn-outline" style="color:#059669;border-color:#059669" onclick="mvProcesar('${r.id}')" title="Procesar">✅</button>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+
+    const newRowHtml = editingId === 'new' ? editRowHtml(null) : '';
 
     wrap.innerHTML = `
       <div class="card">
@@ -7603,42 +7654,21 @@ async function viewMovimientos(container) {
               <th>Acciones</th>
             </tr></thead>
             <tbody>
-              ${registros.map(r => {
-                const editable = puedeEditarRegistro(r);
-                const procesable = !es86 && rol === 'REGISTRO' && r.estado === 'REGISTRADO';
-                return `<tr>
-                  <td>${es86 ? fmtFechaHora(r.fecha) : fmtDate(r.fecha)}</td>
-                  <td>${esc(r.operacion)}</td>
-                  ${esTransferencia ? `<td>${esc(r.operacionDestino)}</td>` : ''}
-                  <td>${esc(String(r.item))}${r.itemNombre ? ' - ' + esc(r.itemNombre) : ''}</td>
-                  ${tieneTipo ? `<td>${esc(r.tipo)}</td>` : ''}
-                  ${!es86 ? `<td class="text-right">${fmtCant(r.cantidad)}</td>` : ''}
-                  <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.comentarios || '')}</td>
-                  ${!es86 ? `<td><span class="badge" style="background:${r.estado === 'PROCESADO' ? '#d1fae5' : '#f3f4f6'};color:${r.estado === 'PROCESADO' ? '#059669' : '#6b7280'}">${r.estado}</span></td>` : ''}
-                  <td style="font-size:12px">${esc(r.creadoPorNombre || '')}</td>
-                  <td style="white-space:nowrap">
-                    ${editable ? `<button class="btn btn-xs btn-outline" onclick="mvEditar('${r.id}')" title="Editar">✏️</button>` : ''}
-                    ${editable ? `<button class="btn btn-xs btn-outline" style="color:#ef4444;border-color:#ef4444" onclick="mvEliminar('${r.id}')" title="Eliminar">🗑️</button>` : ''}
-                    ${procesable ? `<button class="btn btn-xs btn-outline" style="color:#059669;border-color:#059669" onclick="mvProcesar('${r.id}')" title="Procesar">✅</button>` : ''}
-                  </td>
-                </tr>`;
-              }).join('')}
+              ${newRowHtml}
+              ${rowsHtml}
             </tbody>
           </table>
         </div>
       </div>`;
 
-    window.mvEditar = (id) => {
-      const r = registros.find(x => x.id === id);
-      openMovModal(r, operaciones, destinos, rol);
-    };
+    window.mvEditar = (id) => renderTable(wrap, registros, rol, operaciones, destinos, id, buscar);
 
     window.mvEliminar = async (id) => {
       if (!confirm('¿Eliminar este registro?')) return;
       try {
         await DEL(`/movimientos/${id}`);
         toast('Registro eliminado', 'success');
-        renderTab();
+        buscar();
       } catch (err) { toast(err.message, 'error'); }
     };
 
@@ -7647,95 +7677,44 @@ async function viewMovimientos(container) {
       try {
         await PUT(`/movimientos/${id}/procesar`);
         toast('Registro procesado', 'success');
-        renderTab();
+        buscar();
       } catch (err) { toast(err.message, 'error'); }
     };
-  }
 
-  async function openMovModal(record, operaciones, destinos, rol) {
-    const cfg = MOV_FLUJOS[flujoActual];
-    const esTransferencia = flujoActual === 'TRANSFERENCIA';
-    const es86 = flujoActual === '86';
-    const tieneTipo = !!cfg.tipos;
+    const editRowEl = wrap.querySelector('tr[data-edit-row]');
+    if (!editRowEl) return;
 
-    const opDefault = record?.operacion || (operaciones.length === 1 ? operaciones[0] : '');
-    const fechaDefault = record?.fecha ? record.fecha.slice(0, 10) : today();
-    const fechaHoraDefault = toDatetimeLocal(record?.fecha ? new Date(record.fecha) : new Date());
-
-    const html = `
-      <div class="form-group">
-        <label>Fecha${es86 ? ' y Hora' : ''}</label>
-        <input type="${es86 ? 'datetime-local' : 'date'}" id="mv-fecha" class="form-control" value="${es86 ? fechaHoraDefault : fechaDefault}">
-      </div>
-      ${operaciones.length > 1 ? `
-      <div class="form-group">
-        <label>Operación${esTransferencia ? ' Origen' : ''}</label>
-        <select id="mv-operacion" class="form-control">
-          ${operaciones.map(o => `<option value="${o}" ${o === opDefault ? 'selected' : ''}>${o}</option>`).join('')}
-        </select>
-      </div>` : `<input type="hidden" id="mv-operacion" value="${opDefault}">`}
-      <div class="form-group">
-        <label>Ítem</label>
-        <select id="mv-item" class="form-control"><option value="">Cargando...</option></select>
-      </div>
-      ${esTransferencia ? `
-      <div class="form-group">
-        <label>Operación Destino</label>
-        <select id="mv-op-destino" class="form-control"></select>
-      </div>` : ''}
-      ${tieneTipo ? `
-      <div class="form-group">
-        <label>${cfg.tipoLabel}</label>
-        <select id="mv-tipo" class="form-control">
-          ${cfg.tipos.map(t => `<option value="${t}" ${record?.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}
-        </select>
-      </div>` : ''}
-      ${!es86 ? `
-      <div class="form-group">
-        <label>Cantidad</label>
-        <input type="number" id="mv-cantidad" class="form-control" step="0.0001" min="0.0001" value="${record?.cantidad ?? ''}">
-      </div>` : ''}
-      <div class="form-group">
-        <label>Comentarios</label>
-        <textarea id="mv-comentarios" class="form-control" rows="3">${esc(record?.comentarios || '')}</textarea>
-      </div>`;
-
-    openModal(record ? 'Editar registro' : 'Nuevo registro', html + `
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
-        <button class="btn btn-outline" id="mv-cancel">Cancelar</button>
-        <button class="btn btn-primary" id="mv-save">Guardar</button>
-      </div>`);
-
-    document.getElementById('mv-cancel').onclick = closeModal;
-
-    const operacionEl = document.getElementById('mv-operacion');
+    const record = editingId === 'new' ? null : registros.find(r => r.id === editingId);
+    const operacionEl = document.getElementById('mv-edit-operacion');
 
     async function populateItems(operacion, selectedItem) {
-      const itemSel = document.getElementById('mv-item');
+      const itemSel = document.getElementById('mv-edit-item');
       itemSel.innerHTML = `<option value="">Cargando...</option>`;
       const items = await loadItemsFor(operacion);
       itemSel.innerHTML = `<option value="">Seleccione...</option>` +
         items.map(it => `<option value="${esc(it.item)}" ${String(selectedItem) === String(it.item) ? 'selected' : ''}>${esc(it.item)} - ${esc(it.nombre)}</option>`).join('');
     }
 
-    await populateItems(operacionEl.value, record?.item);
-
     function refreshDestinos() {
       if (!esTransferencia) return;
-      const destSel = document.getElementById('mv-op-destino');
+      const destSel = document.getElementById('mv-edit-destino');
       const origen = operacionEl.value;
       destSel.innerHTML = destinos.filter(d => d !== origen).map(o => `<option value="${o}" ${record?.operacionDestino === o ? 'selected' : ''}>${o}</option>`).join('');
     }
+
+    await populateItems(operacionEl.value, record?.item);
     refreshDestinos();
 
     if (operacionEl.tagName === 'SELECT') {
       operacionEl.addEventListener('change', () => { populateItems(operacionEl.value, null); refreshDestinos(); });
     }
 
-    document.getElementById('mv-save').onclick = async () => {
-      const fechaVal = document.getElementById('mv-fecha').value;
+    document.getElementById('mv-edit-cancel').onclick = () => renderTable(wrap, registros, rol, operaciones, destinos, null, buscar);
+
+    document.getElementById('mv-edit-save').onclick = async () => {
+      const fechaVal = document.getElementById('mv-edit-fecha').value;
       if (!fechaVal) return toast('Ingrese fecha', 'error');
-      const item = document.getElementById('mv-item').value;
+      const item = document.getElementById('mv-edit-item').value;
       if (!item) return toast('Seleccione un ítem', 'error');
 
       const body = {
@@ -7743,16 +7722,16 @@ async function viewMovimientos(container) {
         operacion: operacionEl.value,
         fecha: es86 ? new Date(fechaVal).toISOString() : fechaVal,
         item,
-        comentarios: document.getElementById('mv-comentarios').value.trim(),
+        comentarios: document.getElementById('mv-edit-comentarios').value.trim(),
       };
       if (esTransferencia) {
-        const destino = document.getElementById('mv-op-destino').value;
+        const destino = document.getElementById('mv-edit-destino').value;
         if (!destino) return toast('Seleccione operación destino', 'error');
         body.operacionDestino = destino;
       }
-      if (tieneTipo) body.tipo = document.getElementById('mv-tipo').value;
+      if (tieneTipo) body.tipo = document.getElementById('mv-edit-tipo').value;
       if (!es86) {
-        const cant = Number(document.getElementById('mv-cantidad').value);
+        const cant = Number(document.getElementById('mv-edit-cantidad').value);
         if (!cant || cant <= 0) return toast('Cantidad debe ser mayor a 0', 'error');
         body.cantidad = cant;
       }
@@ -7761,8 +7740,7 @@ async function viewMovimientos(container) {
         if (record) await PUT(`/movimientos/${record.id}`, body);
         else await POST('/movimientos', body);
         toast('Guardado correctamente', 'success');
-        closeModal();
-        renderTab();
+        buscar();
       } catch (err) { toast(err.message, 'error'); }
     };
   }
