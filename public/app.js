@@ -7490,6 +7490,11 @@ async function viewMovimientos(container) {
     try { return await GET(`/items?operacion=${operacion}`); } catch { return []; }
   }
 
+  async function loadItemsVentaFor(operacion) {
+    if (!operacion) return [];
+    try { return await GET(`/items/venta?operacion=${operacion}`); } catch { return []; }
+  }
+
   async function renderTab() {
     const cfg = MOV_FLUJOS[flujoActual];
     const content = document.getElementById('mv-content');
@@ -7601,21 +7606,25 @@ async function viewMovimientos(container) {
       const fechaDefault = record?.fecha ? record.fecha.slice(0, 10) : today();
       const fechaHoraDefault = toDatetimeLocal(record?.fecha ? new Date(record.fecha) : new Date());
       return `<tr data-edit-row="1">
-        <td><input type="${es86 ? 'datetime-local' : 'date'}" id="mv-edit-fecha" class="form-control" style="min-width:130px" value="${es86 ? fechaHoraDefault : fechaDefault}"></td>
-        <td>${operaciones.length > 1
-          ? `<select id="mv-edit-operacion" class="form-control">${operaciones.map(o => `<option value="${o}" ${o === opDefault ? 'selected' : ''}>${o}</option>`).join('')}</select>`
-          : `${esc(opDefault)}<input type="hidden" id="mv-edit-operacion" value="${esc(opDefault)}">`}</td>
-        ${esTransferencia ? `<td><select id="mv-edit-destino" class="form-control"></select></td>` : ''}
-        <td style="position:relative">
-          <input type="text" id="mv-edit-item-search" class="form-control" style="min-width:220px" autocomplete="off" placeholder="Buscar por código o nombre...">
+        <td style="min-width:160px">
+          <input type="${es86 ? 'datetime-local' : 'date'}" id="mv-edit-fecha" class="form-control" style="min-width:160px" value="${es86 ? fechaHoraDefault : fechaDefault}">
+          ${operaciones.length > 1
+            ? `<select id="mv-edit-operacion" class="form-control mt-8">${operaciones.map(o => `<option value="${o}" ${o === opDefault ? 'selected' : ''}>${o}</option>`).join('')}</select>`
+            : `<div class="mt-8" style="font-size:12px;color:var(--text-muted)">${esc(opDefault)}</div><input type="hidden" id="mv-edit-operacion" value="${esc(opDefault)}">`}
+          ${esTransferencia ? `<select id="mv-edit-destino" class="form-control mt-8"></select>` : ''}
+        </td>
+        <td style="position:relative;min-width:280px">
+          <input type="text" id="mv-edit-item-search" class="form-control" style="min-width:260px" autocomplete="off" placeholder="Buscar por código o nombre...">
           <input type="hidden" id="mv-edit-item" value="${record?.item ?? ''}">
           <div id="mv-edit-item-results" style="position:fixed;z-index:1000;background:var(--white);border:1px solid var(--border);max-height:220px;overflow-y:auto;display:none;box-shadow:0 2px 6px rgba(0,0,0,.1)"></div>
         </td>
         ${tieneTipo ? `<td><select id="mv-edit-tipo" class="form-control">${cfg.tipos.map(t => `<option value="${t}" ${record?.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></td>` : ''}
         ${!es86 ? `<td><input type="number" id="mv-edit-cantidad" class="form-control" style="width:100px" step="0.0001" min="0.0001" value="${record?.cantidad ?? ''}"></td>` : ''}
-        <td><input type="text" id="mv-edit-comentarios" class="form-control" value="${esc(record?.comentarios || '')}"></td>
-        ${!es86 ? `<td>${record ? (() => { const b = estadoBadge(record.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}">${record.estado}</span>`; })() : '—'}</td>` : ''}
-        <td style="font-size:12px">${esc(record?.creadoPorNombre || '—')}</td>
+        <td style="min-width:280px"><input type="text" id="mv-edit-comentarios" class="form-control" value="${esc(record?.comentarios || '')}"></td>
+        <td style="font-size:12px">
+          ${!es86 && record ? (() => { const b = estadoBadge(record.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}">${record.estado}</span><br>`; })() : ''}
+          ${esc(record?.creadoPorNombre || '—')}
+        </td>
         <td style="white-space:nowrap">
           <button class="btn btn-xs btn-primary" id="mv-edit-save" title="Guardar">💾</button>
           <button class="btn btn-xs btn-outline" id="mv-edit-cancel" title="Cancelar">✕</button>
@@ -7628,15 +7637,18 @@ async function viewMovimientos(container) {
       const editable = puedeEditarRegistro(r);
       const procesable = !es86 && rol === 'REGISTRO' && r.estado === 'REGISTRADO';
       return `<tr>
-        <td>${es86 ? fmtFechaHora(r.fecha) : fmtDate(r.fecha)}</td>
-        <td>${esc(r.operacion)}</td>
-        ${esTransferencia ? `<td>${esc(r.operacionDestino)}</td>` : ''}
-        <td>${esc(String(r.item))}${r.itemNombre ? ' - ' + esc(r.itemNombre) : ''}</td>
+        <td>
+          ${es86 ? fmtFechaHora(r.fecha) : fmtDate(r.fecha)}<br>
+          <span style="font-size:12px;color:var(--text-muted)">${esc(r.operacion)}${esTransferencia ? ' → ' + esc(r.operacionDestino) : ''}</span>
+        </td>
+        <td style="min-width:260px">${esc(String(r.item))}${r.itemNombre ? ' - ' + esc(r.itemNombre) : ''}</td>
         ${tieneTipo ? `<td>${esc(r.tipo)}</td>` : ''}
         ${!es86 ? `<td class="text-right">${fmtCant(r.cantidad)}</td>` : ''}
-        <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.comentarios || '')}</td>
-        ${!es86 ? `<td>${(() => { const b = estadoBadge(r.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}" title="${esc(r.comentarioProceso || '')}">${r.estado}</span>`; })()}</td>` : ''}
-        <td style="font-size:12px">${esc(r.creadoPorNombre || '')}</td>
+        <td style="min-width:260px;white-space:normal">${esc(r.comentarios || '')}</td>
+        <td style="font-size:12px">
+          ${!es86 ? (() => { const b = estadoBadge(r.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}" title="${esc(r.comentarioProceso || '')}">${r.estado}</span><br>`; })() : ''}
+          ${esc(r.creadoPorNombre || '')}
+        </td>
         <td style="white-space:nowrap">
           ${editable ? `<button class="btn btn-xs btn-outline" onclick="mvEditar('${r.id}')" title="Editar">✏️</button>` : ''}
           ${editable ? `<button class="btn btn-xs btn-outline" style="color:#ef4444;border-color:#ef4444" onclick="mvEliminar('${r.id}')" title="Eliminar">🗑️</button>` : ''}
@@ -7653,15 +7665,12 @@ async function viewMovimientos(container) {
         <div style="overflow-x:auto">
           <table class="data-table">
             <thead><tr>
-              <th>Fecha${es86 ? ' / Hora' : ''}</th>
-              <th>Operación</th>
-              ${esTransferencia ? '<th>Destino</th>' : ''}
-              <th>Ítem</th>
+              <th>Fecha${es86 ? ' / Hora' : ''} / Operación</th>
+              <th style="min-width:260px">Ítem</th>
               ${tieneTipo ? '<th>Tipo</th>' : ''}
               ${!es86 ? '<th class="text-right">Cantidad</th>' : ''}
-              <th>Comentarios</th>
-              ${!es86 ? '<th>Estado</th>' : ''}
-              <th>Creado por</th>
+              <th style="min-width:260px">Comentarios</th>
+              <th>${es86 ? 'Creado por' : 'Estado / Creado por'}</th>
               <th>Acciones</th>
             </tr></thead>
             <tbody>
@@ -7724,7 +7733,7 @@ async function viewMovimientos(container) {
     async function populateItems(operacion, selectedItem) {
       itemSearchEl.disabled = true;
       itemSearchEl.value = 'Cargando...';
-      itemsCache = await loadItemsFor(operacion);
+      itemsCache = es86 ? await loadItemsVentaFor(operacion) : await loadItemsFor(operacion);
       itemSearchEl.disabled = false;
       if (selectedItem) {
         const found = itemsCache.find(it => String(it.item) === String(selectedItem));

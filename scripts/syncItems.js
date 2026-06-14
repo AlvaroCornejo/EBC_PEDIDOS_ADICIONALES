@@ -12,11 +12,15 @@ require('dotenv').config();
 const dns = require('dns');
 dns.setServers(['8.8.8.8', '8.8.4.4']);
 const mongoose = require('mongoose');
+const path = require('path');
+const fs = require('fs');
 
 const Item = require('../models/Item');
+const ItemVenta = require('../models/ItemVenta');
 const { readItems, findFile, loadWB } = require('../routes/datos');
 
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
+const ITEMS_VENTA_FILE = path.join(__dirname, '../data/EBC ITEMS_VENTA.xlsx');
 
 async function main() {
   console.log('Conectando a MongoDB...');
@@ -46,6 +50,40 @@ async function main() {
     const insertados = result.upsertedCount || 0;
     const actualizados = result.modifiedCount || 0;
     console.log(` total ${excelItems.length}, nuevos ${insertados}, actualizados ${actualizados}`);
+  }
+
+  // ── ItemVenta (EBC ITEMS_VENTA.xlsx, catálogo para flujo 86) ──
+  process.stdout.write('ITEMS_VENTA...');
+  if (!fs.existsSync(ITEMS_VENTA_FILE)) {
+    console.log(' sin archivo, omitido');
+  } else {
+    const wb = await loadWB(ITEMS_VENTA_FILE);
+    const sh = wb.getWorksheet('ITEMS_VENTA');
+    if (!sh) {
+      console.log(' sin hoja "ITEMS_VENTA"');
+    } else {
+      const porClave = new Map();
+      sh.eachRow((row, rn) => {
+        if (rn === 1) return;
+        const operacion = String(row.getCell(1).value || '').trim();
+        const item = Number(row.getCell(2).value);
+        const nombre = String(row.getCell(3).value || '').trim();
+        if (!operacion || !item) return;
+        porClave.set(`${operacion}|${item}`, { operacion, item, nombre });
+      });
+      const ventaItems = [...porClave.values()];
+      const ops = ventaItems.map(it => ({
+        updateOne: {
+          filter: { operacion: it.operacion, item: it.item },
+          update: { $set: { nombre: it.nombre } },
+          upsert: true
+        }
+      }));
+      const result = await ItemVenta.bulkWrite(ops, { ordered: false });
+      const insertados = result.upsertedCount || 0;
+      const actualizados = result.modifiedCount || 0;
+      console.log(` total ${ventaItems.length}, nuevos ${insertados}, actualizados ${actualizados}`);
+    }
   }
 
   await mongoose.disconnect();

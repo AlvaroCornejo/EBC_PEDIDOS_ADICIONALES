@@ -1,6 +1,7 @@
 const express = require('express');
 const authMiddleware = require('../middleware/auth');
 const Item = require('../models/Item');
+const ItemVenta = require('../models/ItemVenta');
 // Reutilizar los helpers de lectura Excel ya existentes en datos.js
 const { readItems, findFile, loadWB } = require('./datos');
 
@@ -13,6 +14,16 @@ router.get('/', async (req, res) => {
     const { operacion } = req.query;
     if (!operacion) return res.status(400).json({ error: 'operacion requerida' });
     const items = await Item.find({ operacion, activo: true }).lean();
+    res.json(items);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/items/venta?operacion=AASI  (catálogo EBC ITEMS_VENTA, usado en flujo 86)
+router.get('/venta', async (req, res) => {
+  try {
+    const { operacion } = req.query;
+    if (!operacion) return res.status(400).json({ error: 'operacion requerida' });
+    const items = await ItemVenta.find({ operacion }).lean();
     res.json(items);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const authMiddleware = require('../middleware/auth');
 const Movimiento = require('../models/Movimiento');
 const Item = require('../models/Item');
+const ItemVenta = require('../models/ItemVenta');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -33,6 +34,16 @@ function rolPara(user, flujo) {
 // Operaciones a las que el usuario puede transferir
 function destinosPermitidos(user) {
   return user.role === 'ADMIN' ? ALL_OPS : (user.transferenciaDestinos || []);
+}
+
+// Catálogo de items: el flujo 86 usa ItemVenta (EBC ITEMS_VENTA), el resto usa Item (ADICIONALES)
+async function buscarNombreItem(flujo, operacion, item) {
+  if (flujo === '86') {
+    const doc = await ItemVenta.findOne({ operacion, item: Number(item) }).lean();
+    return doc ? doc.nombre : '';
+  }
+  const doc = await Item.findOne({ operacion, item: String(item) }).lean();
+  return doc ? doc.nombre : '';
 }
 
 // ── GET /api/movimientos/operaciones?flujo= ─────────────────────────────────
@@ -122,8 +133,7 @@ router.post('/', async (req, res) => {
       doc.estado = 'REGISTRADO';
     }
 
-    const itemDoc = await Item.findOne({ operacion, item: String(item) }).lean();
-    if (itemDoc) doc.itemNombre = itemDoc.nombre;
+    doc.itemNombre = await buscarNombreItem(flujo, operacion, item);
 
     const registro = await Movimiento.create(doc);
     res.json(registro);
@@ -152,8 +162,7 @@ router.put('/:id', async (req, res) => {
 
     if (item !== undefined) {
       registro.item = Number(item);
-      const itemDoc = await Item.findOne({ operacion: registro.operacion, item: String(item) }).lean();
-      registro.itemNombre = itemDoc ? itemDoc.nombre : '';
+      registro.itemNombre = await buscarNombreItem(registro.flujo, registro.operacion, item);
     }
 
     if (registro.flujo === 'TRANSFERENCIA' && operacionDestino !== undefined) {

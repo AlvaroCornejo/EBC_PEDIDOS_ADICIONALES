@@ -43,6 +43,10 @@ if %errorlevel%==0 (echo OK: PREP) else (echo ERROR: PREP)
 copy /Y "%SRC%\GBPLANTA - ADICIONALES.xlsx"  "%DST%\GBPLANTA - ADICIONALES.xlsx"
 if %errorlevel%==0 (echo OK: GBPLANTA) else (echo ERROR: GBPLANTA)
 
+set SRC2=C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC ITEMS
+copy /Y "%SRC2%\EBC ITEMS_VENTA.xlsx" "%DST%\EBC ITEMS_VENTA.xlsx"
+if %errorlevel%==0 (echo OK: ITEMS_VENTA) else (echo ERROR: ITEMS_VENTA)
+
 echo.
 echo Sincronizacion completada.
 

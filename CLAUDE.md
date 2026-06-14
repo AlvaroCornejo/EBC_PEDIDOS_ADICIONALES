@@ -52,11 +52,18 @@
 - Ruta Box origen: `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC ADICIONALES\`
 - Destino en servidor sync: `C:\pedidos-app\data\`
 
+### EBC ITEMS_VENTA.xlsx (catálogo para flujo 86, diario via sync-excel.bat)
+- Hoja **ITEMS_VENTA**: col1=OPERACION, col2=ITEM, col3=NOMBRE
+- Ruta Box origen: `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC ITEMS\EBC ITEMS_VENTA.xlsx`
+- Destino en servidor sync: `C:\pedidos-app\data\EBC ITEMS_VENTA.xlsx`
+- Cubre solo 8 de las 13 operaciones (AASI, CDLAO, CDL28, GBADC, GBGOL, GBSRQ, GBCRP, GBCFR)
+
 ### MongoDB (colecciones y scripts de importación)
 
 | Colección | Script | Fuente | Frecuencia |
 |-----------|--------|--------|------------|
 | Item | `scripts/syncItems.js` (vía `sync-items.bat`) | data/*ADICIONALES.xlsx | diario |
+| ItemVenta | `scripts/syncItems.js` (vía `sync-items.bat`) | data/EBC ITEMS_VENTA.xlsx | diario |
 | CompraPareto / CompraRoc | `scripts/importCompras.js` | EBC COMPRAS HISTORICAS.xlsx | semanal |
 | ComparativoOC | `scripts/importComparativoOC.js` | COMPARATIVO OC INGRESOS.xlsx | diario |
 | VentasTip | `scripts/importVentasTip.js` | EBC VENTAS TIP RESUMEN.xlsx | diario |
@@ -170,3 +177,20 @@ Recuadro azul, solo visible para rol `OPERADOR_CONSULTA`:
 - Tarea programada `EBC Actualizacion Diaria` en CORPSERV-PRUEBA
   - `sync-master.bat` ejecuta los 6 pasos en secuencia
   - Log único en `scripts\sync-master.log` (redirección externa, sin locks)
+
+### Sesión 4
+- Nuevo módulo **Bajas / Consumos / Transferencias / 86** (`/api/movimientos`, vista `viewMovimientos`)
+  - Modelo `Movimiento` (un solo modelo para los 4 flujos, campo `flujo` discrimina)
+  - Permisos por usuario: `rolBCT` (Solicitud/Registro/Consulta), `rol86` (Registro/Consulta),
+    `accesoBajas`/`accesoConsumos`/`accesoTransferencias`/`acceso86`
+  - Paso 7 de `sync-master.bat` (`sync-items.bat` → `syncItems.js`)
+- Fix dropdown de búsqueda de Ítem en Movimientos: usaba `position:absolute` y quedaba clipeado
+  por el contenedor `overflow-x:auto` de la tabla; ahora `position:fixed` con coordenadas
+  calculadas vía `getBoundingClientRect()`
+- Catálogo **ItemVenta** (`EBC ITEMS_VENTA.xlsx`, colección `ItemVenta`) para el flujo 86:
+  - Solo cubre 8 de las 13 operaciones; `GET /api/items/venta?operacion=` filtra por operación
+  - `buscarNombreItem()` en `routes/movimientos.js` usa `ItemVenta` para 86 e `Item` para el resto
+  - Sync incluido en `scripts/syncItems.js` (dedup por `operacion|item`, último gana)
+- Rediseño de columnas de la tabla de Movimientos (4 flujos): se combinó Fecha+Operación
+  (+Destino para Transferencias) en una sola columna, y Estado+Creado por en otra, para dar
+  más ancho a Ítem y Comentarios
