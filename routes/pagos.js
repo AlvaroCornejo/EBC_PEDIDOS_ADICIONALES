@@ -8,6 +8,7 @@ const PagoGrupoProveedor = require('../models/PagoGrupoProveedor');
 const PagoDetalleGrupo   = require('../models/PagoDetalleGrupo');
 const PagoBanco          = require('../models/PagoBanco');
 const EstadoCuenta       = require('../models/EstadoCuenta');
+const PagoAdelanto       = require('../models/PagoAdelanto');
 
 const router  = express.Router();
 const upload  = multer({ storage: multer.memoryStorage() });
@@ -135,6 +136,41 @@ function parseCSVProgramacion(buffer) {
       FechaDocumento:   get(32),
     };
   }).filter(r => r.TipoDocumento && r.PagarA);
+}
+
+/**
+ * Parsear ADELANTOS.csv — CON cabecera pero con columnas duplicadas
+ * (FechaDocumento y Busqueda aparecen 2 veces), por eso se usan índices fijos:
+ *  1  NumeroAdelanto
+ *  4  FechaDocumento
+ *  6  MontoTotal
+ *  7  SaldoAdelanto
+ *  8  Estado
+ *  9  Busqueda           → proveedor (matchea contra obligaciones[].pagarA)
+ * 10  MonedaDocumento    (LO / EX)
+ * 11  TipoAdelanto
+ * 13  Busqueda (2)       → responsable interno
+ * 14  CentroCostos
+ */
+function parseCSVAdelantos(buffer) {
+  const text  = buffer.toString('latin1').replace(/\r/g, '');
+  const lines = text.split('\n').filter(l => l.trim());
+  return lines.slice(1).map(line => {
+    const v = parseCSVLine(line);
+    const get = i => (v[i] || '').trim();
+    return {
+      numeroAdelanto: get(1),
+      fechaDocumento: parseFecha(get(4)),
+      montoTotal:     parseFloat(get(6)) || 0,
+      saldoAdelanto:  parseFloat(get(7)) || 0,
+      estado:         get(8),
+      proveedor:      get(9),
+      moneda:         get(10),
+      tipoAdelanto:   get(11),
+      responsable:    get(13),
+      centroCostos:   get(14),
+    };
+  }).filter(r => r.numeroAdelanto && r.proveedor);
 }
 
 
@@ -328,6 +364,109 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
     });
 
     res.json({ id: prog._id, total: obligaciones.length, fechaPago, semana, año });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/pagos/adelantos/cargar ─────────────────────────────────────────
+// Carga ADELANTOS.csv — reemplaza los adelantos previos de la compañía
+router.post('/adelantos/cargar', upload.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
+    const { compania } = req.body;
+    if (!compania)     return res.status(400).json({ error: 'Compañía requerida' });
+    if (!checkSocAccess(req.user, compania))
+      return res.status(403).json({ error: 'Sociedad no autorizada' });
+
+    const rows = parseCSVAdelantos(req.file.buffer);
+    if (!rows.length) return res.status(400).json({ error: 'Archivo vacío o inválido' });
+
+    await PagoAdelanto.deleteMany({ compania });
+    const docs = rows.map(r => ({
+      ...r,
+      compania,
+      proveedorKey: r.proveedor.trim().toUpperCase(),
+    }));
+    await PagoAdelanto.insertMany(docs);
+
+    const proveedores = new Set(docs.map(d => d.proveedorKey));
+    res.json({ ok: true, total: docs.length, proveedores: proveedores.size });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/pagos/adelantos/resumen?compania= ───────────────────────────────
+// Totales por proveedor para anotar la relación de obligaciones
+router.get('/adelantos/resumen', async (req, res) => {
+  try {
+    const { compania } = req.query;
+    if (!compania) return res.status(400).json({ error: 'Compañía requerida' });
+    if (!checkSocAccess(req.user, compania))
+      return res.status(403).json({ error: 'Sociedad no autorizada' });
+
+    const rows = await PagoAdelanto.find({ compania }).sort({ fechaDocumento: 1 }).lean();
+    const resumen = {};
+    for (const r of rows) {
+      const key = r.proveedorKey;
+      if (!resumen[key]) resumen[key] = { totalSol: 0, totalUsd: 0, numDocs: 0, items: [] };
+      if (r.moneda === 'LO') resumen[key].totalSol += r.saldoAdelanto;
+      else                   resumen[key].totalUsd += r.saldoAdelanto;
+      resumen[key].numDocs++;
+      resumen[key].items.push({
+        numeroAdelanto: r.numeroAdelanto,
+        fechaDocumento: r.fechaDocumento,
+        montoTotal:     r.montoTotal,
+        saldoAdelanto:  r.saldoAdelanto,
+        moneda:         r.moneda,
+        estado:         r.estado,
+        tipoAdelanto:   r.tipoAdelanto,
+      });
+    }
+    res.json(resumen);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/pagos/adelantos?compania=&progId= ───────────────────────────────
+// Relación completa de adelantos por proveedor, marcando los que no tienen
+// obligaciones por pagar en la programación indicada
+router.get('/adelantos', async (req, res) => {
+  try {
+    const { compania, progId } = req.query;
+    if (!compania) return res.status(400).json({ error: 'Compañía requerida' });
+    if (!checkSocAccess(req.user, compania))
+      return res.status(403).json({ error: 'Sociedad no autorizada' });
+
+    const rows = await PagoAdelanto.find({ compania }).sort({ proveedor: 1, fechaDocumento: 1 }).lean();
+
+    let pagarAKeys = new Set();
+    if (progId) {
+      const prog = await PagoProgramacion.findById(progId, { obligaciones: 1 }).lean();
+      if (prog) pagarAKeys = new Set(prog.obligaciones.map(o => (o.pagarA || '').trim().toUpperCase()));
+    }
+
+    const porProveedor = {};
+    for (const r of rows) {
+      const key = r.proveedorKey;
+      if (!porProveedor[key]) {
+        porProveedor[key] = {
+          proveedor: r.proveedor,
+          totalSol: 0, totalUsd: 0, numDocs: 0,
+          tieneObligacion: pagarAKeys.has(key),
+          items: [],
+        };
+      }
+      if (r.moneda === 'LO') porProveedor[key].totalSol += r.saldoAdelanto;
+      else                   porProveedor[key].totalUsd += r.saldoAdelanto;
+      porProveedor[key].numDocs++;
+      porProveedor[key].items.push({
+        numeroAdelanto: r.numeroAdelanto,
+        fechaDocumento: r.fechaDocumento,
+        montoTotal:     r.montoTotal,
+        saldoAdelanto:  r.saldoAdelanto,
+        moneda:         r.moneda,
+        estado:         r.estado,
+        tipoAdelanto:   r.tipoAdelanto,
+      });
+    }
+    res.json(Object.values(porProveedor));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

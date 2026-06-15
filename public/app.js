@@ -3511,6 +3511,86 @@ async function viewItems(container) {
   await switchTab(defaultTab);
 }
 
+// ─── Gestión de Pagos: Adelantos pendientes de rendición ──────────
+let _pgAdelantosCache  = {};   // compania -> resumen por proveedor
+let _pgAdelantosActual = {};   // resumen de la última compañía consultada (para el modal de detalle)
+
+async function pgAdelantosResumen(compania) {
+  if (!compania) return {};
+  if (!_pgAdelantosCache[compania]) {
+    _pgAdelantosCache[compania] = await GET(`/pagos/adelantos/resumen?compania=${encodeURIComponent(compania)}`);
+  }
+  _pgAdelantosActual = _pgAdelantosCache[compania];
+  return _pgAdelantosCache[compania];
+}
+
+function pgFmtMonto(v) {
+  return Number(v || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Badge con el total de adelantos sin rendir del proveedor (S/ y n° de documentos)
+function pgAdelantoBadgeHtml(pagarA) {
+  const info = (_pgAdelantosActual || {})[(pagarA || '').trim().toUpperCase()];
+  if (!info || !info.numDocs) return '';
+  const usd = info.totalUsd ? ` <span style="color:#2563eb">+US$ ${pgFmtMonto(info.totalUsd)}</span>` : '';
+  return ` <span class="badge" data-pa="${esc(pagarA)}" style="background:#fef3c7;color:#92400e;cursor:pointer;font-size:10px;white-space:nowrap"
+            onclick="event.stopPropagation();pgVerAdelantos(this.dataset.pa)"
+            title="Click para ver detalle de adelantos sin rendir">⚠ S/ ${pgFmtMonto(info.totalSol)} · ${info.numDocs} doc${info.numDocs > 1 ? 's' : ''}${usd}</span>`;
+}
+
+// Resalte de fila para proveedores con adelantos sin rendir
+function pgAdelantoRowStyle(pagarA) {
+  const info = (_pgAdelantosActual || {})[(pagarA || '').trim().toUpperCase()];
+  return info && info.numDocs ? 'box-shadow:inset 3px 0 0 #f59e0b;' : '';
+}
+
+// Modal de detalle de adelantos sin rendir de un proveedor
+window.pgVerAdelantos = (pagarA) => {
+  const info = (_pgAdelantosActual || {})[(pagarA || '').trim().toUpperCase()];
+  if (!info) return;
+  const fmtF = d => d ? new Date(d).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+  const rows = info.items.map(it => `
+    <tr>
+      <td>${esc(it.numeroAdelanto)}</td>
+      <td>${fmtF(it.fechaDocumento)}</td>
+      <td class="text-right">${pgFmtMonto(it.montoTotal)}</td>
+      <td class="text-right">${pgFmtMonto(it.saldoAdelanto)}</td>
+      <td>${esc(it.moneda)}</td>
+      <td>${esc(it.estado)}</td>
+    </tr>`).join('');
+  openModal(`Adelantos sin rendir — ${esc(pagarA)}`, `
+    <div style="overflow-x:auto">
+      <table class="data-table" style="font-size:12px">
+        <thead><tr><th>N° Adelanto</th><th>Fecha</th><th class="text-right">Monto Total</th><th class="text-right">Saldo</th><th>Mon.</th><th>Estado</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`);
+};
+
+// Modal con la relación completa de adelantos de la sociedad
+window.pgVerRelacionAdelantos = async (compania, progId) => {
+  if (!compania) { toast('Selecciona una sociedad', 'error'); return; }
+  try {
+    const rows = await GET(`/pagos/adelantos?compania=${encodeURIComponent(compania)}${progId ? `&progId=${progId}` : ''}`);
+    if (!rows.length) { toast('Sin adelantos cargados para ' + compania, 'error'); return; }
+    const trs = rows.map(r => `
+      <tr style="${!r.tieneObligacion ? 'background:#fee2e2' : ''}">
+        <td>${esc(r.proveedor)}</td>
+        <td class="text-right">${pgFmtMonto(r.totalSol)}</td>
+        <td class="text-right">${pgFmtMonto(r.totalUsd)}</td>
+        <td class="text-center">${r.numDocs}</td>
+        <td>${!r.tieneObligacion ? '<span class="badge" style="background:#fee2e2;color:#dc2626">Sin obligación por pagar</span>' : ''}</td>
+      </tr>`).join('');
+    openModal(`Relación de Adelantos — ${esc(compania)}`, `
+      <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Proveedor</th><th class="text-right">Total S/</th><th class="text-right">Total US$</th><th class="text-center">N° Docs</th><th>Obligación</th></tr></thead>
+          <tbody>${trs}</tbody>
+        </table>
+      </div>`);
+  } catch (e) { toast(e.message, 'error'); }
+};
+
 // ─── View: Gestión de Pagos ───────────────────────────────────────
 async function viewPagos(container) {
   const rolP = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
@@ -3641,6 +3721,17 @@ async function renderPaso1(container) {
           <span id="pg-filename-pagos" style="font-size:11px;color:var(--text-muted);align-self:center">Sin archivo</span>
           <button class="btn btn-outline btn-sm" id="pg-cargar-pagos">📂 Cargar Pagos</button>
         </div>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Adelantos Pendientes de Rendición</label>
+            <input type="file" id="pg-file-adelantos" accept=".csv" style="display:none">
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-adelantos').click()">
+              💵 Seleccionar Adelantos
+            </button>
+          </div>
+          <span id="pg-filename-adelantos" style="font-size:11px;color:var(--text-muted);align-self:center">Sin archivo</span>
+          <button class="btn btn-outline btn-sm" id="pg-cargar-adelantos">📂 Cargar Adelantos</button>
+        </div>
       </div>
     </div>
 
@@ -3694,6 +3785,7 @@ async function renderPaso1(container) {
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+      <button class="btn btn-outline btn-sm" id="pg-ver-adelantos">📋 Ver Adelantos</button>
       <button class="btn btn-outline btn-sm" onclick="imprimirVista('pg-tabla-wrap','Paso 1 — Programación de Pagos')">🖨️ Imprimir</button>
       <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('pg-tabla-wrap','paso1-programacion')">📥 Bajar a Excel</button>
     </div>
@@ -3762,6 +3854,42 @@ async function renderPaso1(container) {
     } catch(e) { toast(e.message, 'error'); }
   });
 
+  // Adelantos: selección y carga
+  document.getElementById('pg-file-adelantos').addEventListener('change', e => {
+    const f = e.target.files[0];
+    document.getElementById('pg-filename-adelantos').textContent = f ? f.name : 'Sin archivo';
+  });
+  document.getElementById('pg-cargar-adelantos').addEventListener('click', async () => {
+    const compania = document.getElementById('pg-compania').value;
+    if (!compania) { toast('Selecciona una sociedad', 'error'); return; }
+    const file = document.getElementById('pg-file-adelantos').files[0];
+    if (!file) { toast('Selecciona el archivo de Adelantos', 'error'); return; }
+    const fd = new FormData();
+    fd.append('archivo', file);
+    fd.append('compania', compania);
+    try {
+      const r = await fetch('/api/pagos/adelantos/cargar', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
+        body: fd,
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
+      delete _pgAdelantosCache[compania];
+      if (progActual?.compania === compania) {
+        await pgAdelantosResumen(compania);
+        renderTabla();
+      }
+      toast(`Adelantos cargados — ${data.total} documentos, ${data.proveedores} proveedores`, 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  });
+
+  // Ver relación de adelantos
+  document.getElementById('pg-ver-adelantos').addEventListener('click', () => {
+    const compania = document.getElementById('pg-compania').value;
+    pgVerRelacionAdelantos(compania, progActual?._id);
+  });
+
   // Al cambiar sociedad → mostrar programaciones existentes
   document.getElementById('pg-compania').addEventListener('change', async (e) => {
     const comp = e.target.value;
@@ -3805,6 +3933,7 @@ async function renderPaso1(container) {
       progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
       // Restaurar promedios guardados (si existen)
       pagosPromedios = progActual.promediosPagos || {};
+      await pgAdelantosResumen(progActual.compania);
       await renderTablaYResumenes();
       if (progActual._readOnly) toast('Vista de solo lectura — estado: ' + progActual.estado, 'success');
       else toast('Programación cargada', 'success');
@@ -3896,6 +4025,7 @@ async function renderPaso1(container) {
       setProgress(92, 'Cargando programación...');
       progActual = await GET(`/pagos/programaciones/${data.id}`);
       progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
+      await pgAdelantosResumen(progActual.compania);
       setProgress(98, 'Renderizando tabla...');
       await renderTablaYResumenes();
       setProgress(100, `✓ ${data.total} obligaciones cargadas`);
@@ -4022,7 +4152,7 @@ async function renderPaso1(container) {
                 const dtOpts = ['OTROS', ...detallesRef.filter(d => d.grupoProveedor === o.grupo).map(d => d.nombre)]
                   .map(d => `<option value="${d}" ${o.detalleGrupo===d?'selected':''}>${d}</option>`).join('');
                 const grpOptsRow = grpOpts.replace(`value="${o.grupo}"`, `value="${o.grupo}" selected`);
-                return `<tr style="${checked?'background:#f0fdf4;':''}">
+                return `<tr style="${checked?'background:#f0fdf4;':''}${pgAdelantoRowStyle(o.pagarA)}">
                   <td class="text-center">
                     <input type="checkbox" class="pg-check" data-pa="${esc(o.pagarA)}" data-idx="${obs.indexOf(o)}"
                            style="width:14px;height:14px;accent-color:var(--primary)"
@@ -4039,7 +4169,7 @@ async function renderPaso1(container) {
                     ${fmtMonto(montoSol)}
                   </td>
                   <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
-                      title="${esc(o.pagarA)}">${esc(o.pagarA)}</td>
+                      title="${esc(o.pagarA)}">${esc(o.pagarA)}${pgAdelantoBadgeHtml(o.pagarA)}</td>
                   <td>${esc(o.banco)}</td>
                   <td class="text-right fw-semibold" style="color:${dvColor}">${dvLabel}</td>
                   <td>${readOnly
@@ -4448,6 +4578,7 @@ async function renderPaso2(container) {
     try {
       ap2Prog      = await GET(`/pagos/programaciones/${id}`);
       ap2Promedios = ap2Prog.promediosPagos || {};
+      await pgAdelantosResumen(ap2Prog.compania);
       ap2PoblarFiltros();
       ap2RenderGrupos();
       ap2RenderFooter();
@@ -4580,12 +4711,12 @@ async function renderPaso2(container) {
           <div class="ap2-ben-row" onclick="if(event.target.tagName!=='INPUT')ap2ToggleBenObl(this)"
                style="display:grid;grid-template-columns:26px 20px minmax(120px,200px) 150px 150px 120px 120px;
                       align-items:center;padding:7px 16px 7px 20px;
-                      background:#fafbfc;cursor:pointer;user-select:none">
+                      background:#fafbfc;cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
             <span class="ap2-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
             <input type="checkbox" data-ben="${benKey}" class="ap2-ben-cb" ${allSel ? 'checked' : ''}
                    style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
                    onchange="ap2ToggleBen('${benKey}',this.checked)">
-            <span style="font-weight:600;font-size:13px">${esc(ben)}</span>
+            <span style="font-weight:600;font-size:13px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
             <div style="text-align:right;font-size:12px;line-height:1.5">${bDeuda}</div>
             <div style="text-align:right;font-size:12px;line-height:1.5">${progMoneda}</div>
             <div style="text-align:right;font-size:12px;color:#7c3aed;font-weight:600">${promStr}</div>
@@ -4928,6 +5059,7 @@ async function renderPaso3(container) {
   async function p3AbrirProg(id) {
     try {
       p3Prog = await GET(`/pagos/programaciones/${id}`);
+      await pgAdelantosResumen(p3Prog.compania);
 
       // Pre-cargar defaults de banco/agrupador para obligaciones sin asignar
       const comp = p3Prog.compania;
@@ -5184,9 +5316,9 @@ async function renderPaso3(container) {
           <div class="p3-ben-row" onclick="if(!['SELECT','OPTION'].includes(event.target.tagName))p3ToggleBenObl(this)"
                style="display:grid;${COLS};
                       align-items:center;padding:6px 14px 6px 18px;
-                      background:${benConError ? '#fef9c3' : '#fafbfc'};cursor:pointer;user-select:none">
+                      background:${benConError ? '#fef9c3' : '#fafbfc'};cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
             <span class="p3-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
-            <span style="font-weight:600;font-size:13px">${esc(ben)}</span>
+            <span style="font-weight:600;font-size:13px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
             <div style="text-align:right;font-size:12px;line-height:1.5">${progMon}</div>
             <div onclick="event.stopPropagation()">
               <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
@@ -5877,14 +6009,14 @@ async function renderPaso4(container) {
                 </thead>
                 <tbody>
                   ${oblList.map(ob => `
-                  <tr style="border-top:1px solid #f1f5f9;background:${p4ObsConError.has(String(ob._id))?'#fef9c3':p4Marcados.has(String(ob._id))?'#f0fdf4':''}">
+                  <tr style="border-top:1px solid #f1f5f9;background:${p4ObsConError.has(String(ob._id))?'#fef9c3':p4Marcados.has(String(ob._id))?'#f0fdf4':''};${pgAdelantoRowStyle(ob.pagarA||'')}">
                     <td style="padding:4px 8px;text-align:center">
                       <input type="checkbox" ${p4Marcados.has(String(ob._id))?'checked':''}
                              onclick="event.stopPropagation()"
                              onchange="p4ToggleMarcadoOb('${ob._id}',this.checked)"
                              style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer">
                     </td>
-                    <td style="padding:4px 8px;font-weight:500">${esc(ob.pagarA||'')}</td>
+                    <td style="padding:4px 8px;font-weight:500">${esc(ob.pagarA||'')}${pgAdelantoBadgeHtml(ob.pagarA||'')}</td>
                     <td style="padding:4px 8px">${esc(ob.tipoDocumento||'')}</td>
                     <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
                     <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
@@ -6028,6 +6160,7 @@ async function renderPaso4(container) {
   async function p4AbrirProg(id) {
     try {
       p4Prog = await GET(`/pagos/programaciones/${id}`);
+      await pgAdelantosResumen(p4Prog.compania);
       p4ObsConError  = new Set();
       p4Marcados     = new Set();
       p4CustomAgrups = [];
@@ -6427,10 +6560,10 @@ async function renderPaso5(container) {
           <div style="border-top:1px solid #e2e8f0">
             <!-- Fila compact: nombre + totales + banco/mon/N°op inline -->
             <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;
-                        padding:6px 12px 6px 20px;background:#fafafa" onclick="event.stopPropagation()">
+                        padding:6px 12px 6px 20px;background:#fafafa;${pgAdelantoRowStyle(benef)}" onclick="event.stopPropagation()">
               <span onclick="p5ToggleAgrup('${esc(bKey)}')" class="p5-agrup-arr"
                     style="cursor:pointer;font-size:10px;color:#94a3b8;padding:2px 4px">▸</span>
-              <span style="font-weight:600;font-size:13px;color:#374151;flex:1;min-width:140px">${esc(benef)}</span>
+              <span style="font-weight:600;font-size:13px;color:#374151;flex:1;min-width:140px">${esc(benef)}${pgAdelantoBadgeHtml(benef)}</span>
               ${totBadges(bTot,'11px')}
               <input type="text" class="form-control"
                      style="width:84px;font-size:11px;height:26px" placeholder="Banco"
@@ -6479,10 +6612,10 @@ async function renderPaso5(container) {
           benefRows += `
           <div style="border-top:1px solid #e2e8f0">
             <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;
-                        padding:5px 12px 5px 28px;background:#f8faff" onclick="event.stopPropagation()">
+                        padding:5px 12px 5px 28px;background:#f8faff;${pgAdelantoRowStyle(benef)}" onclick="event.stopPropagation()">
               <span onclick="p5ToggleAgrup('${esc(bKey)}')" class="p5-agrup-arr"
                     style="cursor:pointer;font-size:10px;color:#94a3b8;padding:2px 4px">▸</span>
-              <span style="font-size:12px;color:#374151;font-weight:600;flex:1;min-width:120px">${esc(benef)}</span>
+              <span style="font-size:12px;color:#374151;font-weight:600;flex:1;min-width:120px">${esc(benef)}${pgAdelantoBadgeHtml(benef)}</span>
               ${totBadges(bTot,'10px')}
               <span style="font-size:10px;color:#94a3b8">${bObs.length} oblig.</span>
             </div>
@@ -6712,6 +6845,7 @@ async function renderPaso5(container) {
   async function p5AbrirProg(id) {
     try {
       p5Prog = await GET(`/pagos/programaciones/${id}`);
+      await pgAdelantosResumen(p5Prog.compania);
       p5RenderGrupos();
       // Auto-upsert de beneficiarios en Personas (en background, sin bloquear UI)
       {
