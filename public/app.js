@@ -3675,62 +3675,74 @@ async function renderPaso1(container) {
 
   container.innerHTML = `
     <div class="card mb-16" style="padding:16px">
-      <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
-        <div>
-          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
-          <select id="pg-compania" class="form-control" style="width:150px">
-            <option value="">— Seleccionar —</option>
-            ${(S.user.role === 'ADMIN' || S.user.rolPago === 'admin'
-              ? ALL_SOCS_COMPRA
-              : (S.user.sociedadesPago || [])
-            ).map(s => `<option value="${s}">${s}</option>`).join('')}
-          </select>
+      <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
+
+        <!-- Columna izquierda: sociedad, TC y fecha de pago -->
+        <div style="display:flex;flex-direction:column;gap:10px;min-width:200px">
+          <div style="display:flex;gap:12px;align-items:flex-end">
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+              <select id="pg-compania" class="form-control" style="width:140px">
+                <option value="">— Seleccionar —</option>
+                ${(S.user.role === 'ADMIN' || S.user.rolPago === 'admin'
+                  ? ALL_SOCS_COMPRA
+                  : (S.user.sociedadesPago || [])
+                ).map(s => `<option value="${s}">${s}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">T/C</label>
+              <input id="pg-tc" type="number" step="0.001" min="0" class="form-control"
+                     style="width:80px;font-size:13px" value="3.700"
+                     oninput="clearTimeout(window._pgTC);window._pgTC=setTimeout(()=>renderTabla(),400)">
+            </div>
+          </div>
+          <div style="padding:8px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:12px;white-space:nowrap">
+            <div style="color:var(--text-muted);margin-bottom:2px">Fecha de pago</div>
+            <strong id="pg-fecha-pago" style="font-size:13px">${fechaPagoStr}</strong>
+            <span style="color:var(--text-muted);margin-left:8px">Sem. ${fp.semana}/${fp.año}</span>
+          </div>
         </div>
-        <div style="display:flex;gap:8px;align-items:flex-end">
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Archivo</label>
+
+        <!-- Divisor vertical -->
+        <div style="width:1px;background:#e2e8f0;align-self:stretch;flex-shrink:0"></div>
+
+        <!-- Columna derecha: tres grupos de carga -->
+        <div style="display:flex;gap:16px;flex-wrap:wrap;flex:1">
+
+          <!-- Programación -->
+          <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Programación</label>
             <input type="file" id="pg-file" accept=".csv" style="display:none">
-            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file').click()">
-              📎 Seleccionar archivo
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file').click()" style="width:100%;justify-content:center">
+              📎 Seleccionar
             </button>
+            <span id="pg-filename" style="font-size:11px;color:var(--text-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:160px">Sin archivo</span>
+            <button class="btn btn-primary btn-sm" id="pg-cargar" style="width:100%;justify-content:center">📂 Cargar</button>
           </div>
-          <span id="pg-filename" style="font-size:12px;color:var(--text-muted);align-self:center;max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
-            Sin archivo
-          </span>
-          <button class="btn btn-primary btn-sm" id="pg-cargar">📂 Cargar</button>
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo de Cambio</label>
-          <input id="pg-tc" type="number" step="0.001" min="0" class="form-control"
-                 style="width:90px;font-size:13px" value="3.700"
-                 oninput="clearTimeout(window._pgTC);window._pgTC=setTimeout(()=>renderTabla(),400)">
-        </div>
-        <div style="padding:8px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;font-size:13px">
-          <span style="color:var(--text-muted)">Fecha de pago:</span>
-          <strong style="margin-left:6px" id="pg-fecha-pago">${fechaPagoStr}</strong>
-          <span style="color:var(--text-muted);margin-left:10px">Sem. ${fp.semana}/${fp.año}</span>
-        </div>
-        <div style="display:flex;gap:8px;align-items:flex-end">
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Q PAGOS.csv</label>
+
+          <!-- Q Pagos -->
+          <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Q Pagos</label>
             <input type="file" id="pg-file-pagos" accept=".csv" style="display:none">
-            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-pagos').click()">
-              📊 Seleccionar Pagos
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-pagos').click()" style="width:100%;justify-content:center">
+              📊 Seleccionar
             </button>
+            <span id="pg-filename-pagos" style="font-size:11px;color:var(--text-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:160px">Sin archivo</span>
+            <button class="btn btn-outline btn-sm" id="pg-cargar-pagos" style="width:100%;justify-content:center">📂 Cargar</button>
           </div>
-          <span id="pg-filename-pagos" style="font-size:11px;color:var(--text-muted);align-self:center">Sin archivo</span>
-          <button class="btn btn-outline btn-sm" id="pg-cargar-pagos">📂 Cargar Pagos</button>
-        </div>
-        <div style="display:flex;gap:8px;align-items:flex-end">
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Adelantos Pendientes de Rendición</label>
+
+          <!-- Adelantos -->
+          <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Adelantos Pendientes</label>
             <input type="file" id="pg-file-adelantos" accept=".csv" style="display:none">
-            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-adelantos').click()">
-              💵 Seleccionar Adelantos
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-adelantos').click()" style="width:100%;justify-content:center">
+              💵 Seleccionar
             </button>
+            <span id="pg-filename-adelantos" style="font-size:11px;color:var(--text-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:160px">Sin archivo</span>
+            <button class="btn btn-outline btn-sm" id="pg-cargar-adelantos" style="width:100%;justify-content:center">📂 Cargar</button>
           </div>
-          <span id="pg-filename-adelantos" style="font-size:11px;color:var(--text-muted);align-self:center">Sin archivo</span>
-          <button class="btn btn-outline btn-sm" id="pg-cargar-adelantos">📂 Cargar Adelantos</button>
+
         </div>
       </div>
     </div>
