@@ -107,7 +107,7 @@ function parseCSV(buffer) {
 }
 
 /**
- * Parsear Q PROGRAMACION.csv — SIN cabecera, columnas fijas:
+ * Parsear Q PROGRAMACION.csv — CON cabecera, columnas fijas:
  *  0  TipoDocumento       (FP / PP / AP / RH / VR)
  *  1  NumeroDocumento
  *  4  Banco               (AB=BBVA, IB=IBK, EX=BCP)
@@ -121,7 +121,7 @@ const BANCO_MAP = { AB: 'BBVA', IB: 'IBK', EX: 'BCP' };
 function parseCSVProgramacion(buffer) {
   const text  = buffer.toString('latin1').replace(/\r/g, '');
   const lines = text.split('\n').filter(l => l.trim());
-  return lines.map(line => {
+  return lines.slice(1).map(line => {
     const v = parseCSVLine(line);
     const get = i => (v[i] || '').trim();
     const bancoCode = get(4);
