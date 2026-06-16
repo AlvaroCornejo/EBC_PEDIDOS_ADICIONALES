@@ -4196,8 +4196,13 @@ async function renderPaso1(container) {
                   <td class="text-right fw-semibold" style="${!esLocal?'color:#3b82f6':''}">
                     ${fmtMonto(montoSol)}
                   </td>
-                  <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
-                      title="${esc(o.pagarA)}">${esc(o.pagarA)}${pgAdelantoBadgeHtml(o.pagarA)}</td>
+                  <td style="max-width:220px">
+                    <div style="display:flex;align-items:center;gap:4px">
+                      <span style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:1;min-width:0"
+                            title="${esc(o.pagarA)}">${esc(o.pagarA)}</span>
+                      ${pgAdelantoBadgeHtml(o.pagarA)}
+                    </div>
+                  </td>
                   <td>${esc(o.banco)}</td>
                   <td class="text-right fw-semibold" style="color:${dvColor}">${dvLabel}</td>
                   <td>${readOnly
