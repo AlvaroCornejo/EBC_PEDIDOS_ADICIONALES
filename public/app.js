@@ -7764,7 +7764,7 @@ async function viewMovimientos(container) {
         </td>
         ${tieneTipo ? `<td><select id="mv-edit-tipo" class="form-control">${cfg.tipos.map(t => `<option value="${t}" ${record?.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></td>` : ''}
         ${!es86 ? `<td style="text-align:right"><input type="number" id="mv-edit-cantidad" class="form-control" style="width:100px" step="0.0001" min="0.0001" value="${record?.cantidad ?? ''}"></td>` : ''}
-        <td style="min-width:1125px"><input type="text" id="mv-edit-comentarios" class="form-control" style="width:100%" value="${esc(record?.comentarios || '')}"></td>
+        <td style="min-width:562px"><input type="text" id="mv-edit-comentarios" class="form-control" style="width:100%" value="${esc(record?.comentarios || '')}"></td>
         <td style="font-size:12px">
           ${!es86 && record ? (() => { const b = estadoBadge(record.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}">${record.estado}</span><br>`; })() : ''}
           ${esc(record?.creadoPorNombre || '—')}
@@ -7787,7 +7787,7 @@ async function viewMovimientos(container) {
         <td style="min-width:330px">${esc(String(r.item))}${r.itemNombre ? ' - ' + esc(r.itemNombre) : ''}</td>
         ${tieneTipo ? `<td>${esc(r.tipo)}</td>` : ''}
         ${!es86 ? `<td class="text-right">${fmtCant(r.cantidad)}</td>` : ''}
-        <td style="min-width:1125px;white-space:normal">${esc(r.comentarios || '')}</td>
+        <td style="min-width:562px;white-space:normal">${esc(r.comentarios || '')}</td>
         <td style="font-size:12px">
           ${!es86 ? (() => { const b = estadoBadge(r.estado); return `<span class="badge" style="background:${b.bg};color:${b.color}" title="${esc(r.comentarioProceso || '')}">${r.estado}</span><br>`; })() : ''}
           ${esc(r.creadoPorNombre || '')}
@@ -7814,7 +7814,7 @@ async function viewMovimientos(container) {
               <th style="min-width:330px">Ítem</th>
               ${tieneTipo ? '<th>Tipo</th>' : ''}
               ${!es86 ? '<th class="text-right">Cantidad</th>' : ''}
-              <th style="min-width:1125px">Comentarios</th>
+              <th style="min-width:562px">Comentarios</th>
               <th>${es86 ? 'Creado por' : 'Estado / Creado por'}</th>
               <th>Acciones</th>
             </tr></thead>
