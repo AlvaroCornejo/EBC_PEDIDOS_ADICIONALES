@@ -3803,7 +3803,7 @@ async function renderPaso1(container) {
     </div>
 
     <!-- Tabla de obligaciones (scrollable) — con espacio para el footer fijo -->
-    <div id="pg-tabla-wrap" style="padding-bottom:180px"></div>
+    <div id="pg-tabla-wrap" style="padding-bottom:320px"></div>
 
     <!-- Resúmenes fijos al pie (se inyectan vía JS fuera del flujo) -->
     <div id="pg-resumenes-placeholder"></div>`;
