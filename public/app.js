@@ -4154,7 +4154,7 @@ async function renderPaso1(container) {
           <table class="data-table" style="font-size:11px">
             <thead><tr>
               <th style="width:28px"></th>
-              <th>Tipo</th><th>N° Documento</th><th>Vencimiento</th><th>F. Documento</th>
+              <th>Tipo</th><th>N° Documento</th><th>Vencimiento</th><th>F. Documento</th><th class="text-right">Plazo</th>
               <th>Mon.</th><th class="text-right">Monto</th><th class="text-right">Monto S/</th>
               <th>Beneficiario</th><th>Banco</th>
               <th class="text-right">Días Venc.</th>
@@ -4186,6 +4186,11 @@ async function renderPaso1(container) {
                   <td style="white-space:nowrap">${esc(o.numeroDocumento)}</td>
                   <td style="white-space:nowrap">${fmtFecha(o.fechaVencimiento)}</td>
                   <td style="white-space:nowrap">${fmtFecha(o.fechaDocumento)}</td>
+                  <td class="text-right" style="color:var(--text-muted);font-size:10px">${
+                    o.fechaVencimiento && o.fechaDocumento
+                      ? Math.round((new Date(o.fechaVencimiento) - new Date(o.fechaDocumento)) / 86400000) + 'd'
+                      : '—'
+                  }</td>
                   <td>${esc(o.moneda)}</td>
                   <td class="text-right fw-semibold" style="${montoColor}">${fmtMonto(o.monto)}</td>
                   <td class="text-right fw-semibold" style="${!esLocal?'color:#3b82f6':''}">
