@@ -3721,15 +3721,15 @@ async function renderPaso1(container) {
             <button class="btn btn-primary btn-sm" id="pg-cargar" style="width:100%;justify-content:center">📂 Cargar</button>
           </div>
 
-          <!-- Q Pagos -->
+          <!-- Pagos -->
           <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
-            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Q Pagos</label>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Pagos</label>
             <input type="file" id="pg-file-pagos" accept=".csv" style="display:none">
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-pagos').click()" style="width:100%;justify-content:center">
               📊 Seleccionar
             </button>
             <span id="pg-filename-pagos" style="font-size:11px;color:var(--text-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:160px">Sin archivo</span>
-            <button class="btn btn-outline btn-sm" id="pg-cargar-pagos" style="width:100%;justify-content:center">📂 Cargar</button>
+            <button class="btn btn-primary btn-sm" id="pg-cargar-pagos" style="width:100%;justify-content:center">📂 Cargar</button>
           </div>
 
           <!-- Adelantos -->
@@ -3740,7 +3740,7 @@ async function renderPaso1(container) {
               💵 Seleccionar
             </button>
             <span id="pg-filename-adelantos" style="font-size:11px;color:var(--text-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:160px">Sin archivo</span>
-            <button class="btn btn-outline btn-sm" id="pg-cargar-adelantos" style="width:100%;justify-content:center">📂 Cargar</button>
+            <button class="btn btn-primary btn-sm" id="pg-cargar-adelantos" style="width:100%;justify-content:center">📂 Cargar</button>
           </div>
 
         </div>
@@ -3848,22 +3848,23 @@ async function renderPaso1(container) {
   });
   document.getElementById('pg-cargar-pagos').addEventListener('click', async () => {
     const file = document.getElementById('pg-file-pagos').files[0];
-    if (!file) { toast('Selecciona Q PAGOS.csv', 'error'); return; }
+    if (!file) { toast('Selecciona el archivo de Pagos', 'error'); return; }
     const fd = new FormData();
     fd.append('archivo', file);
     if (progActual?._id) fd.append('progId', progActual._id);
+    document.getElementById('pg-prog-wrap-pagos')?.remove();
+    pgSetProgress('pagos', 0, 'Iniciando...');
     try {
-      const r = await fetch('/api/pagos/cargar-pagos', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
-        body: fd,
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
+      const data = await pgUploadXHR('/api/pagos/cargar-pagos', fd, 'pagos');
+      pgSetProgress('pagos', 95, 'Actualizando resúmenes...');
       pagosPromedios = data;
       renderResumenes();
+      pgSetProgress('pagos', 100, `✓ ${Object.keys(data).length} proveedores cargados`);
       toast(`Pagos cargados — ${Object.keys(data).length} proveedores`, 'success');
-    } catch(e) { toast(e.message, 'error'); }
+    } catch(e) {
+      document.getElementById('pg-prog-wrap-pagos')?.remove();
+      toast(e.message, 'error');
+    }
   });
 
   // Adelantos: selección y carga
@@ -3879,21 +3880,22 @@ async function renderPaso1(container) {
     const fd = new FormData();
     fd.append('archivo', file);
     fd.append('compania', compania);
+    document.getElementById('pg-prog-wrap-adelantos')?.remove();
+    pgSetProgress('adelantos', 0, 'Iniciando...');
     try {
-      const r = await fetch('/api/pagos/adelantos/cargar', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
-        body: fd,
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
+      const data = await pgUploadXHR('/api/pagos/adelantos/cargar', fd, 'adelantos');
+      pgSetProgress('adelantos', 90, 'Actualizando tabla...');
       delete _pgAdelantosCache[compania];
       if (progActual?.compania === compania) {
         await pgAdelantosResumen(compania);
         renderTabla();
       }
+      pgSetProgress('adelantos', 100, `✓ ${data.total} docs, ${data.proveedores} proveedores`);
       toast(`Adelantos cargados — ${data.total} documentos, ${data.proveedores} proveedores`, 'success');
-    } catch(e) { toast(e.message, 'error'); }
+    } catch(e) {
+      document.getElementById('pg-prog-wrap-adelantos')?.remove();
+      toast(e.message, 'error');
+    }
   });
 
   // Ver relación de adelantos
@@ -3970,46 +3972,48 @@ async function renderPaso1(container) {
     } catch(e) { toast(e.message, 'error'); }
   };
 
-  // ── Barra de progreso ──────────────────────────────────────────────
-  function setProgress(pct, label) {
-    let bar = document.getElementById('pg-progress');
+  // ── Barra de progreso genérica ─────────────────────────────────────
+  // key: 'prog' | 'pagos' | 'adelantos'  — ancla en el botón pg-cargar[-key]
+  function pgSetProgress(key, pct, label) {
+    const btnId  = key === 'prog' ? 'pg-cargar' : `pg-cargar-${key}`;
+    const wrapId = `pg-prog-wrap-${key}`;
+    const barId  = `pg-prog-bar-${key}`;
+    let bar = document.getElementById(barId);
     if (!bar) {
       const wrap = document.createElement('div');
-      wrap.id = 'pg-progress-wrap';
-      wrap.style.cssText = 'margin-top:10px;animation:fadeIn .2s';
+      wrap.id = wrapId;
+      wrap.style.cssText = 'margin-top:6px;animation:fadeIn .2s';
       wrap.innerHTML = `
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:4px">
-          <span id="pg-progress-label">Cargando...</span>
-          <span id="pg-progress-pct">0%</span>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:3px">
+          <span id="pg-prog-lbl-${key}">Cargando...</span>
+          <span id="pg-prog-pct-${key}">0%</span>
         </div>
-        <div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden">
-          <div id="pg-progress" style="height:100%;width:0%;background:var(--primary);border-radius:4px;transition:width .3s"></div>
+        <div style="height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden">
+          <div id="${barId}" style="height:100%;width:0%;background:var(--primary);border-radius:3px;transition:width .3s"></div>
         </div>`;
-      document.getElementById('pg-cargar').parentElement.after(wrap);
-      bar = document.getElementById('pg-progress');
+      document.getElementById(btnId).after(wrap);
+      bar = document.getElementById(barId);
     }
     bar.style.width = pct + '%';
     bar.style.background = pct === 100 ? '#22c55e' : 'var(--primary)';
-    document.getElementById('pg-progress-label').textContent = label;
-    document.getElementById('pg-progress-pct').textContent   = pct + '%';
-    if (pct === 100) {
-      setTimeout(() => document.getElementById('pg-progress-wrap')?.remove(), 1500);
-    }
+    document.getElementById(`pg-prog-lbl-${key}`).textContent = label;
+    document.getElementById(`pg-prog-pct-${key}`).textContent = pct + '%';
+    if (pct === 100) setTimeout(() => document.getElementById(wrapId)?.remove(), 1500);
   }
 
-  function uploadCSV(fd) {
+  function pgUploadXHR(url, fd, key) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/pagos/cargar');
+      xhr.open('POST', url);
       xhr.setRequestHeader('Authorization', 'Bearer ' + localStorage.getItem('ebc_token'));
       xhr.upload.addEventListener('progress', e => {
         if (e.lengthComputable) {
           const pct = Math.round((e.loaded / e.total) * 70);
-          setProgress(pct, `Enviando archivo... ${pct}%`);
+          pgSetProgress(key, pct, `Enviando archivo... ${pct}%`);
         }
       });
       xhr.addEventListener('load', () => {
-        setProgress(85, 'Procesando obligaciones...');
+        pgSetProgress(key, 85, 'Procesando...');
         try {
           const data = JSON.parse(xhr.responseText);
           if (xhr.status >= 400) reject(new Error(data.error || `Error ${xhr.status}`));
@@ -4030,20 +4034,20 @@ async function renderPaso1(container) {
     const fd = new FormData();
     fd.append('archivo', file);
     fd.append('compania', compania);
-    document.getElementById('pg-progress-wrap')?.remove();
-    setProgress(0, 'Iniciando...');
+    document.getElementById('pg-prog-wrap-prog')?.remove();
+    pgSetProgress('prog', 0, 'Iniciando...');
     try {
-      const data = await uploadCSV(fd);
-      setProgress(92, 'Cargando programación...');
+      const data = await pgUploadXHR('/api/pagos/cargar', fd, 'prog');
+      pgSetProgress('prog', 92, 'Cargando programación...');
       progActual = await GET(`/pagos/programaciones/${data.id}`);
       progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
       await pgAdelantosResumen(progActual.compania);
-      setProgress(98, 'Renderizando tabla...');
+      pgSetProgress('prog', 98, 'Renderizando tabla...');
       await renderTablaYResumenes();
-      setProgress(100, `✓ ${data.total} obligaciones cargadas`);
+      pgSetProgress('prog', 100, `✓ ${data.total} obligaciones cargadas`);
       toast(`${data.total} obligaciones cargadas`, 'success');
     } catch(e) {
-      document.getElementById('pg-progress-wrap')?.remove();
+      document.getElementById('pg-prog-wrap-prog')?.remove();
       toast(e.message, 'error');
     }
   });
