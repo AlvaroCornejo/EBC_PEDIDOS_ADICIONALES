@@ -106,34 +106,49 @@ function parseCSV(buffer) {
   });
 }
 
-/**
- * Parsear Q PROGRAMACION.csv — CON cabecera, columnas fijas:
- *  0  TipoDocumento       (FP / PP / AP / RH / VR)
- *  1  NumeroDocumento
- *  4  Banco               (AB=BBVA, IB=IBK, EX=BCP)
- *  5  FechaVencimiento    "D/MM/YYYY HH:MM:SS"
- *  7  MonedaDocumento     (LO=SOL, EX=USD)
- *  8  MontoMoneda
- *  9  PagarA              nombre del beneficiario
- * 32  FechaDocumento      "D/MM/YYYY HH:MM:SS"
- */
 const BANCO_MAP = { AB: 'BBVA', IB: 'IBK', EX: 'BCP' };
+
+/**
+ * Parsear Q PROGRAMACION.csv — detecta columnas por nombre desde el header.
+ * Fallbacks a índices fijos documentados si el nombre no aparece en el header.
+ * Si FechaDocumento aparece más de una vez, usa la última ocurrencia.
+ */
 function parseCSVProgramacion(buffer) {
   const text  = buffer.toString('latin1').replace(/\r/g, '');
   const lines = text.split('\n').filter(l => l.trim());
+  const headers = parseCSVLine(lines[0]).map(h => h.trim());
+
+  const col = (name, fallback) => {
+    const i = headers.indexOf(name);
+    return i !== -1 ? i : fallback;
+  };
+  // FechaDocumento puede aparecer dos veces → última ocurrencia
+  const fdAll = headers.reduce((acc, h, i) => h === 'FechaDocumento' ? [...acc, i] : acc, []);
+
+  const COL = {
+    tipo : col('TipoDocumento',  0),
+    num  : col('NumeroDocumento',1),
+    banco: col('Banco',          4),
+    fv   : col('FechaVencimiento',5),
+    mon  : col('MonedaDocumento', 7),
+    mto  : col('MontoMoneda',     8),
+    pa   : col('PagarA',          9),
+    fd   : fdAll.length ? fdAll[fdAll.length - 1] : 32,
+  };
+
   return lines.slice(1).map(line => {
     const v = parseCSVLine(line);
     const get = i => (v[i] || '').trim();
-    const bancoCode = get(4);
+    const bancoCode = get(COL.banco);
     return {
-      TipoDocumento:    get(0),
-      NumeroDocumento:  get(1),
+      TipoDocumento:    get(COL.tipo),
+      NumeroDocumento:  get(COL.num),
       Banco:            BANCO_MAP[bancoCode] || bancoCode,
-      FechaVencimiento: get(5),
-      MonedaDocumento:  get(7),
-      MontoMoneda:      get(8),
-      PagarA:           get(9),
-      FechaDocumento:   get(32),
+      FechaVencimiento: get(COL.fv),
+      MonedaDocumento:  get(COL.mon),
+      MontoMoneda:      get(COL.mto),
+      PagarA:           get(COL.pa),
+      FechaDocumento:   get(COL.fd),
     };
   }).filter(r => r.TipoDocumento && r.PagarA);
 }
