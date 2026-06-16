@@ -3904,9 +3904,16 @@ async function renderPaso1(container) {
     pgVerRelacionAdelantos(compania, progActual?._id);
   });
 
-  // Al cambiar sociedad → mostrar programaciones existentes
+  // Al cambiar sociedad → limpiar estado actual y mostrar programaciones existentes
   document.getElementById('pg-compania').addEventListener('change', async (e) => {
     const comp = e.target.value;
+    progActual = null;
+    benefMap   = {};
+    document.getElementById('pg-tabla-wrap').innerHTML = '';
+    document.getElementById('pg-filtros').style.display = 'none';
+    document.getElementById('pg-footer-btns').style.display = 'none';
+    document.getElementById('pg-res-benef').innerHTML = '';
+    document.getElementById('pg-res-grupo').innerHTML  = '';
     await pgCargarListaProgs(comp);
   });
 
