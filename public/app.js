@@ -5047,7 +5047,7 @@ async function renderPaso3(container) {
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
       <button class="btn btn-outline btn-sm" onclick="imprimirVista('p3-wrap','Paso 3 — Preparación de Pagos')">🖨️ Imprimir</button>
-      <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('p3-wrap','paso3-preparacion')">📥 Bajar a Excel</button>
+      <button class="btn btn-outline btn-sm" onclick="p3ExportarExcel()">📥 Bajar a Excel</button>
     </div>
     <div id="p3-wrap" style="padding-bottom:120px"></div>`;
 
@@ -5571,6 +5571,44 @@ async function renderPaso3(container) {
       const tr = document.querySelector(`[oninput="p3SetObsOb('${obId}',this.value)"]`)?.closest('tr');
       if (tr) tr.style.background = '';
     }
+  };
+
+  // ── Exportar Excel Paso 3 ────────────────────────────────────────
+  window.p3ExportarExcel = function() {
+    if (!p3Prog) { toast('No hay programación abierta', 'error'); return; }
+    const obs = (p3Prog.obligaciones || []).filter(o => o.seleccionado);
+    if (!obs.length) { toast('No hay obligaciones programadas', 'error'); return; }
+
+    const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PE') : '';
+    const fmtNum  = n => (n ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const headers = ['Beneficiario','Tipo Doc','N° Documento','F. Documento','F. Vencimiento','Moneda','Importe','Retención','Pago Neto','Grupo de Pago'];
+    const rows = obs
+      .slice()
+      .sort((a,b) => (a.pagarA||'').localeCompare(b.pagarA||''))
+      .map(ob => [
+        ob.pagarA         || '',
+        ob.tipoDocumento  || '',
+        ob.numeroDocumento|| '',
+        fmtDate(ob.fechaDocumento),
+        fmtDate(ob.fechaVencimiento),
+        ob.moneda         || '',
+        fmtNum(ob.monto),
+        fmtNum(ob.retencion || 0),
+        fmtNum(ob.monto - (ob.retencion || 0)),
+        ob.agrupadorPago  || 'INDIVIDUAL',
+      ].map(csvCell).join(','));
+
+    const csv  = [headers.map(csvCell).join(','), ...rows].join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `paso3-preparacion-${today()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('✅ Exportando a Excel', 'success');
   };
 
   // ── Refresh / filtrar ────────────────────────────────────────────
