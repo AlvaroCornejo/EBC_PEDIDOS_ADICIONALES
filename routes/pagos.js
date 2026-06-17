@@ -357,7 +357,9 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
         diasVencido,
         grupo,
         detalleGrupo,
-        seleccionado: diasVencido >= 0 && diasVencido <= 9,
+        seleccionado:     diasVencido >= 0 && diasVencido <= 9,
+        bancoAsignado:    benefMap[key]?.bancoDefault    || '',
+        agrupadorPago:    benefMap[key]?.agrupadorDefault || 'INDIVIDUAL',
       });
     }
 
