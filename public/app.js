@@ -5172,6 +5172,16 @@ async function renderPaso3(container) {
     document.getElementById('p3-filtros').style.display = '';
   }
 
+  function p3ActualizarFiltroAgrups() {
+    const el = document.getElementById('p3-f-agrup');
+    if (!el) return;
+    const cur    = el.value;
+    const obs    = (p3Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const agrups = [...new Set(obs.map(o => o.agrupadorPago || 'INDIVIDUAL'))].sort();
+    el.innerHTML = '<option value="">Todos</option>' +
+      agrups.map(a => `<option value="${esc(a)}"${a === cur ? ' selected' : ''}>${esc(a)}</option>`).join('');
+  }
+
   // ── Guardar / restaurar estado de colapso ───────────────────────
   function p3SaveState() {
     const grps = {}, obls = {};
@@ -5260,6 +5270,7 @@ async function renderPaso3(container) {
   function p3RenderGrupos() {
     const wrap = document.getElementById('p3-wrap');
     if (!p3Prog) { wrap.innerHTML = ''; return; }
+    p3ActualizarFiltroAgrups();
     const tc  = parseFloat(document.getElementById('p3-tc')?.value) || 1;
     const obs = p3ObsFiltradas();
     const allObs = (p3Prog.obligaciones || []).filter(o => o.seleccionado);
