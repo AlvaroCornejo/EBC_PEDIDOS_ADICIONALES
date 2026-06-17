@@ -6091,33 +6091,14 @@ async function renderPaso4(container) {
           <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
           <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
           <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
-          <td style="padding:2px 8px;text-align:right">
-            <input type="number" min="0" step="0.01" class="form-control"
-                   style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
-                   placeholder="0.00" value="${ob.retencion ? ob.retencion : ''}"
-                   oninput="p4SetRetOb('${ob._id}',this.value)" onblur="p4RetBlur()">
-          </td>
-          <td id="p4-neto-${ob._id}"
-              style="padding:4px 8px;text-align:right;font-weight:600;color:${(ob.retencion||0)>0?'#059669':'inherit'}">
-            ${fmtN(netoOb(ob))}
-          </td>
-          <td style="padding:2px 8px;text-align:center">
-            <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
-                    onchange="p4SetBancoOb('${ob._id}',this.value)">
-              ${p4BancosOpts(ob.bancoAsignado||'')}
-            </select>
-          </td>
-          <td style="padding:2px 8px;text-align:center">
-            <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
-                    onchange="p4SetAgrupOb('${ob._id}',this.value)">
-              ${p4AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
-            </select>
-          </td>
+          <td style="padding:4px 8px;text-align:right;color:${(ob.retencion||0)>0?'#059669':'var(--text-muted)'}">${fmtN(ob.retencion||0)}</td>
+          <td style="padding:4px 8px;text-align:right;font-weight:600;color:${(ob.retencion||0)>0?'#059669':'inherit'}">${fmtN(netoOb(ob))}</td>
+          <td style="padding:4px 8px;text-align:center;color:#1d4ed8;font-weight:500">${esc(ob.bancoAsignado||'')}</td>
+          <td style="padding:4px 8px;text-align:center;color:#7c3aed">${esc(ob.agrupadorPago||'INDIVIDUAL')}</td>
           <td style="padding:2px 8px">
             <input type="text" class="form-control"
-                   style="font-size:11px;padding:2px 6px;height:26px;min-width:150px;
-                          ${!ob.bancoAsignado?'border-color:#f59e0b;background:#fffbeb':''}"
-                   placeholder="${!ob.bancoAsignado?'Requerido ⚠':'Observaciones...'}"
+                   style="font-size:11px;padding:2px 6px;height:26px;min-width:150px"
+                   placeholder="Observaciones..."
                    value="${esc(ob.observaciones||'')}"
                    oninput="p4SetObsOb('${ob._id}',this.value)">
           </td>
