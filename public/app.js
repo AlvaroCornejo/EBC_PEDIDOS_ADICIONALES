@@ -5000,8 +5000,7 @@ async function renderPaso3(container) {
         </div>
         <div style="margin-left:auto;align-self:flex-end;display:flex;gap:6px">
           <button class="btn btn-outline btn-sm" onclick="p3Expandir(0)" title="Contraer todo">▸ Contraer</button>
-          <button class="btn btn-outline btn-sm" onclick="p3Expandir(1)" title="Expandir hasta beneficiarios">≡ Beneficiarios</button>
-          <button class="btn btn-outline btn-sm" onclick="p3Expandir(2)" title="Expandir hasta obligaciones">≣ Obligaciones</button>
+          <button class="btn btn-outline btn-sm" onclick="p3Expandir(1)" title="Expandir obligaciones">≣ Obligaciones</button>
         </div>
       </div>
     </div>
@@ -5257,7 +5256,7 @@ async function renderPaso3(container) {
     return { ok: errIds.size === 0, obIds: errIds, mensajes: msgs };
   }
 
-  // ── Render árbol de grupos ───────────────────────────────────────
+  // ── Render lista plana por beneficiario ─────────────────────────
   function p3RenderGrupos() {
     const wrap = document.getElementById('p3-wrap');
     if (!p3Prog) { wrap.innerHTML = ''; return; }
@@ -5271,23 +5270,15 @@ async function renderPaso3(container) {
       if (!AGRUPS_FIJOS.includes(ag) && !p3CustomAgrups.includes(ag)) p3CustomAgrups.push(ag);
     });
 
-    // Agrupar por grupo → beneficiario
-    const grupos = {};
+    // Agrupar solo por beneficiario
+    const bens = {};
     obs.forEach(ob => {
-      const g = ob.grupo || 'OTROS';
-      if (!grupos[g]) grupos[g] = {};
       const b = ob.pagarA || '(sin beneficiario)';
-      if (!grupos[g][b]) grupos[g][b] = [];
-      grupos[g][b].push(ob);
+      if (!bens[b]) bens[b] = [];
+      bens[b].push(ob);
     });
 
     const neto = o => o.monto - (o.retencion || 0);
-    const grpTot = (g) => {
-      const go = obs.filter(o => (o.grupo||'OTROS') === g);
-      const usd = go.filter(o => o.moneda !== 'LO').reduce((s,o) => s + neto(o), 0);
-      const sol = go.filter(o => o.moneda === 'LO').reduce((s,o) => s + neto(o), 0);
-      return { usd, sol, tot: sol + usd * tc };
-    };
     const benTot = (ben) => {
       const bo = obs.filter(o => (o.pagarA||'') === ben);
       const usd = bo.filter(o => o.moneda !== 'LO').reduce((s,o) => s + neto(o), 0);
@@ -5299,152 +5290,169 @@ async function renderPaso3(container) {
       sol ? `S/&nbsp;${fmtN(sol)}`  : '',
     ].filter(Boolean).join('<br>') || '—';
 
-    // Select de banco (para fila de beneficiario)
+    // Select de banco
     const bancosOpts = (sel) =>
       `<option value="">— Banco —</option>` +
       p3Bancos.filter(b => b.activo).map(b =>
         `<option value="${esc(b.nombre)}" ${b.nombre === sel ? 'selected' : ''}>${esc(b.nombre)}</option>`
       ).join('');
 
-    // COLS: arrow | name | programado | banco | agrupador
     const COLS = 'grid-template-columns:26px minmax(150px,250px) 170px 150px 170px;gap:0 12px';
 
-    let html = '';
-    Object.keys(grupos).sort().forEach(grp => {
-      const grpId = `p3grp-${grp.replace(/\W/g,'_')}`;
-      const gt    = grpTot(grp);
+    let html = `
+    <div class="card mb-8" style="padding:0;overflow:hidden">
+      <div style="display:grid;${COLS};
+                  align-items:center;padding:5px 14px 5px 18px;
+                  background:#f1f5f9;border-bottom:1px solid #e2e8f0;
+                  font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
+        <div></div>
+        <div>Beneficiario</div>
+        <div style="text-align:right">Programado</div>
+        <div style="text-align:center">Banco</div>
+        <div style="text-align:center">Agrupador de Pago</div>
+      </div>`;
+
+    Object.keys(bens).sort().forEach(ben => {
+      const oblList = bens[ben];
+      const benKey  = ben.toUpperCase().replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      const bt      = benTot(ben);
+      const progMon = totStr(bt);
+      const benObsList = allObs.filter(o => (o.pagarA||'').toUpperCase() === ben.toUpperCase());
+      const benBancos = [...new Set(benObsList.map(o => o.bancoAsignado || ''))];
+      const benAgrups = [...new Set(benObsList.map(o => o.agrupadorPago || 'INDIVIDUAL'))];
+      const curBanco = benBancos.length === 1 ? benBancos[0] : '';
+      const curAgrup = benAgrups.length === 1 ? benAgrups[0] : '';
+      const benConError = p3ObsConError.size > 0 && benObsList.some(o => p3ObsConError.has(String(o._id)));
+
       html += `
-      <div class="card mb-8">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;
-                    border-bottom:1px solid #e2e8f0;cursor:pointer;user-select:none"
-             onclick="document.getElementById('${grpId}').style.display=
-                      document.getElementById('${grpId}').style.display==='none'?'':'none';
-                      this.querySelector('.p3-arr').textContent=
-                      document.getElementById('${grpId}').style.display===''?'▾':'▸'">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="p3-arr" style="font-size:12px;color:var(--text-muted)">▸</span>
-            <strong style="font-size:14px">${esc(grp)}</strong>
+      <div style="border-bottom:1px solid #f1f5f9">
+        <div class="p3-ben-row" onclick="if(!['SELECT','OPTION'].includes(event.target.tagName))p3ToggleBenObl(this)"
+             style="display:grid;${COLS};
+                    align-items:center;padding:6px 14px 6px 18px;
+                    background:${benConError ? '#fef9c3' : '#fafbfc'};cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
+          <span class="p3-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
+          <span style="font-weight:600;font-size:13px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
+          <div style="text-align:right;font-size:12px;line-height:1.5">${progMon}</div>
+          <div onclick="event.stopPropagation()">
+            <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
+                    onchange="p3SetBancoBen('${benKey}',this.value)">
+              ${bancosOpts(curBanco)}
+            </select>
           </div>
-          <div style="font-size:12px;color:var(--text-muted)">
-            ${gt.usd ? `USD <strong>${fmtN(gt.usd)}</strong>&nbsp;&nbsp;` : ''}
-            ${gt.sol ? `S/ <strong>${fmtN(gt.sol)}</strong>&nbsp;&nbsp;` : ''}
-            <span style="color:var(--primary);font-weight:700">Todo en S/: ${fmtN(gt.tot)}</span>
+          <div onclick="event.stopPropagation()">
+            <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
+                    onchange="p3SetAgrupBen('${benKey}',this.value)">
+              ${p3AgrupOpts(curAgrup)}
+            </select>
           </div>
         </div>
-        <div id="${grpId}" style="display:none">
-          <!-- Cabecera de columnas -->
-          <div style="display:grid;${COLS};
-                      align-items:center;padding:5px 14px 5px 18px;
-                      background:#f1f5f9;border-bottom:1px solid #e2e8f0;
-                      font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
-            <div></div>
-            <div>Beneficiario</div>
-            <div style="text-align:right">Programado</div>
-            <div style="text-align:center">Banco</div>
-            <div style="text-align:center">Agrupador de Pago</div>
-          </div>`;
-
-      Object.keys(grupos[grp]).sort().forEach(ben => {
-        const oblList = grupos[grp][ben];
-        const benKey  = ben.toUpperCase().replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-        const bt      = benTot(ben);
-        const progMon = totStr(bt);
-        // Banco y agrupador del beneficiario — detectar mixto si difieren entre obligaciones
-        const benObsList = allObs.filter(o => (o.pagarA||'').toUpperCase() === ben.toUpperCase());
-        const benBancos = [...new Set(benObsList.map(o => o.bancoAsignado || ''))];
-        const benAgrups = [...new Set(benObsList.map(o => o.agrupadorPago || 'INDIVIDUAL'))];
-        const curBanco = benBancos.length === 1 ? benBancos[0] : '';
-        const curAgrup = benAgrups.length === 1 ? benAgrups[0] : '';
-        const benConError = p3ObsConError.size > 0 && benObsList.some(o => p3ObsConError.has(String(o._id)));
-
-        html += `
-        <div style="border-bottom:1px solid #f1f5f9">
-          <div class="p3-ben-row" onclick="if(!['SELECT','OPTION'].includes(event.target.tagName))p3ToggleBenObl(this)"
-               style="display:grid;${COLS};
-                      align-items:center;padding:6px 14px 6px 18px;
-                      background:${benConError ? '#fef9c3' : '#fafbfc'};cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
-            <span class="p3-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
-            <span style="font-weight:600;font-size:13px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
-            <div style="text-align:right;font-size:12px;line-height:1.5">${progMon}</div>
-            <div onclick="event.stopPropagation()">
-              <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
-                      onchange="p3SetBancoBen('${benKey}',this.value)">
-                ${bancosOpts(curBanco)}
-              </select>
-            </div>
-            <div onclick="event.stopPropagation()">
-              <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
-                      onchange="p3SetAgrupBen('${benKey}',this.value)">
-                ${p3AgrupOpts(curAgrup)}
-              </select>
-            </div>
-          </div>
-          <div class="p3-obl-div" data-p3-ben="${benKey}" style="display:none">
-            <table style="width:100%;border-collapse:collapse;font-size:12px">
-              <thead>
-                <tr style="background:#f8fafc;color:var(--text-muted)">
-                  <th style="padding:4px 8px 4px 32px;text-align:left">Tipo Doc</th>
-                  <th style="padding:4px 8px;text-align:left">N° Documento</th>
-                  <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
-                  <th style="padding:4px 8px;text-align:right">Moneda</th>
-                  <th style="padding:4px 8px;text-align:right">Monto</th>
-                  <th style="padding:4px 8px;text-align:right">Retención</th>
-                  <th style="padding:4px 8px;text-align:right">Neto</th>
-                  <th style="padding:4px 8px;text-align:center">Banco</th>
-                  <th style="padding:4px 8px;text-align:center">Agrupador</th>
-                  <th style="padding:4px 8px;text-align:left">Observaciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${oblList.map(ob => `
-                  <tr style="border-top:1px solid #f1f5f9${p3ObsConError.has(String(ob._id)) ? ';background:#fef9c3' : ''}">
-                    <td style="padding:4px 8px 4px 32px">${esc(ob.tipoDocumento||'')}</td>
-                    <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
-                    <td style="padding:4px 8px">${fmtF(ob.fechaVencimiento)}</td>
-                    <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
-                    <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
-                    <td style="padding:2px 8px;text-align:right">
-                      <input type="number" min="0" step="0.01" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
-                             placeholder="0.00"
-                             value="${ob.retencion ? ob.retencion : ''}"
-                             oninput="p3SetRetOb('${ob._id}',this.value)"
-                             onblur="p3RetBlur()">
-                    </td>
-                    <td id="p3-neto-${ob._id}"
-                        style="padding:4px 8px;text-align:right;font-weight:600;
-                               color:${(ob.retencion||0)>0?'#059669':'inherit'}">
-                      ${fmtN(ob.monto - (ob.retencion||0))}
-                    </td>
-                    <td style="padding:2px 8px;text-align:center">
-                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
-                              onchange="p3SetBancoOb('${ob._id}',this.value)">
-                        ${bancosOpts(ob.bancoAsignado||'')}
-                      </select>
-                    </td>
-                    <td style="padding:2px 8px;text-align:center">
-                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
-                              onchange="p3SetAgrupOb('${ob._id}',this.value)">
-                        ${p3AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
-                      </select>
-                    </td>
-                    <td style="padding:2px 8px">
-                      <input type="text" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;min-width:160px;
-                                    ${!ob.bancoAsignado ? 'border-color:#f59e0b;background:#fffbeb' : ''}"
-                             placeholder="${!ob.bancoAsignado ? 'Requerido ⚠' : 'Observaciones...'}"
-                             value="${esc(ob.observaciones||'')}"
-                             oninput="p3SetObsOb('${ob._id}',this.value)">
-                    </td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>`;
-      });
-
-      html += `</div></div>`;
+        <div class="p3-obl-div" data-p3-ben="${benKey}" style="display:none">
+          <table style="width:auto;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:#f8fafc;color:var(--text-muted)">
+                <th style="padding:4px 8px 4px 32px;text-align:left">Tipo Doc</th>
+                <th style="padding:4px 8px;text-align:left">N° Documento</th>
+                <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
+                <th style="padding:4px 8px;text-align:right">Moneda</th>
+                <th style="padding:4px 8px;text-align:right">Monto</th>
+                <th style="padding:4px 8px;text-align:right">Retención</th>
+                <th style="padding:4px 8px;text-align:right">Neto</th>
+                <th style="padding:4px 8px;text-align:center">Banco</th>
+                <th style="padding:4px 8px;text-align:center">Agrupador</th>
+                <th style="padding:4px 8px;text-align:left">Observaciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${oblList.map(ob => `
+                <tr style="border-top:1px solid #f1f5f9${p3ObsConError.has(String(ob._id)) ? ';background:#fef9c3' : ''}">
+                  <td style="padding:4px 8px 4px 32px">${esc(ob.tipoDocumento||'')}</td>
+                  <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
+                  <td style="padding:4px 8px">${fmtF(ob.fechaVencimiento)}</td>
+                  <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+                  <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
+                  <td style="padding:2px 8px;text-align:right">
+                    <input type="number" min="0" step="0.01" class="form-control"
+                           style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
+                           placeholder="0.00"
+                           value="${ob.retencion ? ob.retencion : ''}"
+                           oninput="p3SetRetOb('${ob._id}',this.value)"
+                           onblur="p3RetBlur()">
+                  </td>
+                  <td id="p3-neto-${ob._id}"
+                      style="padding:4px 8px;text-align:right;font-weight:600;
+                             color:${(ob.retencion||0)>0?'#059669':'inherit'}">
+                    ${fmtN(ob.monto - (ob.retencion||0))}
+                  </td>
+                  <td style="padding:2px 8px;text-align:center">
+                    <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
+                            onchange="p3SetBancoOb('${ob._id}',this.value)">
+                      ${bancosOpts(ob.bancoAsignado||'')}
+                    </select>
+                  </td>
+                  <td style="padding:2px 8px;text-align:center">
+                    <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
+                            onchange="p3SetAgrupOb('${ob._id}',this.value)">
+                      ${p3AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
+                    </select>
+                  </td>
+                  <td style="padding:2px 8px">
+                    <input type="text" class="form-control"
+                           style="font-size:11px;padding:2px 6px;height:26px;min-width:160px;
+                                  ${!ob.bancoAsignado ? 'border-color:#f59e0b;background:#fffbeb' : ''}"
+                           placeholder="${!ob.bancoAsignado ? 'Requerido ⚠' : 'Observaciones...'}"
+                           value="${esc(ob.observaciones||'')}"
+                           oninput="p3SetObsOb('${ob._id}',this.value)">
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
     });
+
+    html += '</div>';
+
+    // ── Resumen por banco / moneda / agrupador ────────────────────
+    const resumen = {};
+    allObs.forEach(ob => {
+      const banco = ob.bancoAsignado || '(sin banco)';
+      const mon   = ob.moneda || 'LO';
+      const agrup = ob.agrupadorPago || 'INDIVIDUAL';
+      const key   = `${banco}||${mon}||${agrup}`;
+      if (!resumen[key]) resumen[key] = { banco, mon, agrup, monto: 0 };
+      resumen[key].monto += ob.monto - (ob.retencion || 0);
+    });
+    const resRows = Object.values(resumen).sort((a,b) =>
+      a.banco.localeCompare(b.banco) || a.mon.localeCompare(b.mon) || a.agrup.localeCompare(b.agrup)
+    );
+    if (resRows.length) {
+      html += `
+      <div class="card mb-8" style="padding:0;overflow:hidden">
+        <div style="padding:7px 14px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0;
+                    font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">
+          Resumen por banco / moneda / agrupador
+        </div>
+        <table style="width:auto;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#f8fafc;color:var(--text-muted)">
+              <th style="padding:4px 14px;text-align:left">Banco</th>
+              <th style="padding:4px 14px;text-align:left">Moneda</th>
+              <th style="padding:4px 14px;text-align:left">Agrupador</th>
+              <th style="padding:4px 14px;text-align:right">Monto Neto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${resRows.map((r,i) => `
+            <tr style="border-top:1px solid #f1f5f9${i%2===1?';background:#fafbfc':''}">
+              <td style="padding:4px 14px;font-weight:600;color:#1d4ed8">${esc(r.banco)}</td>
+              <td style="padding:4px 14px">${r.mon === 'LO' ? 'Soles' : 'Dólares'}</td>
+              <td style="padding:4px 14px;color:#7c3aed">${esc(r.agrup)}</td>
+              <td style="padding:4px 14px;text-align:right;font-weight:700">${r.mon !== 'LO' ? 'USD ' : 'S/ '}${fmtN(r.monto)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    }
 
     wrap.innerHTML = html || '<p style="color:var(--text-muted);padding:16px">No hay obligaciones programadas.</p>';
   }
@@ -5461,15 +5469,10 @@ async function renderPaso3(container) {
 
   // ── Expandir niveles ─────────────────────────────────────────────
   window.p3Expandir = function(nivel) {
-    document.querySelectorAll('#p3-wrap [id^="p3grp-"]').forEach(b => {
-      b.style.display = nivel === 0 ? 'none' : '';
-      const arr = b.closest('.card')?.querySelector('.p3-arr');
-      if (arr) arr.textContent = nivel === 0 ? '▸' : '▾';
-    });
     document.querySelectorAll('#p3-wrap .p3-obl-div').forEach(d => {
-      d.style.display = nivel >= 2 ? '' : 'none';
+      d.style.display = nivel >= 1 ? '' : 'none';
       const arr = d.previousElementSibling?.querySelector('.p3-ben-arr');
-      if (arr) arr.textContent = nivel >= 2 ? '▾' : '▸';
+      if (arr) arr.textContent = nivel >= 1 ? '▾' : '▸';
     });
   };
 
