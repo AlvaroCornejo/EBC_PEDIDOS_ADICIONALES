@@ -6718,15 +6718,8 @@ async function renderPaso5(container) {
                     style="cursor:pointer;font-size:10px;color:#94a3b8;padding:2px 4px">▸</span>
               <span style="font-weight:600;font-size:13px;color:#374151;flex:1;min-width:140px">${esc(benef)}${pgAdelantoBadgeHtml(benef)}</span>
               ${totBadges(bTot,'11px')}
-              <input type="text" class="form-control"
-                     style="width:84px;font-size:11px;height:26px" placeholder="Banco"
-                     value="${esc(efBanco)}"
-                     oninput="p5SetBancoBenef('${esc(agrup)}','${esc(benef)}',this.value)">
-              <select class="form-control" style="width:64px;font-size:11px;height:26px"
-                      onchange="p5SetMonedaBenef('${esc(agrup)}','${esc(benef)}',this.value)">
-                <option value="USD"${efMon==='USD'?' selected':''}>USD</option>
-                <option value="SOL"${efMon==='SOL'?' selected':''}>SOL</option>
-              </select>
+              <span style="font-size:11px;color:#1d4ed8;font-weight:500;min-width:60px">${esc(efBanco)||'—'}</span>
+              <span style="font-size:11px;color:#059669;font-weight:600;min-width:32px">${esc(efMon)}</span>
               <input type="number" min="0" step="1" class="form-control"
                      style="width:90px;font-size:11px;height:26px" placeholder="N° Op"
                      value="${op}"
@@ -6788,15 +6781,8 @@ async function renderPaso5(container) {
             <span style="font-weight:700;font-size:14px;color:#1d4ed8;flex:1;min-width:140px">${esc(agrup)}</span>
             <span style="font-size:11px;color:#64748b">${agrupObs.length} oblig.</span>
             ${totBadges(agTot,'11px')}
-            <input type="text" class="form-control"
-                   style="width:84px;font-size:11px;height:26px" placeholder="Banco"
-                   value="${esc(efBanco)}"
-                   oninput="p5SetBancoAgrup('${esc(agrup)}',this.value)">
-            <select class="form-control" style="width:64px;font-size:11px;height:26px"
-                    onchange="p5SetMonedaAgrup('${esc(agrup)}',this.value)">
-              <option value="USD"${efMon==='USD'?' selected':''}>USD</option>
-              <option value="SOL"${efMon==='SOL'?' selected':''}>SOL</option>
-            </select>
+            <span style="font-size:11px;color:#1d4ed8;font-weight:500;min-width:60px">${esc(efBanco)||'—'}</span>
+            <span style="font-size:11px;color:#059669;font-weight:600;min-width:32px">${esc(efMon)}</span>
             <input type="number" min="0" step="1" class="form-control"
                    style="width:90px;font-size:11px;height:26px" placeholder="N° Op"
                    value="${op}"
