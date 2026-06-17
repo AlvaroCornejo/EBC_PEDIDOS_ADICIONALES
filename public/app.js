@@ -3734,7 +3734,7 @@ async function renderPaso1(container) {
 
           <!-- Adelantos -->
           <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
-            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Adelantos Pendientes</label>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Adelantos por Rendir</label>
             <input type="file" id="pg-file-adelantos" accept=".csv" style="display:none">
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-adelantos').click()" style="width:100%;justify-content:center">
               💵 Seleccionar
@@ -5281,25 +5281,23 @@ async function renderPaso3(container) {
       if (!AGRUPS_FIJOS.includes(ag) && !p3CustomAgrups.includes(ag)) p3CustomAgrups.push(ag);
     });
 
-    // Agrupar solo por beneficiario
+    // Agrupar por beneficiario + moneda (SOL / USD)
     const bens = {};
     obs.forEach(ob => {
-      const b = ob.pagarA || '(sin beneficiario)';
-      if (!bens[b]) bens[b] = [];
-      bens[b].push(ob);
+      const b    = ob.pagarA || '(sin beneficiario)';
+      const mcat = ob.moneda === 'LO' ? 'SOL' : 'USD';
+      const key  = `${b}|||${mcat}`;
+      if (!bens[key]) bens[key] = { ben: b, mcat, list: [] };
+      bens[key].list.push(ob);
     });
+    const benCurrCount = {};
+    Object.values(bens).forEach(({ ben }) => { benCurrCount[ben] = (benCurrCount[ben] || 0) + 1; });
 
     const neto = o => o.monto - (o.retencion || 0);
-    const benTot = (ben) => {
-      const bo = obs.filter(o => (o.pagarA||'') === ben);
-      const usd = bo.filter(o => o.moneda !== 'LO').reduce((s,o) => s + neto(o), 0);
-      const sol = bo.filter(o => o.moneda === 'LO').reduce((s,o) => s + neto(o), 0);
-      return { usd, sol, tot: sol + usd * tc };
+    const monStr = (oblList, mcat) => {
+      const total = oblList.reduce((s,o) => s + neto(o), 0);
+      return mcat === 'SOL' ? `S/&nbsp;${fmtN(total)}` : `USD&nbsp;${fmtN(total)}`;
     };
-    const totStr = ({usd, sol}) => [
-      usd ? `USD&nbsp;${fmtN(usd)}` : '',
-      sol ? `S/&nbsp;${fmtN(sol)}`  : '',
-    ].filter(Boolean).join('<br>') || '—';
 
     // Select de banco
     const bancosOpts = (sel) =>
@@ -5323,12 +5321,25 @@ async function renderPaso3(container) {
         <div style="text-align:center">Agrupador de Pago</div>
       </div>`;
 
-    Object.keys(bens).sort().forEach(ben => {
-      const oblList = bens[ben];
-      const benKey  = ben.toUpperCase().replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-      const bt      = benTot(ben);
-      const progMon = totStr(bt);
-      const benObsList = allObs.filter(o => (o.pagarA||'').toUpperCase() === ben.toUpperCase());
+    const benGroupKeys = Object.keys(bens).sort((a, b) => {
+      const ai = a.indexOf('|||'), bi2 = b.indexOf('|||');
+      const nc = a.substring(0, ai).localeCompare(b.substring(0, bi2));
+      return nc !== 0 ? nc : (a.substring(ai + 3) === 'SOL' ? -1 : 1);
+    });
+
+    benGroupKeys.forEach(groupKey => {
+      const { ben, mcat, list: oblList } = bens[groupKey];
+      const benKey   = (ben.toUpperCase() + '|||' + mcat)
+                        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      const progMon  = monStr(oblList, mcat);
+      const showMcat = benCurrCount[ben] > 1;
+      const mcatBadge = showMcat
+        ? ` <span style="font-size:10px;font-weight:400;color:#64748b;background:#f1f5f9;border-radius:3px;padding:1px 4px">${mcat}</span>`
+        : '';
+      const benObsList = allObs.filter(o =>
+        (o.pagarA||'').toUpperCase() === ben.toUpperCase() &&
+        (o.moneda === 'LO' ? 'SOL' : 'USD') === mcat
+      );
       const benBancos = [...new Set(benObsList.map(o => o.bancoAsignado || ''))];
       const benAgrups = [...new Set(benObsList.map(o => o.agrupadorPago || 'INDIVIDUAL'))];
       const curBanco = benBancos.length === 1 ? benBancos[0] : '';
@@ -5342,7 +5353,7 @@ async function renderPaso3(container) {
                     align-items:center;padding:6px 14px 6px 18px;
                     background:${benConError ? '#fef9c3' : '#fafbfc'};cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
           <span class="p3-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
-          <span style="font-weight:600;font-size:13px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
+          <span style="font-weight:600;font-size:13px">${esc(ben)}${mcatBadge}${pgAdelantoBadgeHtml(ben)}</span>
           <div style="text-align:right;font-size:12px;line-height:1.5">${progMon}</div>
           <div onclick="event.stopPropagation()">
             <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
@@ -5490,8 +5501,12 @@ async function renderPaso3(container) {
   // ── Setters a nivel de beneficiario ─────────────────────────────
   window.p3SetBancoBen = function(benKey, val) {
     if (!p3Prog) return;
+    const sepIdx  = benKey.indexOf('|||');
+    const benPart = sepIdx >= 0 ? benKey.substring(0, sepIdx) : benKey;
+    const mcat    = sepIdx >= 0 ? benKey.substring(sepIdx + 3) : null;
     p3Prog.obligaciones.forEach(ob => {
-      if ((ob.pagarA||'').toUpperCase() === benKey.toUpperCase() && ob.seleccionado)
+      const obMcat = ob.moneda === 'LO' ? 'SOL' : 'USD';
+      if ((ob.pagarA||'').toUpperCase() === benPart && (!mcat || obMcat === mcat) && ob.seleccionado)
         ob.bancoAsignado = val;
     });
     p3ObsConError = new Set();
@@ -5512,8 +5527,12 @@ async function renderPaso3(container) {
       val = nombre;
     }
 
+    const sepIdx  = benKey.indexOf('|||');
+    const benPart = sepIdx >= 0 ? benKey.substring(0, sepIdx) : benKey;
+    const mcat    = sepIdx >= 0 ? benKey.substring(sepIdx + 3) : null;
     p3Prog.obligaciones.forEach(ob => {
-      if ((ob.pagarA||'').toUpperCase() === benKey.toUpperCase() && ob.seleccionado)
+      const obMcat = ob.moneda === 'LO' ? 'SOL' : 'USD';
+      if ((ob.pagarA||'').toUpperCase() === benPart && (!mcat || obMcat === mcat) && ob.seleccionado)
         ob.agrupadorPago = val;
     });
     p3ObsConError = new Set();
