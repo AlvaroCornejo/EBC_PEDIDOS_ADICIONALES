@@ -4672,11 +4672,17 @@ async function renderPaso2(container) {
     };
     const benDeuda = ben => {
       const obs = allObs.filter(o => (o.pagarA||'') === ben);
-      const usd = obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
-      const sol = obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
-      return [usd ? `USD&nbsp;<strong>${fmtN(usd)}</strong>` : '',
-              sol ? `S/&nbsp;<strong>${fmtN(sol)}</strong>`  : '']
-             .filter(Boolean).join('<span style="color:#cbd5e1;margin:0 3px">|</span>');
+      return {
+        usd: obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0),
+        sol: obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0)
+      };
+    };
+    const grpDeuda = grp => {
+      const obs = allObs.filter(o => (o.grupo || 'OTROS') === grp);
+      return {
+        usd: obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0),
+        sol: obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0)
+      };
     };
     const grpTotales = grp => {
       const sel = allObs.filter(o => (o.grupo || 'OTROS') === grp && o.seleccionado);
@@ -4685,47 +4691,47 @@ async function renderPaso2(container) {
       return { usd, sol, tot: sol + usd * tc };
     };
 
-    const totStr = ({usd, sol, tot}) => {
-      const parts = [];
-      if (usd) parts.push(`USD&nbsp;<strong>${fmtN(usd)}</strong>`);
-      if (sol) parts.push(`S/&nbsp;<strong>${fmtN(sol)}</strong>`);
-      parts.push(`Total S/&nbsp;<strong style="color:var(--primary)">${fmtN(tot)}</strong>`);
-      return parts.join('<span style="color:#e2e8f0;margin:0 4px">|</span>');
-    };
+    const fmtV = v => v ? fmtN(v) : '<span style="color:#cbd5e1">—</span>';
 
     // Ordenar grupos de mayor a menor por total programado
     const grpsOrden = Object.keys(grupos).sort((a, b) => grpTotales(b).tot - grpTotales(a).tot);
 
-    const COLS = '16px minmax(140px,1fr) 110px 110px 90px 90px';
+    const COLS = '16px minmax(120px,1fr) 82px 82px 82px 82px 90px 75px';
 
     let html = '';
     grpsOrden.forEach(grp => {
       const bens  = grupos[grp];
       const gTot  = grpTotales(grp);
+      const gDeuda = grpDeuda(grp);
       const grpId = 'grp-' + grp.replace(/\W/g,'_');
 
       html += `
       <div class="card mb-8" style="padding:0;overflow:hidden">
         <div onclick="const b=document.getElementById('${grpId}');const open=b.style.display!=='none';b.style.display=open?'none':'';this.querySelector('.ap2-arr').textContent=open?'▸':'▾'"
-             style="display:flex;align-items:center;justify-content:space-between;
-                    padding:8px 14px;background:var(--bg-secondary);
+             style="display:grid;grid-template-columns:${COLS};align-items:center;
+                    padding:8px 14px 8px 8px;background:var(--bg-secondary);
                     border-bottom:2px solid var(--primary);cursor:pointer;user-select:none">
+          <span class="ap2-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
           <span style="font-weight:700;font-size:13px;color:var(--primary)">📁 ${esc(grp)}</span>
-          <div style="display:flex;align-items:center;gap:10px;font-size:12px">
-            <span style="color:var(--text-muted)">Programado:&nbsp;${totStr(gTot)}</span>
-            <span class="ap2-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
-          </div>
+          <div style="text-align:right;font-size:11px;color:var(--text-muted)">${fmtV(gDeuda.sol)}</div>
+          <div style="text-align:right;font-size:11px;color:var(--text-muted)">${fmtV(gDeuda.usd)}</div>
+          <div style="text-align:right;font-size:11px">${fmtV(gTot.sol)}</div>
+          <div style="text-align:right;font-size:11px">${fmtV(gTot.usd)}</div>
+          <div style="text-align:right;font-size:12px;font-weight:700;color:var(--primary)">${fmtN(gTot.tot)}</div>
+          <div></div>
         </div>
         <div id="${grpId}" style="display:none">
           <!-- Cabecera de columnas -->
           <div style="display:grid;grid-template-columns:${COLS};
-                      align-items:center;padding:4px 14px 4px 16px;
+                      align-items:center;padding:4px 14px 4px 8px;
                       background:#f1f5f9;border-bottom:1px solid #e2e8f0;
                       font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
             <div></div>
             <div>Beneficiario</div>
-            <div style="text-align:right">Deuda total</div>
-            <div style="text-align:right">Programado</div>
+            <div style="text-align:right">Deuda S/</div>
+            <div style="text-align:right">Deuda USD</div>
+            <div style="text-align:right">Prog. S/</div>
+            <div style="text-align:right">Prog. USD</div>
             <div style="text-align:right">Total S/</div>
             <div style="text-align:right">Prom. pagos</div>
           </div>`;
@@ -4739,12 +4745,8 @@ async function renderPaso2(container) {
         const bTot    = benTotales(ben);
         const bDeuda  = benDeuda(ben);
         const prom    = ap2Promedios[ben.toUpperCase()];
-        const benMon  = allObs.filter(o => (o.pagarA||'') === ben).some(o => o.moneda !== 'LO') ? 'USD' : 'S/';
+        const benMon  = bDeuda.usd > 0 ? 'USD' : 'S/';
         const promStr = prom?.promedio != null ? `${benMon} ${fmtN(prom.promedio)}` : '—';
-        const progMoneda = [
-          bTot.usd ? `USD&nbsp;${fmtN(bTot.usd)}` : '',
-          bTot.sol ? `S/&nbsp;${fmtN(bTot.sol)}`   : '',
-        ].filter(Boolean).join('<br>') || '—';
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
@@ -4757,8 +4759,10 @@ async function renderPaso2(container) {
               <span style="font-weight:600;font-size:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(ben)}</span>
               ${pgAdelantoBadgeHtml(ben)}
             </div>
-            <div style="text-align:right;font-size:11px;line-height:1.5">${bDeuda}</div>
-            <div style="text-align:right;font-size:11px;line-height:1.5">${progMoneda}</div>
+            <div style="text-align:right;font-size:11px">${fmtV(bDeuda.sol)}</div>
+            <div style="text-align:right;font-size:11px">${fmtV(bDeuda.usd)}</div>
+            <div style="text-align:right;font-size:11px">${fmtV(bTot.sol)}</div>
+            <div style="text-align:right;font-size:11px">${fmtV(bTot.usd)}</div>
             <div style="text-align:right;font-size:12px;font-weight:700;color:var(--primary)">${fmtN(bTot.tot)}</div>
             <div style="text-align:right;font-size:11px;color:#7c3aed;font-weight:600">${promStr}</div>
           </div>
@@ -4766,15 +4770,15 @@ async function renderPaso2(container) {
             <table style="width:100%;border-collapse:collapse;font-size:11px">
               <thead>
                 <tr style="background:#f8fafc;color:var(--text-muted)">
-                  <th style="width:32px;padding:3px 6px 3px 28px"></th>
-                  <th style="padding:3px 6px;text-align:left">Tipo</th>
-                  <th style="padding:3px 6px;text-align:left">N° Documento</th>
-                  <th style="padding:3px 6px;text-align:left">F. Documento</th>
-                  <th style="padding:3px 6px;text-align:left">F. Vencimiento</th>
-                  <th style="padding:3px 6px;text-align:right">Mon.</th>
-                  <th style="padding:3px 6px;text-align:right">Monto</th>
-                  <th style="padding:3px 6px;text-align:right">Días Venc.</th>
-                  <th style="padding:3px 6px;text-align:left">Banco</th>
+                  <th style="width:26px;padding:2px 4px 2px 24px"></th>
+                  <th style="padding:2px 4px;text-align:left">Tipo</th>
+                  <th style="padding:2px 4px;text-align:left">N° Documento</th>
+                  <th style="padding:2px 4px;text-align:left">F. Documento</th>
+                  <th style="padding:2px 4px;text-align:left">F. Vencimiento</th>
+                  <th style="padding:2px 4px;text-align:right">Mon.</th>
+                  <th style="padding:2px 4px;text-align:right">Monto</th>
+                  <th style="padding:2px 4px;text-align:right">Días Venc.</th>
+                  <th style="padding:2px 4px;text-align:left">Banco</th>
                 </tr>
               </thead>
               <tbody>
@@ -4783,20 +4787,20 @@ async function renderPaso2(container) {
                   const dCol  = dias > 0 ? '#dc2626' : dias === 0 ? '#d97706' : '#166534';
                   return `
                   <tr style="border-top:1px solid #f1f5f9;background:${ob.seleccionado?'#f0fdf4':''}" id="ap2-tr-${ob._id}">
-                    <td style="padding:3px 6px 3px 28px">
+                    <td style="padding:2px 4px 2px 24px">
                       <input type="checkbox" data-id="${ob._id}" data-ben="${benKey}"
                              class="ap2-ob-cb" ${ob.seleccionado ? 'checked' : ''}
-                             style="width:13px;height:13px;accent-color:var(--primary);cursor:pointer"
+                             style="width:12px;height:12px;accent-color:var(--primary);cursor:pointer"
                              onchange="ap2ToggleOb('${ob._id}','${benKey}',this.checked)">
                     </td>
-                    <td style="padding:3px 6px">${esc(ob.tipoDocumento||'')}</td>
-                    <td style="padding:3px 6px">${esc(ob.numeroDocumento||'')}</td>
-                    <td style="padding:3px 6px;white-space:nowrap">${fmtF(ob.fechaDocumento)}</td>
-                    <td style="padding:3px 6px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
-                    <td style="padding:3px 6px;text-align:right">${esc(ob.moneda||'')}</td>
-                    <td style="padding:3px 6px;text-align:right;${ob.monto<0?'color:#dc2626':''}">${fmtN(ob.monto)}</td>
-                    <td style="padding:3px 6px;text-align:right;color:${dCol};font-weight:600">${dias}</td>
-                    <td style="padding:3px 6px">${esc(ob.banco||'')}</td>
+                    <td style="padding:2px 4px">${esc(ob.tipoDocumento||'')}</td>
+                    <td style="padding:2px 4px">${esc(ob.numeroDocumento||'')}</td>
+                    <td style="padding:2px 4px;white-space:nowrap">${fmtF(ob.fechaDocumento)}</td>
+                    <td style="padding:2px 4px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
+                    <td style="padding:2px 4px;text-align:right">${esc(ob.moneda||'')}</td>
+                    <td style="padding:2px 4px;text-align:right;${ob.monto<0?'color:#dc2626':''}">${fmtN(ob.monto)}</td>
+                    <td style="padding:2px 4px;text-align:right;color:${dCol};font-weight:600">${dias}</td>
+                    <td style="padding:2px 4px">${esc(ob.banco||'')}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
