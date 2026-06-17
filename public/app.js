@@ -4693,44 +4693,51 @@ async function renderPaso2(container) {
       return parts.join('<span style="color:#e2e8f0;margin:0 4px">|</span>');
     };
 
+    // Ordenar grupos de mayor a menor por total programado
+    const grpsOrden = Object.keys(grupos).sort((a, b) => grpTotales(b).tot - grpTotales(a).tot);
+
+    const COLS = '16px minmax(140px,1fr) 110px 110px 90px 90px';
+
     let html = '';
-    Object.keys(grupos).sort().forEach(grp => {
+    grpsOrden.forEach(grp => {
       const bens  = grupos[grp];
       const gTot  = grpTotales(grp);
       const grpId = 'grp-' + grp.replace(/\W/g,'_');
 
       html += `
-      <div class="card mb-12" style="padding:0;overflow:hidden">
+      <div class="card mb-8" style="padding:0;overflow:hidden">
         <div onclick="const b=document.getElementById('${grpId}');const open=b.style.display!=='none';b.style.display=open?'none':'';this.querySelector('.ap2-arr').textContent=open?'▸':'▾'"
              style="display:flex;align-items:center;justify-content:space-between;
-                    padding:10px 16px;background:var(--bg-secondary);
+                    padding:8px 14px;background:var(--bg-secondary);
                     border-bottom:2px solid var(--primary);cursor:pointer;user-select:none">
           <span style="font-weight:700;font-size:13px;color:var(--primary)">📁 ${esc(grp)}</span>
-          <div style="display:flex;align-items:center;gap:12px;font-size:12px">
+          <div style="display:flex;align-items:center;gap:10px;font-size:12px">
             <span style="color:var(--text-muted)">Programado:&nbsp;${totStr(gTot)}</span>
             <span class="ap2-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
           </div>
         </div>
         <div id="${grpId}" style="display:none">
           <!-- Cabecera de columnas -->
-          <div style="display:grid;grid-template-columns:26px 20px minmax(120px,200px) 150px 150px 120px 120px;
-                      align-items:center;padding:5px 16px 5px 20px;
+          <div style="display:grid;grid-template-columns:${COLS};
+                      align-items:center;padding:4px 14px 4px 16px;
                       background:#f1f5f9;border-bottom:1px solid #e2e8f0;
-                      font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
-            <div></div><div></div>
+                      font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
+            <div></div>
             <div>Beneficiario</div>
             <div style="text-align:right">Deuda total</div>
             <div style="text-align:right">Programado</div>
-            <div style="text-align:right">Prom. pagos</div>
             <div style="text-align:right">Total S/</div>
+            <div style="text-align:right">Prom. pagos</div>
           </div>`;
 
-      Object.keys(bens).sort().forEach(ben => {
+      // Ordenar beneficiarios de mayor a menor por total programado
+      const bensOrden = Object.keys(bens).sort((a, b) => benTotales(b).tot - benTotales(a).tot);
+
+      bensOrden.forEach(ben => {
         const oblList = bens[ben];
         const benKey  = ben.toUpperCase().replace(/"/g,'&quot;');
         const bTot    = benTotales(ben);
         const bDeuda  = benDeuda(ben);
-        const allSel  = allObs.filter(o => (o.pagarA||'') === ben).every(o => o.seleccionado);
         const prom    = ap2Promedios[ben.toUpperCase()];
         const benMon  = allObs.filter(o => (o.pagarA||'') === ben).some(o => o.moneda !== 'LO') ? 'USD' : 'S/';
         const promStr = prom?.promedio != null ? `${benMon} ${fmtN(prom.promedio)}` : '—';
@@ -4741,32 +4748,33 @@ async function renderPaso2(container) {
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
-          <div class="ap2-ben-row" onclick="if(event.target.tagName!=='INPUT')ap2ToggleBenObl(this)"
-               style="display:grid;grid-template-columns:26px 20px minmax(120px,200px) 150px 150px 120px 120px;
-                      align-items:center;padding:7px 16px 7px 20px;
+          <div class="ap2-ben-row" onclick="ap2ToggleBenObl(this)"
+               style="display:grid;grid-template-columns:${COLS};
+                      align-items:center;padding:5px 14px 5px 16px;
                       background:#fafbfc;cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
             <span class="ap2-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
-            <input type="checkbox" data-ben="${benKey}" class="ap2-ben-cb" ${allSel ? 'checked' : ''}
-                   style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
-                   onchange="ap2ToggleBen('${benKey}',this.checked)">
-            <span style="font-weight:600;font-size:13px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
-            <div style="text-align:right;font-size:12px;line-height:1.5">${bDeuda}</div>
-            <div style="text-align:right;font-size:12px;line-height:1.5">${progMoneda}</div>
-            <div style="text-align:right;font-size:12px;color:#7c3aed;font-weight:600">${promStr}</div>
-            <div style="text-align:right;font-size:13px;font-weight:700;color:var(--primary)">${fmtN(bTot.tot)}</div>
+            <div style="display:flex;align-items:center;gap:4px;overflow:hidden">
+              <span style="font-weight:600;font-size:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(ben)}</span>
+              ${pgAdelantoBadgeHtml(ben)}
+            </div>
+            <div style="text-align:right;font-size:11px;line-height:1.5">${bDeuda}</div>
+            <div style="text-align:right;font-size:11px;line-height:1.5">${progMoneda}</div>
+            <div style="text-align:right;font-size:12px;font-weight:700;color:var(--primary)">${fmtN(bTot.tot)}</div>
+            <div style="text-align:right;font-size:11px;color:#7c3aed;font-weight:600">${promStr}</div>
           </div>
           <div class="ap2-obl-div" data-ap2-ben="${benKey}" style="display:none">
-            <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
               <thead>
                 <tr style="background:#f8fafc;color:var(--text-muted)">
-                  <th style="width:36px;padding:4px 8px 4px 36px"></th>
-                  <th style="padding:4px 8px;text-align:left">Tipo Doc</th>
-                  <th style="padding:4px 8px;text-align:left">N° Documento</th>
-                  <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
-                  <th style="padding:4px 8px;text-align:right">Moneda</th>
-                  <th style="padding:4px 8px;text-align:right">Monto</th>
-                  <th style="padding:4px 8px;text-align:right">Días Venc.</th>
-                  <th style="padding:4px 8px;text-align:left">Banco</th>
+                  <th style="width:32px;padding:3px 6px 3px 28px"></th>
+                  <th style="padding:3px 6px;text-align:left">Tipo</th>
+                  <th style="padding:3px 6px;text-align:left">N° Documento</th>
+                  <th style="padding:3px 6px;text-align:left">F. Documento</th>
+                  <th style="padding:3px 6px;text-align:left">F. Vencimiento</th>
+                  <th style="padding:3px 6px;text-align:right">Mon.</th>
+                  <th style="padding:3px 6px;text-align:right">Monto</th>
+                  <th style="padding:3px 6px;text-align:right">Días Venc.</th>
+                  <th style="padding:3px 6px;text-align:left">Banco</th>
                 </tr>
               </thead>
               <tbody>
@@ -4775,19 +4783,20 @@ async function renderPaso2(container) {
                   const dCol  = dias > 0 ? '#dc2626' : dias === 0 ? '#d97706' : '#166534';
                   return `
                   <tr style="border-top:1px solid #f1f5f9;background:${ob.seleccionado?'#f0fdf4':''}" id="ap2-tr-${ob._id}">
-                    <td style="padding:5px 8px 5px 36px">
+                    <td style="padding:3px 6px 3px 28px">
                       <input type="checkbox" data-id="${ob._id}" data-ben="${benKey}"
                              class="ap2-ob-cb" ${ob.seleccionado ? 'checked' : ''}
                              style="width:13px;height:13px;accent-color:var(--primary);cursor:pointer"
                              onchange="ap2ToggleOb('${ob._id}','${benKey}',this.checked)">
                     </td>
-                    <td style="padding:5px 8px">${esc(ob.tipoDocumento||'')}</td>
-                    <td style="padding:5px 8px">${esc(ob.numeroDocumento||'')}</td>
-                    <td style="padding:5px 8px">${fmtF(ob.fechaVencimiento)}</td>
-                    <td style="padding:5px 8px;text-align:right">${esc(ob.moneda||'')}</td>
-                    <td style="padding:5px 8px;text-align:right;${ob.monto<0?'color:#dc2626':''}">${fmtN(ob.monto)}</td>
-                    <td style="padding:5px 8px;text-align:right;color:${dCol};font-weight:600">${dias}</td>
-                    <td style="padding:5px 8px">${esc(ob.banco||'')}</td>
+                    <td style="padding:3px 6px">${esc(ob.tipoDocumento||'')}</td>
+                    <td style="padding:3px 6px">${esc(ob.numeroDocumento||'')}</td>
+                    <td style="padding:3px 6px;white-space:nowrap">${fmtF(ob.fechaDocumento)}</td>
+                    <td style="padding:3px 6px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
+                    <td style="padding:3px 6px;text-align:right">${esc(ob.moneda||'')}</td>
+                    <td style="padding:3px 6px;text-align:right;${ob.monto<0?'color:#dc2626':''}">${fmtN(ob.monto)}</td>
+                    <td style="padding:3px 6px;text-align:right;color:${dCol};font-weight:600">${dias}</td>
+                    <td style="padding:3px 6px">${esc(ob.banco||'')}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
