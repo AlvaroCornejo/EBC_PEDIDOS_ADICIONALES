@@ -4767,7 +4767,7 @@ async function renderPaso2(container) {
             <div style="text-align:right;font-size:11px;color:#7c3aed;font-weight:600">${promStr}</div>
           </div>
           <div class="ap2-obl-div" data-ap2-ben="${benKey}" style="display:none">
-            <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <table style="width:auto;border-collapse:collapse;font-size:11px">
               <thead>
                 <tr style="background:#f8fafc;color:var(--text-muted)">
                   <th style="width:26px;padding:2px 4px 2px 24px"></th>
