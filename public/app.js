@@ -5915,12 +5915,15 @@ async function renderPaso4(container) {
 
   // ── Guardar estado (qué bancos/agrupadores están abiertos) ────────
   function p4SaveState() {
-    const st = { bancos: {}, agrups: {} };
+    const st = { bancos: {}, agrups: {}, indivs: {} };
     document.querySelectorAll('[id^="p4banco-body-"]').forEach(el => {
       st.bancos[el.id] = el.style.display !== 'none';
     });
     document.querySelectorAll('[id^="p4agrup-body-"]').forEach(el => {
       st.agrups[el.id] = el.style.display !== 'none';
+    });
+    document.querySelectorAll('[id^="p4-indiv-body-"]').forEach(el => {
+      st.indivs[el.id] = el.style.display !== 'none';
     });
     return st;
   }
@@ -5939,6 +5942,15 @@ async function renderPaso4(container) {
       if (el) {
         el.style.display = open ? '' : 'none';
         const arr = el.previousElementSibling?.querySelector('.p4-agrup-arr');
+        if (arr) arr.textContent = open ? '▾' : '▸';
+      }
+    });
+    Object.entries(st.indivs||{}).forEach(([id, open]) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = open ? '' : 'none';
+        const arrId = id.replace('p4-indiv-body-', 'p4-indiv-arr-');
+        const arr = document.getElementById(arrId);
         if (arr) arr.textContent = open ? '▾' : '▸';
       }
     });
@@ -6064,9 +6076,72 @@ async function renderPaso4(container) {
         return a.localeCompare(b);
       });
 
+      // Helper: fila de una obligación en la tabla de detalle
+      const p4ObRow = (ob, indent) => `
+        <tr style="border-top:1px solid #f1f5f9;background:${p4ObsConError.has(String(ob._id))?'#fef9c3':p4Marcados.has(String(ob._id))?'#f0fdf4':''};${pgAdelantoRowStyle(ob.pagarA||'')}">
+          <td style="padding:4px 8px 4px ${indent}px;text-align:center">
+            <input type="checkbox" ${p4Marcados.has(String(ob._id))?'checked':''}
+                   onclick="event.stopPropagation()"
+                   onchange="p4ToggleMarcadoOb('${ob._id}',this.checked)"
+                   style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer">
+          </td>
+          <td style="padding:4px 8px;font-weight:500">${esc(ob.pagarA||'')}${pgAdelantoBadgeHtml(ob.pagarA||'')}</td>
+          <td style="padding:4px 8px">${esc(ob.tipoDocumento||'')}</td>
+          <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
+          <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
+          <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+          <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
+          <td style="padding:2px 8px;text-align:right">
+            <input type="number" min="0" step="0.01" class="form-control"
+                   style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
+                   placeholder="0.00" value="${ob.retencion ? ob.retencion : ''}"
+                   oninput="p4SetRetOb('${ob._id}',this.value)" onblur="p4RetBlur()">
+          </td>
+          <td id="p4-neto-${ob._id}"
+              style="padding:4px 8px;text-align:right;font-weight:600;color:${(ob.retencion||0)>0?'#059669':'inherit'}">
+            ${fmtN(netoOb(ob))}
+          </td>
+          <td style="padding:2px 8px;text-align:center">
+            <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
+                    onchange="p4SetBancoOb('${ob._id}',this.value)">
+              ${p4BancosOpts(ob.bancoAsignado||'')}
+            </select>
+          </td>
+          <td style="padding:2px 8px;text-align:center">
+            <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
+                    onchange="p4SetAgrupOb('${ob._id}',this.value)">
+              ${p4AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
+            </select>
+          </td>
+          <td style="padding:2px 8px">
+            <input type="text" class="form-control"
+                   style="font-size:11px;padding:2px 6px;height:26px;min-width:150px;
+                          ${!ob.bancoAsignado?'border-color:#f59e0b;background:#fffbeb':''}"
+                   placeholder="${!ob.bancoAsignado?'Requerido ⚠':'Observaciones...'}"
+                   value="${esc(ob.observaciones||'')}"
+                   oninput="p4SetObsOb('${ob._id}',this.value)">
+          </td>
+        </tr>`;
+
+      const p4TableHead = `
+        <tr style="background:#f1f5f9;color:var(--text-muted)">
+          <th style="padding:5px 8px;text-align:center;white-space:nowrap">☑</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">Beneficiario</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">Tipo Doc</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Documento</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">F. Vencimiento</th>
+          <th style="padding:5px 8px;text-align:right;white-space:nowrap">Mon</th>
+          <th style="padding:5px 8px;text-align:right;white-space:nowrap">Monto</th>
+          <th style="padding:5px 8px;text-align:right;white-space:nowrap">Retención</th>
+          <th style="padding:5px 8px;text-align:right;white-space:nowrap">Neto</th>
+          <th style="padding:5px 8px;text-align:center;white-space:nowrap">Banco</th>
+          <th style="padding:5px 8px;text-align:center;white-space:nowrap">Agrupador</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">Observaciones</th>
+        </tr>`;
+
       agrups.forEach(agrup => {
-        const aKey   = `${bKey}__${agrup.replace(/\W/g,'_')}`;
-        const at     = agrupTot(banco, agrup);
+        const aKey    = `${bKey}__${agrup.replace(/\W/g,'_')}`;
+        const at      = agrupTot(banco, agrup);
         const oblList = byBanco[banco][agrup];
         const allAgrupMarcado = oblList.length > 0 && oblList.every(o => p4Marcados.has(String(o._id)));
 
@@ -6081,84 +6156,64 @@ async function renderPaso4(container) {
                      onchange="p4ToggleMarcadoAgrup('${esc(aKey)}',this.checked)"
                      style="width:13px;height:13px;accent-color:#7c3aed;cursor:pointer;flex-shrink:0">
               <span style="font-weight:600;font-size:12px;color:#7c3aed">${esc(agrup)}</span>
-              <div style="display:flex;flex-direction:column;gap:0px;margin-left:8px">
+              <div style="display:flex;flex-direction:column;gap:0;margin-left:8px">
                 ${at.usd ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">USD&nbsp;${fmtN(at.usd)}</span>` : ''}
                 ${at.sol ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">S/&nbsp;&nbsp;${fmtN(at.sol)}</span>` : ''}
               </div>
             </div>
-            <div id="p4agrup-body-${aKey}" style="display:none">
+            <div id="p4agrup-body-${aKey}" style="display:none">`;
+
+        if (agrup === 'INDIVIDUAL') {
+          // Sub-agrupar por beneficiario
+          const byBen = {};
+          oblList.forEach(ob => {
+            const b = ob.pagarA || '(sin beneficiario)';
+            if (!byBen[b]) byBen[b] = [];
+            byBen[b].push(ob);
+          });
+          Object.keys(byBen).sort().forEach(ben => {
+            const benObs = byBen[ben];
+            const benKey2 = `${aKey}__${ben.replace(/\W/g,'_')}`;
+            const benUsd = benObs.filter(o=>o.moneda!=='LO').reduce((s,o)=>s+netoOb(o),0);
+            const benSol = benObs.filter(o=>o.moneda==='LO').reduce((s,o)=>s+netoOb(o),0);
+            const allBenMarcado = benObs.every(o => p4Marcados.has(String(o._id)));
+            html += `
+              <div style="border-top:1px solid #f1f5f9">
+                <div onclick="if(event.target.tagName!=='INPUT')p4ToggleIndiv('${benKey2}')"
+                     style="display:flex;align-items:center;gap:8px;padding:6px 16px 6px 48px;
+                            background:#fafbfc;cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
+                  <span id="p4-indiv-arr-${benKey2}" style="font-size:10px;color:var(--text-muted)">▸</span>
+                  <input type="checkbox" ${allBenMarcado ? 'checked' : ''}
+                         onclick="event.stopPropagation()"
+                         onchange="p4ToggleMarcadoBenIndiv('${benKey2}',this.checked)"
+                         style="width:13px;height:13px;accent-color:var(--primary);cursor:pointer;flex-shrink:0">
+                  <span style="font-weight:600;font-size:12px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
+                  <div style="display:flex;gap:8px;margin-left:8px;font-size:11px;color:#64748b">
+                    ${benUsd ? `<span>USD&nbsp;${fmtN(benUsd)}</span>` : ''}
+                    ${benSol ? `<span>S/&nbsp;${fmtN(benSol)}</span>` : ''}
+                  </div>
+                </div>
+                <div id="p4-indiv-body-${benKey2}" style="display:none">
+                  <div style="overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead>${p4TableHead}</thead>
+                    <tbody>${benObs.map(ob => p4ObRow(ob, 56)).join('')}</tbody>
+                  </table>
+                  </div>
+                </div>
+              </div>`;
+          });
+        } else {
+          html += `
               <div style="overflow-x:auto">
               <table style="width:100%;border-collapse:collapse;font-size:12px">
-                <thead>
-                  <tr style="background:#f1f5f9;color:var(--text-muted)">
-                    <th style="padding:5px 8px;text-align:center;white-space:nowrap">☑</th>
-                    <th style="padding:5px 8px 5px 8px;text-align:left;white-space:nowrap">Beneficiario</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">Tipo Doc</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Documento</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">F. Vencimiento</th>
-                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Mon</th>
-                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Monto</th>
-                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Retención</th>
-                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Neto</th>
-                    <th style="padding:5px 8px;text-align:center;white-space:nowrap">Banco</th>
-                    <th style="padding:5px 8px;text-align:center;white-space:nowrap">Agrupador</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">Observaciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${oblList.map(ob => `
-                  <tr style="border-top:1px solid #f1f5f9;background:${p4ObsConError.has(String(ob._id))?'#fef9c3':p4Marcados.has(String(ob._id))?'#f0fdf4':''};${pgAdelantoRowStyle(ob.pagarA||'')}">
-                    <td style="padding:4px 8px;text-align:center">
-                      <input type="checkbox" ${p4Marcados.has(String(ob._id))?'checked':''}
-                             onclick="event.stopPropagation()"
-                             onchange="p4ToggleMarcadoOb('${ob._id}',this.checked)"
-                             style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer">
-                    </td>
-                    <td style="padding:4px 8px;font-weight:500">${esc(ob.pagarA||'')}${pgAdelantoBadgeHtml(ob.pagarA||'')}</td>
-                    <td style="padding:4px 8px">${esc(ob.tipoDocumento||'')}</td>
-                    <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
-                    <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
-                    <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
-                    <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
-                    <td style="padding:2px 8px;text-align:right">
-                      <input type="number" min="0" step="0.01" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
-                             placeholder="0.00"
-                             value="${ob.retencion ? ob.retencion : ''}"
-                             oninput="p4SetRetOb('${ob._id}',this.value)"
-                             onblur="p4RetBlur()">
-                    </td>
-                    <td id="p4-neto-${ob._id}"
-                        style="padding:4px 8px;text-align:right;font-weight:600;
-                               color:${(ob.retencion||0)>0?'#059669':'inherit'}">
-                      ${fmtN(netoOb(ob))}
-                    </td>
-                    <td style="padding:2px 8px;text-align:center">
-                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
-                              onchange="p4SetBancoOb('${ob._id}',this.value)">
-                        ${p4BancosOpts(ob.bancoAsignado||'')}
-                      </select>
-                    </td>
-                    <td style="padding:2px 8px;text-align:center">
-                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
-                              onchange="p4SetAgrupOb('${ob._id}',this.value)">
-                        ${p4AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
-                      </select>
-                    </td>
-                    <td style="padding:2px 8px">
-                      <input type="text" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;min-width:150px;
-                                    ${!ob.bancoAsignado?'border-color:#f59e0b;background:#fffbeb':''}"
-                             placeholder="${!ob.bancoAsignado?'Requerido ⚠':'Observaciones...'}"
-                             value="${esc(ob.observaciones||'')}"
-                             oninput="p4SetObsOb('${ob._id}',this.value)">
-                    </td>
-                  </tr>`).join('')}
-                </tbody>
+                <thead>${p4TableHead}</thead>
+                <tbody>${oblList.map(ob => p4ObRow(ob, 8)).join('')}</tbody>
               </table>
-              </div>
-            </div>
-          </div>`;
+              </div>`;
+        }
+
+        html += `</div></div>`;
       });
 
       html += `</div></div>`;
@@ -6291,6 +6346,25 @@ async function renderPaso4(container) {
     const open = body.style.display !== 'none';
     body.style.display = open ? 'none' : '';
     if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  window.p4ToggleIndiv = function(benKey) {
+    const body = document.getElementById(`p4-indiv-body-${benKey}`);
+    const arr  = document.getElementById(`p4-indiv-arr-${benKey}`);
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  window.p4ToggleMarcadoBenIndiv = function(benKey, val) {
+    const body = document.getElementById(`p4-indiv-body-${benKey}`);
+    if (!body) return;
+    body.querySelectorAll('[onchange*="p4ToggleMarcadoOb"]').forEach(el => {
+      const m = el.getAttribute('onchange').match(/'([^']+)'/);
+      if (m) { if (val) p4Marcados.add(m[1]); else p4Marcados.delete(m[1]); }
+    });
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
   };
 
   // ── Marcado (checkboxes P4) ───────────────────────────────────────
