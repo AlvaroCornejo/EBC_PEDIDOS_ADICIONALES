@@ -3734,7 +3734,7 @@ async function renderPaso1(container) {
 
           <!-- Adelantos -->
           <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
-            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Adelantos Pendientes</label>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Adelantos por Rendir</label>
             <input type="file" id="pg-file-adelantos" accept=".csv" style="display:none">
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-adelantos').click()" style="width:100%;justify-content:center">
               💵 Seleccionar
@@ -4672,11 +4672,17 @@ async function renderPaso2(container) {
     };
     const benDeuda = ben => {
       const obs = allObs.filter(o => (o.pagarA||'') === ben);
-      const usd = obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0);
-      const sol = obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0);
-      return [usd ? `USD&nbsp;<strong>${fmtN(usd)}</strong>` : '',
-              sol ? `S/&nbsp;<strong>${fmtN(sol)}</strong>`  : '']
-             .filter(Boolean).join('<span style="color:#cbd5e1;margin:0 3px">|</span>');
+      return {
+        usd: obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0),
+        sol: obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0)
+      };
+    };
+    const grpDeuda = grp => {
+      const obs = allObs.filter(o => (o.grupo || 'OTROS') === grp);
+      return {
+        usd: obs.filter(o => o.moneda !== 'LO').reduce((s,o) => s + o.monto, 0),
+        sol: obs.filter(o => o.moneda === 'LO').reduce((s,o) => s + o.monto, 0)
+      };
     };
     const grpTotales = grp => {
       const sel = allObs.filter(o => (o.grupo || 'OTROS') === grp && o.seleccionado);
@@ -4685,88 +4691,94 @@ async function renderPaso2(container) {
       return { usd, sol, tot: sol + usd * tc };
     };
 
-    const totStr = ({usd, sol, tot}) => {
-      const parts = [];
-      if (usd) parts.push(`USD&nbsp;<strong>${fmtN(usd)}</strong>`);
-      if (sol) parts.push(`S/&nbsp;<strong>${fmtN(sol)}</strong>`);
-      parts.push(`Total S/&nbsp;<strong style="color:var(--primary)">${fmtN(tot)}</strong>`);
-      return parts.join('<span style="color:#e2e8f0;margin:0 4px">|</span>');
-    };
+    const fmtV = v => v ? fmtN(v) : '<span style="color:#cbd5e1">—</span>';
+
+    // Ordenar grupos de mayor a menor por total programado
+    const grpsOrden = Object.keys(grupos).sort((a, b) => grpTotales(b).tot - grpTotales(a).tot);
+
+    const COLS = '16px minmax(120px,1fr) 82px 82px 82px 82px 90px 75px';
 
     let html = '';
-    Object.keys(grupos).sort().forEach(grp => {
+    grpsOrden.forEach(grp => {
       const bens  = grupos[grp];
       const gTot  = grpTotales(grp);
+      const gDeuda = grpDeuda(grp);
       const grpId = 'grp-' + grp.replace(/\W/g,'_');
 
       html += `
-      <div class="card mb-12" style="padding:0;overflow:hidden">
+      <div class="card mb-8" style="padding:0;overflow:hidden">
         <div onclick="const b=document.getElementById('${grpId}');const open=b.style.display!=='none';b.style.display=open?'none':'';this.querySelector('.ap2-arr').textContent=open?'▸':'▾'"
-             style="display:flex;align-items:center;justify-content:space-between;
-                    padding:10px 16px;background:var(--bg-secondary);
+             style="display:grid;grid-template-columns:${COLS};align-items:center;
+                    padding:8px 14px 8px 8px;background:var(--bg-secondary);
                     border-bottom:2px solid var(--primary);cursor:pointer;user-select:none">
+          <span class="ap2-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
           <span style="font-weight:700;font-size:13px;color:var(--primary)">📁 ${esc(grp)}</span>
-          <div style="display:flex;align-items:center;gap:12px;font-size:12px">
-            <span style="color:var(--text-muted)">Programado:&nbsp;${totStr(gTot)}</span>
-            <span class="ap2-arr" style="font-size:11px;color:var(--text-muted)">▸</span>
-          </div>
+          <div style="text-align:right;font-size:11px;color:var(--text-muted)">${fmtV(gDeuda.sol)}</div>
+          <div style="text-align:right;font-size:11px;color:var(--text-muted)">${fmtV(gDeuda.usd)}</div>
+          <div style="text-align:right;font-size:11px">${fmtV(gTot.sol)}</div>
+          <div style="text-align:right;font-size:11px">${fmtV(gTot.usd)}</div>
+          <div style="text-align:right;font-size:12px;font-weight:700;color:var(--primary)">${fmtN(gTot.tot)}</div>
+          <div></div>
         </div>
         <div id="${grpId}" style="display:none">
           <!-- Cabecera de columnas -->
-          <div style="display:grid;grid-template-columns:26px 20px minmax(120px,200px) 150px 150px 120px 120px;
-                      align-items:center;padding:5px 16px 5px 20px;
+          <div style="display:grid;grid-template-columns:${COLS};
+                      align-items:center;padding:4px 14px 4px 8px;
                       background:#f1f5f9;border-bottom:1px solid #e2e8f0;
-                      font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
-            <div></div><div></div>
+                      font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
+            <div></div>
             <div>Beneficiario</div>
-            <div style="text-align:right">Deuda total</div>
-            <div style="text-align:right">Programado</div>
-            <div style="text-align:right">Prom. pagos</div>
+            <div style="text-align:right">Deuda S/</div>
+            <div style="text-align:right">Deuda USD</div>
+            <div style="text-align:right">Prog. S/</div>
+            <div style="text-align:right">Prog. USD</div>
             <div style="text-align:right">Total S/</div>
+            <div style="text-align:right">Prom. pagos</div>
           </div>`;
 
-      Object.keys(bens).sort().forEach(ben => {
+      // Ordenar beneficiarios de mayor a menor por total programado
+      const bensOrden = Object.keys(bens).sort((a, b) => benTotales(b).tot - benTotales(a).tot);
+
+      bensOrden.forEach(ben => {
         const oblList = bens[ben];
         const benKey  = ben.toUpperCase().replace(/"/g,'&quot;');
         const bTot    = benTotales(ben);
         const bDeuda  = benDeuda(ben);
-        const allSel  = allObs.filter(o => (o.pagarA||'') === ben).every(o => o.seleccionado);
         const prom    = ap2Promedios[ben.toUpperCase()];
-        const benMon  = allObs.filter(o => (o.pagarA||'') === ben).some(o => o.moneda !== 'LO') ? 'USD' : 'S/';
+        const benMon  = bDeuda.usd > 0 ? 'USD' : 'S/';
         const promStr = prom?.promedio != null ? `${benMon} ${fmtN(prom.promedio)}` : '—';
-        const progMoneda = [
-          bTot.usd ? `USD&nbsp;${fmtN(bTot.usd)}` : '',
-          bTot.sol ? `S/&nbsp;${fmtN(bTot.sol)}`   : '',
-        ].filter(Boolean).join('<br>') || '—';
 
         html += `
         <div style="border-bottom:1px solid #f1f5f9">
-          <div class="ap2-ben-row" onclick="if(event.target.tagName!=='INPUT')ap2ToggleBenObl(this)"
-               style="display:grid;grid-template-columns:26px 20px minmax(120px,200px) 150px 150px 120px 120px;
-                      align-items:center;padding:7px 16px 7px 20px;
+          <div class="ap2-ben-row" onclick="ap2ToggleBenObl(this)"
+               style="display:grid;grid-template-columns:${COLS};
+                      align-items:center;padding:5px 14px 5px 16px;
                       background:#fafbfc;cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
             <span class="ap2-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
-            <input type="checkbox" data-ben="${benKey}" class="ap2-ben-cb" ${allSel ? 'checked' : ''}
-                   style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
-                   onchange="ap2ToggleBen('${benKey}',this.checked)">
-            <span style="font-weight:600;font-size:13px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
-            <div style="text-align:right;font-size:12px;line-height:1.5">${bDeuda}</div>
-            <div style="text-align:right;font-size:12px;line-height:1.5">${progMoneda}</div>
-            <div style="text-align:right;font-size:12px;color:#7c3aed;font-weight:600">${promStr}</div>
-            <div style="text-align:right;font-size:13px;font-weight:700;color:var(--primary)">${fmtN(bTot.tot)}</div>
+            <div style="display:flex;align-items:center;gap:4px;overflow:hidden">
+              <span style="font-weight:600;font-size:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(ben)}</span>
+              ${pgAdelantoBadgeHtml(ben)}
+            </div>
+            <div style="text-align:right;font-size:11px">${fmtV(bDeuda.sol)}</div>
+            <div style="text-align:right;font-size:11px">${fmtV(bDeuda.usd)}</div>
+            <div style="text-align:right;font-size:11px">${fmtV(bTot.sol)}</div>
+            <div style="text-align:right;font-size:11px">${fmtV(bTot.usd)}</div>
+            <div style="text-align:right;font-size:12px;font-weight:700;color:var(--primary)">${fmtN(bTot.tot)}</div>
+            <div style="text-align:right;font-size:11px;color:#7c3aed;font-weight:600">${promStr}</div>
           </div>
           <div class="ap2-obl-div" data-ap2-ben="${benKey}" style="display:none">
-            <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <table style="width:auto;border-collapse:collapse;font-size:11px">
               <thead>
                 <tr style="background:#f8fafc;color:var(--text-muted)">
-                  <th style="width:36px;padding:4px 8px 4px 36px"></th>
-                  <th style="padding:4px 8px;text-align:left">Tipo Doc</th>
-                  <th style="padding:4px 8px;text-align:left">N° Documento</th>
-                  <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
-                  <th style="padding:4px 8px;text-align:right">Moneda</th>
-                  <th style="padding:4px 8px;text-align:right">Monto</th>
-                  <th style="padding:4px 8px;text-align:right">Días Venc.</th>
-                  <th style="padding:4px 8px;text-align:left">Banco</th>
+                  <th style="width:26px;padding:2px 4px 2px 24px"></th>
+                  <th style="padding:2px 4px;text-align:left">Tipo</th>
+                  <th style="padding:2px 4px;text-align:left">N° Documento</th>
+                  <th style="padding:2px 4px;text-align:left">F. Documento</th>
+                  <th style="padding:2px 4px;text-align:left">F. Vencimiento</th>
+                  <th style="padding:2px 4px;text-align:right">Mon.</th>
+                  <th style="padding:2px 4px;text-align:right">Monto</th>
+                  <th style="padding:2px 4px;text-align:right">Días Venc.</th>
+                  <th style="padding:2px 4px;text-align:left">Banco</th>
                 </tr>
               </thead>
               <tbody>
@@ -4775,19 +4787,20 @@ async function renderPaso2(container) {
                   const dCol  = dias > 0 ? '#dc2626' : dias === 0 ? '#d97706' : '#166534';
                   return `
                   <tr style="border-top:1px solid #f1f5f9;background:${ob.seleccionado?'#f0fdf4':''}" id="ap2-tr-${ob._id}">
-                    <td style="padding:5px 8px 5px 36px">
+                    <td style="padding:2px 4px 2px 24px">
                       <input type="checkbox" data-id="${ob._id}" data-ben="${benKey}"
                              class="ap2-ob-cb" ${ob.seleccionado ? 'checked' : ''}
-                             style="width:13px;height:13px;accent-color:var(--primary);cursor:pointer"
+                             style="width:12px;height:12px;accent-color:var(--primary);cursor:pointer"
                              onchange="ap2ToggleOb('${ob._id}','${benKey}',this.checked)">
                     </td>
-                    <td style="padding:5px 8px">${esc(ob.tipoDocumento||'')}</td>
-                    <td style="padding:5px 8px">${esc(ob.numeroDocumento||'')}</td>
-                    <td style="padding:5px 8px">${fmtF(ob.fechaVencimiento)}</td>
-                    <td style="padding:5px 8px;text-align:right">${esc(ob.moneda||'')}</td>
-                    <td style="padding:5px 8px;text-align:right;${ob.monto<0?'color:#dc2626':''}">${fmtN(ob.monto)}</td>
-                    <td style="padding:5px 8px;text-align:right;color:${dCol};font-weight:600">${dias}</td>
-                    <td style="padding:5px 8px">${esc(ob.banco||'')}</td>
+                    <td style="padding:2px 4px">${esc(ob.tipoDocumento||'')}</td>
+                    <td style="padding:2px 4px">${esc(ob.numeroDocumento||'')}</td>
+                    <td style="padding:2px 4px;white-space:nowrap">${fmtF(ob.fechaDocumento)}</td>
+                    <td style="padding:2px 4px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
+                    <td style="padding:2px 4px;text-align:right">${esc(ob.moneda||'')}</td>
+                    <td style="padding:2px 4px;text-align:right;${ob.monto<0?'color:#dc2626':''}">${fmtN(ob.monto)}</td>
+                    <td style="padding:2px 4px;text-align:right;color:${dCol};font-weight:600">${dias}</td>
+                    <td style="padding:2px 4px">${esc(ob.banco||'')}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
@@ -4987,8 +5000,7 @@ async function renderPaso3(container) {
         </div>
         <div style="margin-left:auto;align-self:flex-end;display:flex;gap:6px">
           <button class="btn btn-outline btn-sm" onclick="p3Expandir(0)" title="Contraer todo">▸ Contraer</button>
-          <button class="btn btn-outline btn-sm" onclick="p3Expandir(1)" title="Expandir hasta beneficiarios">≡ Beneficiarios</button>
-          <button class="btn btn-outline btn-sm" onclick="p3Expandir(2)" title="Expandir hasta obligaciones">≣ Obligaciones</button>
+          <button class="btn btn-outline btn-sm" onclick="p3Expandir(1)" title="Expandir obligaciones">≣ Obligaciones</button>
         </div>
       </div>
     </div>
@@ -5035,7 +5047,7 @@ async function renderPaso3(container) {
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
       <button class="btn btn-outline btn-sm" onclick="imprimirVista('p3-wrap','Paso 3 — Preparación de Pagos')">🖨️ Imprimir</button>
-      <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('p3-wrap','paso3-preparacion')">📥 Bajar a Excel</button>
+      <button class="btn btn-outline btn-sm" onclick="p3ExportarExcel()">📥 Bajar a Excel</button>
     </div>
     <div id="p3-wrap" style="padding-bottom:120px"></div>`;
 
@@ -5160,6 +5172,16 @@ async function renderPaso3(container) {
     document.getElementById('p3-filtros').style.display = '';
   }
 
+  function p3ActualizarFiltroAgrups() {
+    const el = document.getElementById('p3-f-agrup');
+    if (!el) return;
+    const cur    = el.value;
+    const obs    = (p3Prog?.obligaciones || []).filter(o => o.seleccionado);
+    const agrups = [...new Set(obs.map(o => o.agrupadorPago || 'INDIVIDUAL'))].sort();
+    el.innerHTML = '<option value="">Todos</option>' +
+      agrups.map(a => `<option value="${esc(a)}"${a === cur ? ' selected' : ''}>${esc(a)}</option>`).join('');
+  }
+
   // ── Guardar / restaurar estado de colapso ───────────────────────
   function p3SaveState() {
     const grps = {}, obls = {};
@@ -5244,10 +5266,11 @@ async function renderPaso3(container) {
     return { ok: errIds.size === 0, obIds: errIds, mensajes: msgs };
   }
 
-  // ── Render árbol de grupos ───────────────────────────────────────
+  // ── Render lista plana por beneficiario ─────────────────────────
   function p3RenderGrupos() {
     const wrap = document.getElementById('p3-wrap');
     if (!p3Prog) { wrap.innerHTML = ''; return; }
+    p3ActualizarFiltroAgrups();
     const tc  = parseFloat(document.getElementById('p3-tc')?.value) || 1;
     const obs = p3ObsFiltradas();
     const allObs = (p3Prog.obligaciones || []).filter(o => o.seleccionado);
@@ -5258,180 +5281,200 @@ async function renderPaso3(container) {
       if (!AGRUPS_FIJOS.includes(ag) && !p3CustomAgrups.includes(ag)) p3CustomAgrups.push(ag);
     });
 
-    // Agrupar por grupo → beneficiario
-    const grupos = {};
+    // Agrupar por beneficiario + moneda (SOL / USD)
+    const bens = {};
     obs.forEach(ob => {
-      const g = ob.grupo || 'OTROS';
-      if (!grupos[g]) grupos[g] = {};
-      const b = ob.pagarA || '(sin beneficiario)';
-      if (!grupos[g][b]) grupos[g][b] = [];
-      grupos[g][b].push(ob);
+      const b    = ob.pagarA || '(sin beneficiario)';
+      const mcat = ob.moneda === 'LO' ? 'SOL' : 'USD';
+      const key  = `${b}|||${mcat}`;
+      if (!bens[key]) bens[key] = { ben: b, mcat, list: [] };
+      bens[key].list.push(ob);
     });
+    const benCurrCount = {};
+    Object.values(bens).forEach(({ ben }) => { benCurrCount[ben] = (benCurrCount[ben] || 0) + 1; });
 
     const neto = o => o.monto - (o.retencion || 0);
-    const grpTot = (g) => {
-      const go = obs.filter(o => (o.grupo||'OTROS') === g);
-      const usd = go.filter(o => o.moneda !== 'LO').reduce((s,o) => s + neto(o), 0);
-      const sol = go.filter(o => o.moneda === 'LO').reduce((s,o) => s + neto(o), 0);
-      return { usd, sol, tot: sol + usd * tc };
+    const monStr = (oblList, mcat) => {
+      const total = oblList.reduce((s,o) => s + neto(o), 0);
+      return mcat === 'SOL' ? `S/&nbsp;${fmtN(total)}` : `USD&nbsp;${fmtN(total)}`;
     };
-    const benTot = (ben) => {
-      const bo = obs.filter(o => (o.pagarA||'') === ben);
-      const usd = bo.filter(o => o.moneda !== 'LO').reduce((s,o) => s + neto(o), 0);
-      const sol = bo.filter(o => o.moneda === 'LO').reduce((s,o) => s + neto(o), 0);
-      return { usd, sol, tot: sol + usd * tc };
-    };
-    const totStr = ({usd, sol}) => [
-      usd ? `USD&nbsp;${fmtN(usd)}` : '',
-      sol ? `S/&nbsp;${fmtN(sol)}`  : '',
-    ].filter(Boolean).join('<br>') || '—';
 
-    // Select de banco (para fila de beneficiario)
+    // Select de banco
     const bancosOpts = (sel) =>
       `<option value="">— Banco —</option>` +
       p3Bancos.filter(b => b.activo).map(b =>
         `<option value="${esc(b.nombre)}" ${b.nombre === sel ? 'selected' : ''}>${esc(b.nombre)}</option>`
       ).join('');
 
-    // COLS: arrow | name | programado | banco | agrupador
     const COLS = 'grid-template-columns:26px minmax(150px,250px) 170px 150px 170px;gap:0 12px';
 
-    let html = '';
-    Object.keys(grupos).sort().forEach(grp => {
-      const grpId = `p3grp-${grp.replace(/\W/g,'_')}`;
-      const gt    = grpTot(grp);
+    let html = `
+    <div class="card mb-8" style="padding:0;overflow:hidden">
+      <div style="display:grid;${COLS};
+                  align-items:center;padding:5px 14px 5px 18px;
+                  background:#f1f5f9;border-bottom:1px solid #e2e8f0;
+                  font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
+        <div></div>
+        <div>Beneficiario</div>
+        <div style="text-align:right">Programado</div>
+        <div style="text-align:center">Banco</div>
+        <div style="text-align:center">Agrupador de Pago</div>
+      </div>`;
+
+    const benGroupKeys = Object.keys(bens).sort((a, b) => {
+      const ai = a.indexOf('|||'), bi2 = b.indexOf('|||');
+      const nc = a.substring(0, ai).localeCompare(b.substring(0, bi2));
+      return nc !== 0 ? nc : (a.substring(ai + 3) === 'SOL' ? -1 : 1);
+    });
+
+    benGroupKeys.forEach(groupKey => {
+      const { ben, mcat, list: oblList } = bens[groupKey];
+      const benKey   = (ben.toUpperCase() + '|||' + mcat)
+                        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      const progMon  = monStr(oblList, mcat);
+      const showMcat = benCurrCount[ben] > 1;
+      const mcatBadge = showMcat
+        ? ` <span style="font-size:10px;font-weight:400;color:#64748b;background:#f1f5f9;border-radius:3px;padding:1px 4px">${mcat}</span>`
+        : '';
+      const benObsList = allObs.filter(o =>
+        (o.pagarA||'').toUpperCase() === ben.toUpperCase() &&
+        (o.moneda === 'LO' ? 'SOL' : 'USD') === mcat
+      );
+      const benBancos = [...new Set(benObsList.map(o => o.bancoAsignado || ''))];
+      const benAgrups = [...new Set(benObsList.map(o => o.agrupadorPago || 'INDIVIDUAL'))];
+      const curBanco = benBancos.length === 1 ? benBancos[0] : '';
+      const curAgrup = benAgrups.length === 1 ? benAgrups[0] : '';
+      const benConError = p3ObsConError.size > 0 && benObsList.some(o => p3ObsConError.has(String(o._id)));
+
       html += `
-      <div class="card mb-8">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;
-                    border-bottom:1px solid #e2e8f0;cursor:pointer;user-select:none"
-             onclick="document.getElementById('${grpId}').style.display=
-                      document.getElementById('${grpId}').style.display==='none'?'':'none';
-                      this.querySelector('.p3-arr').textContent=
-                      document.getElementById('${grpId}').style.display===''?'▾':'▸'">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="p3-arr" style="font-size:12px;color:var(--text-muted)">▸</span>
-            <strong style="font-size:14px">${esc(grp)}</strong>
+      <div style="border-bottom:1px solid #f1f5f9">
+        <div class="p3-ben-row" onclick="if(!['SELECT','OPTION'].includes(event.target.tagName))p3ToggleBenObl(this)"
+             style="display:grid;${COLS};
+                    align-items:center;padding:6px 14px 6px 18px;
+                    background:${benConError ? '#fef9c3' : '#fafbfc'};cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
+          <span class="p3-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
+          <span style="font-weight:600;font-size:13px">${esc(ben)}${mcatBadge}${pgAdelantoBadgeHtml(ben)}</span>
+          <div style="text-align:right;font-size:12px;line-height:1.5">${progMon}</div>
+          <div onclick="event.stopPropagation()">
+            <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
+                    onchange="p3SetBancoBen('${benKey}',this.value)">
+              ${bancosOpts(curBanco)}
+            </select>
           </div>
-          <div style="font-size:12px;color:var(--text-muted)">
-            ${gt.usd ? `USD <strong>${fmtN(gt.usd)}</strong>&nbsp;&nbsp;` : ''}
-            ${gt.sol ? `S/ <strong>${fmtN(gt.sol)}</strong>&nbsp;&nbsp;` : ''}
-            <span style="color:var(--primary);font-weight:700">Todo en S/: ${fmtN(gt.tot)}</span>
+          <div onclick="event.stopPropagation()">
+            <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
+                    onchange="p3SetAgrupBen('${benKey}',this.value)">
+              ${p3AgrupOpts(curAgrup)}
+            </select>
           </div>
         </div>
-        <div id="${grpId}" style="display:none">
-          <!-- Cabecera de columnas -->
-          <div style="display:grid;${COLS};
-                      align-items:center;padding:5px 14px 5px 18px;
-                      background:#f1f5f9;border-bottom:1px solid #e2e8f0;
-                      font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">
-            <div></div>
-            <div>Beneficiario</div>
-            <div style="text-align:right">Programado</div>
-            <div style="text-align:center">Banco</div>
-            <div style="text-align:center">Agrupador de Pago</div>
-          </div>`;
-
-      Object.keys(grupos[grp]).sort().forEach(ben => {
-        const oblList = grupos[grp][ben];
-        const benKey  = ben.toUpperCase().replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-        const bt      = benTot(ben);
-        const progMon = totStr(bt);
-        // Banco y agrupador del beneficiario — detectar mixto si difieren entre obligaciones
-        const benObsList = allObs.filter(o => (o.pagarA||'').toUpperCase() === ben.toUpperCase());
-        const benBancos = [...new Set(benObsList.map(o => o.bancoAsignado || ''))];
-        const benAgrups = [...new Set(benObsList.map(o => o.agrupadorPago || 'INDIVIDUAL'))];
-        const curBanco = benBancos.length === 1 ? benBancos[0] : '';
-        const curAgrup = benAgrups.length === 1 ? benAgrups[0] : '';
-        const benConError = p3ObsConError.size > 0 && benObsList.some(o => p3ObsConError.has(String(o._id)));
-
-        html += `
-        <div style="border-bottom:1px solid #f1f5f9">
-          <div class="p3-ben-row" onclick="if(!['SELECT','OPTION'].includes(event.target.tagName))p3ToggleBenObl(this)"
-               style="display:grid;${COLS};
-                      align-items:center;padding:6px 14px 6px 18px;
-                      background:${benConError ? '#fef9c3' : '#fafbfc'};cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
-            <span class="p3-ben-arr" style="font-size:10px;color:var(--text-muted)">▸</span>
-            <span style="font-weight:600;font-size:13px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
-            <div style="text-align:right;font-size:12px;line-height:1.5">${progMon}</div>
-            <div onclick="event.stopPropagation()">
-              <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
-                      onchange="p3SetBancoBen('${benKey}',this.value)">
-                ${bancosOpts(curBanco)}
-              </select>
-            </div>
-            <div onclick="event.stopPropagation()">
-              <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;width:100%"
-                      onchange="p3SetAgrupBen('${benKey}',this.value)">
-                ${p3AgrupOpts(curAgrup)}
-              </select>
-            </div>
-          </div>
-          <div class="p3-obl-div" data-p3-ben="${benKey}" style="display:none">
-            <table style="width:100%;border-collapse:collapse;font-size:12px">
-              <thead>
-                <tr style="background:#f8fafc;color:var(--text-muted)">
-                  <th style="padding:4px 8px 4px 32px;text-align:left">Tipo Doc</th>
-                  <th style="padding:4px 8px;text-align:left">N° Documento</th>
-                  <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
-                  <th style="padding:4px 8px;text-align:right">Moneda</th>
-                  <th style="padding:4px 8px;text-align:right">Monto</th>
-                  <th style="padding:4px 8px;text-align:right">Retención</th>
-                  <th style="padding:4px 8px;text-align:right">Neto</th>
-                  <th style="padding:4px 8px;text-align:center">Banco</th>
-                  <th style="padding:4px 8px;text-align:center">Agrupador</th>
-                  <th style="padding:4px 8px;text-align:left">Observaciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${oblList.map(ob => `
-                  <tr style="border-top:1px solid #f1f5f9${p3ObsConError.has(String(ob._id)) ? ';background:#fef9c3' : ''}">
-                    <td style="padding:4px 8px 4px 32px">${esc(ob.tipoDocumento||'')}</td>
-                    <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
-                    <td style="padding:4px 8px">${fmtF(ob.fechaVencimiento)}</td>
-                    <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
-                    <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
-                    <td style="padding:2px 8px;text-align:right">
-                      <input type="number" min="0" step="0.01" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
-                             placeholder="0.00"
-                             value="${ob.retencion ? ob.retencion : ''}"
-                             oninput="p3SetRetOb('${ob._id}',this.value)"
-                             onblur="p3RetBlur()">
-                    </td>
-                    <td id="p3-neto-${ob._id}"
-                        style="padding:4px 8px;text-align:right;font-weight:600;
-                               color:${(ob.retencion||0)>0?'#059669':'inherit'}">
-                      ${fmtN(ob.monto - (ob.retencion||0))}
-                    </td>
-                    <td style="padding:2px 8px;text-align:center">
-                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
-                              onchange="p3SetBancoOb('${ob._id}',this.value)">
-                        ${bancosOpts(ob.bancoAsignado||'')}
-                      </select>
-                    </td>
-                    <td style="padding:2px 8px;text-align:center">
-                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
-                              onchange="p3SetAgrupOb('${ob._id}',this.value)">
-                        ${p3AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
-                      </select>
-                    </td>
-                    <td style="padding:2px 8px">
-                      <input type="text" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;min-width:160px;
-                                    ${!ob.bancoAsignado ? 'border-color:#f59e0b;background:#fffbeb' : ''}"
-                             placeholder="${!ob.bancoAsignado ? 'Requerido ⚠' : 'Observaciones...'}"
-                             value="${esc(ob.observaciones||'')}"
-                             oninput="p3SetObsOb('${ob._id}',this.value)">
-                    </td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>`;
-      });
-
-      html += `</div></div>`;
+        <div class="p3-obl-div" data-p3-ben="${benKey}" style="display:none">
+          <table style="width:auto;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:#f8fafc;color:var(--text-muted)">
+                <th style="padding:4px 8px 4px 32px;text-align:left">Tipo Doc</th>
+                <th style="padding:4px 8px;text-align:left">N° Documento</th>
+                <th style="padding:4px 8px;text-align:left">F. Vencimiento</th>
+                <th style="padding:4px 8px;text-align:right">Moneda</th>
+                <th style="padding:4px 8px;text-align:right">Monto</th>
+                <th style="padding:4px 8px;text-align:right">Retención</th>
+                <th style="padding:4px 8px;text-align:right">Neto</th>
+                <th style="padding:4px 8px;text-align:center">Banco</th>
+                <th style="padding:4px 8px;text-align:center">Agrupador</th>
+                <th style="padding:4px 8px;text-align:left">Observaciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${oblList.map(ob => `
+                <tr style="border-top:1px solid #f1f5f9${p3ObsConError.has(String(ob._id)) ? ';background:#fef9c3' : ''}">
+                  <td style="padding:4px 8px 4px 32px">${esc(ob.tipoDocumento||'')}</td>
+                  <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
+                  <td style="padding:4px 8px">${fmtF(ob.fechaVencimiento)}</td>
+                  <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+                  <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
+                  <td style="padding:2px 8px;text-align:right">
+                    <input type="number" min="0" step="0.01" class="form-control"
+                           style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
+                           placeholder="0.00"
+                           value="${ob.retencion ? ob.retencion : ''}"
+                           oninput="p3SetRetOb('${ob._id}',this.value)"
+                           onblur="p3RetBlur()">
+                  </td>
+                  <td id="p3-neto-${ob._id}"
+                      style="padding:4px 8px;text-align:right;font-weight:600;
+                             color:${(ob.retencion||0)>0?'#059669':'inherit'}">
+                    ${fmtN(ob.monto - (ob.retencion||0))}
+                  </td>
+                  <td style="padding:2px 8px;text-align:center">
+                    <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
+                            onchange="p3SetBancoOb('${ob._id}',this.value)">
+                      ${bancosOpts(ob.bancoAsignado||'')}
+                    </select>
+                  </td>
+                  <td style="padding:2px 8px;text-align:center">
+                    <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
+                            onchange="p3SetAgrupOb('${ob._id}',this.value)">
+                      ${p3AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
+                    </select>
+                  </td>
+                  <td style="padding:2px 8px">
+                    <input type="text" class="form-control"
+                           style="font-size:11px;padding:2px 6px;height:26px;min-width:160px;
+                                  ${!ob.bancoAsignado ? 'border-color:#f59e0b;background:#fffbeb' : ''}"
+                           placeholder="${!ob.bancoAsignado ? 'Requerido ⚠' : 'Observaciones...'}"
+                           value="${esc(ob.observaciones||'')}"
+                           oninput="p3SetObsOb('${ob._id}',this.value)">
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
     });
+
+    html += '</div>';
+
+    // ── Resumen por banco / moneda / agrupador ────────────────────
+    const resumen = {};
+    allObs.forEach(ob => {
+      const banco = ob.bancoAsignado || '(sin banco)';
+      const mon   = ob.moneda || 'LO';
+      const agrup = ob.agrupadorPago || 'INDIVIDUAL';
+      const key   = `${banco}||${mon}||${agrup}`;
+      if (!resumen[key]) resumen[key] = { banco, mon, agrup, monto: 0 };
+      resumen[key].monto += ob.monto - (ob.retencion || 0);
+    });
+    const resRows = Object.values(resumen).sort((a,b) =>
+      a.banco.localeCompare(b.banco) || a.mon.localeCompare(b.mon) || a.agrup.localeCompare(b.agrup)
+    );
+    if (resRows.length) {
+      html += `
+      <div class="card mb-8" style="padding:0;overflow:hidden">
+        <div style="padding:7px 14px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0;
+                    font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">
+          Resumen por banco / moneda / agrupador
+        </div>
+        <table style="width:auto;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#f8fafc;color:var(--text-muted)">
+              <th style="padding:4px 14px;text-align:left">Banco</th>
+              <th style="padding:4px 14px;text-align:left">Moneda</th>
+              <th style="padding:4px 14px;text-align:left">Agrupador</th>
+              <th style="padding:4px 14px;text-align:right">Monto Neto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${resRows.map((r,i) => `
+            <tr style="border-top:1px solid #f1f5f9${i%2===1?';background:#fafbfc':''}">
+              <td style="padding:4px 14px;font-weight:600;color:#1d4ed8">${esc(r.banco)}</td>
+              <td style="padding:4px 14px">${r.mon === 'LO' ? 'Soles' : 'Dólares'}</td>
+              <td style="padding:4px 14px;color:#7c3aed">${esc(r.agrup)}</td>
+              <td style="padding:4px 14px;text-align:right;font-weight:700">${r.mon !== 'LO' ? 'USD ' : 'S/ '}${fmtN(r.monto)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    }
 
     wrap.innerHTML = html || '<p style="color:var(--text-muted);padding:16px">No hay obligaciones programadas.</p>';
   }
@@ -5448,23 +5491,22 @@ async function renderPaso3(container) {
 
   // ── Expandir niveles ─────────────────────────────────────────────
   window.p3Expandir = function(nivel) {
-    document.querySelectorAll('#p3-wrap [id^="p3grp-"]').forEach(b => {
-      b.style.display = nivel === 0 ? 'none' : '';
-      const arr = b.closest('.card')?.querySelector('.p3-arr');
-      if (arr) arr.textContent = nivel === 0 ? '▸' : '▾';
-    });
     document.querySelectorAll('#p3-wrap .p3-obl-div').forEach(d => {
-      d.style.display = nivel >= 2 ? '' : 'none';
+      d.style.display = nivel >= 1 ? '' : 'none';
       const arr = d.previousElementSibling?.querySelector('.p3-ben-arr');
-      if (arr) arr.textContent = nivel >= 2 ? '▾' : '▸';
+      if (arr) arr.textContent = nivel >= 1 ? '▾' : '▸';
     });
   };
 
   // ── Setters a nivel de beneficiario ─────────────────────────────
   window.p3SetBancoBen = function(benKey, val) {
     if (!p3Prog) return;
+    const sepIdx  = benKey.indexOf('|||');
+    const benPart = sepIdx >= 0 ? benKey.substring(0, sepIdx) : benKey;
+    const mcat    = sepIdx >= 0 ? benKey.substring(sepIdx + 3) : null;
     p3Prog.obligaciones.forEach(ob => {
-      if ((ob.pagarA||'').toUpperCase() === benKey.toUpperCase() && ob.seleccionado)
+      const obMcat = ob.moneda === 'LO' ? 'SOL' : 'USD';
+      if ((ob.pagarA||'').toUpperCase() === benPart && (!mcat || obMcat === mcat) && ob.seleccionado)
         ob.bancoAsignado = val;
     });
     p3ObsConError = new Set();
@@ -5485,8 +5527,12 @@ async function renderPaso3(container) {
       val = nombre;
     }
 
+    const sepIdx  = benKey.indexOf('|||');
+    const benPart = sepIdx >= 0 ? benKey.substring(0, sepIdx) : benKey;
+    const mcat    = sepIdx >= 0 ? benKey.substring(sepIdx + 3) : null;
     p3Prog.obligaciones.forEach(ob => {
-      if ((ob.pagarA||'').toUpperCase() === benKey.toUpperCase() && ob.seleccionado)
+      const obMcat = ob.moneda === 'LO' ? 'SOL' : 'USD';
+      if ((ob.pagarA||'').toUpperCase() === benPart && (!mcat || obMcat === mcat) && ob.seleccionado)
         ob.agrupadorPago = val;
     });
     p3ObsConError = new Set();
@@ -5555,6 +5601,44 @@ async function renderPaso3(container) {
       const tr = document.querySelector(`[oninput="p3SetObsOb('${obId}',this.value)"]`)?.closest('tr');
       if (tr) tr.style.background = '';
     }
+  };
+
+  // ── Exportar Excel Paso 3 ────────────────────────────────────────
+  window.p3ExportarExcel = function() {
+    if (!p3Prog) { toast('No hay programación abierta', 'error'); return; }
+    const obs = (p3Prog.obligaciones || []).filter(o => o.seleccionado);
+    if (!obs.length) { toast('No hay obligaciones programadas', 'error'); return; }
+
+    const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PE') : '';
+    const fmtNum  = n => (n ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const headers = ['Beneficiario','Tipo Doc','N° Documento','F. Documento','F. Vencimiento','Moneda','Importe','Retención','Pago Neto','Grupo de Pago'];
+    const rows = obs
+      .slice()
+      .sort((a,b) => (a.pagarA||'').localeCompare(b.pagarA||''))
+      .map(ob => [
+        ob.pagarA         || '',
+        ob.tipoDocumento  || '',
+        ob.numeroDocumento|| '',
+        fmtDate(ob.fechaDocumento),
+        fmtDate(ob.fechaVencimiento),
+        ob.moneda         || '',
+        fmtNum(ob.monto),
+        fmtNum(ob.retencion || 0),
+        fmtNum(ob.monto - (ob.retencion || 0)),
+        ob.agrupadorPago  || 'INDIVIDUAL',
+      ].map(csvCell).join(','));
+
+    const csv  = [headers.map(csvCell).join(','), ...rows].join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `paso3-preparacion-${today()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('✅ Exportando a Excel', 'success');
   };
 
   // ── Refresh / filtrar ────────────────────────────────────────────
@@ -5850,12 +5934,15 @@ async function renderPaso4(container) {
 
   // ── Guardar estado (qué bancos/agrupadores están abiertos) ────────
   function p4SaveState() {
-    const st = { bancos: {}, agrups: {} };
+    const st = { bancos: {}, agrups: {}, indivs: {} };
     document.querySelectorAll('[id^="p4banco-body-"]').forEach(el => {
       st.bancos[el.id] = el.style.display !== 'none';
     });
     document.querySelectorAll('[id^="p4agrup-body-"]').forEach(el => {
       st.agrups[el.id] = el.style.display !== 'none';
+    });
+    document.querySelectorAll('[id^="p4-indiv-body-"]').forEach(el => {
+      st.indivs[el.id] = el.style.display !== 'none';
     });
     return st;
   }
@@ -5874,6 +5961,15 @@ async function renderPaso4(container) {
       if (el) {
         el.style.display = open ? '' : 'none';
         const arr = el.previousElementSibling?.querySelector('.p4-agrup-arr');
+        if (arr) arr.textContent = open ? '▾' : '▸';
+      }
+    });
+    Object.entries(st.indivs||{}).forEach(([id, open]) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = open ? '' : 'none';
+        const arrId = id.replace('p4-indiv-body-', 'p4-indiv-arr-');
+        const arr = document.getElementById(arrId);
         if (arr) arr.textContent = open ? '▾' : '▸';
       }
     });
@@ -5999,9 +6095,53 @@ async function renderPaso4(container) {
         return a.localeCompare(b);
       });
 
+      // Helper: fila de una obligación en la tabla de detalle
+      const p4ObRow = (ob, indent) => `
+        <tr style="border-top:1px solid #f1f5f9;background:${p4ObsConError.has(String(ob._id))?'#fef9c3':p4Marcados.has(String(ob._id))?'#f0fdf4':''};${pgAdelantoRowStyle(ob.pagarA||'')}">
+          <td style="padding:4px 8px 4px ${indent}px;text-align:center">
+            <input type="checkbox" ${p4Marcados.has(String(ob._id))?'checked':''}
+                   onclick="event.stopPropagation()"
+                   onchange="p4ToggleMarcadoOb('${ob._id}',this.checked)"
+                   style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer">
+          </td>
+          <td style="padding:4px 8px;font-weight:500">${esc(ob.pagarA||'')}${pgAdelantoBadgeHtml(ob.pagarA||'')}</td>
+          <td style="padding:4px 8px">${esc(ob.tipoDocumento||'')}</td>
+          <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
+          <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
+          <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
+          <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
+          <td style="padding:4px 8px;text-align:right;color:${(ob.retencion||0)>0?'#059669':'var(--text-muted)'}">${fmtN(ob.retencion||0)}</td>
+          <td style="padding:4px 8px;text-align:right;font-weight:600;color:${(ob.retencion||0)>0?'#059669':'inherit'}">${fmtN(netoOb(ob))}</td>
+          <td style="padding:4px 8px;text-align:center;color:#1d4ed8;font-weight:500">${esc(ob.bancoAsignado||'')}</td>
+          <td style="padding:4px 8px;text-align:center;color:#7c3aed">${esc(ob.agrupadorPago||'INDIVIDUAL')}</td>
+          <td style="padding:2px 8px">
+            <input type="text" class="form-control"
+                   style="font-size:11px;padding:2px 6px;height:26px;min-width:150px"
+                   placeholder="Observaciones..."
+                   value="${esc(ob.observaciones||'')}"
+                   oninput="p4SetObsOb('${ob._id}',this.value)">
+          </td>
+        </tr>`;
+
+      const p4TableHead = `
+        <tr style="background:#f1f5f9;color:var(--text-muted)">
+          <th style="padding:5px 8px;text-align:center;white-space:nowrap">☑</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">Beneficiario</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">Tipo Doc</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Documento</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">F. Vencimiento</th>
+          <th style="padding:5px 8px;text-align:right;white-space:nowrap">Mon</th>
+          <th style="padding:5px 8px;text-align:right;white-space:nowrap">Monto</th>
+          <th style="padding:5px 8px;text-align:right;white-space:nowrap">Retención</th>
+          <th style="padding:5px 8px;text-align:right;white-space:nowrap">Neto</th>
+          <th style="padding:5px 8px;text-align:center;white-space:nowrap">Banco</th>
+          <th style="padding:5px 8px;text-align:center;white-space:nowrap">Agrupador</th>
+          <th style="padding:5px 8px;text-align:left;white-space:nowrap">Observaciones</th>
+        </tr>`;
+
       agrups.forEach(agrup => {
-        const aKey   = `${bKey}__${agrup.replace(/\W/g,'_')}`;
-        const at     = agrupTot(banco, agrup);
+        const aKey    = `${bKey}__${agrup.replace(/\W/g,'_')}`;
+        const at      = agrupTot(banco, agrup);
         const oblList = byBanco[banco][agrup];
         const allAgrupMarcado = oblList.length > 0 && oblList.every(o => p4Marcados.has(String(o._id)));
 
@@ -6016,84 +6156,64 @@ async function renderPaso4(container) {
                      onchange="p4ToggleMarcadoAgrup('${esc(aKey)}',this.checked)"
                      style="width:13px;height:13px;accent-color:#7c3aed;cursor:pointer;flex-shrink:0">
               <span style="font-weight:600;font-size:12px;color:#7c3aed">${esc(agrup)}</span>
-              <div style="display:flex;flex-direction:column;gap:0px;margin-left:8px">
+              <div style="display:flex;flex-direction:column;gap:0;margin-left:8px">
                 ${at.usd ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">USD&nbsp;${fmtN(at.usd)}</span>` : ''}
                 ${at.sol ? `<span style="font-size:10px;color:#7c3aed;font-weight:600">S/&nbsp;&nbsp;${fmtN(at.sol)}</span>` : ''}
               </div>
             </div>
-            <div id="p4agrup-body-${aKey}" style="display:none">
+            <div id="p4agrup-body-${aKey}" style="display:none">`;
+
+        if (agrup === 'INDIVIDUAL') {
+          // Sub-agrupar por beneficiario
+          const byBen = {};
+          oblList.forEach(ob => {
+            const b = ob.pagarA || '(sin beneficiario)';
+            if (!byBen[b]) byBen[b] = [];
+            byBen[b].push(ob);
+          });
+          Object.keys(byBen).sort().forEach(ben => {
+            const benObs = byBen[ben];
+            const benKey2 = `${aKey}__${ben.replace(/\W/g,'_')}`;
+            const benUsd = benObs.filter(o=>o.moneda!=='LO').reduce((s,o)=>s+netoOb(o),0);
+            const benSol = benObs.filter(o=>o.moneda==='LO').reduce((s,o)=>s+netoOb(o),0);
+            const allBenMarcado = benObs.every(o => p4Marcados.has(String(o._id)));
+            html += `
+              <div style="border-top:1px solid #f1f5f9">
+                <div onclick="if(event.target.tagName!=='INPUT')p4ToggleIndiv('${benKey2}')"
+                     style="display:flex;align-items:center;gap:8px;padding:6px 16px 6px 48px;
+                            background:#fafbfc;cursor:pointer;user-select:none;${pgAdelantoRowStyle(ben)}">
+                  <span id="p4-indiv-arr-${benKey2}" style="font-size:10px;color:var(--text-muted)">▸</span>
+                  <input type="checkbox" ${allBenMarcado ? 'checked' : ''}
+                         onclick="event.stopPropagation()"
+                         onchange="p4ToggleMarcadoBenIndiv('${benKey2}',this.checked)"
+                         style="width:13px;height:13px;accent-color:var(--primary);cursor:pointer;flex-shrink:0">
+                  <span style="font-weight:600;font-size:12px">${esc(ben)}${pgAdelantoBadgeHtml(ben)}</span>
+                  <div style="display:flex;gap:8px;margin-left:8px;font-size:11px;color:#64748b">
+                    ${benUsd ? `<span>USD&nbsp;${fmtN(benUsd)}</span>` : ''}
+                    ${benSol ? `<span>S/&nbsp;${fmtN(benSol)}</span>` : ''}
+                  </div>
+                </div>
+                <div id="p4-indiv-body-${benKey2}" style="display:none">
+                  <div style="overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead>${p4TableHead}</thead>
+                    <tbody>${benObs.map(ob => p4ObRow(ob, 56)).join('')}</tbody>
+                  </table>
+                  </div>
+                </div>
+              </div>`;
+          });
+        } else {
+          html += `
               <div style="overflow-x:auto">
               <table style="width:100%;border-collapse:collapse;font-size:12px">
-                <thead>
-                  <tr style="background:#f1f5f9;color:var(--text-muted)">
-                    <th style="padding:5px 8px;text-align:center;white-space:nowrap">☑</th>
-                    <th style="padding:5px 8px 5px 8px;text-align:left;white-space:nowrap">Beneficiario</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">Tipo Doc</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">N° Documento</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">F. Vencimiento</th>
-                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Mon</th>
-                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Monto</th>
-                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Retención</th>
-                    <th style="padding:5px 8px;text-align:right;white-space:nowrap">Neto</th>
-                    <th style="padding:5px 8px;text-align:center;white-space:nowrap">Banco</th>
-                    <th style="padding:5px 8px;text-align:center;white-space:nowrap">Agrupador</th>
-                    <th style="padding:5px 8px;text-align:left;white-space:nowrap">Observaciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${oblList.map(ob => `
-                  <tr style="border-top:1px solid #f1f5f9;background:${p4ObsConError.has(String(ob._id))?'#fef9c3':p4Marcados.has(String(ob._id))?'#f0fdf4':''};${pgAdelantoRowStyle(ob.pagarA||'')}">
-                    <td style="padding:4px 8px;text-align:center">
-                      <input type="checkbox" ${p4Marcados.has(String(ob._id))?'checked':''}
-                             onclick="event.stopPropagation()"
-                             onchange="p4ToggleMarcadoOb('${ob._id}',this.checked)"
-                             style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer">
-                    </td>
-                    <td style="padding:4px 8px;font-weight:500">${esc(ob.pagarA||'')}${pgAdelantoBadgeHtml(ob.pagarA||'')}</td>
-                    <td style="padding:4px 8px">${esc(ob.tipoDocumento||'')}</td>
-                    <td style="padding:4px 8px">${esc(ob.numeroDocumento||'')}</td>
-                    <td style="padding:4px 8px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
-                    <td style="padding:4px 8px;text-align:right">${esc(ob.moneda||'')}</td>
-                    <td style="padding:4px 8px;text-align:right;font-weight:600">${fmtN(ob.monto)}</td>
-                    <td style="padding:2px 8px;text-align:right">
-                      <input type="number" min="0" step="0.01" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;width:90px;text-align:right"
-                             placeholder="0.00"
-                             value="${ob.retencion ? ob.retencion : ''}"
-                             oninput="p4SetRetOb('${ob._id}',this.value)"
-                             onblur="p4RetBlur()">
-                    </td>
-                    <td id="p4-neto-${ob._id}"
-                        style="padding:4px 8px;text-align:right;font-weight:600;
-                               color:${(ob.retencion||0)>0?'#059669':'inherit'}">
-                      ${fmtN(netoOb(ob))}
-                    </td>
-                    <td style="padding:2px 8px;text-align:center">
-                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:110px"
-                              onchange="p4SetBancoOb('${ob._id}',this.value)">
-                        ${p4BancosOpts(ob.bancoAsignado||'')}
-                      </select>
-                    </td>
-                    <td style="padding:2px 8px;text-align:center">
-                      <select class="form-control" style="font-size:11px;padding:1px 4px;height:26px;min-width:120px"
-                              onchange="p4SetAgrupOb('${ob._id}',this.value)">
-                        ${p4AgrupOpts(ob.agrupadorPago||'INDIVIDUAL')}
-                      </select>
-                    </td>
-                    <td style="padding:2px 8px">
-                      <input type="text" class="form-control"
-                             style="font-size:11px;padding:2px 6px;height:26px;min-width:150px;
-                                    ${!ob.bancoAsignado?'border-color:#f59e0b;background:#fffbeb':''}"
-                             placeholder="${!ob.bancoAsignado?'Requerido ⚠':'Observaciones...'}"
-                             value="${esc(ob.observaciones||'')}"
-                             oninput="p4SetObsOb('${ob._id}',this.value)">
-                    </td>
-                  </tr>`).join('')}
-                </tbody>
+                <thead>${p4TableHead}</thead>
+                <tbody>${oblList.map(ob => p4ObRow(ob, 8)).join('')}</tbody>
               </table>
-              </div>
-            </div>
-          </div>`;
+              </div>`;
+        }
+
+        html += `</div></div>`;
       });
 
       html += `</div></div>`;
@@ -6226,6 +6346,25 @@ async function renderPaso4(container) {
     const open = body.style.display !== 'none';
     body.style.display = open ? 'none' : '';
     if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  window.p4ToggleIndiv = function(benKey) {
+    const body = document.getElementById(`p4-indiv-body-${benKey}`);
+    const arr  = document.getElementById(`p4-indiv-arr-${benKey}`);
+    if (!body) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    if (arr) arr.textContent = open ? '▸' : '▾';
+  };
+
+  window.p4ToggleMarcadoBenIndiv = function(benKey, val) {
+    const body = document.getElementById(`p4-indiv-body-${benKey}`);
+    if (!body) return;
+    body.querySelectorAll('[onchange*="p4ToggleMarcadoOb"]').forEach(el => {
+      const m = el.getAttribute('onchange').match(/'([^']+)'/);
+      if (m) { if (val) p4Marcados.add(m[1]); else p4Marcados.delete(m[1]); }
+    });
+    const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
   };
 
   // ── Marcado (checkboxes P4) ───────────────────────────────────────
@@ -6598,15 +6737,8 @@ async function renderPaso5(container) {
                     style="cursor:pointer;font-size:10px;color:#94a3b8;padding:2px 4px">▸</span>
               <span style="font-weight:600;font-size:13px;color:#374151;flex:1;min-width:140px">${esc(benef)}${pgAdelantoBadgeHtml(benef)}</span>
               ${totBadges(bTot,'11px')}
-              <input type="text" class="form-control"
-                     style="width:84px;font-size:11px;height:26px" placeholder="Banco"
-                     value="${esc(efBanco)}"
-                     oninput="p5SetBancoBenef('${esc(agrup)}','${esc(benef)}',this.value)">
-              <select class="form-control" style="width:64px;font-size:11px;height:26px"
-                      onchange="p5SetMonedaBenef('${esc(agrup)}','${esc(benef)}',this.value)">
-                <option value="USD"${efMon==='USD'?' selected':''}>USD</option>
-                <option value="SOL"${efMon==='SOL'?' selected':''}>SOL</option>
-              </select>
+              <span style="font-size:11px;color:#1d4ed8;font-weight:500;min-width:60px">${esc(efBanco)||'—'}</span>
+              <span style="font-size:11px;color:#059669;font-weight:600;min-width:32px">${esc(efMon)}</span>
               <input type="number" min="0" step="1" class="form-control"
                      style="width:90px;font-size:11px;height:26px" placeholder="N° Op"
                      value="${op}"
@@ -6668,15 +6800,8 @@ async function renderPaso5(container) {
             <span style="font-weight:700;font-size:14px;color:#1d4ed8;flex:1;min-width:140px">${esc(agrup)}</span>
             <span style="font-size:11px;color:#64748b">${agrupObs.length} oblig.</span>
             ${totBadges(agTot,'11px')}
-            <input type="text" class="form-control"
-                   style="width:84px;font-size:11px;height:26px" placeholder="Banco"
-                   value="${esc(efBanco)}"
-                   oninput="p5SetBancoAgrup('${esc(agrup)}',this.value)">
-            <select class="form-control" style="width:64px;font-size:11px;height:26px"
-                    onchange="p5SetMonedaAgrup('${esc(agrup)}',this.value)">
-              <option value="USD"${efMon==='USD'?' selected':''}>USD</option>
-              <option value="SOL"${efMon==='SOL'?' selected':''}>SOL</option>
-            </select>
+            <span style="font-size:11px;color:#1d4ed8;font-weight:500;min-width:60px">${esc(efBanco)||'—'}</span>
+            <span style="font-size:11px;color:#059669;font-weight:600;min-width:32px">${esc(efMon)}</span>
             <input type="number" min="0" step="1" class="form-control"
                    style="width:90px;font-size:11px;height:26px" placeholder="N° Op"
                    value="${op}"

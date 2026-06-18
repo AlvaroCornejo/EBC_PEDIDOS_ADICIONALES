@@ -7,8 +7,12 @@ const schema = new mongoose.Schema({
   grupo:         { type: String, default: 'OTROS' },
   detalleGrupo:  { type: String, default: 'OTROS' },
   banco:            { type: String, default: '' },
-  bancoDefault:     { type: String, default: '' },    // último banco asignado en Paso 3
-  agrupadorDefault: { type: String, default: 'INDIVIDUAL' }, // último agrupador en Paso 3
+  bancoDefault:        { type: String, default: '' },
+  agrupadorDefault:    { type: String, default: 'INDIVIDUAL' },
+  bancoDefaultSOL:     { type: String, default: '' },
+  agrupadorDefaultSOL: { type: String, default: 'INDIVIDUAL' },
+  bancoDefaultUSD:     { type: String, default: '' },
+  agrupadorDefaultUSD: { type: String, default: 'INDIVIDUAL' },
   updatedAt: { type: Date, default: Date.now },
 });
 

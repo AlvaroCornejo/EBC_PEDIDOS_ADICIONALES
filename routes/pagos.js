@@ -357,7 +357,13 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
         diasVencido,
         grupo,
         detalleGrupo,
-        seleccionado: diasVencido >= 0 && diasVencido <= 9,
+        seleccionado:     diasVencido >= 0 && diasVencido <= 9,
+        bancoAsignado:    (r['MonedaDocumento']||'').trim() === 'LO'
+                            ? (benefMap[key]?.bancoDefaultSOL     || '')
+                            : (benefMap[key]?.bancoDefaultUSD     || ''),
+        agrupadorPago:    (r['MonedaDocumento']||'').trim() === 'LO'
+                            ? (benefMap[key]?.agrupadorDefaultSOL || 'INDIVIDUAL')
+                            : (benefMap[key]?.agrupadorDefaultUSD || 'INDIVIDUAL'),
       });
     }
 
@@ -700,19 +706,25 @@ async function aplicarAsignacionesP3(prog, asignaciones) {
       if (observaciones  !== undefined) ob.observaciones  = observaciones  || '';
     }
   });
-  // Guardar defaults por beneficiario (último banco + agrupador usado)
-  const defMap = {}; // { nombreUpper: { banco, agrupador } }
+  // Guardar defaults por beneficiario + moneda (SOL / USD)
+  const defMap = {};
   prog.obligaciones.filter(o => o.seleccionado).forEach(ob => {
-    const key = (ob.pagarA || '').toUpperCase();
-    if (!defMap[key]) defMap[key] = { banco: ob.bancoAsignado || '', agrupador: ob.agrupadorPago || 'INDIVIDUAL' };
+    const nombre = (ob.pagarA || '').trim();
+    if (!nombre) return;
+    const isSol  = ob.moneda === 'LO';
+    const key    = `${nombre.toUpperCase()}||${isSol ? 'SOL' : 'USD'}`;
+    if (!defMap[key]) defMap[key] = { nombre, isSol, banco: ob.bancoAsignado || '', agrupador: ob.agrupadorPago || 'INDIVIDUAL' };
   });
-  const ops = Object.entries(defMap).map(([nombre, { banco, agrupador }]) =>
-    PagoBeneficiario.findOneAndUpdate(
+  const ops = Object.values(defMap).map(({ nombre, isSol, banco, agrupador }) => {
+    const update = isSol
+      ? { bancoDefaultSOL: banco, agrupadorDefaultSOL: agrupador, updatedAt: new Date() }
+      : { bancoDefaultUSD: banco, agrupadorDefaultUSD: agrupador, updatedAt: new Date() };
+    return PagoBeneficiario.findOneAndUpdate(
       { nombre: { $regex: new RegExp(`^${nombre}$`, 'i') }, compania: prog.compania },
-      { bancoDefault: banco, agrupadorDefault: agrupador, updatedAt: new Date() },
+      update,
       { new: true }
-    )
-  );
+    );
+  });
   await Promise.all(ops);
 }
 
