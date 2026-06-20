@@ -1,9 +1,9 @@
 const express = require('express');
 const router  = express.Router();
-const { requireAuth } = require('./auth');
+const authMiddleware = require('../middleware/auth');
 const Receta  = require('../models/Receta');
 
-router.use(requireAuth);
+router.use(authMiddleware);
 
 // ── Expansión recursiva ──────────────────────────────────────────
 function desgloseNodo(recetaMap, item, cantPedida, visited = new Set()) {
