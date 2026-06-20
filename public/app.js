@@ -1761,10 +1761,9 @@ function renderLineasAtenderSimple(lineas, gestionFilter, gestionRol, readonly) 
       </label>`;
     }
 
-    const esPlanta = (l.gestion || 'COMPRAS') === 'PLANTA';
     return `<tr>
       <td style="font-family:monospace;font-size:12px;white-space:nowrap;color:#374151">${esc(l.item || '—')}</td>
-      <td><strong style="font-size:13px">${esc(l.itemNombre || l.item || '—')}</strong>${esPlanta ? `<br><button onclick="verDesgloseReceta(${+(l.item)||0},${+(l.cantidadSolicitada)||1})" style="margin-top:4px;font-size:11px;padding:2px 8px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🏭 Desglose</button>` : ''}</td>
+      <td><strong style="font-size:13px">${esc(l.itemNombre || l.item || '—')}</strong><br><button onclick="verDesgloseReceta(${+(l.item)||0},${+(l.cantidadSolicitada)||1})" style="margin-top:4px;font-size:11px;padding:2px 8px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🏭 Desglose</button></td>
       <td style="font-size:13px">${esc(l.grupoCompra || '—')}</td>
       <td class="col-num" style="font-weight:600">${fmt(l.cantidadSolicitada)}</td>
       <td style="font-size:12px">${esc(l.comentarios || '')}</td>
