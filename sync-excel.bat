@@ -47,6 +47,10 @@ set SRC2=C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC ITEMS
 copy /Y "%SRC2%\EBC ITEMS_VENTA.xlsx" "%DST%\EBC ITEMS_VENTA.xlsx"
 if %errorlevel%==0 (echo OK: ITEMS_VENTA) else (echo ERROR: ITEMS_VENTA)
 
+set SRC3=C:\Users\CORP.PROCESOS\Box\EBC\EBC LOGISTICA\EBC RECETAS
+copy /Y "%SRC3%\EBC JERARQUIA.xlsx" "%DST%\EBC JERARQUIA.xlsx"
+if %errorlevel%==0 (echo OK: JERARQUIA) else (echo ERROR: JERARQUIA)
+
 echo.
 echo Sincronizacion completada.
 

@@ -1731,9 +1731,10 @@ function renderLineasAtenderSimple(lineas, gestionFilter, gestionRol, readonly) 
       </label>`;
     }
 
+    const esPlanta = (l.gestion || 'COMPRAS') === 'PLANTA';
     return `<tr>
       <td style="font-family:monospace;font-size:12px;white-space:nowrap;color:#374151">${esc(l.item || '—')}</td>
-      <td><strong style="font-size:13px">${esc(l.itemNombre || l.item || '—')}</strong></td>
+      <td><strong style="font-size:13px">${esc(l.itemNombre || l.item || '—')}</strong>${esPlanta ? `<br><button onclick="verDesgloseReceta(${+(l.item)||0},${+(l.cantidadSolicitada)||1})" style="margin-top:4px;font-size:11px;padding:2px 8px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🏭 Desglose</button>` : ''}</td>
       <td style="font-size:13px">${esc(l.grupoCompra || '—')}</td>
       <td class="col-num" style="font-weight:600">${fmt(l.cantidadSolicitada)}</td>
       <td style="font-size:12px">${esc(l.comentarios || '')}</td>
@@ -3589,6 +3590,83 @@ window.pgVerRelacionAdelantos = async (compania, progId) => {
         </table>
       </div>`);
   } catch (e) { toast(e.message, 'error'); }
+};
+
+// ─── Desglose de Recetas de Planta ───────────────────────────────
+window.verDesgloseReceta = async function(item, cantidad) {
+  const fmtN = v => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  openModal('🏭 Desglose de Producción',
+    `<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span></div>`,
+    null, { wide: true });
+
+  try {
+    const data = await GET(`/recetas/desglose?item=${encodeURIComponent(item)}&cantidad=${encodeURIComponent(cantidad)}`);
+
+    if (data.sinReceta) {
+      document.getElementById('modal-body').innerHTML =
+        `<p class="text-muted" style="padding:16px">Sin receta registrada para el ítem <strong>${esc(String(item))}</strong>.</p>`;
+      return;
+    }
+
+    function renderArbol(nodo, nivel) {
+      nivel = nivel || 0;
+      const isFinal = nodo.insumoFinal;
+      const icon = isFinal ? '🔹' : '⚙️';
+      let html = `<div style="margin-left:${nivel * 20}px;margin-bottom:5px${nivel > 0 ? ';border-left:2px solid #e5e7eb;padding-left:10px' : ''}">
+        <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
+          <span>${icon}</span>
+          <span style="font-weight:${nivel === 0 ? 700 : 500};font-size:${nivel === 0 ? '14px' : '13px'}">${esc(nodo.descripcion || String(nodo.item))}</span>
+          <span style="font-family:monospace;font-size:11px;color:#6b7280">${nodo.item}</span>
+          <span style="font-size:12px;color:#374151">× <strong>${fmtN(nodo.cantPedida)}</strong>${nodo.unidad ? ' ' + esc(nodo.unidad) : ''}</span>
+          ${!isFinal ? `<span style="font-size:11px;color:#9ca3af">(batch ${nodo.batch} → ${nodo.batchesNecesarios} corrida${nodo.batchesNecesarios !== 1 ? 's' : ''} → produce ${fmtN(nodo.cantidadProducida)})</span>` : ''}
+        </div>`;
+      for (const sub of (nodo.subProductos || [])) html += renderArbol(sub, nivel + 1);
+      for (const ins of (nodo.insumosDirectos || [])) {
+        html += renderArbol({ item: ins.item, descripcion: ins.descripcion, unidad: ins.unidad, cantPedida: ins.cantidad, insumoFinal: true }, nivel + 1);
+      }
+      html += '</div>';
+      return html;
+    }
+
+    const resumenRows = data.resumen.map(r => `<tr>
+      <td style="font-family:monospace;font-size:12px">${esc(String(r.item))}</td>
+      <td style="font-size:13px">${esc(r.descripcion)}</td>
+      <td style="font-size:12px">${esc(r.unidad || '')}</td>
+      <td style="font-size:12px;color:#6b7280">${esc(r.areaDescarga || '')}</td>
+      <td style="text-align:right;font-weight:600">${fmtN(r.cantidad)}</td>
+    </tr>`).join('');
+
+    const arbol = data.arbol;
+    document.getElementById('modal-body').innerHTML = `
+      <div style="margin-bottom:10px;font-size:13px">
+        <strong>${esc(arbol.descripcion || String(item))}</strong>
+        &nbsp;—&nbsp;cantidad solicitada: <strong>${fmtN(cantidad)}</strong>
+      </div>
+      <div style="display:flex;gap:0;border-bottom:2px solid #e5e7eb;margin-bottom:12px">
+        <button id="dgls-tab-arbol" onclick="document.getElementById('dgls-arbol').style.display='block';document.getElementById('dgls-resumen').style.display='none';document.getElementById('dgls-tab-arbol').style.borderBottom='2px solid #7c3aed';document.getElementById('dgls-tab-arbol').style.color='#7c3aed';document.getElementById('dgls-tab-res').style.borderBottom='none';document.getElementById('dgls-tab-res').style.color='#374151'"
+          style="border:none;background:none;cursor:pointer;font-size:13px;padding:6px 14px;border-bottom:2px solid #7c3aed;color:#7c3aed;margin-bottom:-2px">🌳 Árbol</button>
+        <button id="dgls-tab-res" onclick="document.getElementById('dgls-arbol').style.display='none';document.getElementById('dgls-resumen').style.display='block';document.getElementById('dgls-tab-res').style.borderBottom='2px solid #7c3aed';document.getElementById('dgls-tab-res').style.color='#7c3aed';document.getElementById('dgls-tab-arbol').style.borderBottom='none';document.getElementById('dgls-tab-arbol').style.color='#374151'"
+          style="border:none;background:none;cursor:pointer;font-size:13px;padding:6px 14px;border-bottom:none;color:#374151;margin-bottom:-2px">📋 Resumen de insumos</button>
+      </div>
+      <div id="dgls-arbol" style="overflow:auto;max-height:420px;padding:10px;background:#f9fafb;border-radius:6px">
+        ${renderArbol(arbol)}
+      </div>
+      <div id="dgls-resumen" style="display:none;overflow:auto;max-height:420px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:#f3f4f6;position:sticky;top:0">
+            <th style="text-align:left;padding:6px 8px">Código</th>
+            <th style="text-align:left;padding:6px 8px">Descripción</th>
+            <th style="text-align:left;padding:6px 8px">Unidad</th>
+            <th style="text-align:left;padding:6px 8px">Área Descarga</th>
+            <th style="text-align:right;padding:6px 8px">Cantidad</th>
+          </tr></thead>
+          <tbody>${resumenRows}</tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    document.getElementById('modal-body').innerHTML = `<p style="color:#dc2626;padding:16px">Error al cargar receta: ${esc(err.message)}</p>`;
+  }
 };
 
 // ─── View: Gestión de Pagos ───────────────────────────────────────

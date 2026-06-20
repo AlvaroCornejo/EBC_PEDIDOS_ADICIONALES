@@ -58,6 +58,7 @@ app.use('/api/pagos',       require('./routes/pagos'));
 app.use('/api/personas',    require('./routes/personas'));
 app.use('/api/flujo-caja',  require('./routes/flujoCaja'));
 app.use('/api/movimientos', require('./routes/movimientos'));
+app.use('/api/recetas',    require('./routes/recetas'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
