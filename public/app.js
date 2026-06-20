@@ -1635,7 +1635,8 @@ function renderPedidosAprobar(container, pedidos) {
             </tbody>
           </table>
         </div>
-        <div class="aprobacion-row" style="justify-content:flex-end">
+        <div class="aprobacion-row" style="justify-content:space-between">
+          ${S.user.role === 'ADMIN' ? `<button class="btn btn-sm btn-danger apr-del-btn" data-id="${p.id}">🗑️ Eliminar pedido</button>` : '<span></span>'}
           <button class="btn btn-primary apr-save-btn" data-id="${p.id}">💾 Guardar aprobación</button>
         </div>
       </div>
@@ -1643,6 +1644,20 @@ function renderPedidosAprobar(container, pedidos) {
 
   container.querySelectorAll('.pedido-card-header').forEach(h => {
     h.addEventListener('click', () => h.nextElementSibling.classList.toggle('open'));
+  });
+
+  container.querySelectorAll('.apr-del-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const card = document.getElementById(`pc-${id}`);
+      if (!confirm('¿Eliminar este pedido? Esta acción no se puede deshacer.')) return;
+      try {
+        await DEL(`/pedidos/${id}`);
+        toast('Pedido eliminado', 'success');
+        card.style.opacity = '0.4';
+        setTimeout(() => card.remove(), 600);
+      } catch (err) { toast(err.message, 'error'); }
+    });
   });
 
   container.querySelectorAll('.apr-save-btn').forEach(btn => {
@@ -1675,7 +1690,7 @@ function renderPedidosProcesados(container, pedidos) {
   wrap.innerHTML = pedidos.map(p => {
     const estadoMode = p.estado === 'ATENDIDO' ? 'atendido' : 'approved';
     return `
-    <div class="pedido-card">
+    <div class="pedido-card" id="pcp-${p.id}">
       <div class="pedido-card-header">
         <div class="pedido-meta">
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
@@ -1685,7 +1700,10 @@ function renderPedidosProcesados(container, pedidos) {
             ${p.atendidoPorNombre ? ` &nbsp;·&nbsp; 🚚 ${esc(p.atendidoPorNombre)}` : ''}
           </div>
         </div>
-        <span style="color:var(--text-muted);font-size:12px">▼</span>
+        <div style="display:flex;align-items:center;gap:8px" onclick="event.stopPropagation()">
+          ${S.user.role === 'ADMIN' ? `<button class="btn btn-sm btn-danger pcp-del-btn" data-id="${p.id}">🗑️</button>` : ''}
+          <span style="color:var(--text-muted);font-size:12px">▼</span>
+        </div>
       </div>
       <div class="pedido-card-body">
         <div class="table-wrap"><table>
@@ -1699,6 +1717,18 @@ function renderPedidosProcesados(container, pedidos) {
   wrap.querySelectorAll('.pedido-card-header').forEach(h =>
     h.addEventListener('click', () => h.nextElementSibling.classList.toggle('open'))
   );
+  wrap.querySelectorAll('.pcp-del-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      if (!confirm('¿Eliminar este pedido? Esta acción no se puede deshacer.')) return;
+      try {
+        await DEL(`/pedidos/${id}`);
+        toast('Pedido eliminado', 'success');
+        const card = document.getElementById(`pcp-${id}`);
+        if (card) { card.style.opacity = '0.4'; setTimeout(() => card.remove(), 600); }
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
   container.appendChild(wrap);
 }
 
