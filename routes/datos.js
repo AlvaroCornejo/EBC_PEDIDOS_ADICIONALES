@@ -161,7 +161,12 @@ router.get('/items', async (req, res) => {
     }
     if (!fp) return res.json([]);
     const wb = await loadWB(fp);
-    res.json(readItems(wb));
+    const costosMap = readCostos(wb);
+    const items = readItems(wb).map(it => ({
+      ...it,
+      costoUnitario: costosMap[String(it.item)] || 0,
+    }));
+    res.json(items);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
