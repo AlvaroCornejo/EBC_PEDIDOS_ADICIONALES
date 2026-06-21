@@ -3831,7 +3831,6 @@ window._dglsTogglePedido = async function(pedidoId, checked) {
   }
 
   _dglsContribs[pedidoId] = contribs;
-  _dglsRenderTable();
   if (chk) chk.disabled = false;
   _dglsRenderTable();
 };
