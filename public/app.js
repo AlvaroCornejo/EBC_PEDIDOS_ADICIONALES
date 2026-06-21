@@ -1763,7 +1763,7 @@ function renderLineasAtenderSimple(lineas, gestionFilter, gestionRol, readonly) 
 
     return `<tr>
       <td style="font-family:monospace;font-size:12px;white-space:nowrap;color:#374151">${esc(l.item || '—')}</td>
-      <td><strong style="font-size:13px">${esc(l.itemNombre || l.item || '—')}</strong><br><button onclick="verDesgloseReceta(${+(l.item)||0},${+(l.cantidadSolicitada)||1})" style="margin-top:4px;font-size:11px;padding:2px 8px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🏭 Desglose</button></td>
+      <td><strong style="font-size:13px">${esc(l.itemNombre || l.item || '—')}</strong><br><button onclick="verDesgloseReceta(${+(l.item)||0},${+(l.cantidadSolicitada)||1})" style="margin-top:4px;font-size:11px;padding:2px 8px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🏭 Genera Adicional</button></td>
       <td style="font-size:13px">${esc(l.grupoCompra || '—')}</td>
       <td class="col-num" style="font-weight:600">${fmt(l.cantidadSolicitada)}</td>
       <td style="font-size:12px">${esc(l.comentarios || '')}</td>
@@ -3625,7 +3625,7 @@ window.pgVerRelacionAdelantos = async (compania, progId) => {
 window.verDesgloseReceta = async function(item, cantidad) {
   const fmtN = v => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  openModal('🏭 Desglose de Producción',
+  openModal('🏭 Genera Adicional',
     `<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span></div>`,
     null, { wide: true });
 
@@ -3824,19 +3824,8 @@ window.generarSolicitudDesdeDesglose = async function() {
     _dglsPedidoMap = {};
     pendingPedidos.forEach(p => { _dglsPedidoMap[p.id] = p; });
 
-    // Inicializar líneas desde el resumen del desglose
-    _dglsLineas = _dglsResumen.map(r => ({
-      item:          r.item,
-      descripcion:   r.descripcion || (_dglsCatalog[r.item]?.nombre || ''),
-      saldo:         _dglsCatalog[r.item]?.saldo || 0,
-      cantDesglose:  r.cantidad,
-      ajuste:        0,
-      costoUnitario: _dglsCatalog[r.item]?.costoUnitario || 0,
-      comentarios:   '',
-      gestion:       'PLANTA',
-      grupoCompra:   r.areaDescarga || _dglsCatalog[r.item]?.grupoCompra || '',
-      fuente:        'desglose',
-    }));
+    // La tabla empieza vacía; se llena con los pedidos seleccionados o líneas manuales
+    _dglsLineas = [];
 
     // Render modal
     const pendingHtml = pendingPedidos.length ? `
