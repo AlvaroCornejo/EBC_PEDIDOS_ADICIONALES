@@ -3704,9 +3704,10 @@ window.verDesgloseReceta = async function(item, cantidad) {
 
 // ─── Solicitud de Adicionales desde Desglose ─────────────────────
 let _dglsResumen   = [];  // insumos finales del desglose activo
-let _dglsLineas    = [];  // filas del formulario de solicitud
+let _dglsLineas    = [];  // filas del formulario de solicitud (consolidadas por ítem)
 let _dglsCatalog   = {};  // item -> {saldo, costoUnitario, grupoCompra, nombre}
 let _dglsPedidoMap = {};  // id -> pedido (para toggle de pendientes)
+let _dglsContribs  = {};  // pedidoId -> [{item, cantidad}] para poder restar al desmarcar
 
 const _dglsFmtN = v => v == null ? '' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -3778,36 +3779,38 @@ window._dglsTogglePedido = async function(pedidoId, checked) {
   if (!pedido) return;
 
   if (!checked) {
-    _dglsLineas = _dglsLineas.filter(x => x.fuente !== `pedido:${pedidoId}`);
+    // Restar contribuciones de este pedido y eliminar filas que queden en 0
+    (_dglsContribs[pedidoId] || []).forEach(({ item, cantidad }) => {
+      const idx = _dglsLineas.findIndex(x => x.item === item && x.fuente !== 'nuevo');
+      if (idx < 0) return;
+      _dglsLineas[idx].cantDesglose -= cantidad;
+      if (_dglsLineas[idx].cantDesglose <= 0) _dglsLineas.splice(idx, 1);
+    });
+    delete _dglsContribs[pedidoId];
     _dglsRenderTable();
     return;
   }
 
-  // Deshabilitar checkbox mientras carga
   const chk = document.querySelector(`input[onchange*="${pedidoId}"]`);
   if (chk) chk.disabled = true;
 
+  const contribs = [];
   const plLines = (pedido.lineas || []).filter(l => (l.gestion || 'COMPRAS') === 'PLANTA');
+
   for (const l of plLines) {
     try {
       const data = await GET(`/recetas/desglose?item=${encodeURIComponent(l.item)}&cantidad=${encodeURIComponent(l.cantidadSolicitada || 1)}`);
-      if (data.sinReceta) {
-        // Sin receta: agregar el ítem directamente
-        _dglsLineas.push({
-          item:          l.item,
-          descripcion:   l.itemNombre || String(l.item),
-          saldo:         _dglsCatalog[l.item]?.saldo || 0,
-          cantDesglose:  l.cantidadSolicitada || 0,
-          ajuste:        0,
-          costoUnitario: l.costoUnitario || _dglsCatalog[l.item]?.costoUnitario || 0,
-          comentarios:   `${esc(pedido.operacion)} (sin receta)`,
-          gestion:       'PLANTA',
-          grupoCompra:   l.grupoCompra || _dglsCatalog[l.item]?.grupoCompra || '',
-          fuente:        `pedido:${pedidoId}`,
-        });
-      } else {
-        // Con receta: agregar insumos finales (último nivel)
-        for (const r of data.resumen) {
+      const insumos = data.sinReceta
+        ? [{ item: l.item, descripcion: l.itemNombre || String(l.item), cantidad: l.cantidadSolicitada || 0, areaDescarga: '' }]
+        : data.resumen;
+
+      for (const r of insumos) {
+        contribs.push({ item: r.item, cantidad: r.cantidad });
+        const idx = _dglsLineas.findIndex(x => x.item === r.item && x.fuente !== 'nuevo');
+        if (idx >= 0) {
+          // Consolidar: sumar cantidad a la fila existente
+          _dglsLineas[idx].cantDesglose += r.cantidad;
+        } else {
           _dglsLineas.push({
             item:          r.item,
             descripcion:   r.descripcion || (_dglsCatalog[r.item]?.nombre || ''),
@@ -3815,10 +3818,10 @@ window._dglsTogglePedido = async function(pedidoId, checked) {
             cantDesglose:  r.cantidad,
             ajuste:        0,
             costoUnitario: _dglsCatalog[r.item]?.costoUnitario || 0,
-            comentarios:   `Desglose de ${esc(l.itemNombre || String(l.item))} — ${esc(pedido.operacion)}`,
+            comentarios:   '',
             gestion:       'PLANTA',
             grupoCompra:   r.areaDescarga || _dglsCatalog[r.item]?.grupoCompra || '',
-            fuente:        `pedido:${pedidoId}`,
+            fuente:        'pedido',
           });
         }
       }
@@ -3826,6 +3829,8 @@ window._dglsTogglePedido = async function(pedidoId, checked) {
       toast(`Error al expandir ítem ${l.item}: ${err.message}`, 'error');
     }
   }
+
+  _dglsContribs[pedidoId] = contribs;
   _dglsRenderTable();
   if (chk) chk.disabled = false;
   _dglsRenderTable();
