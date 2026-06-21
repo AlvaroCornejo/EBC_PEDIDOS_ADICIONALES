@@ -1763,7 +1763,7 @@ function renderLineasAtenderSimple(lineas, gestionFilter, gestionRol, readonly) 
 
     return `<tr>
       <td style="font-family:monospace;font-size:12px;white-space:nowrap;color:#374151">${esc(l.item || '—')}</td>
-      <td><strong style="font-size:13px">${esc(l.itemNombre || l.item || '—')}</strong><br><button onclick="verDesgloseReceta(${+(l.item)||0},${+(l.cantidadSolicitada)||1})" style="margin-top:4px;font-size:11px;padding:2px 8px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🏭 Genera Adicional</button></td>
+      <td><strong style="font-size:13px">${esc(l.itemNombre || l.item || '—')}</strong><br><button onclick="generarSolicitudDesdeDesglose()" style="margin-top:4px;font-size:11px;padding:2px 8px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🏭 Genera Adicional</button></td>
       <td style="font-size:13px">${esc(l.grupoCompra || '—')}</td>
       <td class="col-num" style="font-weight:600">${fmt(l.cantidadSolicitada)}</td>
       <td style="font-size:12px">${esc(l.comentarios || '')}</td>
@@ -3718,21 +3718,24 @@ function _dglsRenderTable() {
     const total = (l.cantDesglose || 0) + (l.ajuste || 0);
     const costoTotal = total * (l.costoUnitario || 0);
     const esNuevo = l.fuente === 'nuevo';
+    const itemCell = esNuevo
+      ? `<div style="position:relative">
+           <input type="text" id="dgls-search-${i}" class="form-control" style="font-size:12px;padding:2px 6px"
+                  value="${esc(l._searchText || '')}" placeholder="Buscar ítem..." autocomplete="off"
+                  oninput="_dglsItemSearch(${i},this)">
+           <div id="dgls-drop-${i}" style="display:none;position:fixed;z-index:2000;background:#fff;border:1px solid #d1d5db;border-radius:6px;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:280px"></div>
+         </div>`
+      : `<div style="font-size:11px;color:#6b7280;font-family:monospace;font-weight:600;line-height:1.2">${esc(String(l.item))}</div>
+         <div style="font-weight:600;font-size:12px;line-height:1.3">${esc(l.descripcion)}</div>`;
     return `<tr>
-      <td style="padding:4px 6px;font-family:monospace;font-size:12px">
-        ${esNuevo
-          ? `<input type="number" class="form-control" style="width:72px;font-size:12px;padding:2px 4px" value="${l.item || ''}" oninput="_dglsSetField(${i},'item',+this.value||0)">`
-          : esc(String(l.item))}
-      </td>
-      <td style="padding:4px 6px;font-size:12px">
-        ${esNuevo
-          ? `<input type="text" class="form-control" style="width:160px;font-size:12px;padding:2px 4px" value="${esc(l.descripcion)}" oninput="_dglsSetField(${i},'descripcion',this.value)">`
-          : `<span style="font-weight:500">${esc(l.descripcion)}</span>`}
-      </td>
+      <td style="padding:4px 6px;min-width:220px">${itemCell}</td>
       <td style="padding:4px 6px;text-align:right;font-size:12px;color:#6b7280">${_dglsFmtN(l.saldo)}</td>
       <td style="padding:4px 6px;text-align:right;font-size:12px">${_dglsFmtN(l.cantDesglose)}</td>
       <td style="padding:4px 6px">
         <input type="number" class="form-control" style="width:72px;text-align:right;font-size:12px;padding:2px 4px" value="${l.ajuste || 0}" step="any" oninput="_dglsSetField(${i},'ajuste',+this.value||0)">
+      </td>
+      <td style="padding:4px 2px;text-align:center">
+        <button onmousedown="_dglsSetZero(${i})" title="Ajustar a cero" style="border:none;background:#fef3c7;color:#92400e;cursor:pointer;font-size:10px;padding:2px 5px;border-radius:3px;line-height:1.5">→0</button>
       </td>
       <td id="dsl-tot-${i}" style="padding:4px 6px;text-align:right;font-weight:600;font-size:12px">${_dglsFmtN(total)}</td>
       <td style="padding:4px 6px">
@@ -3763,6 +3766,46 @@ window._dglsSetField = function(i, field, val) {
 
 window._dglsRemoveLinea = function(i) {
   _dglsLineas.splice(i, 1);
+  _dglsRenderTable();
+};
+
+window._dglsSetZero = function(i) {
+  _dglsLineas[i].ajuste = -(_dglsLineas[i].cantDesglose || 0);
+  _dglsRenderTable();
+};
+
+window._dglsItemSearch = function(i, inp) {
+  const q = (inp.value || '').trim().toLowerCase();
+  const drop = document.getElementById(`dgls-drop-${i}`);
+  if (!drop) return;
+  if (!q) { drop.style.display = 'none'; return; }
+  const matches = Object.values(_dglsCatalog)
+    .filter(it => String(it.item || '').includes(q) || (it.nombre || '').toLowerCase().includes(q))
+    .slice(0, 20);
+  if (!matches.length) { drop.style.display = 'none'; return; }
+  const rect = inp.getBoundingClientRect();
+  drop.style.left  = `${rect.left}px`;
+  drop.style.top   = `${rect.bottom + 2}px`;
+  drop.style.width = `${Math.max(rect.width, 280)}px`;
+  drop.style.display = 'block';
+  drop.innerHTML = matches.map(it =>
+    `<div onmousedown="_dglsSelectItem(${i},${it.item})"
+          style="padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f3f4f6"
+          onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''">
+       <span style="font-family:monospace;color:#6b7280;font-size:11px">${esc(String(it.item))}</span>&nbsp;${esc(it.nombre || '')}
+     </div>`
+  ).join('');
+};
+
+window._dglsSelectItem = function(i, itemCode) {
+  const it = _dglsCatalog[itemCode];
+  if (!it) return;
+  _dglsLineas[i].item         = it.item;
+  _dglsLineas[i].descripcion  = it.nombre || '';
+  _dglsLineas[i].saldo        = it.saldo || 0;
+  _dglsLineas[i].costoUnitario = it.costoUnitario || 0;
+  _dglsLineas[i].grupoCompra  = it.grupoCompra || '';
+  _dglsLineas[i]._searchText  = `${it.item} — ${it.nombre || ''}`;
   _dglsRenderTable();
 };
 
@@ -3908,11 +3951,11 @@ window.generarSolicitudDesdeDesglose = async function() {
       <div style="border:1px solid #e5e7eb;border-radius:6px;overflow-x:auto;max-height:320px;overflow-y:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="background:#f3f4f6;position:sticky;top:0">
-            <th style="padding:5px 8px;text-align:left;min-width:76px">Código</th>
-            <th style="padding:5px 8px;text-align:left;min-width:160px">Descripción</th>
+            <th style="padding:5px 8px;text-align:left;min-width:220px">Ítem</th>
             <th style="padding:5px 8px;text-align:right;min-width:70px">Saldo</th>
             <th style="padding:5px 8px;text-align:right;min-width:80px">Cant. Calc.</th>
             <th style="padding:5px 8px;text-align:right;min-width:80px">Ajuste</th>
+            <th style="padding:5px 8px;width:36px"></th>
             <th style="padding:5px 8px;text-align:right;min-width:80px">Total</th>
             <th style="padding:5px 8px;text-align:right;min-width:76px">Costo U.</th>
             <th style="padding:5px 8px;text-align:right;min-width:86px">Costo Total</th>
