@@ -13,11 +13,8 @@ if %errorlevel%==0 (echo OK: CDLAO) else (echo ERROR: CDLAO)
 copy /Y "%SRC%\CDL28 - ADICIONALES.xlsx"     "%DST%\CDL28 - ADICIONALES.xlsx"
 if %errorlevel%==0 (echo OK: CDL28) else (echo ERROR: CDL28)
 
-copy /Y "%SRC%\CORP - ADICIONALES.xlsx"      "%DST%\CORP - ADICIONALES.xlsx"
-if %errorlevel%==0 (echo OK: CORP) else (echo ERROR: CORP)
-
-copy /Y "%SRC%\DOSIMETRIA - ADICIONALES.xlsx" "%DST%\DOSIMETRIA - ADICIONALES.xlsx"
-if %errorlevel%==0 (echo OK: DOSIMETRIA) else (echo ERROR: DOSIMETRIA)
+copy /Y "%SRC%\PLANTA - ADICIONALES.xlsx"    "%DST%\PLANTA - ADICIONALES.xlsx"
+if %errorlevel%==0 (echo OK: PLANTA) else (echo ERROR: PLANTA)
 
 copy /Y "%SRC%\GBADC - ADICIONALES.xlsx"     "%DST%\GBADC - ADICIONALES.xlsx"
 if %errorlevel%==0 (echo OK: GBADC) else (echo ERROR: GBADC)
@@ -36,9 +33,6 @@ if %errorlevel%==0 (echo OK: GBGOL) else (echo ERROR: GBGOL)
 
 copy /Y "%SRC%\GBSRQ - ADICIONALES.xlsx"     "%DST%\GBSRQ - ADICIONALES.xlsx"
 if %errorlevel%==0 (echo OK: GBSRQ) else (echo ERROR: GBSRQ)
-
-copy /Y "%SRC%\PREP - ADICIONALES.xlsx"      "%DST%\PREP - ADICIONALES.xlsx"
-if %errorlevel%==0 (echo OK: PREP) else (echo ERROR: PREP)
 
 copy /Y "%SRC%\GBPLANTA - ADICIONALES.xlsx"  "%DST%\GBPLANTA - ADICIONALES.xlsx"
 if %errorlevel%==0 (echo OK: GBPLANTA) else (echo ERROR: GBPLANTA)

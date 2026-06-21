@@ -11,7 +11,7 @@ const PAGO_ROLES  = [['','— Sin acceso —'],['programador','Programador (Paso
 const BCT_ROLES   = [['','— Sin acceso —'],['SOLICITUD','Solicitud'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
-const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
+const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
 
 // ─── State ───────────────────────────────────────────────────────
@@ -3667,6 +3667,7 @@ window.verDesgloseReceta = async function(item, cantidad) {
     </tr>`).join('');
 
     const arbol = data.arbol;
+    _dglsResumen = data.resumen; // para generarSolicitudDesdeDesglose
     document.getElementById('modal-body').innerHTML = `
       <div style="margin-bottom:10px;font-size:13px">
         <strong>${esc(arbol.descripcion || String(item))}</strong>
@@ -3681,7 +3682,7 @@ window.verDesgloseReceta = async function(item, cantidad) {
       <div id="dgls-arbol" style="overflow:auto;max-height:420px;padding:10px;background:#f9fafb;border-radius:6px">
         ${renderArbol(arbol)}
       </div>
-      <div id="dgls-resumen" style="display:none;overflow:auto;max-height:420px">
+      <div id="dgls-resumen" style="display:none;overflow:auto;max-height:360px">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr style="background:#f3f4f6;position:sticky;top:0">
             <th style="text-align:left;padding:6px 8px">Código</th>
@@ -3692,9 +3693,246 @@ window.verDesgloseReceta = async function(item, cantidad) {
           </tr></thead>
           <tbody>${resumenRows}</tbody>
         </table>
+      </div>
+      <div style="margin-top:14px;text-align:right">
+        <button onclick="generarSolicitudDesdeDesglose()" style="background:#059669;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:13px;cursor:pointer;font-weight:600">📋 Generar Solicitud de Adicionales</button>
       </div>`;
   } catch (err) {
     document.getElementById('modal-body').innerHTML = `<p style="color:#dc2626;padding:16px">Error al cargar receta: ${esc(err.message)}</p>`;
+  }
+};
+
+// ─── Solicitud de Adicionales desde Desglose ─────────────────────
+let _dglsResumen   = [];  // insumos finales del desglose activo
+let _dglsLineas    = [];  // filas del formulario de solicitud
+let _dglsCatalog   = {};  // item -> {saldo, costoUnitario, grupoCompra, nombre}
+let _dglsPedidoMap = {};  // id -> pedido (para toggle de pendientes)
+
+const _dglsFmtN = v => v == null ? '' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function _dglsRenderTable() {
+  const tbody = document.getElementById('dgls-sol-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = _dglsLineas.map((l, i) => {
+    const total = (l.cantDesglose || 0) + (l.ajuste || 0);
+    const costoTotal = total * (l.costoUnitario || 0);
+    const esNuevo = l.fuente === 'nuevo';
+    return `<tr>
+      <td style="padding:4px 6px;font-family:monospace;font-size:12px">
+        ${esNuevo
+          ? `<input type="number" class="form-control" style="width:72px;font-size:12px;padding:2px 4px" value="${l.item || ''}" oninput="_dglsSetField(${i},'item',+this.value||0)">`
+          : esc(String(l.item))}
+      </td>
+      <td style="padding:4px 6px;font-size:12px">
+        ${esNuevo
+          ? `<input type="text" class="form-control" style="width:160px;font-size:12px;padding:2px 4px" value="${esc(l.descripcion)}" oninput="_dglsSetField(${i},'descripcion',this.value)">`
+          : `<span style="font-weight:500">${esc(l.descripcion)}</span>`}
+      </td>
+      <td style="padding:4px 6px;text-align:right;font-size:12px;color:#6b7280">${_dglsFmtN(l.saldo)}</td>
+      <td style="padding:4px 6px;text-align:right;font-size:12px">${_dglsFmtN(l.cantDesglose)}</td>
+      <td style="padding:4px 6px">
+        <input type="number" class="form-control" style="width:72px;text-align:right;font-size:12px;padding:2px 4px" value="${l.ajuste || 0}" step="any" oninput="_dglsSetField(${i},'ajuste',+this.value||0)">
+      </td>
+      <td id="dsl-tot-${i}" style="padding:4px 6px;text-align:right;font-weight:600;font-size:12px">${_dglsFmtN(total)}</td>
+      <td style="padding:4px 6px">
+        <input type="number" class="form-control" style="width:72px;text-align:right;font-size:12px;padding:2px 4px" value="${l.costoUnitario || 0}" step="any" oninput="_dglsSetField(${i},'costoUnitario',+this.value||0)">
+      </td>
+      <td id="dsl-ct-${i}" style="padding:4px 6px;text-align:right;font-size:12px">${_dglsFmtN(costoTotal)}</td>
+      <td style="padding:4px 6px">
+        <input type="text" class="form-control" style="width:120px;font-size:12px;padding:2px 4px" value="${esc(l.comentarios || '')}" oninput="_dglsSetField(${i},'comentarios',this.value)">
+      </td>
+      <td style="padding:4px 6px;text-align:center">
+        <button onclick="_dglsRemoveLinea(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:15px;line-height:1">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+window._dglsSetField = function(i, field, val) {
+  _dglsLineas[i][field] = val;
+  if (['ajuste', 'cantDesglose', 'costoUnitario'].includes(field)) {
+    const l = _dglsLineas[i];
+    const total = (l.cantDesglose || 0) + (l.ajuste || 0);
+    const tEl = document.getElementById(`dsl-tot-${i}`);
+    const cEl = document.getElementById(`dsl-ct-${i}`);
+    if (tEl) tEl.textContent = _dglsFmtN(total);
+    if (cEl) cEl.textContent = _dglsFmtN(total * (l.costoUnitario || 0));
+  }
+};
+
+window._dglsRemoveLinea = function(i) {
+  _dglsLineas.splice(i, 1);
+  _dglsRenderTable();
+};
+
+window._dglsAddLinea = function() {
+  _dglsLineas.push({ item: 0, descripcion: '', saldo: 0, cantDesglose: 0, ajuste: 0, costoUnitario: 0, comentarios: '', gestion: 'PLANTA', grupoCompra: '', fuente: 'nuevo' });
+  _dglsRenderTable();
+  // scroll to bottom of table
+  const tbody = document.getElementById('dgls-sol-tbody');
+  if (tbody) tbody.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+
+window._dglsTogglePedido = function(pedidoId, checked) {
+  const pedido = _dglsPedidoMap[pedidoId];
+  if (!pedido) return;
+  if (checked) {
+    (pedido.lineas || []).filter(l => (l.gestion || 'COMPRAS') === 'PLANTA').forEach(l => {
+      _dglsLineas.push({
+        item:          l.item,
+        descripcion:   l.itemNombre || String(l.item),
+        saldo:         _dglsCatalog[l.item]?.saldo || 0,
+        cantDesglose:  l.cantidadSolicitada || 0,
+        ajuste:        0,
+        costoUnitario: l.costoUnitario || _dglsCatalog[l.item]?.costoUnitario || 0,
+        comentarios:   `Incl. de ${esc(pedido.operacion)} ${fmtDate(pedido.fechaPedido)}`,
+        gestion:       'PLANTA',
+        grupoCompra:   l.grupoCompra || _dglsCatalog[l.item]?.grupoCompra || '',
+        fuente:        `pedido:${pedidoId}`,
+      });
+    });
+  } else {
+    _dglsLineas = _dglsLineas.filter(x => x.fuente !== `pedido:${pedidoId}`);
+  }
+  _dglsRenderTable();
+};
+
+window.generarSolicitudDesdeDesglose = async function() {
+  const userOps = S.user.role === 'ADMIN' ? ALL_OPS : (S.user.operations || []);
+  const targetOp = userOps.find(op => op.includes('PLANTA'));
+  if (!targetOp) { toast('No tienes asignada ninguna operación con PLANTA', 'error'); return; }
+
+  openModal(`📋 Solicitud de Adicionales — ${targetOp}`,
+    `<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span></div>`,
+    null, { wide: true });
+
+  try {
+    const [allPedidos, catalogItems] = await Promise.all([
+      GET('/pedidos').catch(() => []),
+      GET(`/datos/items?operacion=${encodeURIComponent(targetOp)}`).catch(() => []),
+    ]);
+
+    _dglsCatalog = {};
+    catalogItems.forEach(it => { _dglsCatalog[it.item] = it; });
+
+    // Pedidos con líneas PLANTA pendientes de atención (no de la propia operación destino)
+    const pendingPedidos = allPedidos.filter(p =>
+      ['SOLICITADO', 'APROBADO'].includes(p.estado) &&
+      p.operacion !== targetOp &&
+      (p.lineas || []).some(l => (l.gestion || 'COMPRAS') === 'PLANTA')
+    );
+    _dglsPedidoMap = {};
+    pendingPedidos.forEach(p => { _dglsPedidoMap[p.id] = p; });
+
+    // Inicializar líneas desde el resumen del desglose
+    _dglsLineas = _dglsResumen.map(r => ({
+      item:          r.item,
+      descripcion:   r.descripcion || (_dglsCatalog[r.item]?.nombre || ''),
+      saldo:         _dglsCatalog[r.item]?.saldo || 0,
+      cantDesglose:  r.cantidad,
+      ajuste:        0,
+      costoUnitario: _dglsCatalog[r.item]?.costoUnitario || 0,
+      comentarios:   '',
+      gestion:       'PLANTA',
+      grupoCompra:   r.areaDescarga || _dglsCatalog[r.item]?.grupoCompra || '',
+      fuente:        'desglose',
+    }));
+
+    // Render modal
+    const pendingHtml = pendingPedidos.length ? `
+      <div style="margin-bottom:16px">
+        <div style="font-weight:600;font-size:12px;color:#374151;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Solicitudes pendientes con ítems PLANTA</div>
+        <div style="border:1px solid #e5e7eb;border-radius:6px;max-height:140px;overflow-y:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:#f3f4f6;position:sticky;top:0">
+              <th style="padding:5px 8px;width:32px"></th>
+              <th style="padding:5px 8px;text-align:left">Operación</th>
+              <th style="padding:5px 8px;text-align:left">Fecha</th>
+              <th style="padding:5px 8px;text-align:left">Estado</th>
+              <th style="padding:5px 8px;text-align:left">Solicitante</th>
+              <th style="padding:5px 8px;text-align:right">Líneas PLANTA</th>
+            </tr></thead>
+            <tbody>
+              ${pendingPedidos.map(p => {
+                const plCount = (p.lineas || []).filter(l => (l.gestion || 'COMPRAS') === 'PLANTA').length;
+                return `<tr>
+                  <td style="padding:5px 8px;text-align:center">
+                    <input type="checkbox" onchange="_dglsTogglePedido('${p.id}',this.checked)" style="cursor:pointer">
+                  </td>
+                  <td style="padding:5px 8px;font-weight:600">${esc(p.operacion)}</td>
+                  <td style="padding:5px 8px">${fmtDate(p.fechaPedido)}</td>
+                  <td style="padding:5px 8px"><span class="badge badge-${(p.estado||'').toLowerCase()}">${p.estado}</span></td>
+                  <td style="padding:5px 8px">${esc(p.solicitadoPorNombre || '')}</td>
+                  <td style="padding:5px 8px;text-align:right;font-weight:600">${plCount}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>` : '';
+
+    document.getElementById('modal-body').innerHTML = `
+      <div style="font-size:13px;color:#374151;margin-bottom:14px">
+        Operación destino: <strong style="color:#059669">${esc(targetOp)}</strong>
+        &nbsp;·&nbsp; Fecha: <strong>${new Date().toISOString().split('T')[0]}</strong>
+      </div>
+      ${pendingHtml}
+      <div style="font-weight:600;font-size:12px;color:#374151;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Líneas del adicional</div>
+      <div style="border:1px solid #e5e7eb;border-radius:6px;overflow-x:auto;max-height:320px;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#f3f4f6;position:sticky;top:0">
+            <th style="padding:5px 8px;text-align:left;min-width:76px">Código</th>
+            <th style="padding:5px 8px;text-align:left;min-width:160px">Descripción</th>
+            <th style="padding:5px 8px;text-align:right;min-width:70px">Saldo</th>
+            <th style="padding:5px 8px;text-align:right;min-width:80px">Cant. Calc.</th>
+            <th style="padding:5px 8px;text-align:right;min-width:80px">Ajuste</th>
+            <th style="padding:5px 8px;text-align:right;min-width:80px">Total</th>
+            <th style="padding:5px 8px;text-align:right;min-width:76px">Costo U.</th>
+            <th style="padding:5px 8px;text-align:right;min-width:86px">Costo Total</th>
+            <th style="padding:5px 8px;text-align:left;min-width:130px">Comentarios</th>
+            <th style="width:28px"></th>
+          </tr></thead>
+          <tbody id="dgls-sol-tbody"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+        <button onclick="_dglsAddLinea()" style="border:1px dashed #9ca3af;background:none;color:#6b7280;cursor:pointer;padding:5px 14px;border-radius:4px;font-size:12px">+ Agregar ítem</button>
+        <div style="display:flex;gap:10px">
+          <button onclick="closeModal()" class="btn btn-outline btn-sm">Cancelar</button>
+          <button id="dgls-enviar-btn" onclick="_dglsEnviarSolicitud('${esc(targetOp)}')" class="btn btn-primary btn-sm">📤 Enviar solicitud</button>
+        </div>
+      </div>`;
+    _dglsRenderTable();
+  } catch (err) {
+    document.getElementById('modal-body').innerHTML = `<p style="color:#dc2626;padding:16px">Error: ${esc(err.message)}</p>`;
+  }
+};
+
+window._dglsEnviarSolicitud = async function(targetOp) {
+  const lineas = _dglsLineas.filter(l => ((l.cantDesglose || 0) + (l.ajuste || 0)) > 0 && l.item);
+  if (!lineas.length) { toast('No hay líneas con cantidad > 0', 'error'); return; }
+  const btn = document.getElementById('dgls-enviar-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    await POST('/pedidos', {
+      operacion:   targetOp,
+      fechaPedido: new Date().toISOString().split('T')[0],
+      lineas: lineas.map(l => ({
+        item:               l.item,
+        itemNombre:         l.descripcion,
+        grupoCompra:        l.grupoCompra || '',
+        gestion:            'PLANTA',
+        cantidadSolicitada: (l.cantDesglose || 0) + (l.ajuste || 0),
+        costoUnitario:      l.costoUnitario || 0,
+        comentarios:        l.comentarios || '',
+        saldo:              l.saldo || 0,
+      })),
+    });
+    closeModal();
+    toast('Solicitud enviada correctamente', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '📤 Enviar solicitud'; }
   }
 };
 
