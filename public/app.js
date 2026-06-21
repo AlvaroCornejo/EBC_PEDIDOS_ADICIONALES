@@ -104,7 +104,8 @@ function openModal(title, html, onClose, opts = {}) {
   document.getElementById('modal').classList.remove('hidden');
   const box = document.querySelector('.modal-box');
   box.classList.toggle('modal-wide', !!opts.wide);
-  const close = () => { document.getElementById('modal').classList.add('hidden'); box.classList.remove('modal-wide'); onClose?.(); };
+  box.classList.toggle('modal-fullwide', !!opts.fullwide);
+  const close = () => { document.getElementById('modal').classList.add('hidden'); box.classList.remove('modal-wide', 'modal-fullwide'); onClose?.(); };
   document.getElementById('modal-close').onclick = close;
   document.getElementById('modal-backdrop').onclick = close;
 }
@@ -3800,12 +3801,19 @@ window._dglsItemSearch = function(i, inp) {
 window._dglsSelectItem = function(i, itemCode) {
   const it = _dglsCatalog[itemCode];
   if (!it) return;
-  _dglsLineas[i].item         = it.item;
-  _dglsLineas[i].descripcion  = it.nombre || '';
-  _dglsLineas[i].saldo        = it.saldo || 0;
+  const yaExiste = _dglsLineas.some((l, idx) => idx !== i && l.item === it.item);
+  if (yaExiste) {
+    toast(`El ítem ${it.item} ya está en la tabla`, 'error');
+    const drop = document.getElementById(`dgls-drop-${i}`);
+    if (drop) drop.style.display = 'none';
+    return;
+  }
+  _dglsLineas[i].item          = it.item;
+  _dglsLineas[i].descripcion   = it.nombre || '';
+  _dglsLineas[i].saldo         = it.saldo || 0;
   _dglsLineas[i].costoUnitario = it.costoUnitario || 0;
-  _dglsLineas[i].grupoCompra  = it.grupoCompra || '';
-  _dglsLineas[i]._searchText  = `${it.item} — ${it.nombre || ''}`;
+  _dglsLineas[i].grupoCompra   = it.grupoCompra || '';
+  _dglsLineas[i]._searchText   = `${it.item} — ${it.nombre || ''}`;
   _dglsRenderTable();
 };
 
@@ -3885,7 +3893,7 @@ window.generarSolicitudDesdeDesglose = async function() {
 
   openModal(`📋 Solicitud de Adicionales — ${targetOp}`,
     `<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span></div>`,
-    null, { wide: true });
+    null, { fullwide: true });
 
   try {
     const [allPedidos, catalogItems] = await Promise.all([
