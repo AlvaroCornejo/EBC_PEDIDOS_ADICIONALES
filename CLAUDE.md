@@ -20,7 +20,7 @@
 ## Operaciones disponibles (ALL_OPS) — orden exacto
 
 ```javascript
-['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA']
+['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA']
 ```
 
 ## Roles de usuario
@@ -72,7 +72,7 @@
 - Sync manual de items desde consola del navegador (admin logueado), si se necesita fuera del horario del bat:
 ```javascript
 (async () => {
-  const ops = ['AASI','CDLAO','CDL28','CORP','DOSIMETRIA','PREP','GBADC','GBCFR','GBCFR2','GBCRP','GBGOL','GBSRQ','GBPLANTA'];
+  const ops = ['AASI','CDLAO','CDL28','PLANTA','GBADC','GBCFR','GBCFR2','GBCRP','GBGOL','GBSRQ','GBPLANTA'];
   for(const op of ops) {
     const r = await fetch(`/api/items/sync?operacion=${op}`, {method:'POST', headers:{Authorization:'Bearer '+localStorage.getItem('ebc_token')}});
     console.log(op, JSON.stringify(await r.json()));
@@ -90,7 +90,7 @@
 
 | # | Bat | Qué hace |
 |---|-----|----------|
-| 1 | `sync-excel.bat` | Copia 13 ADICIONALES de Box → `data\` + git push |
+| 1 | `sync-excel.bat` | Copia 11 ADICIONALES de Box → `data\` + git push |
 | 2 | `sync-oc-ingresos.bat` | `python D:\Comparativo_OC\actualizar_oc_ingresos.py` |
 | 3 | `sync-comparativo.bat` | `importComparativoOC.js` → MongoDB |
 | 4 | `sync-ventas.bat` | `importVentasTip.js` → MongoDB |

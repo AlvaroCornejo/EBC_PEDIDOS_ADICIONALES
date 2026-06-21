@@ -19,7 +19,7 @@ const Item = require('../models/Item');
 const ItemVenta = require('../models/ItemVenta');
 const { readItems, findFile, loadWB } = require('../routes/datos');
 
-const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
+const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
 const ITEMS_VENTA_FILE = path.join(__dirname, '../data/EBC ITEMS_VENTA.xlsx');
 
 async function main() {
