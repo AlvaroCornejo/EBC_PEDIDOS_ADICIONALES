@@ -3773,27 +3773,61 @@ window._dglsAddLinea = function() {
   if (tbody) tbody.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 };
 
-window._dglsTogglePedido = function(pedidoId, checked) {
+window._dglsTogglePedido = async function(pedidoId, checked) {
   const pedido = _dglsPedidoMap[pedidoId];
   if (!pedido) return;
-  if (checked) {
-    (pedido.lineas || []).filter(l => (l.gestion || 'COMPRAS') === 'PLANTA').forEach(l => {
-      _dglsLineas.push({
-        item:          l.item,
-        descripcion:   l.itemNombre || String(l.item),
-        saldo:         _dglsCatalog[l.item]?.saldo || 0,
-        cantDesglose:  l.cantidadSolicitada || 0,
-        ajuste:        0,
-        costoUnitario: l.costoUnitario || _dglsCatalog[l.item]?.costoUnitario || 0,
-        comentarios:   `Incl. de ${esc(pedido.operacion)} ${fmtDate(pedido.fechaPedido)}`,
-        gestion:       'PLANTA',
-        grupoCompra:   l.grupoCompra || _dglsCatalog[l.item]?.grupoCompra || '',
-        fuente:        `pedido:${pedidoId}`,
-      });
-    });
-  } else {
+
+  if (!checked) {
     _dglsLineas = _dglsLineas.filter(x => x.fuente !== `pedido:${pedidoId}`);
+    _dglsRenderTable();
+    return;
   }
+
+  // Deshabilitar checkbox mientras carga
+  const chk = document.querySelector(`input[onchange*="${pedidoId}"]`);
+  if (chk) chk.disabled = true;
+
+  const plLines = (pedido.lineas || []).filter(l => (l.gestion || 'COMPRAS') === 'PLANTA');
+  for (const l of plLines) {
+    try {
+      const data = await GET(`/recetas/desglose?item=${encodeURIComponent(l.item)}&cantidad=${encodeURIComponent(l.cantidadSolicitada || 1)}`);
+      if (data.sinReceta) {
+        // Sin receta: agregar el ítem directamente
+        _dglsLineas.push({
+          item:          l.item,
+          descripcion:   l.itemNombre || String(l.item),
+          saldo:         _dglsCatalog[l.item]?.saldo || 0,
+          cantDesglose:  l.cantidadSolicitada || 0,
+          ajuste:        0,
+          costoUnitario: l.costoUnitario || _dglsCatalog[l.item]?.costoUnitario || 0,
+          comentarios:   `${esc(pedido.operacion)} (sin receta)`,
+          gestion:       'PLANTA',
+          grupoCompra:   l.grupoCompra || _dglsCatalog[l.item]?.grupoCompra || '',
+          fuente:        `pedido:${pedidoId}`,
+        });
+      } else {
+        // Con receta: agregar insumos finales (último nivel)
+        for (const r of data.resumen) {
+          _dglsLineas.push({
+            item:          r.item,
+            descripcion:   r.descripcion || (_dglsCatalog[r.item]?.nombre || ''),
+            saldo:         _dglsCatalog[r.item]?.saldo || 0,
+            cantDesglose:  r.cantidad,
+            ajuste:        0,
+            costoUnitario: _dglsCatalog[r.item]?.costoUnitario || 0,
+            comentarios:   `Desglose de ${esc(l.itemNombre || String(l.item))} — ${esc(pedido.operacion)}`,
+            gestion:       'PLANTA',
+            grupoCompra:   r.areaDescarga || _dglsCatalog[r.item]?.grupoCompra || '',
+            fuente:        `pedido:${pedidoId}`,
+          });
+        }
+      }
+    } catch (err) {
+      toast(`Error al expandir ítem ${l.item}: ${err.message}`, 'error');
+    }
+  }
+  _dglsRenderTable();
+  if (chk) chk.disabled = false;
   _dglsRenderTable();
 };
 
