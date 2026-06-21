@@ -3780,8 +3780,9 @@ window._dglsItemSearch = function(i, inp) {
   const drop = document.getElementById(`dgls-drop-${i}`);
   if (!drop) return;
   if (!q) { drop.style.display = 'none'; return; }
+  const enTabla = new Set(_dglsLineas.filter((l, idx) => idx !== i).map(l => l.item));
   const matches = Object.values(_dglsCatalog)
-    .filter(it => String(it.item || '').includes(q) || (it.nombre || '').toLowerCase().includes(q))
+    .filter(it => !enTabla.has(it.item) && (String(it.item || '').includes(q) || (it.nombre || '').toLowerCase().includes(q)))
     .slice(0, 20);
   if (!matches.length) { drop.style.display = 'none'; return; }
   const rect = inp.getBoundingClientRect();
