@@ -3730,20 +3730,20 @@ function _dglsRenderTable() {
          </div>`
       : `<div style="font-size:11px;color:#6b7280;font-family:monospace;font-weight:600;line-height:1.2">${esc(String(l.item))}</div>
          <div style="font-weight:600;font-size:12px;line-height:1.3">${esc(l.descripcion)}</div>`;
-    const C = 'padding:4px 10px;font-size:12px;text-align:center';
+    const C = 'padding:4px 5px;font-size:12px;text-align:center';
     return `<tr>
-      <td style="padding:4px 10px;min-width:220px">${itemCell}</td>
+      <td style="padding:4px 5px;min-width:220px">${itemCell}</td>
       <td style="${C};color:#6b7280">${_dglsFmtN(l.saldo)}</td>
       <td style="${C};color:#6b7280">${_dglsFmtN(l.cantDesglose)}</td>
-      <td style="padding:4px 10px;text-align:center">
+      <td style="padding:4px 5px;text-align:center">
         <input type="number" class="form-control" style="width:80px;text-align:center;font-size:12px;padding:2px 4px" value="${l.cantidadSolicitada ?? l.cantDesglose ?? 0}" step="any" oninput="_dglsSetField(${i},'cantidadSolicitada',+this.value||0)">
       </td>
       <td style="${C};color:#374151">${_dglsFmtN(l.costoUnitario || 0)}</td>
       <td id="dsl-ct-${i}" style="${C};font-weight:600">${_dglsFmtN(costoTotal)}</td>
-      <td style="padding:4px 10px">
+      <td style="padding:4px 5px">
         <input type="text" class="form-control" style="width:120px;font-size:12px;padding:2px 4px" value="${esc(l.comentarios || '')}" oninput="_dglsSetField(${i},'comentarios',this.value)">
       </td>
-      <td style="padding:4px 10px;text-align:center">
+      <td style="padding:4px 5px;text-align:center">
         <button onclick="_dglsRemoveLinea(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:15px;line-height:1">✕</button>
       </td>
     </tr>`;
@@ -3961,13 +3961,13 @@ window.generarSolicitudDesdeDesglose = async function() {
           <div style="border:1px solid #e5e7eb;border-radius:6px;overflow:auto;flex:1">
             <table style="width:100%;border-collapse:collapse;font-size:12px">
               <thead><tr style="background:#f3f4f6;position:sticky;top:0">
-                <th style="padding:5px 8px;text-align:left;min-width:220px">Ítem</th>
-                <th style="padding:5px 8px;text-align:center;min-width:70px">Saldo</th>
-                <th style="padding:5px 8px;text-align:center;min-width:80px">Cant. Calc.</th>
-                <th style="padding:5px 8px;text-align:center;min-width:90px">Cant. Solicitada</th>
-                <th style="padding:5px 8px;text-align:center;min-width:76px">Costo U.</th>
-                <th style="padding:5px 8px;text-align:center;min-width:86px">Costo Total</th>
-                <th style="padding:5px 8px;text-align:left;min-width:130px">Comentarios</th>
+                <th style="padding:5px 4px;text-align:left;min-width:220px">Ítem</th>
+                <th style="padding:5px 4px;text-align:center;min-width:70px">Saldo</th>
+                <th style="padding:5px 4px;text-align:center;min-width:80px">Cant. Calc.</th>
+                <th style="padding:5px 4px;text-align:center;min-width:90px">Cant. Solicitada</th>
+                <th style="padding:5px 4px;text-align:center;min-width:76px">Costo U.</th>
+                <th style="padding:5px 4px;text-align:center;min-width:86px">Costo Total</th>
+                <th style="padding:5px 4px;text-align:left;min-width:130px">Comentarios</th>
                 <th style="width:28px"></th>
               </tr></thead>
               <tbody id="dgls-sol-tbody"></tbody>
