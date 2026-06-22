@@ -3715,6 +3715,9 @@ const _dglsFmtN = v => v == null ? '' : Number(v).toLocaleString('es-PE', { mini
 function _dglsRenderTable() {
   const tbody = document.getElementById('dgls-sol-tbody');
   if (!tbody) return;
+  const grandTotal = _dglsLineas.reduce((s, l) => s + ((l.cantDesglose||0)+(l.ajuste||0))*(l.costoUnitario||0), 0);
+  const totalEl = document.getElementById('dgls-pedido-total');
+  if (totalEl) totalEl.textContent = 'S/ ' + _dglsFmtN(grandTotal);
   tbody.innerHTML = _dglsLineas.map((l, i) => {
     const total = (l.cantDesglose || 0) + (l.ajuste || 0);
     const costoTotal = total * (l.costoUnitario || 0);
@@ -3739,9 +3742,7 @@ function _dglsRenderTable() {
         <button onmousedown="_dglsSetZero(${i})" title="Ajustar a cero" style="border:none;background:#fef3c7;color:#92400e;cursor:pointer;font-size:10px;padding:2px 5px;border-radius:3px;line-height:1.5">→0</button>
       </td>
       <td id="dsl-tot-${i}" style="padding:4px 6px;text-align:right;font-weight:600;font-size:12px">${_dglsFmtN(total)}</td>
-      <td style="padding:4px 6px">
-        <input type="number" class="form-control" style="width:72px;text-align:right;font-size:12px;padding:2px 4px" value="${l.costoUnitario || 0}" step="any" oninput="_dglsSetField(${i},'costoUnitario',+this.value||0)">
-      </td>
+      <td style="padding:4px 6px;text-align:right;font-size:12px;color:#374151">${_dglsFmtN(l.costoUnitario || 0)}</td>
       <td id="dsl-ct-${i}" style="padding:4px 6px;text-align:right;font-size:12px">${_dglsFmtN(costoTotal)}</td>
       <td style="padding:4px 6px">
         <input type="text" class="form-control" style="width:120px;font-size:12px;padding:2px 4px" value="${esc(l.comentarios || '')}" oninput="_dglsSetField(${i},'comentarios',this.value)">
@@ -3762,6 +3763,9 @@ window._dglsSetField = function(i, field, val) {
     const cEl = document.getElementById(`dsl-ct-${i}`);
     if (tEl) tEl.textContent = _dglsFmtN(total);
     if (cEl) cEl.textContent = _dglsFmtN(total * (l.costoUnitario || 0));
+    const grandTotal = _dglsLineas.reduce((s, l) => s + ((l.cantDesglose||0)+(l.ajuste||0))*(l.costoUnitario||0), 0);
+    const totalEl = document.getElementById('dgls-pedido-total');
+    if (totalEl) totalEl.textContent = 'S/ ' + _dglsFmtN(grandTotal);
   }
 };
 
@@ -3918,31 +3922,29 @@ window.generarSolicitudDesdeDesglose = async function() {
     _dglsLineas = [];
 
     // Render modal
-    const pendingHtml = pendingPedidos.length ? `
-      <div style="margin-bottom:16px">
-        <div style="font-weight:600;font-size:12px;color:#374151;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Solicitudes pendientes con ítems PLANTA</div>
-        <div style="border:1px solid #e5e7eb;border-radius:6px;max-height:140px;overflow-y:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
+    const leftCol = pendingPedidos.length ? `
+      <div style="width:270px;flex-shrink:0;display:flex;flex-direction:column">
+        <div style="font-weight:600;font-size:11px;color:#374151;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Solicitudes pendientes</div>
+        <div style="border:1px solid #e5e7eb;border-radius:6px;overflow-y:auto;flex:1">
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
             <thead><tr style="background:#f3f4f6;position:sticky;top:0">
-              <th style="padding:5px 8px;width:32px"></th>
-              <th style="padding:5px 8px;text-align:left">Operación</th>
-              <th style="padding:5px 8px;text-align:left">Fecha</th>
-              <th style="padding:5px 8px;text-align:left">Estado</th>
-              <th style="padding:5px 8px;text-align:left">Solicitante</th>
-              <th style="padding:5px 8px;text-align:right">Líneas PLANTA</th>
+              <th style="padding:5px 6px;width:28px"></th>
+              <th style="padding:5px 6px;text-align:center">Op.</th>
+              <th style="padding:5px 6px;text-align:center">Fecha</th>
+              <th style="padding:5px 6px;text-align:center">Estado</th>
+              <th style="padding:5px 6px;text-align:center">Lín.</th>
             </tr></thead>
             <tbody>
               ${pendingPedidos.map(p => {
                 const plCount = (p.lineas || []).filter(l => (l.gestion || 'COMPRAS') === 'PLANTA').length;
                 return `<tr>
-                  <td style="padding:5px 8px;text-align:center">
+                  <td style="padding:5px 6px;text-align:center">
                     <input type="checkbox" onchange="_dglsTogglePedido('${p.id}',this.checked)" style="cursor:pointer">
                   </td>
-                  <td style="padding:5px 8px;font-weight:600">${esc(p.operacion)}</td>
-                  <td style="padding:5px 8px">${fmtDate(p.fechaPedido)}</td>
-                  <td style="padding:5px 8px"><span class="badge badge-${(p.estado||'').toLowerCase()}">${p.estado}</span></td>
-                  <td style="padding:5px 8px">${esc(p.solicitadoPorNombre || '')}</td>
-                  <td style="padding:5px 8px;text-align:right;font-weight:600">${plCount}</td>
+                  <td style="padding:5px 6px;font-weight:600;text-align:center">${esc(p.operacion)}</td>
+                  <td style="padding:5px 6px;text-align:center">${fmtDate(p.fechaPedido)}</td>
+                  <td style="padding:5px 6px;text-align:center"><span class="badge badge-${(p.estado||'').toLowerCase()}">${p.estado}</span></td>
+                  <td style="padding:5px 6px;text-align:center;font-weight:600">${plCount}</td>
                 </tr>`;
               }).join('')}
             </tbody>
@@ -3951,34 +3953,38 @@ window.generarSolicitudDesdeDesglose = async function() {
       </div>` : '';
 
     document.getElementById('modal-body').innerHTML = `
-      <div style="font-size:13px;color:#374151;margin-bottom:14px">
-        Operación destino: <strong style="color:#059669">${esc(targetOp)}</strong>
-        &nbsp;·&nbsp; Fecha: <strong>${new Date().toISOString().split('T')[0]}</strong>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;color:#374151">
+        <div>Op: <strong style="color:#059669">${esc(targetOp)}</strong> &nbsp;·&nbsp; Fecha: <strong>${new Date().toISOString().split('T')[0]}</strong></div>
+        <div style="font-size:13px">Total pedido:&nbsp;<strong id="dgls-pedido-total" style="color:#059669;font-size:15px">S/ 0.00</strong></div>
       </div>
-      ${pendingHtml}
-      <div style="font-weight:600;font-size:12px;color:#374151;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Líneas del adicional</div>
-      <div style="border:1px solid #e5e7eb;border-radius:6px;overflow-x:auto;max-height:320px;overflow-y:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="background:#f3f4f6;position:sticky;top:0">
-            <th style="padding:5px 8px;text-align:left;min-width:220px">Ítem</th>
-            <th style="padding:5px 8px;text-align:right;min-width:70px">Saldo</th>
-            <th style="padding:5px 8px;text-align:right;min-width:80px">Cant. Calc.</th>
-            <th style="padding:5px 8px;text-align:right;min-width:80px">Ajuste</th>
-            <th style="padding:5px 8px;width:36px"></th>
-            <th style="padding:5px 8px;text-align:right;min-width:80px">Total</th>
-            <th style="padding:5px 8px;text-align:right;min-width:76px">Costo U.</th>
-            <th style="padding:5px 8px;text-align:right;min-width:86px">Costo Total</th>
-            <th style="padding:5px 8px;text-align:left;min-width:130px">Comentarios</th>
-            <th style="width:28px"></th>
-          </tr></thead>
-          <tbody id="dgls-sol-tbody"></tbody>
-        </table>
-      </div>
-      <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
-        <button onclick="_dglsAddLinea()" style="border:1px dashed #9ca3af;background:none;color:#6b7280;cursor:pointer;padding:5px 14px;border-radius:4px;font-size:12px">+ Agregar ítem</button>
-        <div style="display:flex;gap:10px">
-          <button onclick="closeModal()" class="btn btn-outline btn-sm">Cancelar</button>
-          <button id="dgls-enviar-btn" onclick="_dglsEnviarSolicitud('${esc(targetOp)}')" class="btn btn-primary btn-sm">📤 Enviar solicitud</button>
+      <div style="display:flex;gap:12px;align-items:stretch;min-height:360px">
+        ${leftCol}
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="font-weight:600;font-size:11px;color:#374151;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Líneas del adicional</div>
+          <div style="border:1px solid #e5e7eb;border-radius:6px;overflow:auto;flex:1">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead><tr style="background:#f3f4f6;position:sticky;top:0">
+                <th style="padding:5px 8px;text-align:left;min-width:220px">Ítem</th>
+                <th style="padding:5px 8px;text-align:center;min-width:70px">Saldo</th>
+                <th style="padding:5px 8px;text-align:center;min-width:80px">Cant. Calc.</th>
+                <th style="padding:5px 8px;text-align:center;min-width:80px">Ajuste</th>
+                <th style="padding:5px 8px;width:36px"></th>
+                <th style="padding:5px 8px;text-align:center;min-width:80px">Total</th>
+                <th style="padding:5px 8px;text-align:center;min-width:76px">Costo U.</th>
+                <th style="padding:5px 8px;text-align:center;min-width:86px">Costo Total</th>
+                <th style="padding:5px 8px;text-align:left;min-width:130px">Comentarios</th>
+                <th style="width:28px"></th>
+              </tr></thead>
+              <tbody id="dgls-sol-tbody"></tbody>
+            </table>
+          </div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+            <button onclick="_dglsAddLinea()" style="border:1px dashed #9ca3af;background:none;color:#6b7280;cursor:pointer;padding:5px 14px;border-radius:4px;font-size:12px">+ Agregar ítem</button>
+            <div style="display:flex;gap:10px">
+              <button onclick="closeModal()" class="btn btn-outline btn-sm">Cancelar</button>
+              <button id="dgls-enviar-btn" onclick="_dglsEnviarSolicitud('${esc(targetOp)}')" class="btn btn-primary btn-sm">📤 Enviar solicitud</button>
+            </div>
+          </div>
         </div>
       </div>`;
     _dglsRenderTable();
