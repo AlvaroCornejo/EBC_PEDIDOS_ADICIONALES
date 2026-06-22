@@ -3730,19 +3730,20 @@ function _dglsRenderTable() {
          </div>`
       : `<div style="font-size:11px;color:#6b7280;font-family:monospace;font-weight:600;line-height:1.2">${esc(String(l.item))}</div>
          <div style="font-weight:600;font-size:12px;line-height:1.3">${esc(l.descripcion)}</div>`;
+    const C = 'padding:4px 10px;font-size:12px;text-align:center';
     return `<tr>
-      <td style="padding:4px 6px;min-width:220px">${itemCell}</td>
-      <td style="padding:4px 6px;text-align:right;font-size:12px;color:#6b7280">${_dglsFmtN(l.saldo)}</td>
-      <td style="padding:4px 6px;text-align:right;font-size:12px;color:#6b7280">${_dglsFmtN(l.cantDesglose)}</td>
-      <td style="padding:4px 6px">
-        <input type="number" class="form-control" style="width:80px;text-align:right;font-size:12px;padding:2px 4px" value="${l.cantidadSolicitada ?? l.cantDesglose ?? 0}" step="any" oninput="_dglsSetField(${i},'cantidadSolicitada',+this.value||0)">
+      <td style="padding:4px 10px;min-width:220px">${itemCell}</td>
+      <td style="${C};color:#6b7280">${_dglsFmtN(l.saldo)}</td>
+      <td style="${C};color:#6b7280">${_dglsFmtN(l.cantDesglose)}</td>
+      <td style="padding:4px 10px;text-align:center">
+        <input type="number" class="form-control" style="width:80px;text-align:center;font-size:12px;padding:2px 4px" value="${l.cantidadSolicitada ?? l.cantDesglose ?? 0}" step="any" oninput="_dglsSetField(${i},'cantidadSolicitada',+this.value||0)">
       </td>
-      <td style="padding:4px 6px;text-align:right;font-size:12px;color:#374151">${_dglsFmtN(l.costoUnitario || 0)}</td>
-      <td id="dsl-ct-${i}" style="padding:4px 6px;text-align:right;font-size:12px">${_dglsFmtN(costoTotal)}</td>
-      <td style="padding:4px 6px">
+      <td style="${C};color:#374151">${_dglsFmtN(l.costoUnitario || 0)}</td>
+      <td id="dsl-ct-${i}" style="${C};font-weight:600">${_dglsFmtN(costoTotal)}</td>
+      <td style="padding:4px 10px">
         <input type="text" class="form-control" style="width:120px;font-size:12px;padding:2px 4px" value="${esc(l.comentarios || '')}" oninput="_dglsSetField(${i},'comentarios',this.value)">
       </td>
-      <td style="padding:4px 6px;text-align:center">
+      <td style="padding:4px 10px;text-align:center">
         <button onclick="_dglsRemoveLinea(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:15px;line-height:1">✕</button>
       </td>
     </tr>`;
