@@ -3715,12 +3715,11 @@ const _dglsFmtN = v => v == null ? '' : Number(v).toLocaleString('es-PE', { mini
 function _dglsRenderTable() {
   const tbody = document.getElementById('dgls-sol-tbody');
   if (!tbody) return;
-  const grandTotal = _dglsLineas.reduce((s, l) => s + ((l.cantDesglose||0)+(l.ajuste||0))*(l.costoUnitario||0), 0);
+  const grandTotal = _dglsLineas.reduce((s, l) => s + (l.cantidadSolicitada||0)*(l.costoUnitario||0), 0);
   const totalEl = document.getElementById('dgls-pedido-total');
   if (totalEl) totalEl.textContent = 'S/ ' + _dglsFmtN(grandTotal);
   tbody.innerHTML = _dglsLineas.map((l, i) => {
-    const total = (l.cantDesglose || 0) + (l.ajuste || 0);
-    const costoTotal = total * (l.costoUnitario || 0);
+    const costoTotal = (l.cantidadSolicitada || 0) * (l.costoUnitario || 0);
     const esNuevo = l.fuente === 'nuevo';
     const itemCell = esNuevo
       ? `<div style="position:relative">
@@ -3734,14 +3733,10 @@ function _dglsRenderTable() {
     return `<tr>
       <td style="padding:4px 6px;min-width:220px">${itemCell}</td>
       <td style="padding:4px 6px;text-align:right;font-size:12px;color:#6b7280">${_dglsFmtN(l.saldo)}</td>
-      <td style="padding:4px 6px;text-align:right;font-size:12px">${_dglsFmtN(l.cantDesglose)}</td>
+      <td style="padding:4px 6px;text-align:right;font-size:12px;color:#6b7280">${_dglsFmtN(l.cantDesglose)}</td>
       <td style="padding:4px 6px">
-        <input type="number" class="form-control" style="width:72px;text-align:right;font-size:12px;padding:2px 4px" value="${l.ajuste || 0}" step="any" oninput="_dglsSetField(${i},'ajuste',+this.value||0)">
+        <input type="number" class="form-control" style="width:80px;text-align:right;font-size:12px;padding:2px 4px" value="${l.cantidadSolicitada ?? l.cantDesglose ?? 0}" step="any" oninput="_dglsSetField(${i},'cantidadSolicitada',+this.value||0)">
       </td>
-      <td style="padding:4px 2px;text-align:center">
-        <button onmousedown="_dglsSetZero(${i})" title="Ajustar a cero" style="border:none;background:#fef3c7;color:#92400e;cursor:pointer;font-size:10px;padding:2px 5px;border-radius:3px;line-height:1.5">→0</button>
-      </td>
-      <td id="dsl-tot-${i}" style="padding:4px 6px;text-align:right;font-weight:600;font-size:12px">${_dglsFmtN(total)}</td>
       <td style="padding:4px 6px;text-align:right;font-size:12px;color:#374151">${_dglsFmtN(l.costoUnitario || 0)}</td>
       <td id="dsl-ct-${i}" style="padding:4px 6px;text-align:right;font-size:12px">${_dglsFmtN(costoTotal)}</td>
       <td style="padding:4px 6px">
@@ -3756,14 +3751,11 @@ function _dglsRenderTable() {
 
 window._dglsSetField = function(i, field, val) {
   _dglsLineas[i][field] = val;
-  if (['ajuste', 'cantDesglose', 'costoUnitario'].includes(field)) {
+  if (['cantidadSolicitada', 'cantDesglose', 'costoUnitario'].includes(field)) {
     const l = _dglsLineas[i];
-    const total = (l.cantDesglose || 0) + (l.ajuste || 0);
-    const tEl = document.getElementById(`dsl-tot-${i}`);
     const cEl = document.getElementById(`dsl-ct-${i}`);
-    if (tEl) tEl.textContent = _dglsFmtN(total);
-    if (cEl) cEl.textContent = _dglsFmtN(total * (l.costoUnitario || 0));
-    const grandTotal = _dglsLineas.reduce((s, l) => s + ((l.cantDesglose||0)+(l.ajuste||0))*(l.costoUnitario||0), 0);
+    if (cEl) cEl.textContent = _dglsFmtN((l.cantidadSolicitada || 0) * (l.costoUnitario || 0));
+    const grandTotal = _dglsLineas.reduce((s, l) => s + (l.cantidadSolicitada||0)*(l.costoUnitario||0), 0);
     const totalEl = document.getElementById('dgls-pedido-total');
     if (totalEl) totalEl.textContent = 'S/ ' + _dglsFmtN(grandTotal);
   }
@@ -3823,7 +3815,7 @@ window._dglsSelectItem = function(i, itemCode) {
 };
 
 window._dglsAddLinea = function() {
-  _dglsLineas.push({ item: 0, descripcion: '', saldo: 0, cantDesglose: 0, ajuste: 0, costoUnitario: 0, comentarios: '', gestion: 'PLANTA', grupoCompra: '', fuente: 'nuevo' });
+  _dglsLineas.push({ item: 0, descripcion: '', saldo: 0, cantDesglose: 0, cantidadSolicitada: 0, costoUnitario: 0, comentarios: '', gestion: 'PLANTA', grupoCompra: '', fuente: 'nuevo' });
   _dglsRenderTable();
   // scroll to bottom of table
   const tbody = document.getElementById('dgls-sol-tbody');
@@ -3840,7 +3832,11 @@ window._dglsTogglePedido = async function(pedidoId, checked) {
       const idx = _dglsLineas.findIndex(x => x.item === item && x.fuente !== 'nuevo');
       if (idx < 0) return;
       _dglsLineas[idx].cantDesglose -= cantidad;
-      if (_dglsLineas[idx].cantDesglose <= 0) _dglsLineas.splice(idx, 1);
+      if (_dglsLineas[idx].cantDesglose <= 0) {
+        _dglsLineas.splice(idx, 1);
+      } else {
+        _dglsLineas[idx].cantidadSolicitada = _dglsLineas[idx].cantDesglose;
+      }
     });
     delete _dglsContribs[pedidoId];
     _dglsRenderTable();
@@ -3864,20 +3860,20 @@ window._dglsTogglePedido = async function(pedidoId, checked) {
         contribs.push({ item: r.item, cantidad: r.cantidad });
         const idx = _dglsLineas.findIndex(x => x.item === r.item && x.fuente !== 'nuevo');
         if (idx >= 0) {
-          // Consolidar: sumar cantidad a la fila existente
           _dglsLineas[idx].cantDesglose += r.cantidad;
+          _dglsLineas[idx].cantidadSolicitada = _dglsLineas[idx].cantDesglose;
         } else {
           _dglsLineas.push({
-            item:          r.item,
-            descripcion:   r.descripcion || (_dglsCatalog[r.item]?.nombre || ''),
-            saldo:         _dglsCatalog[r.item]?.saldo || 0,
-            cantDesglose:  r.cantidad,
-            ajuste:        0,
-            costoUnitario: _dglsCatalog[r.item]?.costoUnitario || 0,
-            comentarios:   '',
-            gestion:       'PLANTA',
-            grupoCompra:   r.areaDescarga || _dglsCatalog[r.item]?.grupoCompra || '',
-            fuente:        'pedido',
+            item:               r.item,
+            descripcion:        r.descripcion || (_dglsCatalog[r.item]?.nombre || ''),
+            saldo:              _dglsCatalog[r.item]?.saldo || 0,
+            cantDesglose:       r.cantidad,
+            cantidadSolicitada: r.cantidad,
+            costoUnitario:      _dglsCatalog[r.item]?.costoUnitario || 0,
+            comentarios:        '',
+            gestion:            'PLANTA',
+            grupoCompra:        r.areaDescarga || _dglsCatalog[r.item]?.grupoCompra || '',
+            fuente:             'pedido',
           });
         }
       }
@@ -3967,9 +3963,7 @@ window.generarSolicitudDesdeDesglose = async function() {
                 <th style="padding:5px 8px;text-align:left;min-width:220px">Ítem</th>
                 <th style="padding:5px 8px;text-align:center;min-width:70px">Saldo</th>
                 <th style="padding:5px 8px;text-align:center;min-width:80px">Cant. Calc.</th>
-                <th style="padding:5px 8px;text-align:center;min-width:80px">Ajuste</th>
-                <th style="padding:5px 8px;width:36px"></th>
-                <th style="padding:5px 8px;text-align:center;min-width:80px">Total</th>
+                <th style="padding:5px 8px;text-align:center;min-width:90px">Cant. Solicitada</th>
                 <th style="padding:5px 8px;text-align:center;min-width:76px">Costo U.</th>
                 <th style="padding:5px 8px;text-align:center;min-width:86px">Costo Total</th>
                 <th style="padding:5px 8px;text-align:left;min-width:130px">Comentarios</th>
@@ -3994,7 +3988,7 @@ window.generarSolicitudDesdeDesglose = async function() {
 };
 
 window._dglsEnviarSolicitud = async function(targetOp) {
-  const lineas = _dglsLineas.filter(l => ((l.cantDesglose || 0) + (l.ajuste || 0)) > 0 && l.item);
+  const lineas = _dglsLineas.filter(l => (l.cantidadSolicitada || 0) > 0 && l.item);
   if (!lineas.length) { toast('No hay líneas con cantidad > 0', 'error'); return; }
   const btn = document.getElementById('dgls-enviar-btn');
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
@@ -4007,7 +4001,7 @@ window._dglsEnviarSolicitud = async function(targetOp) {
         itemNombre:         l.descripcion,
         grupoCompra:        l.grupoCompra || '',
         gestion:            'PLANTA',
-        cantidadSolicitada: (l.cantDesglose || 0) + (l.ajuste || 0),
+        cantidadSolicitada: l.cantidadSolicitada || 0,
         costoUnitario:      l.costoUnitario || 0,
         comentarios:        l.comentarios || '',
         saldo:              l.saldo || 0,
