@@ -10,6 +10,7 @@ const ITEMS_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['v
 const PAGO_ROLES  = [['','— Sin acceso —'],['programador','Programador (Paso 1)'],['aprobador','Aprobador (Paso 2)'],['pagador','Pagador (Paso 3 y 5)'],['autorizador','Autorizador (Paso 4)'],['admin','Administrador']];
 const BCT_ROLES   = [['','— Sin acceso —'],['SOLICITUD','Solicitud'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
+const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
@@ -256,6 +257,7 @@ const NAV_ITEMS = [
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
+  { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -315,7 +317,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -8532,6 +8534,549 @@ async function viewMovimientos(container) {
   await renderTab();
 }
 
+// ─── View: Cierre de Caja ────────────────────────────────────────
+const CJ_MEDIOS = [['efectivo', '💵 Efectivo'], ['tarjeta', '💳 Tarjeta'], ['delivery', '🛵 Delivery (CxC)'], ['transferencia', '🏦 Transferencia']];
+const CJ_COMBOS = [['ventaPEN', 'Venta S/'], ['ventaUSD', 'Venta US$'], ['propinaPEN', 'Propina S/'], ['propinaUSD', 'Propina US$']];
+const cjN   = v => Number(v) || 0;
+const cjFmt = v => cjN(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const cjBadge = (texto, color, bg) => `<span class="badge" style="background:${bg};color:${color}">${texto}</span>`;
+const CJ_ESTADO_BADGE = {
+  ABIERTO:    cjBadge('ABIERTO', '#1d4ed8', '#dbeafe'),
+  CERRADO:    cjBadge('CERRADO', '#065f46', '#d1fae5'),
+  ENVIADO:    cjBadge('ENVIADO', '#92400e', '#fef3c7'),
+  RECIBIDO:   cjBadge('RECIBIDO', '#065f46', '#d1fae5'),
+  PENDIENTE:  cjBadge('PENDIENTE', '#92400e', '#fef3c7'),
+  EN_OFICINA: cjBadge('EN OFICINA', '#1d4ed8', '#dbeafe'),
+  DEPOSITADO: cjBadge('DEPOSITADO', '#065f46', '#d1fae5'),
+};
+
+let _cjOps = [];
+let _cjTab = '';
+let _cjCierres = [];
+let _cjEnvios = [];
+let _cjDepositos = [];
+let _cjEnvioDisponibles = [];
+let _cjDepositoDisponibles = [];
+
+async function viewCierreCaja(container) {
+  const isAdmin = S.user.role === 'ADMIN';
+  const tabs = [];
+  if (isAdmin || S.user.rolCaja)         tabs.push('cierres');
+  if (isAdmin || S.user.accesoOficina)   tabs.push('oficina');
+  if (isAdmin || S.user.accesoDepositos) tabs.push('depositos');
+
+  if (!tabs.length) {
+    container.innerHTML = `
+      <div class="page-header"><div class="page-title">🧾 Cierre de Caja</div></div>
+      <div class="page-body"><div class="empty-state"><div class="empty-icon">🔒</div><p>No tienes acceso a este módulo.</p></div></div>`;
+    return;
+  }
+
+  try { _cjOps = await GET('/caja/operaciones'); } catch (err) { _cjOps = []; }
+
+  const TAB_LABEL = { cierres: '🧾 Cierres de Caja', oficina: '🏢 Envío a Oficina', depositos: '🏦 Depósito Bancario' };
+  if (!tabs.includes(_cjTab)) _cjTab = tabs[0];
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">🧾 Cierre de Caja</div></div>
+    <div class="page-body">
+      <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:16px;width:fit-content">
+        ${tabs.map(t => `<button class="cj-tab" data-tab="${t}" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer;background:${t === _cjTab ? 'var(--accent)' : 'var(--bg-secondary)'};color:${t === _cjTab ? '#fff' : 'var(--text)'}">${TAB_LABEL[t]}</button>`).join('')}
+      </div>
+      <div id="cj-content"></div>
+    </div>`;
+
+  container.querySelectorAll('.cj-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _cjTab = btn.dataset.tab;
+      container.querySelectorAll('.cj-tab').forEach(b => {
+        const active = b.dataset.tab === _cjTab;
+        b.style.background = active ? 'var(--accent)' : 'var(--bg-secondary)';
+        b.style.color = active ? '#fff' : 'var(--text)';
+      });
+      cjRenderTab();
+    });
+  });
+
+  await cjRenderTab();
+}
+
+async function cjRenderTab() {
+  const content = document.getElementById('cj-content');
+  if (!content) return;
+  content.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  if (_cjTab === 'cierres')   return cjRenderCierres(content);
+  if (_cjTab === 'oficina')   return cjRenderOficina(content);
+  if (_cjTab === 'depositos') return cjRenderDepositos(content);
+}
+
+function cjFilterBarHtml(prefix) {
+  return `
+    <div class="card mb-16" style="padding:16px">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+        <div>
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Operación</label>
+          <select id="${prefix}-op" class="form-control" style="width:140px">
+            ${_cjOps.map(o => `<option value="${esc(o.operacion)}">${esc(o.operacion)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Desde</label>
+          <input type="date" id="${prefix}-desde" class="form-control" style="width:140px">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px">Hasta</label>
+          <input type="date" id="${prefix}-hasta" class="form-control" style="width:140px">
+        </div>
+        <button id="${prefix}-buscar" class="btn btn-outline btn-sm">🔍 Buscar</button>
+        <div id="${prefix}-acciones" style="margin-left:auto;display:flex;gap:8px"></div>
+      </div>
+    </div>`;
+}
+
+// ── Tab: Cierres de Caja ──────────────────────────────────────────
+async function cjRenderCierres(content) {
+  const isAdmin = S.user.role === 'ADMIN';
+  const puedeRegistrar = isAdmin || S.user.rolCaja === 'REGISTRO';
+
+  content.innerHTML = `${cjFilterBarHtml('cj-c')}<div id="cj-c-tabla"></div>`;
+
+  if (puedeRegistrar) {
+    document.getElementById('cj-c-acciones').innerHTML = `<button id="cj-c-nuevo" class="btn btn-primary btn-sm">+ Nuevo Cierre</button>`;
+    document.getElementById('cj-c-nuevo').addEventListener('click', () => window.cjAbrirFormCierre(document.getElementById('cj-c-op').value, null));
+  }
+  document.getElementById('cj-c-buscar').addEventListener('click', window.cjBuscarCierres);
+  await window.cjBuscarCierres();
+}
+
+window.cjBuscarCierres = async function() {
+  const tabla = document.getElementById('cj-c-tabla');
+  const op = document.getElementById('cj-c-op')?.value;
+  const desde = document.getElementById('cj-c-desde')?.value;
+  const hasta = document.getElementById('cj-c-hasta')?.value;
+  if (!op) { tabla.innerHTML = `<div class="empty-state"><p>No hay operaciones disponibles.</p></div>`; return; }
+  tabla.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  const q = new URLSearchParams({ operacion: op });
+  if (desde) q.set('desde', desde);
+  if (hasta) q.set('hasta', hasta);
+  try { _cjCierres = await GET(`/caja/cierres?${q}`); }
+  catch (err) { tabla.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  cjRenderTablaCierres();
+};
+
+function cjRenderTablaCierres() {
+  const tabla = document.getElementById('cj-c-tabla');
+  if (!_cjCierres.length) { tabla.innerHTML = `<div class="empty-state"><p>Sin cierres registrados en el rango seleccionado.</p></div>`; return; }
+  tabla.innerHTML = `
+    <div class="card" style="overflow:hidden;overflow-x:auto">
+      <table class="data-table" style="font-size:12px;white-space:nowrap">
+        <thead><tr>
+          <th>Fecha</th><th>Estado</th>
+          <th style="text-align:right">Venta S/</th><th style="text-align:right">Venta US$</th>
+          <th style="text-align:right">Propina S/</th><th style="text-align:right">Propina US$</th>
+          <th style="text-align:right">Ef. Contado S/</th><th style="text-align:right">Ef. Contado US$</th>
+        </tr></thead>
+        <tbody>
+          ${_cjCierres.map(c => {
+            const tv = k => CJ_MEDIOS.reduce((s, [m]) => s + cjN(c.cobranzas?.[m]?.[k]), 0);
+            return `<tr style="cursor:pointer" onclick="cjAbrirFormCierreId('${c.id}')">
+              <td>${esc(c.fecha)}</td>
+              <td>${CJ_ESTADO_BADGE[c.estado] || c.estado}</td>
+              <td style="text-align:right">${cjFmt(tv('ventaPEN'))}</td>
+              <td style="text-align:right">${cjFmt(tv('ventaUSD'))}</td>
+              <td style="text-align:right">${cjFmt(tv('propinaPEN'))}</td>
+              <td style="text-align:right">${cjFmt(tv('propinaUSD'))}</td>
+              <td style="text-align:right">${cjFmt(c.efectivoContado?.ventaPEN)}</td>
+              <td style="text-align:right">${cjFmt(c.efectivoContado?.ventaUSD)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+window.cjAbrirFormCierreId = function(id) {
+  const c = _cjCierres.find(x => x.id === id);
+  if (c) window.cjAbrirFormCierre(c.operacion, c);
+};
+
+window.cjAbrirFormCierre = function(operacion, existente) {
+  const isAdmin = S.user.role === 'ADMIN';
+  const esEdicion = !!existente;
+  const soloLectura = esEdicion && existente.estado === 'CERRADO' && !isAdmin;
+  const fecha = existente?.fecha || today();
+  const cob = existente?.cobranzas || {};
+  const contado = existente?.efectivoContado || {};
+  const dis = soloLectura ? 'disabled' : '';
+
+  const filaInput = ([medio, label]) => `
+    <tr>
+      <td style="font-weight:600;white-space:nowrap">${label}</td>
+      ${CJ_COMBOS.map(([k]) => `<td><input type="number" step="0.01" class="form-control cj-cob-input" data-medio="${medio}" data-combo="${k}" value="${cjN(cob[medio]?.[k])}" style="width:100px;text-align:right" ${dis}></td>`).join('')}
+    </tr>`;
+
+  const html = `
+    <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+      <div><label class="form-label">Operación</label><input type="text" class="form-control" value="${esc(operacion || existente?.operacion || '')}" disabled style="width:120px"></div>
+      <div><label class="form-label">Fecha</label><input type="date" id="cj-f-fecha" class="form-control" value="${fecha}" ${esEdicion ? 'disabled' : ''} style="width:160px"></div>
+      <div><label class="form-label">Estado</label><div style="padding-top:8px">${CJ_ESTADO_BADGE[existente?.estado || 'ABIERTO']}</div></div>
+    </div>
+    <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Cobranzas declaradas</div>
+    <div style="overflow-x:auto;margin-bottom:16px">
+      <table class="data-table" style="font-size:12px">
+        <thead><tr><th>Medio de pago</th><th style="text-align:right">Venta S/</th><th style="text-align:right">Venta US$</th><th style="text-align:right">Propina S/</th><th style="text-align:right">Propina US$</th></tr></thead>
+        <tbody>${CJ_MEDIOS.map(filaInput).join('')}</tbody>
+      </table>
+    </div>
+    <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Efectivo contado (físico — esto es lo que se mueve a oficina/banco)</div>
+    <div style="overflow-x:auto;margin-bottom:8px">
+      <table class="data-table" style="font-size:12px">
+        <thead><tr>${CJ_COMBOS.map(([, l]) => `<th style="text-align:right">${l}</th>`).join('')}</tr></thead>
+        <tbody><tr>${CJ_COMBOS.map(([k]) => `<td><input type="number" step="0.01" id="cj-f-contado-${k}" class="form-control" value="${cjN(contado[k])}" style="width:100px;text-align:right" ${dis}></td>`).join('')}</tr></tbody>
+      </table>
+    </div>
+    <div id="cj-f-dif" style="font-size:12px;margin-bottom:14px;min-height:18px"></div>
+    <div><label class="form-label">Comentarios</label><textarea id="cj-f-comentarios" class="form-control" rows="2" ${dis}>${esc(existente?.comentarios || '')}</textarea></div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px">
+      <button class="btn btn-outline btn-sm" onclick="closeModal()">${soloLectura ? 'Cerrar' : 'Cancelar'}</button>
+      ${!soloLectura ? `<button id="cj-f-guardar" class="btn btn-outline btn-sm">💾 Guardar</button>` : ''}
+      ${!soloLectura && existente?.estado !== 'CERRADO' ? `<button id="cj-f-cerrar" class="btn btn-primary btn-sm">🔒 Cerrar Caja</button>` : ''}
+    </div>`;
+
+  openModal(esEdicion ? `🧾 Cierre de Caja — ${esc(existente.fecha)}` : '🧾 Nuevo Cierre de Caja', html, null, { wide: true });
+
+  function calcDif() {
+    const el = document.getElementById('cj-f-dif');
+    if (!el) return;
+    const difs = CJ_COMBOS.map(([k, label]) => {
+      const declarado = Number(document.querySelector(`.cj-cob-input[data-medio="efectivo"][data-combo="${k}"]`)?.value) || 0;
+      const contadoVal = Number(document.getElementById(`cj-f-contado-${k}`)?.value) || 0;
+      return { label, d: contadoVal - declarado };
+    }).filter(x => Math.abs(x.d) > 0.01);
+    if (!difs.length) { el.innerHTML = `<span style="color:#065f46">✓ El efectivo contado coincide con lo declarado</span>`; return; }
+    el.innerHTML = difs.map(x => `<span style="color:${x.d < 0 ? '#dc2626' : '#d97706'};margin-right:14px">⚠ ${esc(x.label)}: ${x.d > 0 ? 'sobrante' : 'faltante'} ${cjFmt(Math.abs(x.d))}</span>`).join('');
+  }
+  document.querySelectorAll('.cj-cob-input, [id^="cj-f-contado-"]').forEach(el => el.addEventListener('input', calcDif));
+  calcDif();
+
+  function leerForm() {
+    const cobranzas = {};
+    CJ_MEDIOS.forEach(([medio]) => {
+      cobranzas[medio] = {};
+      CJ_COMBOS.forEach(([combo]) => {
+        cobranzas[medio][combo] = Number(document.querySelector(`.cj-cob-input[data-medio="${medio}"][data-combo="${combo}"]`)?.value) || 0;
+      });
+    });
+    const efectivoContado = {};
+    CJ_COMBOS.forEach(([combo]) => { efectivoContado[combo] = Number(document.getElementById(`cj-f-contado-${combo}`)?.value) || 0; });
+    return {
+      operacion: operacion || existente.operacion,
+      fecha: document.getElementById('cj-f-fecha').value,
+      cobranzas, efectivoContado,
+      comentarios: document.getElementById('cj-f-comentarios').value,
+    };
+  }
+
+  if (!soloLectura) {
+    document.getElementById('cj-f-guardar')?.addEventListener('click', async () => {
+      try {
+        const body = leerForm();
+        if (esEdicion) await PUT(`/caja/cierres/${existente.id}`, body);
+        else await POST('/caja/cierres', body);
+        toast('Cierre guardado', 'success');
+        closeModal();
+        window.cjBuscarCierres();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+    document.getElementById('cj-f-cerrar')?.addEventListener('click', async () => {
+      if (!confirm('¿Cerrar este día de caja? No se podrá editar después (salvo administrador).')) return;
+      try {
+        const body = leerForm();
+        if (esEdicion) {
+          await PUT(`/caja/cierres/${existente.id}`, { ...body, estado: 'CERRADO' });
+        } else {
+          const creado = await POST('/caja/cierres', body);
+          await PUT(`/caja/cierres/${creado.id}`, { estado: 'CERRADO' });
+        }
+        toast('Caja cerrada', 'success');
+        closeModal();
+        window.cjBuscarCierres();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+};
+
+// ── Tab: Envío a Oficina ──────────────────────────────────────────
+async function cjRenderOficina(content) {
+  content.innerHTML = `${cjFilterBarHtml('cj-o')}<div id="cj-o-tabla"></div>`;
+  document.getElementById('cj-o-acciones').innerHTML = `<button id="cj-o-nuevo" class="btn btn-primary btn-sm">+ Nuevo Envío</button>`;
+  document.getElementById('cj-o-nuevo').addEventListener('click', () => window.cjAbrirFormEnvio(document.getElementById('cj-o-op').value));
+  document.getElementById('cj-o-buscar').addEventListener('click', window.cjBuscarEnvios);
+  await window.cjBuscarEnvios();
+}
+
+window.cjBuscarEnvios = async function() {
+  const tabla = document.getElementById('cj-o-tabla');
+  const op = document.getElementById('cj-o-op')?.value;
+  if (!op) { tabla.innerHTML = `<div class="empty-state"><p>No hay operaciones disponibles.</p></div>`; return; }
+  tabla.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  try { _cjEnvios = await GET(`/caja/envios?operacion=${encodeURIComponent(op)}`); }
+  catch (err) { tabla.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  cjRenderTablaEnvios();
+};
+
+function cjRenderTablaEnvios() {
+  const tabla = document.getElementById('cj-o-tabla');
+  if (!_cjEnvios.length) { tabla.innerHTML = `<div class="empty-state"><p>Sin envíos registrados.</p></div>`; return; }
+  tabla.innerHTML = `
+    <div class="card" style="overflow:hidden;overflow-x:auto">
+      <table class="data-table" style="font-size:12px;white-space:nowrap">
+        <thead><tr>
+          <th>Fecha</th><th>Estado</th><th>Cierres incluidos</th>
+          <th style="text-align:right">Venta S/</th><th style="text-align:right">Venta US$</th>
+          <th style="text-align:right">Propina S/</th><th style="text-align:right">Propina US$</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${_cjEnvios.map(e => `<tr>
+            <td>${esc(e.fecha)}</td>
+            <td>${CJ_ESTADO_BADGE[e.estado] || e.estado}</td>
+            <td>${(e.cierres || []).length}</td>
+            <td style="text-align:right">${cjFmt(e.montos?.ventaPEN)}</td>
+            <td style="text-align:right">${cjFmt(e.montos?.ventaUSD)}</td>
+            <td style="text-align:right">${cjFmt(e.montos?.propinaPEN)}</td>
+            <td style="text-align:right">${cjFmt(e.montos?.propinaUSD)}</td>
+            <td>${e.estado === 'ENVIADO' ? `<button class="btn btn-sm btn-outline" onclick="cjAbrirRecibirEnvio('${e.id}')">✅ Recibir</button>` : ''}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+window.cjAbrirFormEnvio = async function(operacion) {
+  if (!operacion) return toast('Selecciona una operación', 'error');
+  let disponibles = [];
+  try { disponibles = await GET(`/caja/disponible-envio?operacion=${encodeURIComponent(operacion)}`); }
+  catch (e) { toast(e.message, 'error'); return; }
+  if (!disponibles.length) { toast('No hay efectivo pendiente de enviar en esta operación', 'warning'); return; }
+  _cjEnvioDisponibles = disponibles;
+
+  const html = `
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Selecciona los cierres cuyo efectivo se envía a oficina:</div>
+    <div style="border:1px solid var(--border);border-radius:6px;max-height:340px;overflow-y:auto;margin-bottom:14px">
+      <table class="data-table" style="font-size:12px">
+        <thead><tr>
+          <th style="width:28px"></th><th>Fecha</th>
+          <th style="text-align:right">Venta S/</th><th style="text-align:right">Venta US$</th>
+          <th style="text-align:right">Propina S/</th><th style="text-align:right">Propina US$</th>
+        </tr></thead>
+        <tbody>
+          ${disponibles.map(c => `<tr>
+            <td style="text-align:center"><input type="checkbox" class="cj-envio-chk" data-id="${c.id}" checked></td>
+            <td>${esc(c.fecha)}</td>
+            <td style="text-align:right">${c.estadoEfectivo.ventaPEN === 'PENDIENTE' ? cjFmt(c.efectivoContado.ventaPEN) : '—'}</td>
+            <td style="text-align:right">${c.estadoEfectivo.ventaUSD === 'PENDIENTE' ? cjFmt(c.efectivoContado.ventaUSD) : '—'}</td>
+            <td style="text-align:right">${c.estadoEfectivo.propinaPEN === 'PENDIENTE' ? cjFmt(c.efectivoContado.propinaPEN) : '—'}</td>
+            <td style="text-align:right">${c.estadoEfectivo.propinaUSD === 'PENDIENTE' ? cjFmt(c.efectivoContado.propinaUSD) : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div><label class="form-label">Fecha de envío</label><input type="date" id="cj-e-fecha" class="form-control" value="${today()}" style="width:160px"></div>
+    <div style="margin-top:10px"><label class="form-label">Comentarios</label><textarea id="cj-e-comentarios" class="form-control" rows="2"></textarea></div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px">
+      <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancelar</button>
+      <button id="cj-e-enviar" class="btn btn-primary btn-sm">📤 Registrar Envío</button>
+    </div>`;
+  openModal(`🏢 Nuevo Envío a Oficina — ${esc(operacion)}`, html, null, { wide: true });
+
+  document.getElementById('cj-e-enviar').addEventListener('click', async () => {
+    const cierreIds = Array.from(document.querySelectorAll('.cj-envio-chk:checked')).map(el => el.dataset.id);
+    if (!cierreIds.length) return toast('Selecciona al menos un cierre', 'error');
+    try {
+      await POST('/caja/envios', {
+        operacion,
+        fecha: document.getElementById('cj-e-fecha').value,
+        cierreIds,
+        comentarios: document.getElementById('cj-e-comentarios').value,
+      });
+      toast('Envío registrado', 'success');
+      closeModal();
+      window.cjBuscarEnvios();
+    } catch (e) { toast(e.message, 'error'); }
+  });
+};
+
+window.cjAbrirRecibirEnvio = function(id) {
+  const e = _cjEnvios.find(x => x.id === id);
+  if (!e) return;
+  const html = `
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Confirma el monto recibido en oficina (por defecto, igual al enviado):</div>
+    <div style="overflow-x:auto;margin-bottom:14px">
+      <table class="data-table" style="font-size:12px">
+        <thead><tr>${CJ_COMBOS.map(([, l]) => `<th style="text-align:right">${l}</th>`).join('')}</tr></thead>
+        <tbody><tr>${CJ_COMBOS.map(([k]) => `<td><input type="number" step="0.01" id="cj-r-${k}" class="form-control" value="${cjN(e.montos[k])}" style="width:100px;text-align:right"></td>`).join('')}</tr></tbody>
+      </table>
+    </div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px">
+      <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancelar</button>
+      <button id="cj-r-confirmar" class="btn btn-primary btn-sm">✅ Confirmar Recepción</button>
+    </div>`;
+  openModal(`✅ Recibir Envío — ${esc(e.fecha)}`, html, null);
+
+  document.getElementById('cj-r-confirmar').addEventListener('click', async () => {
+    const montosRecibidos = {};
+    CJ_COMBOS.forEach(([k]) => { montosRecibidos[k] = Number(document.getElementById(`cj-r-${k}`)?.value) || 0; });
+    try {
+      await PUT(`/caja/envios/${id}/recibir`, { montosRecibidos });
+      toast('Envío recibido', 'success');
+      closeModal();
+      window.cjBuscarEnvios();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+};
+
+// ── Tab: Depósito Bancario ─────────────────────────────────────────
+async function cjRenderDepositos(content) {
+  content.innerHTML = `${cjFilterBarHtml('cj-d')}<div id="cj-d-tabla"></div>`;
+  document.getElementById('cj-d-acciones').innerHTML = `<button id="cj-d-nuevo" class="btn btn-primary btn-sm">+ Nuevo Depósito</button>`;
+  document.getElementById('cj-d-nuevo').addEventListener('click', () => window.cjAbrirFormDeposito(document.getElementById('cj-d-op').value));
+  document.getElementById('cj-d-buscar').addEventListener('click', window.cjBuscarDepositos);
+  await window.cjBuscarDepositos();
+}
+
+window.cjBuscarDepositos = async function() {
+  const tabla = document.getElementById('cj-d-tabla');
+  const op = document.getElementById('cj-d-op')?.value;
+  const desde = document.getElementById('cj-d-desde')?.value;
+  const hasta = document.getElementById('cj-d-hasta')?.value;
+  if (!op) { tabla.innerHTML = `<div class="empty-state"><p>No hay operaciones disponibles.</p></div>`; return; }
+  tabla.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  const q = new URLSearchParams({ operacion: op });
+  if (desde) q.set('desde', desde);
+  if (hasta) q.set('hasta', hasta);
+  try { _cjDepositos = await GET(`/caja/depositos?${q}`); }
+  catch (err) { tabla.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  cjRenderTablaDepositos();
+};
+
+function cjRenderTablaDepositos() {
+  const tabla = document.getElementById('cj-d-tabla');
+  if (!_cjDepositos.length) { tabla.innerHTML = `<div class="empty-state"><p>Sin depósitos registrados.</p></div>`; return; }
+  tabla.innerHTML = `
+    <div class="card" style="overflow:hidden;overflow-x:auto">
+      <table class="data-table" style="font-size:12px;white-space:nowrap">
+        <thead><tr>
+          <th>Fecha</th><th>Moneda</th><th>Tipo</th><th style="text-align:right">Monto</th>
+          <th>Banco</th><th>N° Operación</th><th>Días incluidos</th>
+        </tr></thead>
+        <tbody>
+          ${_cjDepositos.map(d => `<tr>
+            <td>${esc(d.fecha)}</td>
+            <td>${d.moneda === 'USD' ? 'US$' : 'S/'}</td>
+            <td>${d.tipo === 'VENTA' ? 'Venta' : 'Propina'}</td>
+            <td style="text-align:right">${cjFmt(d.monto)}</td>
+            <td>${esc(d.banco || '—')}</td>
+            <td>${esc(d.numeroOperacion || '—')}</td>
+            <td>${(d.origenes || []).map(o => esc(o.fecha)).join(', ')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+window.cjAbrirFormDeposito = function(operacion) {
+  if (!operacion) return toast('Selecciona una operación', 'error');
+  const html = `
+    <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+      <div><label class="form-label">Moneda</label>
+        <select id="cj-dep-moneda" class="form-control" style="width:110px">
+          <option value="PEN">Soles (S/)</option><option value="USD">Dólares (US$)</option>
+        </select>
+      </div>
+      <div><label class="form-label">Tipo</label>
+        <select id="cj-dep-tipo" class="form-control" style="width:120px">
+          <option value="VENTA">Venta</option><option value="PROPINA">Propina</option>
+        </select>
+      </div>
+      <div><label class="form-label">Fecha de depósito</label><input type="date" id="cj-dep-fecha" class="form-control" value="${today()}" style="width:160px"></div>
+    </div>
+    <div id="cj-dep-origenes"></div>
+    <div style="display:flex;gap:14px;margin-top:14px;flex-wrap:wrap">
+      <div><label class="form-label">Banco</label><input type="text" id="cj-dep-banco" class="form-control" style="width:160px"></div>
+      <div><label class="form-label">N° Operación</label><input type="text" id="cj-dep-numop" class="form-control" style="width:160px"></div>
+    </div>
+    <div style="margin-top:10px"><label class="form-label">Comentarios</label><textarea id="cj-dep-comentarios" class="form-control" rows="2"></textarea></div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px">
+      <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancelar</button>
+      <button id="cj-dep-guardar" class="btn btn-primary btn-sm">🏦 Registrar Depósito</button>
+    </div>`;
+  openModal(`🏦 Nuevo Depósito Bancario — ${esc(operacion)}`, html, null, { wide: true });
+
+  async function actualizarTotal() {
+    const total = Array.from(document.querySelectorAll('.cj-dep-chk:checked')).reduce((s, el) => s + Number(el.dataset.monto), 0);
+    const el = document.getElementById('cj-dep-total');
+    if (el) el.textContent = `Total a depositar: ${cjFmt(total)}`;
+  }
+
+  async function cargarOrigenes() {
+    const moneda = document.getElementById('cj-dep-moneda').value;
+    const tipo = document.getElementById('cj-dep-tipo').value;
+    const cont = document.getElementById('cj-dep-origenes');
+    cont.innerHTML = `<div style="padding:12px;color:var(--text-muted);font-size:12px">Cargando disponibles...</div>`;
+    try {
+      const data = await GET(`/caja/disponible-deposito?operacion=${encodeURIComponent(operacion)}&moneda=${moneda}&tipo=${tipo}`);
+      _cjDepositoDisponibles = data.items || [];
+      if (!_cjDepositoDisponibles.length) {
+        cont.innerHTML = `<div style="padding:12px;color:var(--text-muted);font-size:12px">No hay efectivo pendiente de depositar para esta combinación.</div>`;
+        return;
+      }
+      cont.innerHTML = `
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Origen: ${data.origenTipo === 'ENVIO' ? 'Envíos a Oficina recibidos' : 'Cierres de Caja'}. Selecciona los días completos a depositar:</div>
+        <div style="border:1px solid var(--border);border-radius:6px;max-height:240px;overflow-y:auto">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr><th style="width:28px"></th><th>Fecha</th><th style="text-align:right">Monto</th></tr></thead>
+            <tbody>
+              ${_cjDepositoDisponibles.map(o => `<tr>
+                <td style="text-align:center"><input type="checkbox" class="cj-dep-chk" data-id="${o.id}" data-monto="${o.monto}" checked></td>
+                <td>${esc(o.fecha)}</td>
+                <td style="text-align:right">${cjFmt(o.monto)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div id="cj-dep-total" style="margin-top:8px;font-weight:600;font-size:13px;text-align:right"></div>`;
+      cont.querySelectorAll('.cj-dep-chk').forEach(el => el.addEventListener('change', actualizarTotal));
+      actualizarTotal();
+    } catch (e) {
+      cont.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`;
+    }
+  }
+  document.getElementById('cj-dep-moneda').addEventListener('change', cargarOrigenes);
+  document.getElementById('cj-dep-tipo').addEventListener('change', cargarOrigenes);
+  cargarOrigenes();
+
+  document.getElementById('cj-dep-guardar').addEventListener('click', async () => {
+    const origenIds = Array.from(document.querySelectorAll('.cj-dep-chk:checked')).map(el => el.dataset.id);
+    if (!origenIds.length) return toast('Selecciona al menos un origen', 'error');
+    try {
+      await POST('/caja/depositos', {
+        operacion,
+        fecha: document.getElementById('cj-dep-fecha').value,
+        moneda: document.getElementById('cj-dep-moneda').value,
+        tipo: document.getElementById('cj-dep-tipo').value,
+        origenIds,
+        banco: document.getElementById('cj-dep-banco').value,
+        numeroOperacion: document.getElementById('cj-dep-numop').value,
+        comentarios: document.getElementById('cj-dep-comentarios').value,
+      });
+      toast('Depósito registrado', 'success');
+      closeModal();
+      window.cjBuscarDepositos();
+    } catch (e) { toast(e.message, 'error'); }
+  });
+};
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -8551,6 +9096,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="personas">👤 Personas</button>
         <button class="tab-btn" data-tab="cc-correo">📧 CC Correo</button>
         <button class="tab-btn" data-tab="flujo-caja">💵 Flujo de Caja</button>
+        <button class="tab-btn" data-tab="cierre-caja">🧾 Cierre de Caja</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -8563,6 +9109,7 @@ async function viewAdmin(container) {
       <div id="tab-personas" class="tab-panel"></div>
       <div id="tab-cc-correo" class="tab-panel"></div>
       <div id="tab-flujo-caja" class="tab-panel"></div>
+      <div id="tab-cierre-caja" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -8585,6 +9132,52 @@ async function viewAdmin(container) {
   renderAdminPersonas(document.getElementById('tab-personas'));
   renderAdminCCCorreo(document.getElementById('tab-cc-correo'));
   renderAdminFlujoCaja(document.getElementById('tab-flujo-caja'));
+  renderAdminCierreCaja(document.getElementById('tab-cierre-caja'));
+}
+
+// ─── Admin: Configuración de Cierre de Caja por operación ─────────
+async function renderAdminCierreCaja(container) {
+  container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  let configs = [];
+  try { configs = await GET('/caja/config'); } catch (err) { container.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+
+  container.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">
+      Define por operación si es un negocio tipo Restaurante (mesas/mozos) o Mostrador, y si el efectivo
+      pasa por una oficina antes de depositarse en el banco, o se deposita directamente desde caja.
+    </p>
+    <div class="card" style="overflow:hidden">
+      <table class="data-table" style="font-size:13px">
+        <thead><tr><th>Operación</th><th style="width:200px">Tipo de Negocio</th><th style="width:140px">Tiene Oficina</th></tr></thead>
+        <tbody>
+          ${configs.map(c => `<tr>
+            <td style="font-weight:600">${esc(c.operacion)}</td>
+            <td>
+              <select class="form-control cac-tipo" data-op="${esc(c.operacion)}" style="width:180px">
+                <option value="MOSTRADOR" ${c.tipoNegocio === 'MOSTRADOR' ? 'selected' : ''}>Mostrador</option>
+                <option value="RESTAURANTE" ${c.tipoNegocio === 'RESTAURANTE' ? 'selected' : ''}>Restaurante</option>
+              </select>
+            </td>
+            <td style="text-align:center">
+              <input type="checkbox" class="cac-oficina" data-op="${esc(c.operacion)}" ${c.tieneOficina ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--primary)">
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
+  async function guardar(op, body) {
+    try {
+      await PUT(`/caja/config/${encodeURIComponent(op)}`, body);
+      toast(`Configuración de ${op} actualizada`, 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  container.querySelectorAll('.cac-tipo').forEach(el => {
+    el.addEventListener('change', () => guardar(el.dataset.op, { tipoNegocio: el.value }));
+  });
+  container.querySelectorAll('.cac-oficina').forEach(el => {
+    el.addEventListener('change', () => guardar(el.dataset.op, { tieneOficina: el.checked }));
+  });
 }
 
 // ─── Admin: Personas ─────────────────────────────────────────────
@@ -9837,6 +10430,11 @@ function showUserModal(user, onSave) {
           ${ROL86.map(([k,v])=>`<option value="${k}" ${(user?.rol86||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Rol para Cierre de Caja</label>
+        <select id="um-rol-caja">
+          ${CAJA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCaja||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-group" id="um-socs-pago-section"><label>Sociedades Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
@@ -9888,6 +10486,19 @@ function showUserModal(user, onSave) {
             <input type="checkbox" id="um-acc-86" ${user?.acceso86?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🚫 <strong>86</strong></span>
+          </label>
+        </div>
+        <label style="display:block;font-weight:600;margin-bottom:10px;color:#92400e">🧾 Cierre de Caja</label>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-acc-oficina" ${user?.accesoOficina?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🏢 <strong>Envío a Oficina</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-acc-depositos" ${user?.accesoDepositos?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🏦 <strong>Depósito Bancario</strong></span>
           </label>
         </div>
         <label style="display:block;font-weight:600;margin-bottom:10px;color:#0369a1">🔍 Otros Permisos</label>
@@ -9956,6 +10567,7 @@ function showUserModal(user, onSave) {
       rolPago:      document.getElementById('um-pago-role').value,
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
+      rolCaja:      isAdmin ? '' : document.getElementById('um-rol-caja').value,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       transferenciaDestinos: isAdmin ? [] : [...document.querySelectorAll('input[name="um-transf-dest"]:checked')].map(cb => cb.value),
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
@@ -9966,6 +10578,8 @@ function showUserModal(user, onSave) {
       accesoConsumos:       !isAdmin && (document.getElementById('um-acc-consumos')?.checked       ?? false),
       accesoTransferencias: !isAdmin && (document.getElementById('um-acc-transferencias')?.checked ?? false),
       acceso86:             !isAdmin && (document.getElementById('um-acc-86')?.checked              ?? false),
+      accesoOficina:        !isAdmin && (document.getElementById('um-acc-oficina')?.checked         ?? false),
+      accesoDepositos:      !isAdmin && (document.getElementById('um-acc-depositos')?.checked       ?? false),
       sociedadesCompra,
       sociedadesPago,
     };

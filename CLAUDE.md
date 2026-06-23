@@ -41,6 +41,8 @@
 - `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
 - `sociedadesCompra`: array — sociedades para ver Precios de Compra (ERSAC, FRQ1, GB)
 - `operations`: array — operaciones asignadas al usuario
+- `rolCaja`: '' | REGISTRO | CONSULTA — acceso a Cierre de Caja (ver Sesión 5)
+- `accesoOficina` / `accesoDepositos`: boolean — acceso a Envío a Oficina / Depósito Bancario
 
 ## Fuentes de datos
 
@@ -195,3 +197,40 @@ Recuadro azul, solo visible para rol `OPERADOR_CONSULTA`:
   (+Destino para Transferencias) separadas, Estado+Creado por combinados, Ítem a 330px
   (+50%) y Comentarios a 450px (x2); clase `.mv-table` agrega `padding-right:24px` entre
   columnas (ancho de "MMM"); botón "+ Nuevo" junto a "Buscar" (sin `margin-left:auto`)
+
+### Sesión 5 — Cierre de Caja
+Nuevo módulo para controlar el movimiento de efectivo en operaciones tipo restaurante
+(mesas/mozos) o mostrador (venta directa). Cadena de custodia en 3 etapas:
+
+```
+Cierre de Caja (diario) → [Envío a Oficina] → Depósito Bancario
+```
+
+- **Solo el efectivo contado (físico) viaja** por la cadena; tarjeta/delivery(CxC)/transferencia
+  se registran en el Cierre solo para reporte, no generan envío ni depósito.
+- Cada combinación **venta/propina × PEN/USD** (4 "combos") tiene su propio estado
+  (`PENDIENTE` → `EN_OFICINA` → `DEPOSITADO`) para no enviar/depositar el mismo efectivo dos veces.
+  Operaciones sin oficina saltan directo `PENDIENTE` (en Cierre) → `DEPOSITADO`.
+- Los depósitos/envíos son por **días completos**: se seleccionan Cierres (o Envíos) enteros,
+  nunca una fracción de un día.
+
+**Modelos** (`models/`):
+- `CajaConfig` — `{ operacion, tipoNegocio: RESTAURANTE|MOSTRADOR, tieneOficina }`, configurable
+  por admin en `Admin → 🧾 Cierre de Caja`.
+- `CierreCaja` — `{ operacion, fecha, cobranzas: {efectivo,tarjeta,delivery,transferencia} cada uno
+  con {ventaPEN,ventaUSD,propinaPEN,propinaUSD}, efectivoContado (conteo físico), estadoEfectivo,
+  estado: ABIERTO|CERRADO }`. Único por `operacion+fecha`.
+- `EnvioOficina` — `{ operacion, fecha, cierres: [{cierreId,fecha}], montos, montosRecibidos,
+  estadoEfectivo, estado: ENVIADO|RECIBIDO }`.
+- `DepositoBancario` — `{ operacion, fecha, moneda, tipo: VENTA|PROPINA, monto, origenTipo:
+  CIERRE|ENVIO, origenes: [{id,fecha,monto}] }`.
+
+**Backend** (`routes/caja.js`, montado en `/api/caja`):
+`GET/PUT /config(/:operacion)`, `GET /operaciones`, `GET/POST/PUT/DELETE /cierres(/:id)`,
+`GET /disponible-envio`, `GET/POST /envios`, `PUT /envios/:id/recibir`,
+`GET /disponible-deposito`, `GET/POST /depositos`. Acceso por `rolCaja` (REGISTRO/CONSULTA),
+`accesoOficina`, `accesoDepositos` — todos boolean/enum en `User`, scoped por `operations`.
+
+**Frontend** (`public/app.js`): nav `caja` → `viewCierreCaja` con 3 tabs (Cierres/Envíos/Depósitos,
+visibles según permiso). Funciones globales prefijo `cj*` y estado módulo-level `_cj*`
+(mismo patrón que `_dgls*` de Genera Adicional).

@@ -22,7 +22,10 @@ const userSchema = new mongoose.Schema({
   accesoConsumos:       { type: Boolean, default: false },
   accesoTransferencias: { type: Boolean, default: false },
   acceso86:             { type: Boolean, default: false },
-  transferenciaDestinos: { type: [String], default: [] }
+  transferenciaDestinos: { type: [String], default: [] },
+  rolCaja:              { type: String, default: '', enum: ['', 'REGISTRO', 'CONSULTA'] },
+  accesoOficina:        { type: Boolean, default: false },
+  accesoDepositos:      { type: Boolean, default: false }
 });
 
 module.exports = mongoose.model('User', userSchema);
