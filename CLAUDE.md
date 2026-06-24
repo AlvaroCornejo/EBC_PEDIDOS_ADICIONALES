@@ -234,3 +234,19 @@ Cierre de Caja (diario) → [Envío a Oficina] → Depósito Bancario
 **Frontend** (`public/app.js`): nav `caja` → `viewCierreCaja` con 3 tabs (Cierres/Envíos/Depósitos,
 visibles según permiso). Funciones globales prefijo `cj*` y estado módulo-level `_cj*`
 (mismo patrón que `_dgls*` de Genera Adicional).
+
+**Refinamientos posteriores**:
+- Conteo de Apertura/Cierre por denominación (billetes/monedas, PEN y USD): `CierreCaja.conteoApertura/
+  conteoCierre` (`Mixed`, `{denom: qty}`), helpers `cjDenomTableHtml/cjDenomListener/cjDenomTotal/
+  cjDenomValores`. La apertura se registra una sola vez (`aperturaRegistrada`, el PUT nunca la acepta)
+  y se hace en un **paso previo separado**: `cjAbrirFormApertura` (solo conteo + botón "Grabar Apertura")
+  crea el `CierreCaja` vía POST y abre `cjAbrirFormCompleto` (cobranzas/cierre/enviado a oficina/
+  comentarios) — la apertura nunca se vuelve a mostrar. `cjAbrirFormCierre` solo enruta entre ambos
+  según si hay `existente`. Modal del formulario completo usa ancho `medium` (66vw, clase `.modal-medium`).
+- **Turnos**: `CajaConfig.turnos` (array, definible por operación en `Admin → Cierre de Caja`, input
+  separado por comas) + `CierreCaja.turno`. Permiten varias cajas por día (una por turno) pero nunca
+  simultáneas: `POST /cierres` rechaza abrir un turno si ya hay otro `ABIERTO` en esa operación. Índice
+  único cambió de `{operacion,fecha}` a `{operacion,fecha,turno}` (migrado en prod con
+  `scripts/migrarTurnosCaja.js`, ya ejecutado — no volver a correr salvo nueva migración de índice).
+- **Eliminar cierres**: `DELETE /caja/cierres/:id` ya permitía ADMIN sin restricción (bloquea a
+  no-admin si el efectivo ya se movió); botón 🗑️ en la tabla de Cierres solo visible para ADMIN.
