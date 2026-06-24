@@ -8536,7 +8536,7 @@ async function viewMovimientos(container) {
 
 // ─── View: Cierre de Caja ────────────────────────────────────────
 const CJ_MEDIOS = [['efectivo', '💵 Efectivo'], ['tarjeta', '💳 Tarjeta'], ['delivery', '🛵 Delivery (CxC)'], ['transferencia', '🏦 Transferencia']];
-const CJ_COMBOS = [['ventaPEN', 'Venta S/'], ['ventaUSD', 'Venta US$'], ['propinaPEN', 'Propina S/'], ['propinaUSD', 'Propina US$']];
+const CJ_COMBOS = [['ventaPEN', 'Medio de Pago S/'], ['ventaUSD', 'Medio de Pago US$'], ['propinaPEN', 'Tip S/'], ['propinaUSD', 'Tip US$']];
 const cjN   = v => Number(v) || 0;
 const cjFmt = v => cjN(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const cjBadge = (texto, color, bg) => `<span class="badge" style="background:${bg};color:${color}">${texto}</span>`;
@@ -8671,10 +8671,10 @@ function cjRenderTablaCierres() {
     <div class="card" style="overflow:hidden;overflow-x:auto">
       <table class="data-table" style="font-size:12px;white-space:nowrap">
         <thead><tr>
-          <th>Fecha</th><th>Estado</th>
-          <th style="text-align:right">Venta S/</th><th style="text-align:right">Venta US$</th>
-          <th style="text-align:right">Propina S/</th><th style="text-align:right">Propina US$</th>
-          <th style="text-align:right">Ef. Contado S/</th><th style="text-align:right">Ef. Contado US$</th>
+          <th style="text-align:center">Fecha</th><th style="text-align:center">Estado</th>
+          <th style="text-align:center">Medio de Pago S/</th><th style="text-align:center">Medio de Pago US$</th>
+          <th style="text-align:center">Tip S/</th><th style="text-align:center">Tip US$</th>
+          <th style="text-align:center">Ef. Contado S/</th><th style="text-align:center">Ef. Contado US$</th>
         </tr></thead>
         <tbody>
           ${_cjCierres.map(c => {
@@ -8715,6 +8715,19 @@ window.cjAbrirFormCierre = function(operacion, existente) {
       ${CJ_COMBOS.map(([k]) => `<td><input type="number" step="0.01" class="form-control cj-cob-input" data-medio="${medio}" data-combo="${k}" value="${cjN(cob[medio]?.[k])}" style="width:100px;text-align:right" ${dis}></td>`).join('')}
     </tr>`;
 
+  // Totales ya enviados a oficina (solo lectura, calculado de combos en EN_OFICINA/DEPOSITADO)
+  const enviado = { PEN: 0, USD: 0 };
+  if (existente) {
+    CJ_COMBOS.forEach(([k]) => {
+      if (['EN_OFICINA', 'DEPOSITADO'].includes(existente.estadoEfectivo?.[k])) {
+        if (k.endsWith('PEN')) enviado.PEN += cjN(existente.efectivoContado?.[k]);
+        else enviado.USD += cjN(existente.efectivoContado?.[k]);
+      }
+    });
+  }
+  const contadoPENInicial = cjN(contado.ventaPEN) + cjN(contado.propinaPEN);
+  const contadoUSDInicial = cjN(contado.ventaUSD) + cjN(contado.propinaUSD);
+
   const html = `
     <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
       <div><label class="form-label">Operación</label><input type="text" class="form-control" value="${esc(operacion || existente?.operacion || '')}" disabled style="width:120px"></div>
@@ -8724,16 +8737,31 @@ window.cjAbrirFormCierre = function(operacion, existente) {
     <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Cobranzas declaradas</div>
     <div style="overflow-x:auto;margin-bottom:16px">
       <table class="data-table" style="font-size:12px">
-        <thead><tr><th>Medio de pago</th><th style="text-align:right">Venta S/</th><th style="text-align:right">Venta US$</th><th style="text-align:right">Propina S/</th><th style="text-align:right">Propina US$</th></tr></thead>
+        <thead><tr><th style="text-align:center">Medio de pago</th><th style="text-align:center">Medio de Pago S/</th><th style="text-align:center">Medio de Pago US$</th><th style="text-align:center">Tip S/</th><th style="text-align:center">Tip US$</th></tr></thead>
         <tbody>${CJ_MEDIOS.map(filaInput).join('')}</tbody>
       </table>
     </div>
-    <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Efectivo contado (físico — esto es lo que se mueve a oficina/banco)</div>
-    <div style="overflow-x:auto;margin-bottom:8px">
-      <table class="data-table" style="font-size:12px">
-        <thead><tr>${CJ_COMBOS.map(([, l]) => `<th style="text-align:right">${l}</th>`).join('')}</tr></thead>
-        <tbody><tr>${CJ_COMBOS.map(([k]) => `<td><input type="number" step="0.01" id="cj-f-contado-${k}" class="form-control" value="${cjN(contado[k])}" style="width:100px;text-align:right" ${dis}></td>`).join('')}</tr></tbody>
-      </table>
+    <div style="display:flex;gap:28px;margin-bottom:8px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center;text-transform:uppercase;letter-spacing:.5px">Efectivo Contado</div>
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th style="text-align:center">S/</th><th style="text-align:center">$</th></tr></thead>
+          <tbody><tr>
+            <td><input type="number" step="0.01" id="cj-f-contado-PEN" class="form-control" value="${contadoPENInicial}" style="width:100px;text-align:right" ${dis}></td>
+            <td><input type="number" step="0.01" id="cj-f-contado-USD" class="form-control" value="${contadoUSDInicial}" style="width:100px;text-align:right" ${dis}></td>
+          </tr></tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center;text-transform:uppercase;letter-spacing:.5px">Enviado a Oficina</div>
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th style="text-align:center">S/</th><th style="text-align:center">$</th></tr></thead>
+          <tbody><tr>
+            <td style="text-align:right">${cjFmt(enviado.PEN)}</td>
+            <td style="text-align:right">${cjFmt(enviado.USD)}</td>
+          </tr></tbody>
+        </table>
+      </div>
     </div>
     <div id="cj-f-dif" style="font-size:12px;margin-bottom:14px;min-height:18px"></div>
     <div><label class="form-label">Comentarios</label><textarea id="cj-f-comentarios" class="form-control" rows="2" ${dis}>${esc(existente?.comentarios || '')}</textarea></div>
@@ -8748,16 +8776,33 @@ window.cjAbrirFormCierre = function(operacion, existente) {
   function calcDif() {
     const el = document.getElementById('cj-f-dif');
     if (!el) return;
-    const difs = CJ_COMBOS.map(([k, label]) => {
-      const declarado = Number(document.querySelector(`.cj-cob-input[data-medio="efectivo"][data-combo="${k}"]`)?.value) || 0;
-      const contadoVal = Number(document.getElementById(`cj-f-contado-${k}`)?.value) || 0;
-      return { label, d: contadoVal - declarado };
-    }).filter(x => Math.abs(x.d) > 0.01);
+    const get = (medio, combo) => Number(document.querySelector(`.cj-cob-input[data-medio="${medio}"][data-combo="${combo}"]`)?.value) || 0;
+    const declPEN = get('efectivo', 'ventaPEN') + get('efectivo', 'propinaPEN');
+    const declUSD = get('efectivo', 'ventaUSD') + get('efectivo', 'propinaUSD');
+    const contadoPEN = Number(document.getElementById('cj-f-contado-PEN')?.value) || 0;
+    const contadoUSD = Number(document.getElementById('cj-f-contado-USD')?.value) || 0;
+    const difs = [{ label: 'S/', d: contadoPEN - declPEN }, { label: '$', d: contadoUSD - declUSD }]
+      .filter(x => Math.abs(x.d) > 0.01);
     if (!difs.length) { el.innerHTML = `<span style="color:#065f46">✓ El efectivo contado coincide con lo declarado</span>`; return; }
     el.innerHTML = difs.map(x => `<span style="color:${x.d < 0 ? '#dc2626' : '#d97706'};margin-right:14px">⚠ ${esc(x.label)}: ${x.d > 0 ? 'sobrante' : 'faltante'} ${cjFmt(Math.abs(x.d))}</span>`).join('');
   }
-  document.querySelectorAll('.cj-cob-input, [id^="cj-f-contado-"]').forEach(el => el.addEventListener('input', calcDif));
+  document.querySelectorAll('.cj-cob-input').forEach(el => el.addEventListener('input', calcDif));
+  document.getElementById('cj-f-contado-PEN').addEventListener('input', calcDif);
+  document.getElementById('cj-f-contado-USD').addEventListener('input', calcDif);
   calcDif();
+
+  // El conteo físico no distingue Medio de Pago/Tip; se reparte proporcional a lo declarado en Efectivo arriba
+  function splitProporcional(totalPEN, totalUSD, cobranzas) {
+    const ef = cobranzas.efectivo || {};
+    const totDeclPEN = (ef.ventaPEN || 0) + (ef.propinaPEN || 0);
+    const totDeclUSD = (ef.ventaUSD || 0) + (ef.propinaUSD || 0);
+    const ventaPEN = totDeclPEN > 0 ? Math.round(totalPEN * (ef.ventaPEN / totDeclPEN) * 100) / 100 : totalPEN;
+    const ventaUSD = totDeclUSD > 0 ? Math.round(totalUSD * (ef.ventaUSD / totDeclUSD) * 100) / 100 : totalUSD;
+    return {
+      ventaPEN, propinaPEN: Math.round((totalPEN - ventaPEN) * 100) / 100,
+      ventaUSD, propinaUSD: Math.round((totalUSD - ventaUSD) * 100) / 100,
+    };
+  }
 
   function leerForm() {
     const cobranzas = {};
@@ -8767,8 +8812,9 @@ window.cjAbrirFormCierre = function(operacion, existente) {
         cobranzas[medio][combo] = Number(document.querySelector(`.cj-cob-input[data-medio="${medio}"][data-combo="${combo}"]`)?.value) || 0;
       });
     });
-    const efectivoContado = {};
-    CJ_COMBOS.forEach(([combo]) => { efectivoContado[combo] = Number(document.getElementById(`cj-f-contado-${combo}`)?.value) || 0; });
+    const contadoPEN = Number(document.getElementById('cj-f-contado-PEN')?.value) || 0;
+    const contadoUSD = Number(document.getElementById('cj-f-contado-USD')?.value) || 0;
+    const efectivoContado = splitProporcional(contadoPEN, contadoUSD, cobranzas);
     return {
       operacion: operacion || existente.operacion,
       fecha: document.getElementById('cj-f-fecha').value,
@@ -8832,9 +8878,9 @@ function cjRenderTablaEnvios() {
     <div class="card" style="overflow:hidden;overflow-x:auto">
       <table class="data-table" style="font-size:12px;white-space:nowrap">
         <thead><tr>
-          <th>Fecha</th><th>Estado</th><th>Cierres incluidos</th>
-          <th style="text-align:right">Venta S/</th><th style="text-align:right">Venta US$</th>
-          <th style="text-align:right">Propina S/</th><th style="text-align:right">Propina US$</th>
+          <th style="text-align:center">Fecha</th><th style="text-align:center">Estado</th><th style="text-align:center">Cierres incluidos</th>
+          <th style="text-align:center">Medio de Pago S/</th><th style="text-align:center">Medio de Pago US$</th>
+          <th style="text-align:center">Tip S/</th><th style="text-align:center">Tip US$</th>
           <th></th>
         </tr></thead>
         <tbody>
@@ -8866,9 +8912,9 @@ window.cjAbrirFormEnvio = async function(operacion) {
     <div style="border:1px solid var(--border);border-radius:6px;max-height:340px;overflow-y:auto;margin-bottom:14px">
       <table class="data-table" style="font-size:12px">
         <thead><tr>
-          <th style="width:28px"></th><th>Fecha</th>
-          <th style="text-align:right">Venta S/</th><th style="text-align:right">Venta US$</th>
-          <th style="text-align:right">Propina S/</th><th style="text-align:right">Propina US$</th>
+          <th style="width:28px"></th><th style="text-align:center">Fecha</th>
+          <th style="text-align:center">Medio de Pago S/</th><th style="text-align:center">Medio de Pago US$</th>
+          <th style="text-align:center">Tip S/</th><th style="text-align:center">Tip US$</th>
         </tr></thead>
         <tbody>
           ${disponibles.map(c => `<tr>
@@ -8914,7 +8960,7 @@ window.cjAbrirRecibirEnvio = function(id) {
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Confirma el monto recibido en oficina (por defecto, igual al enviado):</div>
     <div style="overflow-x:auto;margin-bottom:14px">
       <table class="data-table" style="font-size:12px">
-        <thead><tr>${CJ_COMBOS.map(([, l]) => `<th style="text-align:right">${l}</th>`).join('')}</tr></thead>
+        <thead><tr>${CJ_COMBOS.map(([, l]) => `<th style="text-align:center">${l}</th>`).join('')}</tr></thead>
         <tbody><tr>${CJ_COMBOS.map(([k]) => `<td><input type="number" step="0.01" id="cj-r-${k}" class="form-control" value="${cjN(e.montos[k])}" style="width:100px;text-align:right"></td>`).join('')}</tr></tbody>
       </table>
     </div>
@@ -8967,14 +9013,14 @@ function cjRenderTablaDepositos() {
     <div class="card" style="overflow:hidden;overflow-x:auto">
       <table class="data-table" style="font-size:12px;white-space:nowrap">
         <thead><tr>
-          <th>Fecha</th><th>Moneda</th><th>Tipo</th><th style="text-align:right">Monto</th>
-          <th>Banco</th><th>N° Operación</th><th>Días incluidos</th>
+          <th style="text-align:center">Fecha</th><th style="text-align:center">Moneda</th><th style="text-align:center">Tipo</th><th style="text-align:center">Monto</th>
+          <th style="text-align:center">Banco</th><th style="text-align:center">N° Operación</th><th style="text-align:center">Días incluidos</th>
         </tr></thead>
         <tbody>
           ${_cjDepositos.map(d => `<tr>
             <td>${esc(d.fecha)}</td>
             <td>${d.moneda === 'USD' ? 'US$' : 'S/'}</td>
-            <td>${d.tipo === 'VENTA' ? 'Venta' : 'Propina'}</td>
+            <td>${d.tipo === 'VENTA' ? 'Medio de Pago' : 'Tip'}</td>
             <td style="text-align:right">${cjFmt(d.monto)}</td>
             <td>${esc(d.banco || '—')}</td>
             <td>${esc(d.numeroOperacion || '—')}</td>
@@ -8996,7 +9042,7 @@ window.cjAbrirFormDeposito = function(operacion) {
       </div>
       <div><label class="form-label">Tipo</label>
         <select id="cj-dep-tipo" class="form-control" style="width:120px">
-          <option value="VENTA">Venta</option><option value="PROPINA">Propina</option>
+          <option value="VENTA">Medio de Pago</option><option value="PROPINA">Tip</option>
         </select>
       </div>
       <div><label class="form-label">Fecha de depósito</label><input type="date" id="cj-dep-fecha" class="form-control" value="${today()}" style="width:160px"></div>
@@ -9035,7 +9081,7 @@ window.cjAbrirFormDeposito = function(operacion) {
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Origen: ${data.origenTipo === 'ENVIO' ? 'Envíos a Oficina recibidos' : 'Cierres de Caja'}. Selecciona los días completos a depositar:</div>
         <div style="border:1px solid var(--border);border-radius:6px;max-height:240px;overflow-y:auto">
           <table class="data-table" style="font-size:12px">
-            <thead><tr><th style="width:28px"></th><th>Fecha</th><th style="text-align:right">Monto</th></tr></thead>
+            <thead><tr><th style="width:28px"></th><th style="text-align:center">Fecha</th><th style="text-align:center">Monto</th></tr></thead>
             <tbody>
               ${_cjDepositoDisponibles.map(o => `<tr>
                 <td style="text-align:center"><input type="checkbox" class="cj-dep-chk" data-id="${o.id}" data-monto="${o.monto}" checked></td>
