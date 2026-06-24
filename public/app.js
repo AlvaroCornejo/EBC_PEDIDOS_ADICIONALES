@@ -8539,6 +8539,62 @@ const CJ_MEDIOS = [['efectivo', '💵 Efectivo'], ['tarjeta', '💳 Tarjeta'], [
 const CJ_COMBOS = [['ventaPEN', 'Medio de Pago S/'], ['ventaUSD', 'Medio de Pago US$'], ['propinaPEN', 'Tip S/'], ['propinaUSD', 'Tip US$']];
 const cjN   = v => Number(v) || 0;
 const cjFmt = v => cjN(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const CJ_DENOM_PEN = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1];
+const CJ_DENOM_USD = [100, 50, 20, 10, 5, 1];
+const cjDenomSym = moneda => moneda === 'USD' ? 'US$' : 'S/';
+
+function cjDenomTableHtml(prefix, moneda, valores, dis) {
+  const denoms = moneda === 'USD' ? CJ_DENOM_USD : CJ_DENOM_PEN;
+  const sym = cjDenomSym(moneda);
+  return `
+    <table class="data-table" style="font-size:12px">
+      <thead><tr><th style="text-align:center">Denom.</th><th style="text-align:center">Cant.</th><th style="text-align:center">Subtotal</th></tr></thead>
+      <tbody>
+        ${denoms.map(d => `<tr>
+          <td style="text-align:center">${sym} ${d}</td>
+          <td style="text-align:center"><input type="number" min="0" step="1" class="form-control cj-denom-input" data-prefix="${prefix}" data-moneda="${moneda}" data-denom="${d}" value="${valores[d] || ''}" placeholder="0" style="width:64px;text-align:center" ${dis}></td>
+          <td id="cj-denom-sub-${prefix}-${moneda}-${d}" style="text-align:right">${cjFmt(d * (valores[d] || 0))}</td>
+        </tr>`).join('')}
+        <tr style="font-weight:700;background:#f8fafc">
+          <td colspan="2" style="text-align:right">Total ${sym}</td>
+          <td id="cj-denom-total-${prefix}-${moneda}" style="text-align:right">${cjFmt(denoms.reduce((s, d) => s + d * (valores[d] || 0), 0))}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+function cjDenomListener(prefix, moneda) {
+  const denoms = moneda === 'USD' ? CJ_DENOM_USD : CJ_DENOM_PEN;
+  document.querySelectorAll(`.cj-denom-input[data-prefix="${prefix}"][data-moneda="${moneda}"]`).forEach(el => {
+    el.addEventListener('input', () => {
+      let total = 0;
+      denoms.forEach(d => {
+        const qty = cjN(document.querySelector(`.cj-denom-input[data-prefix="${prefix}"][data-moneda="${moneda}"][data-denom="${d}"]`)?.value);
+        const sub = d * qty;
+        total += sub;
+        const subEl = document.getElementById(`cj-denom-sub-${prefix}-${moneda}-${d}`);
+        if (subEl) subEl.textContent = cjFmt(sub);
+      });
+      const totalEl = document.getElementById(`cj-denom-total-${prefix}-${moneda}`);
+      if (totalEl) totalEl.textContent = cjFmt(total);
+    });
+  });
+}
+
+function cjDenomTotal(prefix, moneda) {
+  const denoms = moneda === 'USD' ? CJ_DENOM_USD : CJ_DENOM_PEN;
+  return denoms.reduce((s, d) => s + d * cjN(document.querySelector(`.cj-denom-input[data-prefix="${prefix}"][data-moneda="${moneda}"][data-denom="${d}"]`)?.value), 0);
+}
+
+function cjDenomValores(prefix, moneda) {
+  const denoms = moneda === 'USD' ? CJ_DENOM_USD : CJ_DENOM_PEN;
+  const obj = {};
+  denoms.forEach(d => {
+    const qty = Math.round(cjN(document.querySelector(`.cj-denom-input[data-prefix="${prefix}"][data-moneda="${moneda}"][data-denom="${d}"]`)?.value));
+    if (qty > 0) obj[d] = qty;
+  });
+  return obj;
+}
 const cjBadge = (texto, color, bg) => `<span class="badge" style="background:${bg};color:${color}">${texto}</span>`;
 const CJ_ESTADO_BADGE = {
   ABIERTO:    cjBadge('ABIERTO', '#1d4ed8', '#dbeafe'),
@@ -8704,10 +8760,14 @@ window.cjAbrirFormCierre = function(operacion, existente) {
   const isAdmin = S.user.role === 'ADMIN';
   const esEdicion = !!existente;
   const soloLectura = esEdicion && existente.estado === 'CERRADO' && !isAdmin;
+  const dis = soloLectura ? 'disabled' : '';
+  const disApertura = esEdicion ? 'disabled' : ''; // la apertura solo se ingresa al crear el cierre
   const fecha = existente?.fecha || today();
   const cob = existente?.cobranzas || {};
-  const contado = existente?.efectivoContado || {};
-  const dis = soloLectura ? 'disabled' : '';
+  const valAperturaPEN = existente?.conteoApertura?.PEN || {};
+  const valAperturaUSD = existente?.conteoApertura?.USD || {};
+  const valCierrePEN = existente?.conteoCierre?.PEN || {};
+  const valCierreUSD = existente?.conteoCierre?.USD || {};
 
   const filaInput = ([medio, label]) => `
     <tr>
@@ -8725,14 +8785,23 @@ window.cjAbrirFormCierre = function(operacion, existente) {
       }
     });
   }
-  const contadoPENInicial = cjN(contado.ventaPEN) + cjN(contado.propinaPEN);
-  const contadoUSDInicial = cjN(contado.ventaUSD) + cjN(contado.propinaUSD);
 
   const html = `
     <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
       <div><label class="form-label">Operación</label><input type="text" class="form-control" value="${esc(operacion || existente?.operacion || '')}" disabled style="width:120px"></div>
       <div><label class="form-label">Fecha</label><input type="date" id="cj-f-fecha" class="form-control" value="${fecha}" ${esEdicion ? 'disabled' : ''} style="width:160px"></div>
       <div><label class="form-label">Estado</label><div style="padding-top:8px">${CJ_ESTADO_BADGE[existente?.estado || 'ABIERTO']}</div></div>
+    </div>
+    <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Apertura de Caja (conteo de billetes y monedas)${esEdicion ? ' 🔒' : ''}</div>
+    <div style="display:flex;gap:28px;margin-bottom:16px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center">S/</div>
+        ${cjDenomTableHtml('apertura', 'PEN', valAperturaPEN, disApertura)}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center">US$</div>
+        ${cjDenomTableHtml('apertura', 'USD', valAperturaUSD, disApertura)}
+      </div>
     </div>
     <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Cobranzas declaradas</div>
     <div style="overflow-x:auto;margin-bottom:16px">
@@ -8741,16 +8810,15 @@ window.cjAbrirFormCierre = function(operacion, existente) {
         <tbody>${CJ_MEDIOS.map(filaInput).join('')}</tbody>
       </table>
     </div>
-    <div style="display:flex;gap:28px;margin-bottom:8px;flex-wrap:wrap">
+    <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Cierre de Caja (conteo de billetes y monedas)</div>
+    <div style="display:flex;gap:28px;margin-bottom:16px;flex-wrap:wrap">
       <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center;text-transform:uppercase;letter-spacing:.5px">Efectivo Contado</div>
-        <table class="data-table" style="font-size:12px">
-          <thead><tr><th style="text-align:center">S/</th><th style="text-align:center">$</th></tr></thead>
-          <tbody><tr>
-            <td><input type="number" step="0.01" id="cj-f-contado-PEN" class="form-control" value="${contadoPENInicial}" style="width:100px;text-align:right" ${dis}></td>
-            <td><input type="number" step="0.01" id="cj-f-contado-USD" class="form-control" value="${contadoUSDInicial}" style="width:100px;text-align:right" ${dis}></td>
-          </tr></tbody>
-        </table>
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center">S/</div>
+        ${cjDenomTableHtml('cierre', 'PEN', valCierrePEN, dis)}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center">US$</div>
+        ${cjDenomTableHtml('cierre', 'USD', valCierreUSD, dis)}
       </div>
       <div>
         <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center;text-transform:uppercase;letter-spacing:.5px">Enviado a Oficina</div>
@@ -8770,7 +8838,12 @@ window.cjAbrirFormCierre = function(operacion, existente) {
       ${!soloLectura && existente?.estado !== 'CERRADO' ? `<button id="cj-f-cerrar" class="btn btn-primary btn-sm">🔒 Cerrar Caja</button>` : ''}
     </div>`;
 
-  openModal(esEdicion ? `🧾 Cierre de Caja — ${esc(existente.fecha)}` : '🧾 Nuevo Cierre de Caja', html, null, { wide: true });
+  openModal(esEdicion ? `🧾 Cierre de Caja — ${esc(existente.fecha)}` : '🧾 Nuevo Cierre de Caja', html, null, { fullwide: true });
+
+  cjDenomListener('apertura', 'PEN');
+  cjDenomListener('apertura', 'USD');
+  cjDenomListener('cierre', 'PEN');
+  cjDenomListener('cierre', 'USD');
 
   // El conteo físico no distingue Medio de Pago/Tip; se reparte proporcional a lo declarado en Efectivo arriba
   function splitProporcional(totalPEN, totalUSD, cobranzas) {
@@ -8793,18 +8866,23 @@ window.cjAbrirFormCierre = function(operacion, existente) {
         cobranzas[medio][combo] = Number(document.querySelector(`.cj-cob-input[data-medio="${medio}"][data-combo="${combo}"]`)?.value) || 0;
       });
     });
-    const contadoPEN = Number(document.getElementById('cj-f-contado-PEN')?.value) || 0;
-    const contadoUSD = Number(document.getElementById('cj-f-contado-USD')?.value) || 0;
+    const contadoPEN = cjDenomTotal('cierre', 'PEN');
+    const contadoUSD = cjDenomTotal('cierre', 'USD');
     const enviadoPEN = Number(document.getElementById('cj-f-enviado-PEN')?.value) || 0;
     const enviadoUSD = Number(document.getElementById('cj-f-enviado-USD')?.value) || 0;
     const efectivoContado = splitProporcional(contadoPEN, contadoUSD, cobranzas);
     const enviadoOficina = splitProporcional(enviadoPEN, enviadoUSD, cobranzas);
-    return {
+    const conteoCierre = { PEN: cjDenomValores('cierre', 'PEN'), USD: cjDenomValores('cierre', 'USD') };
+    const body = {
       operacion: operacion || existente.operacion,
       fecha: document.getElementById('cj-f-fecha').value,
-      cobranzas, efectivoContado, enviadoOficina,
+      cobranzas, efectivoContado, enviadoOficina, conteoCierre,
       comentarios: document.getElementById('cj-f-comentarios').value,
     };
+    if (!esEdicion) {
+      body.conteoApertura = { PEN: cjDenomValores('apertura', 'PEN'), USD: cjDenomValores('apertura', 'USD') };
+    }
+    return body;
   }
 
   if (!soloLectura) {

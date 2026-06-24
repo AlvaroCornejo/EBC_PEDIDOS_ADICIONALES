@@ -32,6 +32,17 @@ function n(v) { return Math.round((Number(v) || 0) * 100) / 100; }
 function sanitizeMonto(m = {}) {
   return { ventaPEN: n(m.ventaPEN), ventaUSD: n(m.ventaUSD), propinaPEN: n(m.propinaPEN), propinaUSD: n(m.propinaUSD) };
 }
+function sanitizeConteo(c = {}) {
+  const limpiar = moneda => {
+    const obj = {};
+    Object.entries(c?.[moneda] || {}).forEach(([k, v]) => {
+      const qty = Math.round(Number(v) || 0);
+      if (qty > 0) obj[k] = qty;
+    });
+    return obj;
+  };
+  return { PEN: limpiar('PEN'), USD: limpiar('USD') };
+}
 function sanitizeCobranzas(c = {}) {
   return {
     efectivo:      sanitizeMonto(c.efectivo),
@@ -140,7 +151,7 @@ router.post('/cierres', async (req, res) => {
     if (req.user.role !== 'ADMIN' && req.user.rolCaja !== 'REGISTRO') {
       return res.status(403).json({ error: 'No autorizado para registrar' });
     }
-    const { operacion, fecha, cobranzas, efectivoContado, enviadoOficina, comentarios } = req.body;
+    const { operacion, fecha, cobranzas, efectivoContado, conteoApertura, conteoCierre, enviadoOficina, comentarios } = req.body;
     if (!operacion || !fecha) return res.status(400).json({ error: 'Operación y fecha son requeridas' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Sin acceso a esa operación' });
 
@@ -155,6 +166,9 @@ router.post('/cierres', async (req, res) => {
       tipoNegocio: config?.tipoNegocio || 'MOSTRADOR',
       cobranzas: sanitizeCobranzas(cobranzas),
       efectivoContado: sanitizeMonto(efectivoContado),
+      conteoApertura: sanitizeConteo(conteoApertura),
+      conteoCierre: sanitizeConteo(conteoCierre),
+      aperturaRegistrada: true,
       comentarios: comentarios || '',
       creadoPorId: req.user.id,
       creadoPorNombre: req.user.username,
@@ -177,9 +191,10 @@ router.put('/cierres/:id', async (req, res) => {
       return res.status(403).json({ error: 'El cierre ya está cerrado, no se puede modificar' });
     }
 
-    const { cobranzas, efectivoContado, enviadoOficina, comentarios, estado } = req.body;
+    const { cobranzas, efectivoContado, conteoCierre, enviadoOficina, comentarios, estado } = req.body;
     if (cobranzas !== undefined) cierre.cobranzas = sanitizeCobranzas(cobranzas);
     if (efectivoContado !== undefined) cierre.efectivoContado = sanitizeMonto(efectivoContado);
+    if (conteoCierre !== undefined) cierre.conteoCierre = sanitizeConteo(conteoCierre);
     if (comentarios !== undefined) cierre.comentarios = comentarios;
     if (estado !== undefined) {
       if (!['ABIERTO', 'CERRADO'].includes(estado)) return res.status(400).json({ error: 'Estado inválido' });

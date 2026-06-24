@@ -32,6 +32,13 @@ const cierreCajaSchema = new mongoose.Schema({
   efectivoContado: { type: montoSchema, default: () => ({}) }, // conteo físico real (lo que se mueve)
   estadoEfectivo:  { type: estadoEfectivoSchema, default: () => ({}) },
 
+  // Conteo físico por denominación (billetes/monedas), PEN y USD. Apertura solo se
+  // registra una vez al crear el cierre y queda bloqueada; cierre se puede editar
+  // hasta que el cierre quede CERRADO.
+  conteoApertura:     { type: mongoose.Schema.Types.Mixed, default: () => ({ PEN: {}, USD: {} }) },
+  conteoCierre:       { type: mongoose.Schema.Types.Mixed, default: () => ({ PEN: {}, USD: {} }) },
+  aperturaRegistrada: { type: Boolean, default: false },
+
   estado:          { type: String, enum: ['ABIERTO', 'CERRADO'], default: 'ABIERTO' },
   comentarios:     { type: String, default: '' },
   creadoPorId:     String,
