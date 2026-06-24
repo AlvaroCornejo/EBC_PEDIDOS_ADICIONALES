@@ -8757,14 +8757,13 @@ window.cjAbrirFormCierre = function(operacion, existente) {
         <table class="data-table" style="font-size:12px">
           <thead><tr><th style="text-align:center">S/</th><th style="text-align:center">$</th></tr></thead>
           <tbody><tr>
-            <td style="text-align:right">${cjFmt(enviado.PEN)}</td>
-            <td style="text-align:right">${cjFmt(enviado.USD)}</td>
+            <td><input type="number" step="0.01" id="cj-f-enviado-PEN" class="form-control" value="${enviado.PEN}" style="width:100px;text-align:right" ${dis}></td>
+            <td><input type="number" step="0.01" id="cj-f-enviado-USD" class="form-control" value="${enviado.USD}" style="width:100px;text-align:right" ${dis}></td>
           </tr></tbody>
         </table>
       </div>
     </div>
-    <div id="cj-f-dif" style="font-size:12px;margin-bottom:14px;min-height:18px"></div>
-    <div><label class="form-label">Comentarios</label><textarea id="cj-f-comentarios" class="form-control" rows="2" ${dis}>${esc(existente?.comentarios || '')}</textarea></div>
+    <div><label class="form-label">Comentarios</label><textarea id="cj-f-comentarios" class="form-control" rows="2" style="width:100%" ${dis}>${esc(existente?.comentarios || '')}</textarea></div>
     <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px">
       <button class="btn btn-outline btn-sm" onclick="closeModal()">${soloLectura ? 'Cerrar' : 'Cancelar'}</button>
       ${!soloLectura ? `<button id="cj-f-guardar" class="btn btn-outline btn-sm">💾 Guardar</button>` : ''}
@@ -8772,24 +8771,6 @@ window.cjAbrirFormCierre = function(operacion, existente) {
     </div>`;
 
   openModal(esEdicion ? `🧾 Cierre de Caja — ${esc(existente.fecha)}` : '🧾 Nuevo Cierre de Caja', html, null, { wide: true });
-
-  function calcDif() {
-    const el = document.getElementById('cj-f-dif');
-    if (!el) return;
-    const get = (medio, combo) => Number(document.querySelector(`.cj-cob-input[data-medio="${medio}"][data-combo="${combo}"]`)?.value) || 0;
-    const declPEN = get('efectivo', 'ventaPEN') + get('efectivo', 'propinaPEN');
-    const declUSD = get('efectivo', 'ventaUSD') + get('efectivo', 'propinaUSD');
-    const contadoPEN = Number(document.getElementById('cj-f-contado-PEN')?.value) || 0;
-    const contadoUSD = Number(document.getElementById('cj-f-contado-USD')?.value) || 0;
-    const difs = [{ label: 'S/', d: contadoPEN - declPEN }, { label: '$', d: contadoUSD - declUSD }]
-      .filter(x => Math.abs(x.d) > 0.01);
-    if (!difs.length) { el.innerHTML = `<span style="color:#065f46">✓ El efectivo contado coincide con lo declarado</span>`; return; }
-    el.innerHTML = difs.map(x => `<span style="color:${x.d < 0 ? '#dc2626' : '#d97706'};margin-right:14px">⚠ ${esc(x.label)}: ${x.d > 0 ? 'sobrante' : 'faltante'} ${cjFmt(Math.abs(x.d))}</span>`).join('');
-  }
-  document.querySelectorAll('.cj-cob-input').forEach(el => el.addEventListener('input', calcDif));
-  document.getElementById('cj-f-contado-PEN').addEventListener('input', calcDif);
-  document.getElementById('cj-f-contado-USD').addEventListener('input', calcDif);
-  calcDif();
 
   // El conteo físico no distingue Medio de Pago/Tip; se reparte proporcional a lo declarado en Efectivo arriba
   function splitProporcional(totalPEN, totalUSD, cobranzas) {
@@ -8814,11 +8795,14 @@ window.cjAbrirFormCierre = function(operacion, existente) {
     });
     const contadoPEN = Number(document.getElementById('cj-f-contado-PEN')?.value) || 0;
     const contadoUSD = Number(document.getElementById('cj-f-contado-USD')?.value) || 0;
+    const enviadoPEN = Number(document.getElementById('cj-f-enviado-PEN')?.value) || 0;
+    const enviadoUSD = Number(document.getElementById('cj-f-enviado-USD')?.value) || 0;
     const efectivoContado = splitProporcional(contadoPEN, contadoUSD, cobranzas);
+    const enviadoOficina = splitProporcional(enviadoPEN, enviadoUSD, cobranzas);
     return {
       operacion: operacion || existente.operacion,
       fecha: document.getElementById('cj-f-fecha').value,
-      cobranzas, efectivoContado,
+      cobranzas, efectivoContado, enviadoOficina,
       comentarios: document.getElementById('cj-f-comentarios').value,
     };
   }

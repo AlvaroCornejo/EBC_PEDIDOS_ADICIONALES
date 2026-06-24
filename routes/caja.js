@@ -79,6 +79,38 @@ router.get('/operaciones', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Registra inline, desde el propio Cierre, lo que ya se envió a oficina: marca los
+// combos PENDIENTE como EN_OFICINA (acotado a lo contado) y crea el EnvioOficina asociado.
+async function procesarEnvioInline(cierre, enviadoOficina, req) {
+  if (!enviadoOficina) return;
+  const en = sanitizeMonto(enviadoOficina);
+  const contribs = [];
+  for (const [t, m] of COMBOS) {
+    const k = comboKey(t, m);
+    if (en[k] > 0 && cierre.estadoEfectivo[k] === 'PENDIENTE') {
+      const monto = Math.min(en[k], cierre.efectivoContado[k] || 0);
+      if (monto > 0) {
+        cierre.estadoEfectivo[k] = 'EN_OFICINA';
+        contribs.push({ combo: k, monto });
+      }
+    }
+  }
+  if (!contribs.length) return;
+  await cierre.save();
+  const montos = { ventaPEN: 0, ventaUSD: 0, propinaPEN: 0, propinaUSD: 0 };
+  contribs.forEach(c => { montos[c.combo] = c.monto; });
+  await EnvioOficina.create({
+    id: uuidv4(),
+    operacion: cierre.operacion,
+    fecha: cierre.fecha,
+    cierres: [{ cierreId: cierre.id, fecha: cierre.fecha }],
+    montos,
+    comentarios: 'Registrado desde Cierre de Caja',
+    creadoPorId: req.user.id,
+    creadoPorNombre: req.user.username,
+  });
+}
+
 // ── Cierres de Caja ──────────────────────────────────────────────────────────
 router.get('/cierres', async (req, res) => {
   try {
@@ -108,7 +140,7 @@ router.post('/cierres', async (req, res) => {
     if (req.user.role !== 'ADMIN' && req.user.rolCaja !== 'REGISTRO') {
       return res.status(403).json({ error: 'No autorizado para registrar' });
     }
-    const { operacion, fecha, cobranzas, efectivoContado, comentarios } = req.body;
+    const { operacion, fecha, cobranzas, efectivoContado, enviadoOficina, comentarios } = req.body;
     if (!operacion || !fecha) return res.status(400).json({ error: 'Operación y fecha son requeridas' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Sin acceso a esa operación' });
 
@@ -127,6 +159,7 @@ router.post('/cierres', async (req, res) => {
       creadoPorId: req.user.id,
       creadoPorNombre: req.user.username,
     });
+    await procesarEnvioInline(doc, enviadoOficina, req);
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -144,7 +177,7 @@ router.put('/cierres/:id', async (req, res) => {
       return res.status(403).json({ error: 'El cierre ya está cerrado, no se puede modificar' });
     }
 
-    const { cobranzas, efectivoContado, comentarios, estado } = req.body;
+    const { cobranzas, efectivoContado, enviadoOficina, comentarios, estado } = req.body;
     if (cobranzas !== undefined) cierre.cobranzas = sanitizeCobranzas(cobranzas);
     if (efectivoContado !== undefined) cierre.efectivoContado = sanitizeMonto(efectivoContado);
     if (comentarios !== undefined) cierre.comentarios = comentarios;
@@ -154,6 +187,7 @@ router.put('/cierres/:id', async (req, res) => {
     }
     cierre.updatedAt = new Date();
     await cierre.save();
+    await procesarEnvioInline(cierre, enviadoOficina, req);
     res.json(cierre);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
