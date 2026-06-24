@@ -8757,17 +8757,62 @@ window.cjAbrirFormCierreId = function(id) {
 };
 
 window.cjAbrirFormCierre = function(operacion, existente) {
+  if (!existente) window.cjAbrirFormApertura(operacion);
+  else window.cjAbrirFormCompleto(existente);
+};
+
+// Paso 1 de un cierre nuevo: solo el conteo de Apertura. Una vez grabado, se crea
+// el CierreCaja y se pasa al formulario completo, sin volver a mostrar la apertura.
+window.cjAbrirFormApertura = function(operacion) {
+  const fecha = today();
+  const html = `
+    <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+      <div><label class="form-label">Operación</label><input type="text" class="form-control" value="${esc(operacion)}" disabled style="width:120px"></div>
+      <div><label class="form-label">Fecha</label><input type="date" id="cj-a-fecha" class="form-control" value="${fecha}" style="width:160px"></div>
+    </div>
+    <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Apertura de Caja (conteo de billetes y monedas)</div>
+    <div style="display:flex;gap:28px;margin-bottom:8px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center">S/</div>
+        ${cjDenomTableHtml('apertura', 'PEN', {}, '')}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center">US$</div>
+        ${cjDenomTableHtml('apertura', 'USD', {}, '')}
+      </div>
+    </div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px">
+      <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancelar</button>
+      <button id="cj-a-grabar" class="btn btn-primary btn-sm">🔓 Grabar Apertura</button>
+    </div>`;
+
+  openModal(`🧾 Apertura de Caja — ${esc(operacion)}`, html, null, { wide: true });
+  cjDenomListener('apertura', 'PEN');
+  cjDenomListener('apertura', 'USD');
+
+  document.getElementById('cj-a-grabar').addEventListener('click', async () => {
+    const fechaVal = document.getElementById('cj-a-fecha').value;
+    if (!fechaVal) return toast('Selecciona la fecha', 'error');
+    try {
+      const creado = await POST('/caja/cierres', {
+        operacion,
+        fecha: fechaVal,
+        conteoApertura: { PEN: cjDenomValores('apertura', 'PEN'), USD: cjDenomValores('apertura', 'USD') },
+      });
+      toast('Apertura registrada', 'success');
+      window.cjAbrirFormCompleto(creado);
+    } catch (e) { toast(e.message, 'error'); }
+  });
+};
+
+// Paso 2: cobranzas, conteo de cierre y envío a oficina. La apertura ya no se muestra.
+window.cjAbrirFormCompleto = function(existente) {
   const isAdmin = S.user.role === 'ADMIN';
-  const esEdicion = !!existente;
-  const soloLectura = esEdicion && existente.estado === 'CERRADO' && !isAdmin;
+  const soloLectura = existente.estado === 'CERRADO' && !isAdmin;
   const dis = soloLectura ? 'disabled' : '';
-  const disApertura = esEdicion ? 'disabled' : ''; // la apertura solo se ingresa al crear el cierre
-  const fecha = existente?.fecha || today();
-  const cob = existente?.cobranzas || {};
-  const valAperturaPEN = existente?.conteoApertura?.PEN || {};
-  const valAperturaUSD = existente?.conteoApertura?.USD || {};
-  const valCierrePEN = existente?.conteoCierre?.PEN || {};
-  const valCierreUSD = existente?.conteoCierre?.USD || {};
+  const cob = existente.cobranzas || {};
+  const valCierrePEN = existente.conteoCierre?.PEN || {};
+  const valCierreUSD = existente.conteoCierre?.USD || {};
 
   const filaInput = ([medio, label]) => `
     <tr>
@@ -8777,31 +8822,18 @@ window.cjAbrirFormCierre = function(operacion, existente) {
 
   // Totales ya enviados a oficina (solo lectura, calculado de combos en EN_OFICINA/DEPOSITADO)
   const enviado = { PEN: 0, USD: 0 };
-  if (existente) {
-    CJ_COMBOS.forEach(([k]) => {
-      if (['EN_OFICINA', 'DEPOSITADO'].includes(existente.estadoEfectivo?.[k])) {
-        if (k.endsWith('PEN')) enviado.PEN += cjN(existente.efectivoContado?.[k]);
-        else enviado.USD += cjN(existente.efectivoContado?.[k]);
-      }
-    });
-  }
+  CJ_COMBOS.forEach(([k]) => {
+    if (['EN_OFICINA', 'DEPOSITADO'].includes(existente.estadoEfectivo?.[k])) {
+      if (k.endsWith('PEN')) enviado.PEN += cjN(existente.efectivoContado?.[k]);
+      else enviado.USD += cjN(existente.efectivoContado?.[k]);
+    }
+  });
 
   const html = `
     <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
-      <div><label class="form-label">Operación</label><input type="text" class="form-control" value="${esc(operacion || existente?.operacion || '')}" disabled style="width:120px"></div>
-      <div><label class="form-label">Fecha</label><input type="date" id="cj-f-fecha" class="form-control" value="${fecha}" ${esEdicion ? 'disabled' : ''} style="width:160px"></div>
-      <div><label class="form-label">Estado</label><div style="padding-top:8px">${CJ_ESTADO_BADGE[existente?.estado || 'ABIERTO']}</div></div>
-    </div>
-    <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Apertura de Caja (conteo de billetes y monedas)${esEdicion ? ' 🔒' : ''}</div>
-    <div style="display:flex;gap:28px;margin-bottom:16px;flex-wrap:wrap">
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center">S/</div>
-        ${cjDenomTableHtml('apertura', 'PEN', valAperturaPEN, disApertura)}
-      </div>
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:4px;text-align:center">US$</div>
-        ${cjDenomTableHtml('apertura', 'USD', valAperturaUSD, disApertura)}
-      </div>
+      <div><label class="form-label">Operación</label><input type="text" class="form-control" value="${esc(existente.operacion)}" disabled style="width:120px"></div>
+      <div><label class="form-label">Fecha</label><input type="date" id="cj-f-fecha" class="form-control" value="${esc(existente.fecha)}" disabled style="width:160px"></div>
+      <div><label class="form-label">Estado</label><div style="padding-top:8px">${CJ_ESTADO_BADGE[existente.estado || 'ABIERTO']}</div></div>
     </div>
     <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Cobranzas declaradas</div>
     <div style="overflow-x:auto;margin-bottom:16px">
@@ -8831,17 +8863,15 @@ window.cjAbrirFormCierre = function(operacion, existente) {
         </table>
       </div>
     </div>
-    <div><label class="form-label">Comentarios</label><textarea id="cj-f-comentarios" class="form-control" rows="2" style="width:100%" ${dis}>${esc(existente?.comentarios || '')}</textarea></div>
+    <div><label class="form-label">Comentarios</label><textarea id="cj-f-comentarios" class="form-control" rows="2" style="width:100%" ${dis}>${esc(existente.comentarios || '')}</textarea></div>
     <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px">
       <button class="btn btn-outline btn-sm" onclick="closeModal()">${soloLectura ? 'Cerrar' : 'Cancelar'}</button>
       ${!soloLectura ? `<button id="cj-f-guardar" class="btn btn-outline btn-sm">💾 Guardar</button>` : ''}
-      ${!soloLectura && existente?.estado !== 'CERRADO' ? `<button id="cj-f-cerrar" class="btn btn-primary btn-sm">🔒 Cerrar Caja</button>` : ''}
+      ${!soloLectura && existente.estado !== 'CERRADO' ? `<button id="cj-f-cerrar" class="btn btn-primary btn-sm">🔒 Cerrar Caja</button>` : ''}
     </div>`;
 
-  openModal(esEdicion ? `🧾 Cierre de Caja — ${esc(existente.fecha)}` : '🧾 Nuevo Cierre de Caja', html, null, { fullwide: true });
+  openModal(`🧾 Cierre de Caja — ${esc(existente.fecha)}`, html, null, { fullwide: true });
 
-  cjDenomListener('apertura', 'PEN');
-  cjDenomListener('apertura', 'USD');
   cjDenomListener('cierre', 'PEN');
   cjDenomListener('cierre', 'USD');
 
@@ -8873,24 +8903,16 @@ window.cjAbrirFormCierre = function(operacion, existente) {
     const efectivoContado = splitProporcional(contadoPEN, contadoUSD, cobranzas);
     const enviadoOficina = splitProporcional(enviadoPEN, enviadoUSD, cobranzas);
     const conteoCierre = { PEN: cjDenomValores('cierre', 'PEN'), USD: cjDenomValores('cierre', 'USD') };
-    const body = {
-      operacion: operacion || existente.operacion,
-      fecha: document.getElementById('cj-f-fecha').value,
+    return {
       cobranzas, efectivoContado, enviadoOficina, conteoCierre,
       comentarios: document.getElementById('cj-f-comentarios').value,
     };
-    if (!esEdicion) {
-      body.conteoApertura = { PEN: cjDenomValores('apertura', 'PEN'), USD: cjDenomValores('apertura', 'USD') };
-    }
-    return body;
   }
 
   if (!soloLectura) {
     document.getElementById('cj-f-guardar')?.addEventListener('click', async () => {
       try {
-        const body = leerForm();
-        if (esEdicion) await PUT(`/caja/cierres/${existente.id}`, body);
-        else await POST('/caja/cierres', body);
+        await PUT(`/caja/cierres/${existente.id}`, leerForm());
         toast('Cierre guardado', 'success');
         closeModal();
         window.cjBuscarCierres();
@@ -8899,13 +8921,7 @@ window.cjAbrirFormCierre = function(operacion, existente) {
     document.getElementById('cj-f-cerrar')?.addEventListener('click', async () => {
       if (!confirm('¿Cerrar este día de caja? No se podrá editar después (salvo administrador).')) return;
       try {
-        const body = leerForm();
-        if (esEdicion) {
-          await PUT(`/caja/cierres/${existente.id}`, { ...body, estado: 'CERRADO' });
-        } else {
-          const creado = await POST('/caja/cierres', body);
-          await PUT(`/caja/cierres/${creado.id}`, { estado: 'CERRADO' });
-        }
+        await PUT(`/caja/cierres/${existente.id}`, { ...leerForm(), estado: 'CERRADO' });
         toast('Caja cerrada', 'success');
         closeModal();
         window.cjBuscarCierres();
