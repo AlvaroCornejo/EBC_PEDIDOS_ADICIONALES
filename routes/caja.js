@@ -58,7 +58,7 @@ router.get('/config', async (req, res) => {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo administradores' });
     const configs = await CajaConfig.find().lean();
     const byOp = {}; configs.forEach(c => { byOp[c.operacion] = c; });
-    res.json(ALL_OPS.map(op => byOp[op] || { operacion: op, tipoNegocio: 'MOSTRADOR', tieneOficina: false }));
+    res.json(ALL_OPS.map(op => byOp[op] || { operacion: op, tipoNegocio: 'MOSTRADOR', tieneOficina: false, turnos: ['Único'] }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -67,13 +67,18 @@ router.put('/config/:operacion', async (req, res) => {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo administradores' });
     const { operacion } = req.params;
     if (!ALL_OPS.includes(operacion)) return res.status(400).json({ error: 'Operación inválida' });
-    const { tipoNegocio, tieneOficina } = req.body;
+    const { tipoNegocio, tieneOficina, turnos } = req.body;
     if (tipoNegocio !== undefined && !['RESTAURANTE', 'MOSTRADOR'].includes(tipoNegocio)) {
       return res.status(400).json({ error: 'Tipo de negocio inválido' });
     }
     const update = { operacion };
     if (tipoNegocio !== undefined) update.tipoNegocio = tipoNegocio;
     if (tieneOficina !== undefined) update.tieneOficina = !!tieneOficina;
+    if (turnos !== undefined) {
+      const limpios = (Array.isArray(turnos) ? turnos : []).map(t => String(t).trim()).filter(Boolean);
+      if (!limpios.length) return res.status(400).json({ error: 'Debe haber al menos un turno' });
+      update.turnos = limpios;
+    }
     const config = await CajaConfig.findOneAndUpdate({ operacion }, update, { upsert: true, new: true });
     res.json(config);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -86,7 +91,7 @@ router.get('/operaciones', async (req, res) => {
     const ops = req.user.role === 'ADMIN' ? ALL_OPS : (req.user.operations || []);
     const configs = await CajaConfig.find({ operacion: { $in: ops } }).lean();
     const byOp = {}; configs.forEach(c => { byOp[c.operacion] = c; });
-    res.json(ops.map(op => byOp[op] || { operacion: op, tipoNegocio: 'MOSTRADOR', tieneOficina: false }));
+    res.json(ops.map(op => byOp[op] || { operacion: op, tipoNegocio: 'MOSTRADOR', tieneOficina: false, turnos: ['Único'] }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -151,18 +156,28 @@ router.post('/cierres', async (req, res) => {
     if (req.user.role !== 'ADMIN' && req.user.rolCaja !== 'REGISTRO') {
       return res.status(403).json({ error: 'No autorizado para registrar' });
     }
-    const { operacion, fecha, cobranzas, efectivoContado, conteoApertura, conteoCierre, enviadoOficina, comentarios } = req.body;
+    const { operacion, fecha, turno, cobranzas, efectivoContado, conteoApertura, conteoCierre, enviadoOficina, comentarios } = req.body;
     if (!operacion || !fecha) return res.status(400).json({ error: 'Operación y fecha son requeridas' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Sin acceso a esa operación' });
 
-    const existente = await CierreCaja.findOne({ operacion, fecha });
-    if (existente) return res.status(400).json({ error: 'Ya existe un cierre para esa operación y fecha' });
-
     const config = await CajaConfig.findOne({ operacion }).lean();
+    const turnosDisponibles = config?.turnos?.length ? config.turnos : ['Único'];
+    const turnoFinal = (turno || turnosDisponibles[0] || 'Único').trim();
+    if (!turnosDisponibles.includes(turnoFinal)) return res.status(400).json({ error: 'Turno inválido para esta operación' });
+
+    const existente = await CierreCaja.findOne({ operacion, fecha, turno: turnoFinal });
+    if (existente) return res.status(400).json({ error: 'Ya existe un cierre para esa operación, fecha y turno' });
+
+    // Las cajas de una operación son secuenciales, no simultáneas: no se puede abrir
+    // un turno nuevo mientras otro siga ABIERTO (sin importar la fecha del turno previo).
+    const abierto = await CierreCaja.findOne({ operacion, estado: 'ABIERTO' }).lean();
+    if (abierto) return res.status(400).json({ error: `Ya hay una caja abierta (turno "${abierto.turno}" del ${abierto.fecha}). Debe cerrarla antes de abrir otra.` });
+
     const doc = await CierreCaja.create({
       id: uuidv4(),
       operacion,
       fecha,
+      turno: turnoFinal,
       tipoNegocio: config?.tipoNegocio || 'MOSTRADOR',
       cobranzas: sanitizeCobranzas(cobranzas),
       efectivoContado: sanitizeMonto(efectivoContado),

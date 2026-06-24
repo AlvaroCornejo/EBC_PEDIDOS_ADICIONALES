@@ -106,7 +106,8 @@ function openModal(title, html, onClose, opts = {}) {
   const box = document.querySelector('.modal-box');
   box.classList.toggle('modal-wide', !!opts.wide);
   box.classList.toggle('modal-fullwide', !!opts.fullwide);
-  const close = () => { document.getElementById('modal').classList.add('hidden'); box.classList.remove('modal-wide', 'modal-fullwide'); onClose?.(); };
+  box.classList.toggle('modal-medium', !!opts.medium);
+  const close = () => { document.getElementById('modal').classList.add('hidden'); box.classList.remove('modal-wide', 'modal-fullwide', 'modal-medium'); onClose?.(); };
   document.getElementById('modal-close').onclick = close;
   document.getElementById('modal-backdrop').onclick = close;
 }
@@ -8722,21 +8723,24 @@ window.cjBuscarCierres = async function() {
 
 function cjRenderTablaCierres() {
   const tabla = document.getElementById('cj-c-tabla');
+  const isAdmin = S.user.role === 'ADMIN';
   if (!_cjCierres.length) { tabla.innerHTML = `<div class="empty-state"><p>Sin cierres registrados en el rango seleccionado.</p></div>`; return; }
   tabla.innerHTML = `
     <div class="card" style="overflow:hidden;overflow-x:auto">
       <table class="data-table" style="font-size:12px;white-space:nowrap">
         <thead><tr>
-          <th style="text-align:center">Fecha</th><th style="text-align:center">Estado</th>
+          <th style="text-align:center">Fecha</th><th style="text-align:center">Turno</th><th style="text-align:center">Estado</th>
           <th style="text-align:center">Medio de Pago S/</th><th style="text-align:center">Medio de Pago US$</th>
           <th style="text-align:center">Tip S/</th><th style="text-align:center">Tip US$</th>
           <th style="text-align:center">Ef. Contado S/</th><th style="text-align:center">Ef. Contado US$</th>
+          ${isAdmin ? '<th style="text-align:center">Acciones</th>' : ''}
         </tr></thead>
         <tbody>
           ${_cjCierres.map(c => {
             const tv = k => CJ_MEDIOS.reduce((s, [m]) => s + cjN(c.cobranzas?.[m]?.[k]), 0);
             return `<tr style="cursor:pointer" onclick="cjAbrirFormCierreId('${c.id}')">
               <td>${esc(c.fecha)}</td>
+              <td>${esc(c.turno || 'Único')}</td>
               <td>${CJ_ESTADO_BADGE[c.estado] || c.estado}</td>
               <td style="text-align:right">${cjFmt(tv('ventaPEN'))}</td>
               <td style="text-align:right">${cjFmt(tv('ventaUSD'))}</td>
@@ -8744,12 +8748,22 @@ function cjRenderTablaCierres() {
               <td style="text-align:right">${cjFmt(tv('propinaUSD'))}</td>
               <td style="text-align:right">${cjFmt(c.efectivoContado?.ventaPEN)}</td>
               <td style="text-align:right">${cjFmt(c.efectivoContado?.ventaUSD)}</td>
+              ${isAdmin ? `<td style="text-align:center"><button class="btn btn-outline btn-sm" style="color:var(--danger)" onclick="event.stopPropagation();cjEliminarCierre('${c.id}')">🗑️</button></td>` : ''}
             </tr>`;
           }).join('')}
         </tbody>
       </table>
     </div>`;
 }
+
+window.cjEliminarCierre = async function(id) {
+  if (!confirm('¿Eliminar este cierre de caja? Esta acción no se puede deshacer.')) return;
+  try {
+    await DEL(`/caja/cierres/${id}`);
+    toast('Cierre eliminado', 'success');
+    window.cjBuscarCierres();
+  } catch (e) { toast(e.message, 'error'); }
+};
 
 window.cjAbrirFormCierreId = function(id) {
   const c = _cjCierres.find(x => x.id === id);
@@ -8765,10 +8779,15 @@ window.cjAbrirFormCierre = function(operacion, existente) {
 // el CierreCaja y se pasa al formulario completo, sin volver a mostrar la apertura.
 window.cjAbrirFormApertura = function(operacion) {
   const fecha = today();
+  const turnos = _cjOps.find(o => o.operacion === operacion)?.turnos?.length
+    ? _cjOps.find(o => o.operacion === operacion).turnos : ['Único'];
   const html = `
     <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
       <div><label class="form-label">Operación</label><input type="text" class="form-control" value="${esc(operacion)}" disabled style="width:120px"></div>
       <div><label class="form-label">Fecha</label><input type="date" id="cj-a-fecha" class="form-control" value="${fecha}" style="width:160px"></div>
+      <div><label class="form-label">Turno</label><select id="cj-a-turno" class="form-control" style="width:160px">
+        ${turnos.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+      </select></div>
     </div>
     <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Apertura de Caja (conteo de billetes y monedas)</div>
     <div style="display:flex;gap:28px;margin-bottom:8px;flex-wrap:wrap">
@@ -8797,6 +8816,7 @@ window.cjAbrirFormApertura = function(operacion) {
       const creado = await POST('/caja/cierres', {
         operacion,
         fecha: fechaVal,
+        turno: document.getElementById('cj-a-turno').value,
         conteoApertura: { PEN: cjDenomValores('apertura', 'PEN'), USD: cjDenomValores('apertura', 'USD') },
       });
       toast('Apertura registrada', 'success');
@@ -8833,6 +8853,7 @@ window.cjAbrirFormCompleto = function(existente) {
     <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
       <div><label class="form-label">Operación</label><input type="text" class="form-control" value="${esc(existente.operacion)}" disabled style="width:120px"></div>
       <div><label class="form-label">Fecha</label><input type="date" id="cj-f-fecha" class="form-control" value="${esc(existente.fecha)}" disabled style="width:160px"></div>
+      <div><label class="form-label">Turno</label><input type="text" class="form-control" value="${esc(existente.turno || 'Único')}" disabled style="width:120px"></div>
       <div><label class="form-label">Estado</label><div style="padding-top:8px">${CJ_ESTADO_BADGE[existente.estado || 'ABIERTO']}</div></div>
     </div>
     <div style="font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Cobranzas declaradas</div>
@@ -8870,7 +8891,7 @@ window.cjAbrirFormCompleto = function(existente) {
       ${!soloLectura && existente.estado !== 'CERRADO' ? `<button id="cj-f-cerrar" class="btn btn-primary btn-sm">🔒 Cerrar Caja</button>` : ''}
     </div>`;
 
-  openModal(`🧾 Cierre de Caja — ${esc(existente.fecha)}`, html, null, { fullwide: true });
+  openModal(`🧾 Cierre de Caja — ${esc(existente.fecha)} (${esc(existente.turno || 'Único')})`, html, null, { medium: true });
 
   cjDenomListener('cierre', 'PEN');
   cjDenomListener('cierre', 'USD');
@@ -9267,23 +9288,28 @@ async function renderAdminCierreCaja(container) {
 
   container.innerHTML = `
     <p class="mb-8 text-muted" style="font-size:13px">
-      Define por operación si es un negocio tipo Restaurante (mesas/mozos) o Mostrador, y si el efectivo
-      pasa por una oficina antes de depositarse en el banco, o se deposita directamente desde caja.
+      Define por operación si es un negocio tipo Restaurante (mesas/mozos) o Mostrador, si el efectivo
+      pasa por una oficina antes de depositarse en el banco, o se deposita directamente desde caja, y los
+      turnos disponibles para abrir caja (separados por coma). En un mismo día se pueden abrir varias cajas,
+      una por turno, pero nunca simultáneas: la siguiente solo se habilita cuando la anterior queda cerrada.
     </p>
     <div class="card" style="overflow:hidden">
       <table class="data-table" style="font-size:13px">
-        <thead><tr><th>Operación</th><th style="width:200px">Tipo de Negocio</th><th style="width:140px">Tiene Oficina</th></tr></thead>
+        <thead><tr><th>Operación</th><th style="width:180px">Tipo de Negocio</th><th style="width:120px">Tiene Oficina</th><th style="width:260px">Turnos</th></tr></thead>
         <tbody>
           ${configs.map(c => `<tr>
             <td style="font-weight:600">${esc(c.operacion)}</td>
             <td>
-              <select class="form-control cac-tipo" data-op="${esc(c.operacion)}" style="width:180px">
+              <select class="form-control cac-tipo" data-op="${esc(c.operacion)}" style="width:160px">
                 <option value="MOSTRADOR" ${c.tipoNegocio === 'MOSTRADOR' ? 'selected' : ''}>Mostrador</option>
                 <option value="RESTAURANTE" ${c.tipoNegocio === 'RESTAURANTE' ? 'selected' : ''}>Restaurante</option>
               </select>
             </td>
             <td style="text-align:center">
               <input type="checkbox" class="cac-oficina" data-op="${esc(c.operacion)}" ${c.tieneOficina ? 'checked' : ''} style="width:16px;height:16px;accent-color:var(--primary)">
+            </td>
+            <td>
+              <input type="text" class="form-control cac-turnos" data-op="${esc(c.operacion)}" value="${esc((c.turnos || ['Único']).join(', '))}" style="width:240px" placeholder="Mañana, Tarde, Noche">
             </td>
           </tr>`).join('')}
         </tbody>
@@ -9301,6 +9327,9 @@ async function renderAdminCierreCaja(container) {
   });
   container.querySelectorAll('.cac-oficina').forEach(el => {
     el.addEventListener('change', () => guardar(el.dataset.op, { tieneOficina: el.checked }));
+  });
+  container.querySelectorAll('.cac-turnos').forEach(el => {
+    el.addEventListener('change', () => guardar(el.dataset.op, { turnos: el.value.split(',').map(t => t.trim()).filter(Boolean) }));
   });
 }
 

@@ -21,6 +21,7 @@ const cierreCajaSchema = new mongoose.Schema({
   id:          { type: String, required: true, unique: true },
   operacion:   { type: String, required: true },
   fecha:       { type: String, required: true }, // YYYY-MM-DD
+  turno:       { type: String, default: 'Único' }, // permite varias cajas por día, una tras otra (nunca simultáneas)
   tipoNegocio: { type: String, enum: ['RESTAURANTE', 'MOSTRADOR'], default: 'MOSTRADOR' },
 
   cobranzas: {
@@ -47,6 +48,6 @@ const cierreCajaSchema = new mongoose.Schema({
   updatedAt:       { type: Date, default: Date.now },
 });
 
-cierreCajaSchema.index({ operacion: 1, fecha: 1 }, { unique: true });
+cierreCajaSchema.index({ operacion: 1, fecha: 1, turno: 1 }, { unique: true });
 
 module.exports = mongoose.model('CierreCaja', cierreCajaSchema);
