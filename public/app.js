@@ -8813,14 +8813,15 @@ window.cjAbrirFormApertura = function(operacion) {
     const fechaVal = document.getElementById('cj-a-fecha').value;
     if (!fechaVal) return toast('Selecciona la fecha', 'error');
     try {
-      const creado = await POST('/caja/cierres', {
+      await POST('/caja/cierres', {
         operacion,
         fecha: fechaVal,
         turno: document.getElementById('cj-a-turno').value,
         conteoApertura: { PEN: cjDenomValores('apertura', 'PEN'), USD: cjDenomValores('apertura', 'USD') },
       });
       toast('Apertura registrada', 'success');
-      window.cjAbrirFormCompleto(creado);
+      closeModal();
+      window.cjBuscarCierres();
     } catch (e) { toast(e.message, 'error'); }
   });
 };
