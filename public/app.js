@@ -5637,8 +5637,9 @@ async function renderPaso3(container) {
   }
 
   // ── Agrupadores fijos + custom para esta programación ───────────
-  const AGRUPS_FIJOS = ['INDIVIDUAL','AGRUPADO 1','AGRUPADO 2','AGRUPADO 3','AGRUPADO 4',
-                        'AGRUPADO 5','AGRUPADO 6','AGRUPADO 7','AGRUPADO 8','AGRUPADO 9','AGRUPADO 10'];
+  const AGRUPS_FIJOS = ['INDIVIDUAL','BBVA PEN','BBVA PEN OB','BCP PEN','BCP PEN OB','IBK PEN','IBK PEN OB',
+                        'BBVA DOL','BBVA DOL OB','BCP DOL','BCP DOL OB','IBK DOL','IBK DOL OB',
+                        'DETRACCIONES PEN','DETRACCIONES DOL'];
   let p3CustomAgrups = []; // nombres extra añadidos en esta sesión
   let p3ObsConError  = new Set(); // IDs de obligaciones con error de validación
 
@@ -6341,8 +6342,9 @@ async function renderPaso4(container) {
     <div id="p4-wrap" style="padding-bottom:80px"></div>`;
 
   // ── Agrupadores ──────────────────────────────────────────────────
-  const AGRUPS_FIJOS_4 = ['INDIVIDUAL','AGRUPADO 1','AGRUPADO 2','AGRUPADO 3','AGRUPADO 4',
-                          'AGRUPADO 5','AGRUPADO 6','AGRUPADO 7','AGRUPADO 8','AGRUPADO 9','AGRUPADO 10'];
+  const AGRUPS_FIJOS_4 = ['INDIVIDUAL','BBVA PEN','BBVA PEN OB','BCP PEN','BCP PEN OB','IBK PEN','IBK PEN OB',
+                          'BBVA DOL','BBVA DOL OB','BCP DOL','BCP DOL OB','IBK DOL','IBK DOL OB',
+                          'DETRACCIONES PEN','DETRACCIONES DOL'];
 
   function p4AgrupOpts(selVal) {
     const extra = p4CustomAgrups.filter(a => !AGRUPS_FIJOS_4.includes(a));
