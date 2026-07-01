@@ -18,6 +18,9 @@ const obligacionSchema = new mongoose.Schema({
   agrupadorPago:    { type: String, default: 'INDIVIDUAL' },
   retencion:        { type: Number, default: 0 },
   observaciones:    { type: String, default: '' },
+  // Pago parcial: esParcial=true indica que esta fila es una porción de otra obligación
+  esParcial:           { type: Boolean, default: false },
+  obligacionOrigenId:  { type: String, default: '' }, // _id de la obligación original
   // Paso 5 — Registro Movimiento Bancario
   operacionBancaria:{ type: String, default: '' },
   importeBanco:     { type: Number, default: null }, // legacy

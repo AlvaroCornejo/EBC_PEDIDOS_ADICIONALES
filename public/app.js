@@ -4588,6 +4588,7 @@ async function renderPaso1(container) {
               <th class="text-right">Días Venc.</th>
               <th style="min-width:110px">Grupo</th>
               <th style="min-width:110px">Detalle Grupo</th>
+              <th style="width:40px"></th>
             </tr></thead>
             <tbody>
               ${obs.map(o => {
@@ -4603,7 +4604,8 @@ async function renderPaso1(container) {
                 const dtOpts = ['OTROS', ...detallesRef.filter(d => d.grupoProveedor === o.grupo).map(d => d.nombre)]
                   .map(d => `<option value="${d}" ${o.detalleGrupo===d?'selected':''}>${d}</option>`).join('');
                 const grpOptsRow = grpOpts.replace(`value="${o.grupo}"`, `value="${o.grupo}" selected`);
-                return `<tr style="${checked?'background:#f0fdf4;':''}${pgAdelantoRowStyle(o.pagarA)}">
+                const tieneParcial = progActual?.obligaciones?.some(x => x.esParcial && x.obligacionOrigenId === String(o._id));
+                return `<tr style="${o.esParcial ? 'background:#fef9c3;' : (checked?'background:#f0fdf4;':'')}${pgAdelantoRowStyle(o.pagarA)}">
                   <td class="text-center">
                     <input type="checkbox" class="pg-check" data-pa="${esc(o.pagarA)}" data-idx="${obs.indexOf(o)}"
                            style="width:14px;height:14px;accent-color:var(--primary)"
@@ -4620,7 +4622,7 @@ async function renderPaso1(container) {
                       : '—'
                   }</td>
                   <td>${esc(o.moneda)}</td>
-                  <td class="text-right fw-semibold" style="${montoColor}">${fmtMonto(o.monto)}</td>
+                  <td class="text-right fw-semibold" style="${montoColor}">${fmtMonto(o.monto)}${o.esParcial ? `<br><span style="font-size:9px;font-weight:600;color:#92400e;background:#fef3c7;border-radius:3px;padding:0 3px">PARCIAL</span>` : ''}</td>
                   <td class="text-right fw-semibold" style="${!esLocal?'color:#3b82f6':''}">
                     ${fmtMonto(montoSol)}
                   </td>
@@ -4646,6 +4648,15 @@ async function renderPaso1(container) {
                                onchange="pgActGrupo('${esc(o.pagarA)}',this.value,'detalleGrupo')">
                          ${dtOpts}
                        </select>`}
+                  </td>
+                  <td style="text-align:center;padding:2px">
+                    ${!readOnly
+                      ? (o.esParcial
+                          ? `<button class="btn btn-outline btn-sm" style="color:var(--danger);padding:1px 5px;font-size:13px" title="Eliminar pago parcial" onclick="pgEliminarParcial('${o._id}')">🗑️</button>`
+                          : (!tieneParcial
+                              ? `<button class="btn btn-outline btn-sm" style="padding:1px 5px;font-size:13px" title="Definir pago parcial" onclick="pgPagoParcial('${o._id}')">✂️</button>`
+                              : `<span style="font-size:10px;color:var(--text-muted)" title="Ya tiene un pago parcial">✂️</span>`))
+                      : ''}
                   </td>
                 </tr>`;
               }).join('')}
@@ -4825,6 +4836,49 @@ async function renderPaso1(container) {
       await PUT(`/pagos/programaciones/${progActual._id}/grupo-beneficiario`,
         { nombre: pagarA, [campo]: nuevo });
     } catch(e) { toast('Error guardando: ' + e.message, 'error'); }
+  };
+
+  // ── Pago parcial ──────────────────────────────────────────────────
+  window.pgPagoParcial = (oblId) => {
+    const ob = progActual?.obligaciones?.find(o => String(o._id) === oblId);
+    if (!ob) return;
+    const html = `
+      <div style="margin-bottom:14px;font-size:13px">
+        <strong>${esc(ob.pagarA)}</strong><br>
+        <span style="color:var(--text-muted)">${esc(ob.tipoDocumento)} ${esc(ob.numeroDocumento)}</span><br>
+        Monto total: <strong>${esc(ob.moneda)} ${fmtMonto(ob.monto)}</strong>
+      </div>
+      <label class="form-label">Importe del pago parcial (${esc(ob.moneda)})</label>
+      <input id="pg-parcial-monto" type="number" step="0.01" min="0.01" max="${ob.monto - 0.01}"
+             class="form-control" style="width:200px" placeholder="0.00">
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancelar</button>
+        <button id="pg-parcial-ok" class="btn btn-primary btn-sm">✂️ Crear pago parcial</button>
+      </div>`;
+    openModal('✂️ Pago Parcial', html);
+    setTimeout(() => document.getElementById('pg-parcial-monto')?.focus(), 50);
+    document.getElementById('pg-parcial-ok').addEventListener('click', async () => {
+      const monto = parseFloat(document.getElementById('pg-parcial-monto').value);
+      if (!monto || monto <= 0) return toast('Ingresa un importe válido', 'error');
+      if (monto >= ob.monto) return toast(`El importe parcial debe ser menor al total (${fmtMonto(ob.monto)})`, 'error');
+      try {
+        const prog = await POST(`/pagos/programaciones/${progActual._id}/pago-parcial`, { obligacionId: oblId, montoParcial: monto });
+        progActual.obligaciones = prog.obligaciones;
+        closeModal();
+        toast('Pago parcial creado', 'success');
+        renderTabla(); renderResumenes();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  };
+
+  window.pgEliminarParcial = async (oblId) => {
+    if (!confirm('¿Eliminar este pago parcial? La obligación original quedará desmarcada.')) return;
+    try {
+      const prog = await DEL(`/pagos/programaciones/${progActual._id}/obligaciones/${oblId}`);
+      progActual.obligaciones = prog.obligaciones;
+      toast('Pago parcial eliminado', 'success');
+      renderTabla(); renderResumenes();
+    } catch (e) { toast(e.message, 'error'); }
   };
 
   // ── Guardar selecciones ────────────────────────────────────────────

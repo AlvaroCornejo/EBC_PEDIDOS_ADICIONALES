@@ -242,6 +242,78 @@ router.delete('/programaciones/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── POST /api/pagos/programaciones/:id/pago-parcial ─────────────────────────
+// Crea una nueva obligación con el importe parcial (clonada de la original) y
+// desmarca la original. Solo una parcial por obligación original a la vez.
+router.post('/programaciones/:id/pago-parcial', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania)) return res.status(403).json({ error: 'Sin acceso' });
+    if (!['borrador','pendiente'].includes(prog.estado))
+      return res.status(400).json({ error: 'Solo se puede hacer pago parcial en borrador o pendiente' });
+
+    const { obligacionId, montoParcial } = req.body;
+    const monto = parseFloat(montoParcial);
+    if (!monto || monto <= 0) return res.status(400).json({ error: 'Importe parcial inválido' });
+
+    const ob = prog.obligaciones.id(obligacionId);
+    if (!ob) return res.status(404).json({ error: 'Obligación no encontrada' });
+    if (ob.esParcial) return res.status(400).json({ error: 'No se puede hacer un parcial de otra parcial' });
+    if (monto >= ob.monto) return res.status(400).json({ error: `El importe parcial debe ser menor al total (${ob.monto})` });
+
+    const yaTieneParcial = prog.obligaciones.some(o => o.esParcial && o.obligacionOrigenId === String(ob._id));
+    if (yaTieneParcial) return res.status(400).json({ error: 'Esta obligación ya tiene un pago parcial. Elimínalo primero.' });
+
+    ob.seleccionado = false;
+    prog.obligaciones.push({
+      tipoDocumento:      ob.tipoDocumento,
+      numeroDocumento:    ob.numeroDocumento,
+      fechaVencimiento:   ob.fechaVencimiento,
+      fechaDocumento:     ob.fechaDocumento,
+      moneda:             ob.moneda,
+      monto:              Math.round(monto * 100) / 100,
+      pagarA:             ob.pagarA,
+      banco:              ob.banco,
+      diasVencido:        ob.diasVencido,
+      grupo:              ob.grupo,
+      detalleGrupo:       ob.detalleGrupo,
+      seleccionado:       true,
+      esParcial:          true,
+      obligacionOrigenId: String(ob._id),
+      bancoAsignado:      ob.bancoAsignado || '',
+      agrupadorPago:      ob.agrupadorPago || 'INDIVIDUAL',
+      retencion:          ob.retencion || 0,
+    });
+    await prog.save();
+    res.json(prog);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /api/pagos/programaciones/:id/obligaciones/:oblId ─────────────────
+// Elimina una obligación parcial y re-selecciona la original.
+router.delete('/programaciones/:id/obligaciones/:oblId', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania)) return res.status(403).json({ error: 'Sin acceso' });
+    if (!['borrador','pendiente'].includes(prog.estado))
+      return res.status(400).json({ error: 'No se puede modificar en este estado' });
+
+    const ob = prog.obligaciones.id(req.params.oblId);
+    if (!ob) return res.status(404).json({ error: 'Obligación no encontrada' });
+    if (!ob.esParcial) return res.status(400).json({ error: 'Solo se pueden eliminar obligaciones parciales por esta ruta' });
+
+    if (ob.obligacionOrigenId) {
+      const orig = prog.obligaciones.id(ob.obligacionOrigenId);
+      if (orig) orig.seleccionado = true;
+    }
+    ob.deleteOne();
+    await prog.save();
+    res.json(prog);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── GET /api/pagos/fecha-pago ─────────────────────────────────────────────────
 router.get('/fecha-pago', (req, res) => {
   const fp = proxViernes();
