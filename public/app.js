@@ -4147,6 +4147,7 @@ async function renderPaso1(container) {
             </button>
             <span id="pg-filename" style="font-size:11px;color:var(--text-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:160px">Sin archivo</span>
             <button class="btn btn-primary btn-sm" id="pg-cargar" style="width:100%;justify-content:center">📂 Cargar</button>
+            <button class="btn btn-outline btn-sm" id="pg-agregar" style="width:100%;justify-content:center">➕ Agregar oblig.</button>
           </div>
 
           <!-- Pagos -->
@@ -4481,6 +4482,31 @@ async function renderPaso1(container) {
       await renderTablaYResumenes();
       pgSetProgress('prog', 100, `✓ ${data.total} obligaciones cargadas`);
       toast(`${data.total} obligaciones cargadas`, 'success');
+    } catch(e) {
+      document.getElementById('pg-prog-wrap-prog')?.remove();
+      toast(e.message, 'error');
+    }
+  });
+
+  // ── Agregar obligaciones (sin eliminar las existentes) ───────────────
+  document.getElementById('pg-agregar').addEventListener('click', async () => {
+    const file = document.getElementById('pg-file').files[0];
+    if (!progActual) { toast('Primero carga una programación', 'error'); return; }
+    if (!['borrador','pendiente'].includes(progActual.estado)) { toast('Solo se pueden agregar obligaciones en estado borrador o pendiente', 'error'); return; }
+    if (!file) { toast('Selecciona el archivo CSV', 'error'); return; }
+    const fd = new FormData();
+    fd.append('archivo', file);
+    pgSetProgress('prog', 0, 'Agregando obligaciones...');
+    try {
+      const data = await pgUploadXHR(`/api/pagos/programaciones/${progActual._id}/agregar-obligaciones`, fd, 'prog');
+      pgSetProgress('prog', 92, 'Cargando programación...');
+      progActual = await GET(`/pagos/programaciones/${progActual._id}`);
+      progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
+      await pgAdelantosResumen(progActual.compania);
+      pgSetProgress('prog', 98, 'Renderizando tabla...');
+      await renderTablaYResumenes();
+      pgSetProgress('prog', 100, `✓ ${data.added} nuevas, ${data.skipped} ya existían`);
+      toast(`${data.added} obligaciones nuevas agregadas${data.skipped ? ` (${data.skipped} ya existían)` : ''}`, 'success');
     } catch(e) {
       document.getElementById('pg-prog-wrap-prog')?.remove();
       toast(e.message, 'error');
@@ -5324,6 +5350,9 @@ async function renderPaso2(container) {
           ${puedeAprobar && ap2Prog.estado !== 'aprobado' ? `
             <button class="btn btn-primary btn-sm" onclick="ap2Aprobar()"
                     style="background:#16a34a;border-color:#16a34a">✅ Aprobar</button>` : ''}
+          ${puedeAprobar && ap2Prog.estado === 'aprobado' ? `
+            <button class="btn btn-sm" onclick="ap2Desaprobar()"
+                    style="border:1px solid #f59e0b;color:#b45309;background:#fffbeb">↩️ Desaprobar</button>` : ''}
           ${(ap2Prog.estado !== 'aprobado' || S.user.role === 'ADMIN') ? `
             <button class="btn btn-sm" onclick="ap2Eliminar()"
                     style="border:1px solid #dc2626;color:#dc2626;background:#fff">🗑️ Eliminar</button>` : ''}
@@ -5409,6 +5438,18 @@ async function renderPaso2(container) {
       ap2Prog = null;
       document.getElementById('ap2-wrap').innerHTML = '';
       document.getElementById('ap2-filtros').style.display = 'none';
+      ap2RenderFooter();
+      await ap2CargarLista();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.ap2Desaprobar = async function() {
+    if (!ap2Prog) return;
+    if (!confirm('¿Desaprobar esta programación? Volverá al estado "Pendiente" para revisión.')) return;
+    try {
+      await PUT(`/pagos/programaciones/${ap2Prog._id}/desaprobar`, {});
+      toast('↩️ Programación desaprobada', 'success');
+      ap2Prog.estado = 'pendiente';
       ap2RenderFooter();
       await ap2CargarLista();
     } catch(e) { toast(e.message, 'error'); }

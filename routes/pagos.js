@@ -614,6 +614,95 @@ router.put('/programaciones/:id/aprobar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── PUT /api/pagos/programaciones/:id/desaprobar ─────────────────────────────
+router.put('/programaciones/:id/desaprobar', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (prog.estado !== 'aprobado')
+      return res.status(400).json({ error: 'Solo se pueden desaprobar programaciones aprobadas' });
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['aprobador','admin'].includes(rol))
+      return res.status(403).json({ error: 'No tiene permiso para desaprobar programaciones' });
+    prog.estado      = 'pendiente';
+    prog.aprobadoPor = undefined;
+    prog.aprobadoEn  = undefined;
+    await prog.save();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/pagos/programaciones/:id/agregar-obligaciones ──────────────────
+// Agrega solo las obligaciones nuevas del CSV (no elimina ni modifica las existentes)
+router.post('/programaciones/:id/agregar-obligaciones', upload.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (!['borrador','pendiente'].includes(prog.estado))
+      return res.status(400).json({ error: 'Solo se pueden agregar obligaciones en estado borrador o pendiente' });
+
+    const rows = parseCSVProgramacion(req.file.buffer);
+    if (!rows.length) return res.status(400).json({ error: 'Archivo vacío o inválido' });
+
+    // Claves de obligaciones ya existentes (excluye parciales que son sintéticas)
+    const existingKeys = new Set(
+      prog.obligaciones
+        .filter(o => !o.esParcial)
+        .map(o => `${o.tipoDocumento}|${o.numeroDocumento}`)
+    );
+
+    const benefMap = {};
+    const bens = await PagoBeneficiario.find({ compania: prog.compania }).lean();
+    bens.forEach(b => { benefMap[b.nombre.trim().toUpperCase()] = b; });
+
+    const fechaPago = prog.fechaPago;
+    const nuevas = [];
+
+    for (const r of rows) {
+      const pagarA = (r['PagarA'] || '').trim();
+      if (!pagarA) continue;
+      const docKey = `${(r['TipoDocumento']||'').trim()}|${(r['NumeroDocumento']||'').trim()}`;
+      if (existingKeys.has(docKey)) continue;
+
+      const fv = parseFecha(r['FechaVencimiento']);
+      const fd = parseFecha(r['FechaDocumento']);
+      const diasVencido = fv ? Math.round((new Date(fechaPago) - fv) / 86400000) : 0;
+      const bkey = pagarA.toUpperCase();
+
+      nuevas.push({
+        tipoDocumento:    (r['TipoDocumento'] || '').trim(),
+        numeroDocumento:  (r['NumeroDocumento'] || '').trim(),
+        fechaVencimiento: fv,
+        moneda:           (r['MonedaDocumento'] || '').trim(),
+        monto:            parseFloat(r['MontoMoneda']) || 0,
+        pagarA,
+        fechaDocumento:   fd,
+        banco:            (r['Banco'] || '').trim(),
+        diasVencido,
+        grupo:            benefMap[bkey]?.grupo        || 'OTROS',
+        detalleGrupo:     benefMap[bkey]?.detalleGrupo || 'OTROS',
+        seleccionado:     diasVencido >= 0 && diasVencido <= 9,
+        bancoAsignado:    (r['MonedaDocumento']||'').trim() === 'LO'
+                            ? (benefMap[bkey]?.bancoDefaultSOL || '')
+                            : (benefMap[bkey]?.bancoDefaultUSD || ''),
+        agrupadorPago:    (r['MonedaDocumento']||'').trim() === 'LO'
+                            ? (benefMap[bkey]?.agrupadorDefaultSOL || 'INDIVIDUAL')
+                            : (benefMap[bkey]?.agrupadorDefaultUSD || 'INDIVIDUAL'),
+      });
+    }
+
+    prog.obligaciones.push(...nuevas);
+    await prog.save();
+    const validInCSV = rows.filter(r => (r['PagarA']||'').trim()).length;
+    res.json({ added: nuevas.length, skipped: validInCSV - nuevas.length, total: prog.obligaciones.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /api/pagos/programaciones/:id/enviar-aprobacion ─────────────────────
 router.post('/programaciones/:id/enviar-aprobacion', async (req, res) => {
   try {
