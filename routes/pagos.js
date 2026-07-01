@@ -266,6 +266,7 @@ router.post('/programaciones/:id/pago-parcial', async (req, res) => {
     if (yaTieneParcial) return res.status(400).json({ error: 'Esta obligación ya tiene un pago parcial. Elimínalo primero.' });
 
     ob.seleccionado = false;
+    ob.monto = Math.round((ob.monto - monto) * 100) / 100; // queda el saldo pendiente
     prog.obligaciones.push({
       tipoDocumento:      ob.tipoDocumento,
       numeroDocumento:    ob.numeroDocumento,
@@ -306,7 +307,10 @@ router.delete('/programaciones/:id/obligaciones/:oblId', async (req, res) => {
 
     if (ob.obligacionOrigenId) {
       const orig = prog.obligaciones.id(ob.obligacionOrigenId);
-      if (orig) orig.seleccionado = true;
+      if (orig) {
+        orig.seleccionado = true;
+        orig.monto = Math.round((orig.monto + ob.monto) * 100) / 100;
+      }
     }
     ob.deleteOne();
     await prog.save();
