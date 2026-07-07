@@ -4233,6 +4233,7 @@ async function renderPaso1(container) {
         </div>
         <button class="btn btn-outline btn-sm" onclick="pgLimpiarFiltros()">✕ Limpiar</button>
         <div id="pg-footer-btns" style="display:none;align-items:center;gap:8px;margin-left:auto">
+          <button class="btn btn-outline btn-sm" id="pg-aplicar-ebc-btn" style="display:none">📋 Aplicar EBC</button>
           <button class="btn btn-outline btn-sm" id="pg-guardar-btn">💾 Guardar</button>
           <button class="btn btn-primary btn-sm" id="pg-enviar-btn">📤 Enviar a Aprobación</button>
         </div>
@@ -4572,6 +4573,11 @@ async function renderPaso1(container) {
         btnWrap.style.display = 'flex';
         document.getElementById('pg-guardar-btn').onclick = pgGuardar;
         document.getElementById('pg-enviar-btn').onclick = pgEnviarAprobacion;
+        const aplicarEbcBtn = document.getElementById('pg-aplicar-ebc-btn');
+        if (aplicarEbcBtn) {
+          aplicarEbcBtn.style.display = '';
+          aplicarEbcBtn.onclick = pgAplicarEBC;
+        }
       } else {
         btnWrap.style.display = 'none';
       }
@@ -4952,6 +4958,25 @@ async function renderPaso1(container) {
     try {
       await PUT(`/pagos/programaciones/${progActual._id}/guardar`, { selecciones });
       toast('Programación guardada', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  }
+
+  // ── Aplicar obligaciones EBC seleccionadas ────────────────────────
+  async function pgAplicarEBC() {
+    if (!progActual) return;
+    const compania = document.getElementById('pg-compania')?.value || progActual.compania;
+    if (!compania) { toast('Selecciona una empresa primero', 'error'); return; }
+    if (!confirm('¿Aplicar las obligaciones EBC seleccionadas a esta programación?')) return;
+    try {
+      const r = await POST('/obligaciones-ebc/aplicar', { compania, progId: progActual._id });
+      if (r.applied === 0) {
+        toast('No hay obligaciones EBC seleccionadas para esta empresa', 'info');
+      } else {
+        toast(`✅ ${r.applied} obligación(es) EBC aplicada(s)`, 'success');
+        const updated = await GET(`/pagos/programaciones/${progActual._id}`);
+        progActual = updated;
+        renderTablaYResumenes();
+      }
     } catch(e) { toast(e.message, 'error'); }
   }
 
@@ -5384,6 +5409,8 @@ async function renderPaso2(container) {
           ${ap2Prog.estado === 'aprobado'
             ? `<span style="font-size:11px;background:#bbf7d0;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Aprobada</span>`
             : ''}
+          ${['borrador','pendiente'].includes(ap2Prog.estado) ? `
+            <button class="btn btn-outline btn-sm" onclick="ap2AplicarEBC()">📋 Aplicar EBC</button>` : ''}
           <button class="btn btn-outline btn-sm" onclick="ap2Guardar()">💾 Guardar</button>
           ${puedeAprobar && ap2Prog.estado !== 'aprobado' ? `
             <button class="btn btn-primary btn-sm" onclick="ap2Aprobar()"
@@ -5454,6 +5481,24 @@ async function renderPaso2(container) {
     ap2RenderGrupos();
     ap2RestoreState(state);
     ap2RenderFooter();
+  };
+
+  window.ap2AplicarEBC = async function() {
+    if (!ap2Prog) return;
+    const compania = ap2Prog.compania;
+    if (!confirm('¿Aplicar las obligaciones EBC seleccionadas a esta programación?')) return;
+    try {
+      const r = await POST('/obligaciones-ebc/aplicar', { compania, progId: ap2Prog._id });
+      if (r.applied === 0) {
+        toast('No hay obligaciones EBC seleccionadas para esta empresa', 'info');
+      } else {
+        toast(`✅ ${r.applied} obligación(es) EBC aplicada(s)`, 'success');
+        const updated = await GET(`/pagos/programaciones/${ap2Prog._id}`);
+        ap2Prog = updated;
+        ap2RenderGrupos();
+        ap2RenderFooter();
+      }
+    } catch(e) { toast(e.message, 'error'); }
   };
 
   window.ap2Guardar = async function() {
@@ -9439,7 +9484,7 @@ async function viewAutorizacionesPago(container) {
 
   container.innerHTML = `
     <div class="page-header">
-      <div class="page-title">📋 Autorizaciones de Pago — EBC</div>
+      <div class="page-title">📋 Incluir Pagos</div>
     </div>
     <div class="page-body">
 
@@ -9528,6 +9573,7 @@ function ebcRenderTabla() {
             <th>Mon.</th>
             <th class="text-right">Monto</th>
             <th>Estado Doc</th>
+            <th>Comentario</th>
             <th>Autorización</th>
           </tr></thead>
           <tbody>
@@ -9539,7 +9585,7 @@ function ebcRenderTabla() {
               const authBadge = seleccionado
                 ? `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 5px;font-weight:600">✅ ${esc(o.seleccionadoPor)}</span>`
                 : `<span style="font-size:10px;color:var(--text-muted)">Pendiente</span>`;
-              return `<tr style="${seleccionado ? 'background:#f0fdf4;' : ''}${o.pendienteNextProg ? 'background:#fffbeb;' : ''}">
+              return `<tr style="${seleccionado ? 'background:#f0fdf4;' : ''}">
                 <td class="text-center">
                   <input type="checkbox" ${seleccionado ? 'checked' : ''}
                     style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
@@ -9552,7 +9598,10 @@ function ebcRenderTabla() {
                 <td>${esc(o.moneda)}</td>
                 <td class="text-right fw-semibold" style="${o.monto < 0 ? 'color:#ef4444' : ''}">${fmtM(o.monto)}</td>
                 <td>${estadoBadge}</td>
-                <td>${authBadge}${o.pendienteNextProg ? `<span style="font-size:10px;color:#92400e;margin-left:4px">⏳ Sig. prog.</span>` : ''}</td>
+                <td><input type="text" value="${esc(o.comentario||'')}" placeholder="Comentario…"
+                      style="width:160px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:transparent"
+                      onblur="ebcGuardarComentario('${o._id}', this.value)"></td>
+                <td>${authBadge}</td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -9564,45 +9613,29 @@ function ebcRenderTabla() {
 window.ebcToggleObl = async function(id, checked, cbEl) {
   cbEl.disabled = true;
   try {
-    let data;
-    if (checked) {
-      data = await PUT(`/obligaciones-ebc/${id}/seleccionar`, {});
-    } else {
-      data = await PUT(`/obligaciones-ebc/${id}/deseleccionar`, {});
-    }
-
-    if (checked) {
-      if (data.progAprobada) {
-        toast('⚠️ La programación ya está aprobada. Esta obligación se incluirá en la siguiente programación.', 'info');
-      } else if (data.added) {
-        toast('✅ Obligación agregada a la programación abierta', 'success');
-      } else if (data.linked) {
-        toast('✅ Marcada en la programación', 'success');
-      } else if (data.noProg) {
-        toast('ℹ️ No hay programación abierta para esta empresa. La obligación queda pendiente.', 'info');
-      } else {
-        toast('✅ Autorizado', 'success');
-      }
-    } else {
-      toast('Obligación desmarcada', 'info');
-    }
-
-    // Update local state
+    const endpoint = checked ? `/obligaciones-ebc/${id}/seleccionar` : `/obligaciones-ebc/${id}/deseleccionar`;
+    await PUT(endpoint, {});
     const ob = _ebcObligaciones.find(o => o._id === id);
     if (ob) {
-      if (checked) {
-        ob.seleccionadoPor = S.user.username;
-        ob.pendienteNextProg = !!(data.progAprobada || data.noProg);
-      } else {
-        ob.seleccionadoPor = null;
-        ob.pendienteNextProg = false;
-      }
+      ob.seleccionadoPor = checked ? S.user.username : null;
+      ob.pendienteNextProg = false;
     }
+    toast(checked ? '✅ Obligación incluida' : 'Obligación desmarcada', checked ? 'success' : 'info');
     ebcRenderTabla();
   } catch(e) {
     toast(e.message, 'error');
-    cbEl.checked = !checked; // revert
+    cbEl.checked = !checked;
     cbEl.disabled = false;
+  }
+};
+
+window.ebcGuardarComentario = async function(id, comentario) {
+  try {
+    await PUT(`/obligaciones-ebc/${id}/seleccionar`, { comentario });
+    const ob = _ebcObligaciones.find(o => o._id === id);
+    if (ob) ob.comentario = comentario;
+  } catch(e) {
+    toast(e.message, 'error');
   }
 };
 

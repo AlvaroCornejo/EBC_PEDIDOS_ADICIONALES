@@ -13,10 +13,11 @@ const schema = new mongoose.Schema({
   estadoDoc:         String,  // AP / PP
   responsable:       String,  // NombreCompleto
   // Selection state
-  seleccionadoPor:   String,  // username who selected it
+  seleccionadoPor:   String,
   seleccionadoEn:    Date,
-  programacionId:    String,  // _id of programacion where it was included
-  pendienteNextProg: { type: Boolean, default: false }, // if prog was approved at selection time
+  comentario:        { type: String, default: '' },
+  programacionId:    String,
+  pendienteNextProg: { type: Boolean, default: false },
   cargadoEn:         { type: Date, default: Date.now },
 });
 schema.index({ compania: 1, proveedorKey: 1 });

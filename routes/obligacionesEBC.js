@@ -175,104 +175,13 @@ router.get('/', async (req, res) => {
 router.put('/:id/seleccionar', async (req, res) => {
   try {
     if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
-
     const obl = await ObligacionEBC.findById(req.params.id);
     if (!obl) return res.status(404).json({ error: 'Obligación no encontrada' });
-
-    const { progId } = req.body || {};
-
-    // Buscar programación activa para esta compañía que tenga la obligación por TipoDocumento+NumeroDocumento
-    let progVinculada = null;
-    let obVinculada   = null;
-
-    // Primero buscar en progId específico si se pasó
-    if (progId) {
-      const p = await PagoProgramacion.findById(progId);
-      if (p && p.compania === obl.compania && ['borrador','pendiente','aprobado'].includes(p.estado)) {
-        const ob = p.obligaciones.find(o =>
-          o.tipoDocumento === obl.tipoDocumento && o.numeroDocumento === obl.numeroDocumento
-        );
-        if (ob) { progVinculada = p; obVinculada = ob; }
-      }
-    }
-
-    // Si no se encontró por progId, buscar en cualquier prog de esa compañía
-    if (!progVinculada) {
-      const progs = await PagoProgramacion.find({
-        compania: obl.compania,
-        estado: { $in: ['borrador','pendiente','aprobado'] }
-      }).sort({ creadoEn: -1 });
-
-      for (const p of progs) {
-        const ob = p.obligaciones.find(o =>
-          o.tipoDocumento === obl.tipoDocumento && o.numeroDocumento === obl.numeroDocumento
-        );
-        if (ob) { progVinculada = p; obVinculada = ob; break; }
-      }
-    }
-
-    if (progVinculada && obVinculada) {
-      if (['borrador','pendiente'].includes(progVinculada.estado)) {
-        // Marcar en la programación
-        obVinculada.seleccionado = true;
-        obVinculada.origenEBC    = true;
-        await progVinculada.save();
-
-        obl.seleccionadoPor  = req.user.username;
-        obl.seleccionadoEn   = new Date();
-        obl.programacionId   = String(progVinculada._id);
-        obl.pendienteNextProg = false;
-        await obl.save();
-
-        return res.json({ ok: true, linked: true, progEstado: progVinculada.estado });
-      } else {
-        // Estado aprobado — no modificar prog
-        obl.seleccionadoPor   = req.user.username;
-        obl.seleccionadoEn    = new Date();
-        obl.programacionId    = String(progVinculada._id);
-        obl.pendienteNextProg = true;
-        await obl.save();
-
-        return res.json({ ok: true, linked: false, progAprobada: true });
-      }
-    }
-
-    // No se encontró la obligación en ninguna prog → intentar agregar a una borrador/pendiente
-    const progAbierta = await PagoProgramacion.findOne({
-      compania: obl.compania,
-      estado: { $in: ['borrador','pendiente'] }
-    }).sort({ creadoEn: -1 });
-
-    if (progAbierta) {
-      progAbierta.obligaciones.push({
-        tipoDocumento:   obl.tipoDocumento,
-        numeroDocumento: obl.numeroDocumento,
-        fechaVencimiento: obl.fechaVencimiento,
-        fechaDocumento:  obl.fechaDocumento,
-        moneda:          obl.moneda,
-        monto:           obl.monto,
-        pagarA:          obl.proveedor,
-        seleccionado:    true,
-        origenEBC:       true,
-      });
-      await progAbierta.save();
-
-      obl.seleccionadoPor   = req.user.username;
-      obl.seleccionadoEn    = new Date();
-      obl.programacionId    = String(progAbierta._id);
-      obl.pendienteNextProg = false;
-      await obl.save();
-
-      return res.json({ ok: true, linked: true, added: true, progEstado: progAbierta.estado });
-    }
-
-    // No hay prog abierta
-    obl.seleccionadoPor   = req.user.username;
-    obl.seleccionadoEn    = new Date();
-    obl.pendienteNextProg = true;
+    obl.seleccionadoPor = req.user.username;
+    obl.seleccionadoEn  = new Date();
+    if (req.body && req.body.comentario !== undefined) obl.comentario = req.body.comentario;
     await obl.save();
-
-    return res.json({ ok: true, linked: false, noProg: true });
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -280,32 +189,62 @@ router.put('/:id/seleccionar', async (req, res) => {
 router.put('/:id/deseleccionar', async (req, res) => {
   try {
     if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
-
     const obl = await ObligacionEBC.findById(req.params.id);
     if (!obl) return res.status(404).json({ error: 'Obligación no encontrada' });
-
-    // Desmarcar en programación si estaba vinculada
-    if (obl.programacionId) {
-      const prog = await PagoProgramacion.findById(obl.programacionId);
-      if (prog) {
-        const ob = prog.obligaciones.find(o =>
-          o.tipoDocumento === obl.tipoDocumento && o.numeroDocumento === obl.numeroDocumento
-        );
-        if (ob && ob.origenEBC) {
-          ob.seleccionado = false;
-          ob.origenEBC    = false;
-          await prog.save();
-        }
-      }
-    }
-
     obl.seleccionadoPor   = undefined;
     obl.seleccionadoEn    = undefined;
     obl.programacionId    = undefined;
     obl.pendienteNextProg = false;
     await obl.save();
-
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /aplicar ─────────────────────────────────────────────────
+router.post('/aplicar', async (req, res) => {
+  try {
+    if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const { compania, progId } = req.body || {};
+    if (!compania || !progId) return res.status(400).json({ error: 'compania y progId requeridos' });
+
+    const prog = await PagoProgramacion.findById(progId);
+    if (!prog) return res.status(404).json({ error: 'Programación no encontrada' });
+    if (prog.compania !== compania) return res.status(400).json({ error: 'Compañía no coincide' });
+    if (!['borrador','pendiente'].includes(prog.estado))
+      return res.status(400).json({ error: `La programación está en estado "${prog.estado}" y no puede modificarse` });
+
+    const seleccionadas = await ObligacionEBC.find({ compania, seleccionadoPor: { $exists: true, $ne: null } }).lean();
+    if (!seleccionadas.length) return res.json({ ok: true, applied: 0 });
+
+    let applied = 0;
+    for (const obl of seleccionadas) {
+      const existing = prog.obligaciones.find(o =>
+        o.tipoDocumento === obl.tipoDocumento && o.numeroDocumento === obl.numeroDocumento
+      );
+      if (existing) {
+        existing.origenEBC = true;
+        if (obl.comentario) existing.observaciones = obl.comentario;
+        applied++;
+      } else {
+        prog.obligaciones.push({
+          tipoDocumento:    obl.tipoDocumento,
+          numeroDocumento:  obl.numeroDocumento,
+          fechaVencimiento: obl.fechaVencimiento,
+          fechaDocumento:   obl.fechaDocumento,
+          moneda:           obl.moneda,
+          monto:            obl.monto,
+          pagarA:           obl.proveedor,
+          origenEBC:        true,
+          observaciones:    obl.comentario || '',
+        });
+        applied++;
+      }
+      // Registrar el progId en la obligación
+      await ObligacionEBC.findByIdAndUpdate(obl._id, { programacionId: String(prog._id), pendienteNextProg: false });
+    }
+
+    await prog.save();
+    res.json({ ok: true, applied, total: seleccionadas.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
