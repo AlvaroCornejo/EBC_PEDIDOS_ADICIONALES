@@ -166,7 +166,7 @@ router.get('/', async (req, res) => {
     if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
     const { compania } = req.query;
     const filter = compania ? { compania } : {};
-    const docs = await ObligacionEBC.find(filter).sort({ fechaVencimiento: 1 }).lean();
+    const docs = await ObligacionEBC.find(filter).sort({ proveedor: 1, fechaVencimiento: 1 }).lean();
     res.json(docs);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
