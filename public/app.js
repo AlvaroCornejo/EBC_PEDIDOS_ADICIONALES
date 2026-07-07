@@ -10975,11 +10975,6 @@ function showUserModal(user, onSave) {
           ${CAJA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCaja||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group"><label>Rol para Autorizaciones de Pago (EBC)</label>
-        <select id="um-rol-obligaciones">
-          ${OBLIG_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolObligaciones||'')=== k?'selected':''}>${v}</option>`).join('')}
-        </select>
-      </div>
       <div class="form-group" id="um-socs-pago-section"><label>Sociedades Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
@@ -11073,6 +11068,11 @@ function showUserModal(user, onSave) {
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🔻 <strong>Seguimiento de Bajas</strong></span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-obligaciones" ${user?.rolObligaciones==='autorizador'?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>📋 <strong>Incluir Pago de Obligaciones</strong></span>
+          </label>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -11113,7 +11113,7 @@ function showUserModal(user, onSave) {
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,
-      rolObligaciones:  isAdmin ? '' : document.getElementById('um-rol-obligaciones').value,
+      rolObligaciones:  isAdmin ? '' : (document.getElementById('um-obligaciones')?.checked ? 'autorizador' : ''),
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       transferenciaDestinos: isAdmin ? [] : [...document.querySelectorAll('input[name="um-transf-dest"]:checked')].map(cb => cb.value),
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
