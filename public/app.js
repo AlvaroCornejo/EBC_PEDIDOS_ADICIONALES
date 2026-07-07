@@ -260,7 +260,7 @@ const NAV_ITEMS = [
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
-  { id: 'autorizaciones', label: 'Autorizar Pagos', icon: '📋', roles: [ROLES.ADMIN], extraPermAny: ['rolObligaciones', 'rolPago'] },
+  { id: 'autorizaciones', label: 'Incluir Pagos', icon: '📋', roles: [ROLES.ADMIN], extraPermAny: ['rolObligaciones', 'rolPago'] },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -4174,6 +4174,18 @@ async function renderPaso1(container) {
             <button class="btn btn-primary btn-sm" id="pg-cargar-adelantos" style="width:100%;justify-content:center">📂 Cargar</button>
           </div>
 
+          <!-- EBC Obligaciones (solo programador/admin) -->
+          ${(S.user.rolPago === 'programador' || S.user.rolPago === 'admin' || S.user.role === 'ADMIN') ? `
+          <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Obligaciones EBC</label>
+            <input type="file" id="pg-file-ebc" accept=".csv" style="display:none">
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-ebc').click()" style="width:100%;justify-content:center">
+              📋 Seleccionar
+            </button>
+            <span id="pg-filename-ebc" style="font-size:11px;color:var(--text-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:160px">Sin archivo</span>
+            <button class="btn btn-primary btn-sm" id="pg-cargar-ebc" style="width:100%;justify-content:center">📂 Cargar</button>
+          </div>` : ''}
+
         </div>
       </div>
     </div>
@@ -4327,6 +4339,30 @@ async function renderPaso1(container) {
       document.getElementById('pg-prog-wrap-adelantos')?.remove();
       toast(e.message, 'error');
     }
+  });
+
+  // EBC Obligaciones: selección y carga (solo si el botón existe — programador/admin)
+  document.getElementById('pg-file-ebc')?.addEventListener('change', e => {
+    const f = e.target.files[0];
+    document.getElementById('pg-filename-ebc').textContent = f ? f.name : 'Sin archivo';
+  });
+  document.getElementById('pg-cargar-ebc')?.addEventListener('click', async () => {
+    const file = document.getElementById('pg-file-ebc').files[0];
+    if (!file) { toast('Selecciona el archivo EBC OBLIGACIONES.csv', 'error'); return; }
+    const fd = new FormData();
+    fd.append('archivo', file);
+    try {
+      const res = await fetch(`${API}/obligaciones-ebc/cargar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${S.token}` },
+        body: fd
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+      toast(`✅ ${data.insertados} obligaciones cargadas (${(data.companias||[]).join(', ')})`, 'success');
+      document.getElementById('pg-filename-ebc').textContent = 'Sin archivo';
+      document.getElementById('pg-file-ebc').value = '';
+    } catch(e) { toast(e.message, 'error'); }
   });
 
   // Ver relación de adelantos
@@ -9406,15 +9442,6 @@ async function viewAutorizacionesPago(container) {
       <div class="page-title">📋 Autorizaciones de Pago — EBC</div>
     </div>
     <div class="page-body">
-      ${isProg ? `
-      <div class="card" style="padding:16px;margin-bottom:20px">
-        <div style="font-weight:600;font-size:13px;margin-bottom:10px">📂 Cargar archivo EBC OBLIGACIONES.csv</div>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <input type="file" id="ebc-file-input" accept=".csv" style="font-size:13px">
-          <button class="btn btn-primary btn-sm" id="ebc-cargar-btn">📂 Cargar EBC Obligaciones</button>
-          <span id="ebc-carga-status" style="font-size:12px;color:var(--text-muted)"></span>
-        </div>
-      </div>` : ''}
 
       <div class="card" style="padding:16px;margin-bottom:12px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -9450,33 +9477,6 @@ async function viewAutorizacionesPago(container) {
   });
 
   document.getElementById('ebc-refresh-btn').addEventListener('click', () => ebcCargarTabla());
-
-  // File upload
-  if (isProg) {
-    document.getElementById('ebc-cargar-btn').addEventListener('click', async () => {
-      const file = document.getElementById('ebc-file-input').files[0];
-      if (!file) { toast('Selecciona el archivo CSV', 'error'); return; }
-      const fd = new FormData();
-      fd.append('archivo', file);
-      const statusEl = document.getElementById('ebc-carga-status');
-      statusEl.textContent = 'Enviando...';
-      try {
-        const res = await fetch(`${API}/obligaciones-ebc/cargar`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${S.token}` },
-          body: fd
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
-        statusEl.textContent = '';
-        toast(`✅ ${data.insertados} obligaciones cargadas (${(data.companias||[]).join(', ')})`, 'success');
-        if (_ebcCompaniaActual) ebcCargarTabla();
-      } catch(e) {
-        statusEl.textContent = '';
-        toast(e.message, 'error');
-      }
-    });
-  }
 
   // Auto-cargar si ya hay compañía seleccionada
   if (_ebcCompaniaActual) ebcCargarTabla();
