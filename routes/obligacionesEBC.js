@@ -185,6 +185,18 @@ router.put('/:id/seleccionar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── PUT /:id/comentario ───────────────────────────────────────────
+router.put('/:id/comentario', async (req, res) => {
+  try {
+    if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const obl = await ObligacionEBC.findById(req.params.id);
+    if (!obl) return res.status(404).json({ error: 'Obligación no encontrada' });
+    obl.comentario = req.body?.comentario || '';
+    await obl.save();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── PUT /:id/deseleccionar ────────────────────────────────────────
 router.put('/:id/deseleccionar', async (req, res) => {
   try {

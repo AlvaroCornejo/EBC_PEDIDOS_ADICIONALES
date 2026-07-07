@@ -9510,7 +9510,7 @@ async function viewAutorizacionesPago(container) {
   _ebcCompanias.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.compania;
-    opt.textContent = `${c.compania} (${c.codigo})`;
+    opt.textContent = c.compania;
     sel.appendChild(opt);
   });
 
@@ -9631,7 +9631,7 @@ window.ebcToggleObl = async function(id, checked, cbEl) {
 
 window.ebcGuardarComentario = async function(id, comentario) {
   try {
-    await PUT(`/obligaciones-ebc/${id}/seleccionar`, { comentario });
+    await PUT(`/obligaciones-ebc/${id}/comentario`, { comentario });
     const ob = _ebcObligaciones.find(o => o._id === id);
     if (ob) ob.comentario = comentario;
   } catch(e) {
