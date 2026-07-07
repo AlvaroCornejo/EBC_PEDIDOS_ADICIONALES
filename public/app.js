@@ -11,6 +11,7 @@ const PAGO_ROLES  = [['','— Sin acceso —'],['programador','Programador (Paso
 const BCT_ROLES   = [['','— Sin acceso —'],['SOLICITUD','Solicitud'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
+const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pagos']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
@@ -259,6 +260,7 @@ const NAV_ITEMS = [
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
+  { id: 'autorizaciones', label: 'Autorizar Pagos', icon: '📋', roles: [ROLES.ADMIN], extraPermAny: ['rolObligaciones', 'rolPago'] },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -318,7 +320,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -4631,7 +4633,7 @@ async function renderPaso1(container) {
                   .map(d => `<option value="${d}" ${o.detalleGrupo===d?'selected':''}>${d}</option>`).join('');
                 const grpOptsRow = grpOpts.replace(`value="${o.grupo}"`, `value="${o.grupo}" selected`);
                 const tieneParcial = progActual?.obligaciones?.some(x => x.esParcial && x.obligacionOrigenId === String(o._id));
-                return `<tr style="${o.esParcial ? 'background:#fef9c3;' : (checked?'background:#f0fdf4;':'')}${pgAdelantoRowStyle(o.pagarA)}">
+                return `<tr style="${o.esParcial ? 'background:#fef9c3;' : (checked?'background:#f0fdf4;':'')}${o.origenEBC ? 'border-left:3px solid #f59e0b;' : ''}${pgAdelantoRowStyle(o.pagarA)}">
                   <td class="text-center">
                     <input type="checkbox" class="pg-check" data-pa="${esc(o.pagarA)}" data-idx="${obs.indexOf(o)}"
                            style="width:14px;height:14px;accent-color:var(--primary)"
@@ -4648,7 +4650,7 @@ async function renderPaso1(container) {
                       : '—'
                   }</td>
                   <td>${esc(o.moneda)}</td>
-                  <td class="text-right fw-semibold" style="${montoColor}">${fmtMonto(o.monto)}${o.esParcial ? `<br><span style="font-size:9px;font-weight:600;color:#92400e;background:#fef3c7;border-radius:3px;padding:0 3px">PARCIAL</span>` : ''}</td>
+                  <td class="text-right fw-semibold" style="${montoColor}">${fmtMonto(o.monto)}${o.esParcial ? `<br><span style="font-size:9px;font-weight:600;color:#92400e;background:#fef3c7;border-radius:3px;padding:0 3px">PARCIAL</span>` : ''}${o.origenEBC ? `<span style="font-size:9px;background:#fef3c7;color:#92400e;border-radius:3px;padding:1px 4px;display:inline-block;margin-left:4px">📋 EBC</span>` : ''}</td>
                   <td class="text-right fw-semibold" style="${!esLocal?'color:#3b82f6':''}">
                     ${fmtMonto(montoSol)}
                   </td>
@@ -5302,7 +5304,7 @@ async function renderPaso2(container) {
                              onchange="ap2ToggleOb('${ob._id}','${benKey}',this.checked)">
                     </td>
                     <td style="padding:2px 4px">${esc(ob.tipoDocumento||'')}</td>
-                    <td style="padding:2px 4px">${esc(ob.numeroDocumento||'')}</td>
+                    <td style="padding:2px 4px">${esc(ob.numeroDocumento||'')}${ob.origenEBC ? `<span style="font-size:9px;background:#fef3c7;color:#92400e;border-radius:3px;padding:1px 4px;display:inline-block;margin-left:4px">📋 EBC</span>` : ''}</td>
                     <td style="padding:2px 4px;white-space:nowrap">${fmtF(ob.fechaDocumento)}</td>
                     <td style="padding:2px 4px;white-space:nowrap">${fmtF(ob.fechaVencimiento)}</td>
                     <td style="padding:2px 4px;text-align:right">${esc(ob.moneda||'')}</td>
@@ -9320,6 +9322,290 @@ window.cjAbrirFormDeposito = function(operacion) {
   });
 };
 
+// ─── Admin: Mapeo Empresas EBC ─────────────────────────────────────
+async function renderAdminEBCCompanias(container) {
+  async function reload() {
+    container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+    let docs = [];
+    try { docs = await GET('/obligaciones-ebc/mapa-companias'); } catch (e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; return; }
+
+    container.innerHTML = `
+      <div style="max-width:540px;padding:16px">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+          Mapea los códigos de compañía del archivo EBC OBLIGACIONES.csv a los nombres de empresa usados en Gestión de Pagos.
+        </p>
+        <div class="card" style="padding:16px;margin-bottom:20px">
+          <label style="font-weight:600;font-size:13px;display:block;margin-bottom:8px">Agregar / Actualizar mapeo</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="text" id="ebc-new-codigo" placeholder="Código (ej. 000001)" style="width:160px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <input type="text" id="ebc-new-compania" placeholder="Empresa (ej. ERSAC)" style="flex:1;min-width:140px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <button class="btn btn-primary btn-sm" id="ebc-add-btn">➕ Agregar</button>
+          </div>
+        </div>
+        <div class="card" style="overflow:hidden">
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Código</th><th>Empresa</th><th style="width:60px"></th></tr></thead>
+            <tbody>
+              ${docs.length === 0
+                ? `<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:20px">Sin mapeos configurados</td></tr>`
+                : docs.map(d => `<tr>
+                    <td><code>${esc(d.codigo)}</code></td>
+                    <td>${esc(d.compania)}</td>
+                    <td><button class="btn btn-outline btn-sm" style="color:var(--danger);padding:2px 8px" onclick="ebcDelCodigo('${esc(d.codigo)}')">🗑️</button></td>
+                  </tr>`).join('')
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    document.getElementById('ebc-add-btn').addEventListener('click', async () => {
+      const codigo   = document.getElementById('ebc-new-codigo').value.trim();
+      const compania = document.getElementById('ebc-new-compania').value.trim();
+      if (!codigo || !compania) { toast('Completa ambos campos', 'error'); return; }
+      try {
+        await POST('/obligaciones-ebc/mapa-companias', { codigo, compania });
+        toast('Guardado', 'success');
+        reload();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  window.ebcDelCodigo = async (codigo) => {
+    if (!confirm(`¿Eliminar mapeo para código ${codigo}?`)) return;
+    try {
+      await DEL(`/obligaciones-ebc/mapa-companias/${encodeURIComponent(codigo)}`);
+      toast('Eliminado', 'success');
+      renderAdminEBCCompanias(container);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  reload();
+}
+
+// ─── View: Autorizaciones de Pago ──────────────────────────────────
+
+let _ebcCompanias     = [];
+let _ebcObligaciones  = [];
+let _ebcCompaniaActual = '';
+
+async function viewAutorizacionesPago(container) {
+  const rolP = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
+  const rolO = S.user.rolObligaciones || '';
+  const isAdmin  = S.user.role === 'ADMIN';
+  const isProg   = isAdmin || rolP === 'programador' || rolP === 'admin';
+  const canView  = isAdmin || !!rolO || !!rolP;
+
+  if (!canView) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">🔒</div><p>Sin acceso a esta sección</p></div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">📋 Autorizaciones de Pago — EBC</div>
+    </div>
+    <div class="page-body">
+      ${isProg ? `
+      <div class="card" style="padding:16px;margin-bottom:20px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:10px">📂 Cargar archivo EBC OBLIGACIONES.csv</div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <input type="file" id="ebc-file-input" accept=".csv" style="font-size:13px">
+          <button class="btn btn-primary btn-sm" id="ebc-cargar-btn">📂 Cargar EBC Obligaciones</button>
+          <span id="ebc-carga-status" style="font-size:12px;color:var(--text-muted)"></span>
+        </div>
+      </div>` : ''}
+
+      <div class="card" style="padding:16px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <label style="font-size:13px;font-weight:600">Empresa:</label>
+          <select id="ebc-compania-sel" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:160px">
+            <option value="">— Seleccionar —</option>
+          </select>
+          <button class="btn btn-outline btn-sm" id="ebc-refresh-btn">🔄 Actualizar</button>
+        </div>
+      </div>
+
+      <div id="ebc-tabla-wrap"></div>
+    </div>`;
+
+  // Cargar mapa de compañías para el dropdown
+  try {
+    _ebcCompanias = await GET('/obligaciones-ebc/mapa-companias');
+  } catch(e) { _ebcCompanias = []; }
+
+  const sel = document.getElementById('ebc-compania-sel');
+  _ebcCompanias.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.compania;
+    opt.textContent = `${c.compania} (${c.codigo})`;
+    sel.appendChild(opt);
+  });
+
+  if (_ebcCompaniaActual) sel.value = _ebcCompaniaActual;
+
+  sel.addEventListener('change', () => {
+    _ebcCompaniaActual = sel.value;
+    ebcCargarTabla();
+  });
+
+  document.getElementById('ebc-refresh-btn').addEventListener('click', () => ebcCargarTabla());
+
+  // File upload
+  if (isProg) {
+    document.getElementById('ebc-cargar-btn').addEventListener('click', async () => {
+      const file = document.getElementById('ebc-file-input').files[0];
+      if (!file) { toast('Selecciona el archivo CSV', 'error'); return; }
+      const fd = new FormData();
+      fd.append('archivo', file);
+      const statusEl = document.getElementById('ebc-carga-status');
+      statusEl.textContent = 'Enviando...';
+      try {
+        const res = await fetch(`${API}/obligaciones-ebc/cargar`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${S.token}` },
+          body: fd
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+        statusEl.textContent = '';
+        toast(`✅ ${data.insertados} obligaciones cargadas (${(data.companias||[]).join(', ')})`, 'success');
+        if (_ebcCompaniaActual) ebcCargarTabla();
+      } catch(e) {
+        statusEl.textContent = '';
+        toast(e.message, 'error');
+      }
+    });
+  }
+
+  // Auto-cargar si ya hay compañía seleccionada
+  if (_ebcCompaniaActual) ebcCargarTabla();
+}
+
+async function ebcCargarTabla() {
+  const wrap = document.getElementById('ebc-tabla-wrap');
+  if (!wrap) return;
+  const compania = document.getElementById('ebc-compania-sel')?.value || '';
+  if (!compania) {
+    wrap.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:32px;font-size:13px">Selecciona una empresa para ver sus obligaciones</div>`;
+    return;
+  }
+  wrap.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:32px">Cargando...</div>`;
+  try {
+    _ebcObligaciones = await GET(`/obligaciones-ebc?compania=${encodeURIComponent(compania)}`);
+    ebcRenderTabla();
+  } catch(e) {
+    wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`;
+  }
+}
+
+function ebcRenderTabla() {
+  const wrap = document.getElementById('ebc-tabla-wrap');
+  if (!wrap) return;
+  const obs = _ebcObligaciones;
+
+  if (!obs.length) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin obligaciones AP/PP para esta empresa</p></div>`;
+    return;
+  }
+
+  const fmtD = d => d ? new Date(d).toLocaleDateString('es-PE', { day:'2-digit', month:'2-digit', year:'numeric' }) : '—';
+  const fmtM = n => n == null ? '—' : Number(n).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  wrap.innerHTML = `
+    <div class="card" style="overflow:hidden">
+      <div style="padding:8px 14px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border)">
+        ${obs.length} obligaciones · ${obs.filter(o=>o.seleccionadoPor).length} autorizadas
+      </div>
+      <div style="overflow-x:auto;max-height:calc(100vh - 360px);overflow-y:auto">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr>
+            <th style="width:32px"></th>
+            <th>Proveedor</th>
+            <th>N° Doc</th>
+            <th>Tipo</th>
+            <th>Venc.</th>
+            <th>Mon.</th>
+            <th class="text-right">Monto</th>
+            <th>Estado Doc</th>
+            <th>Autorización</th>
+          </tr></thead>
+          <tbody>
+            ${obs.map(o => {
+              const seleccionado = !!o.seleccionadoPor;
+              const estadoBadge = o.estadoDoc === 'AP'
+                ? `<span style="font-size:10px;background:#dcfce7;color:#166534;border-radius:3px;padding:1px 5px;font-weight:600">AP</span>`
+                : `<span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:3px;padding:1px 5px;font-weight:600">PP</span>`;
+              const authBadge = seleccionado
+                ? `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 5px;font-weight:600">✅ ${esc(o.seleccionadoPor)}</span>`
+                : `<span style="font-size:10px;color:var(--text-muted)">Pendiente</span>`;
+              return `<tr style="${seleccionado ? 'background:#f0fdf4;' : ''}${o.pendienteNextProg ? 'background:#fffbeb;' : ''}">
+                <td class="text-center">
+                  <input type="checkbox" ${seleccionado ? 'checked' : ''}
+                    style="width:14px;height:14px;accent-color:var(--primary);cursor:pointer"
+                    onchange="ebcToggleObl('${o._id}', this.checked, this)">
+                </td>
+                <td style="max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${esc(o.proveedor)}">${esc(o.proveedor)}</td>
+                <td style="white-space:nowrap">${esc(o.numeroDocumento)}</td>
+                <td><span class="badge badge-outline" style="font-size:10px">${esc(o.tipoDocumento)}</span></td>
+                <td style="white-space:nowrap">${fmtD(o.fechaVencimiento)}</td>
+                <td>${esc(o.moneda)}</td>
+                <td class="text-right fw-semibold" style="${o.monto < 0 ? 'color:#ef4444' : ''}">${fmtM(o.monto)}</td>
+                <td>${estadoBadge}</td>
+                <td>${authBadge}${o.pendienteNextProg ? `<span style="font-size:10px;color:#92400e;margin-left:4px">⏳ Sig. prog.</span>` : ''}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+window.ebcToggleObl = async function(id, checked, cbEl) {
+  cbEl.disabled = true;
+  try {
+    let data;
+    if (checked) {
+      data = await PUT(`/obligaciones-ebc/${id}/seleccionar`, {});
+    } else {
+      data = await PUT(`/obligaciones-ebc/${id}/deseleccionar`, {});
+    }
+
+    if (checked) {
+      if (data.progAprobada) {
+        toast('⚠️ La programación ya está aprobada. Esta obligación se incluirá en la siguiente programación.', 'info');
+      } else if (data.added) {
+        toast('✅ Obligación agregada a la programación abierta', 'success');
+      } else if (data.linked) {
+        toast('✅ Marcada en la programación', 'success');
+      } else if (data.noProg) {
+        toast('ℹ️ No hay programación abierta para esta empresa. La obligación queda pendiente.', 'info');
+      } else {
+        toast('✅ Autorizado', 'success');
+      }
+    } else {
+      toast('Obligación desmarcada', 'info');
+    }
+
+    // Update local state
+    const ob = _ebcObligaciones.find(o => o._id === id);
+    if (ob) {
+      if (checked) {
+        ob.seleccionadoPor = S.user.username;
+        ob.pendienteNextProg = !!(data.progAprobada || data.noProg);
+      } else {
+        ob.seleccionadoPor = null;
+        ob.pendienteNextProg = false;
+      }
+    }
+    ebcRenderTabla();
+  } catch(e) {
+    toast(e.message, 'error');
+    cbEl.checked = !checked; // revert
+    cbEl.disabled = false;
+  }
+};
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -9340,6 +9626,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="cc-correo">📧 CC Correo</button>
         <button class="tab-btn" data-tab="flujo-caja">💵 Flujo de Caja</button>
         <button class="tab-btn" data-tab="cierre-caja">🧾 Cierre de Caja</button>
+        <button class="tab-btn" data-tab="ebc-companias">🏢 Mapeo Empresas EBC</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -9353,6 +9640,7 @@ async function viewAdmin(container) {
       <div id="tab-cc-correo" class="tab-panel"></div>
       <div id="tab-flujo-caja" class="tab-panel"></div>
       <div id="tab-cierre-caja" class="tab-panel"></div>
+      <div id="tab-ebc-companias" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -9376,6 +9664,7 @@ async function viewAdmin(container) {
   renderAdminCCCorreo(document.getElementById('tab-cc-correo'));
   renderAdminFlujoCaja(document.getElementById('tab-flujo-caja'));
   renderAdminCierreCaja(document.getElementById('tab-cierre-caja'));
+  renderAdminEBCCompanias(document.getElementById('tab-ebc-companias'));
 }
 
 // ─── Admin: Configuración de Cierre de Caja por operación ─────────
@@ -10686,6 +10975,11 @@ function showUserModal(user, onSave) {
           ${CAJA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCaja||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Rol para Autorizaciones de Pago (EBC)</label>
+        <select id="um-rol-obligaciones">
+          ${OBLIG_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolObligaciones||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-group" id="um-socs-pago-section"><label>Sociedades Autorizadas</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
           ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
@@ -10818,7 +11112,8 @@ function showUserModal(user, onSave) {
       rolPago:      document.getElementById('um-pago-role').value,
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
-      rolCaja:      isAdmin ? '' : document.getElementById('um-rol-caja').value,
+      rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,
+      rolObligaciones:  isAdmin ? '' : document.getElementById('um-rol-obligaciones').value,
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       transferenciaDestinos: isAdmin ? [] : [...document.querySelectorAll('input[name="um-transf-dest"]:checked')].map(cb => cb.value),
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),

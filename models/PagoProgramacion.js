@@ -21,6 +21,7 @@ const obligacionSchema = new mongoose.Schema({
   // Pago parcial: esParcial=true indica que esta fila es una porción de otra obligación
   esParcial:           { type: Boolean, default: false },
   obligacionOrigenId:  { type: String, default: '' }, // _id de la obligación original
+  origenEBC:           { type: Boolean, default: false }, // marcado via Autorizaciones de Pago
   // Paso 5 — Registro Movimiento Bancario
   operacionBancaria:{ type: String, default: '' },
   importeBanco:     { type: Number, default: null }, // legacy
