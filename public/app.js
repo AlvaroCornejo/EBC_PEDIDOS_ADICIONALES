@@ -1,4 +1,4 @@
-/* ═══════════════════════════════════════════════════════════════
+﻿/* ═══════════════════════════════════════════════════════════════
    Sistema de Pedidos — app.js  v2026-07-01
 ═══════════════════════════════════════════════════════════════ */
 
@@ -4675,7 +4675,7 @@ async function renderPaso1(container) {
                   .map(d => `<option value="${d}" ${o.detalleGrupo===d?'selected':''}>${d}</option>`).join('');
                 const grpOptsRow = grpOpts.replace(`value="${o.grupo}"`, `value="${o.grupo}" selected`);
                 const tieneParcial = progActual?.obligaciones?.some(x => x.esParcial && x.obligacionOrigenId === String(o._id));
-                return `<tr style="${o.esParcial ? 'background:#fef9c3;' : (checked?'background:#f0fdf4;':'')}${o.origenEBC ? 'border-left:3px solid #f59e0b;' : ''}${pgAdelantoRowStyle(o.pagarA)}">
+                return `<tr style="${o.esParcial ? 'background:#fef9c3;' : (checked?'background:#bbf7d0;':'')}${o.origenEBC ? 'border-left:3px solid #f59e0b;' : ''}${pgAdelantoRowStyle(o.pagarA)}">
                   <td class="text-center">
                     <input type="checkbox" class="pg-check" data-pa="${esc(o.pagarA)}" data-idx="${obs.indexOf(o)}"
                            style="width:14px;height:14px;accent-color:var(--primary)"
@@ -4852,7 +4852,7 @@ async function renderPaso1(container) {
     document.querySelectorAll('.pg-check').forEach(cb => {
       cb.checked = checked;
       const tr = cb.closest('tr');
-      if (tr) tr.style.background = checked ? '#f0fdf4' : '';
+      if (tr) tr.style.background = checked ? '#bbf7d0' : '';
     });
     if (progActual) progActual.obligaciones.forEach(ob => { ob.seleccionado = checked; });
     renderResumenes();
@@ -4864,7 +4864,7 @@ async function renderPaso1(container) {
     const idx = parseInt(cb.dataset.idx);
     if (obs[idx]) obs[idx].seleccionado = cb.checked;
     const tr = cb.closest('tr');
-    if (tr) tr.style.background = cb.checked ? '#f0fdf4' : '';
+    if (tr) tr.style.background = cb.checked ? '#bbf7d0' : '';
     if (document.getElementById('f-solo-sel')?.checked) renderTabla();
     renderResumenes();
   };
@@ -5357,7 +5357,7 @@ async function renderPaso2(container) {
                   const dias  = ob.diasVencido ?? 0;
                   const dCol  = dias > 0 ? '#dc2626' : dias === 0 ? '#d97706' : '#166534';
                   return `
-                  <tr style="border-top:1px solid #f1f5f9;background:${ob.seleccionado?'#f0fdf4':''}" id="ap2-tr-${ob._id}">
+                  <tr style="border-top:1px solid #f1f5f9;background:${ob.seleccionado?'#bbf7d0':''}" id="ap2-tr-${ob._id}">
                     <td style="padding:2px 4px 2px 24px">
                       <input type="checkbox" data-id="${ob._id}" data-ben="${benKey}"
                              class="ap2-ob-cb" ${ob.seleccionado ? 'checked' : ''}
