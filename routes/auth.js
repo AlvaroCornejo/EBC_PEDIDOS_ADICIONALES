@@ -7,6 +7,22 @@ const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 const SECRET = process.env.JWT_SECRET || 'pedidos-secret-2024';
 
+function buildPayload(user) {
+  return {
+    id: user.id, username: user.username, role: user.role, operations: user.operations,
+    puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo,
+    puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas,
+    itemsRol: user.itemsRol || '', rolPago: user.rolPago || '',
+    sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [],
+    rolBCT: user.rolBCT || '', rol86: user.rol86 || '',
+    accesoBajas: !!user.accesoBajas, accesoConsumos: !!user.accesoConsumos,
+    accesoTransferencias: !!user.accesoTransferencias, acceso86: !!user.acceso86,
+    transferenciaDestinos: user.transferenciaDestinos || [],
+    rolCaja: user.rolCaja || '', accesoOficina: !!user.accesoOficina, accesoDepositos: !!user.accesoDepositos,
+    rolObligaciones: user.rolObligaciones || '', companiasEBC: user.companiasEBC || [],
+  };
+}
+
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -14,15 +30,11 @@ router.post('/login', async (req, res) => {
     if (!user || !await bcrypt.compare(password, user.password)) {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     }
-    const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, operations: user.operations, puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo, puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas, itemsRol: user.itemsRol || '', rolPago: user.rolPago || '', sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [], rolBCT: user.rolBCT || '', rol86: user.rol86 || '', accesoBajas: !!user.accesoBajas, accesoConsumos: !!user.accesoConsumos, accesoTransferencias: !!user.accesoTransferencias, acceso86: !!user.acceso86, transferenciaDestinos: user.transferenciaDestinos || [], rolCaja: user.rolCaja || '', accesoOficina: !!user.accesoOficina, accesoDepositos: !!user.accesoDepositos, rolObligaciones: user.rolObligaciones || '' },
-      SECRET,
-      { expiresIn: '24h' }
-    );
+    const token = jwt.sign(buildPayload(user), SECRET, { expiresIn: '24h' });
     res.json({
       token,
       mustChangePassword: user.mustChangePassword === true,
-      user: { id: user.id, username: user.username, email: user.email, role: user.role, operations: user.operations, mustChangePassword: user.mustChangePassword === true, puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo, puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas, itemsRol: user.itemsRol || '', rolPago: user.rolPago || '', sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [], rolBCT: user.rolBCT || '', rol86: user.rol86 || '', accesoBajas: !!user.accesoBajas, accesoConsumos: !!user.accesoConsumos, accesoTransferencias: !!user.accesoTransferencias, acceso86: !!user.acceso86, transferenciaDestinos: user.transferenciaDestinos || [], rolCaja: user.rolCaja || '', accesoOficina: !!user.accesoOficina, accesoDepositos: !!user.accesoDepositos, rolObligaciones: user.rolObligaciones || '' }
+      user: { ...buildPayload(user), email: user.email, mustChangePassword: user.mustChangePassword === true },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -60,11 +72,7 @@ router.get('/refresh', authMiddleware, async (req, res) => {
   try {
     const user = await User.findOne({ id: req.user.id }).lean();
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
-    const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, operations: user.operations, puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo, puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas, itemsRol: user.itemsRol || '', rolPago: user.rolPago || '', sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [], rolBCT: user.rolBCT || '', rol86: user.rol86 || '', accesoBajas: !!user.accesoBajas, accesoConsumos: !!user.accesoConsumos, accesoTransferencias: !!user.accesoTransferencias, acceso86: !!user.acceso86, transferenciaDestinos: user.transferenciaDestinos || [], rolCaja: user.rolCaja || '', accesoOficina: !!user.accesoOficina, accesoDepositos: !!user.accesoDepositos, rolObligaciones: user.rolObligaciones || '' },
-      SECRET,
-      { expiresIn: '24h' }
-    );
+    const token = jwt.sign(buildPayload(user), SECRET, { expiresIn: '24h' });
     res.json({ token });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

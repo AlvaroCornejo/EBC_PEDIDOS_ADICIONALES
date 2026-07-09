@@ -165,7 +165,15 @@ router.get('/', async (req, res) => {
   try {
     if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
     const { compania } = req.query;
-    const filter = compania ? { compania } : {};
+    const userCompanias = req.user.companiasEBC || [];
+    const allowed = isAdmin(req.user) || !userCompanias.length
+      ? null
+      : userCompanias;
+    if (allowed && compania && !allowed.includes(compania))
+      return res.status(403).json({ error: 'Sin acceso a esta empresa' });
+    const filter = compania
+      ? { compania }
+      : allowed ? { compania: { $in: allowed } } : {};
     const docs = await ObligacionEBC.find(filter).sort({ proveedor: 1, fechaVencimiento: 1 }).lean();
     res.json(docs);
   } catch (err) { res.status(500).json({ error: err.message }); }
