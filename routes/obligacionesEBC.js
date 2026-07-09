@@ -165,10 +165,8 @@ router.get('/', async (req, res) => {
   try {
     if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
     const { compania } = req.query;
-    const userCompanias = req.user.companiasEBC || [];
-    const allowed = isAdmin(req.user) || !userCompanias.length
-      ? null
-      : userCompanias;
+    const sociedades = req.user.sociedadesPago || [];
+    const allowed = isAdmin(req.user) || !sociedades.length ? null : sociedades;
     if (allowed && compania && !allowed.includes(compania))
       return res.status(403).json({ error: 'Sin acceso a esta empresa' });
     const filter = compania

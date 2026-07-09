@@ -9507,10 +9507,10 @@ async function viewAutorizacionesPago(container) {
   } catch(e) { _ebcCompanias = []; }
 
   const sel = document.getElementById('ebc-compania-sel');
-  const userCompanias = S.user.companiasEBC || [];
-  const companiasFiltradas = (isAdmin || !userCompanias.length)
+  const sociedades = S.user.sociedadesPago || [];
+  const companiasFiltradas = (isAdmin || !sociedades.length)
     ? _ebcCompanias
-    : _ebcCompanias.filter(c => userCompanias.includes(c.compania));
+    : _ebcCompanias.filter(c => sociedades.includes(c.compania));
   companiasFiltradas.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.compania;
@@ -11108,15 +11108,9 @@ function showUserModal(user, onSave) {
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-obligaciones" ${user?.rolObligaciones==='autorizador'?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)"
-              onchange="document.getElementById('um-companias-ebc-wrap').style.display=this.checked?'':'none'">
+">
             <span>📋 <strong>Incluir Pago de Obligaciones</strong></span>
           </label>
-          <div id="um-companias-ebc-wrap" style="margin-left:24px;margin-top:4px;display:${user?.rolObligaciones==='autorizador'?'':'none'}">
-            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Empresas habilitadas (vacío = todas):</div>
-            <div id="um-companias-ebc-list" style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px">
-              <span style="color:var(--text-muted);font-size:11px">Cargando...</span>
-            </div>
-          </div>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -11127,20 +11121,6 @@ function showUserModal(user, onSave) {
     </div>`;
 
   openModal(user ? 'Editar Usuario' : 'Nuevo Usuario', body);
-
-  // Cargar empresas EBC para el selector
-  GET('/obligaciones-ebc/mapa-companias').then(companias => {
-    const listEl = document.getElementById('um-companias-ebc-list');
-    if (!listEl || !companias.length) { if (listEl) listEl.innerHTML = '<span style="color:var(--text-muted);font-size:11px">Sin empresas configuradas</span>'; return; }
-    const userCompanias = user?.companiasEBC || [];
-    listEl.innerHTML = companias.map(c => `
-      <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
-        <input type="checkbox" name="um-comp-ebc" value="${esc(c.compania)}"
-          ${userCompanias.includes(c.compania) ? 'checked' : ''}
-          style="width:13px;height:13px;accent-color:var(--primary)">
-        <span>${esc(c.compania)}</span>
-      </label>`).join('');
-  }).catch(() => {});
 
   // Mostrar/ocultar secciones según el rol seleccionado
   function syncRoleUI() {
@@ -11172,7 +11152,6 @@ function showUserModal(user, onSave) {
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,
       rolObligaciones:  isAdmin ? '' : (document.getElementById('um-obligaciones')?.checked ? 'autorizador' : ''),
-      companiasEBC: isAdmin ? [] : [...document.querySelectorAll('input[name="um-comp-ebc"]:checked')].map(cb => cb.value),
       operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
       transferenciaDestinos: isAdmin ? [] : [...document.querySelectorAll('input[name="um-transf-dest"]:checked')].map(cb => cb.value),
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
