@@ -8293,22 +8293,33 @@ async function viewFlujoCaja(container) {
       const data = await GET(`/flujo-caja/resumen?companias=${encodeURIComponent(companias.join(','))}&moneda=${moneda}&granularidad=${granularidad}&periodos=${periodos}`);
       const simbolo = moneda === 'USD' ? 'US$' : 'S/';
 
+      const SECCION_ORDEN = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
+      // Agrupar por sección en el orden correcto
+      const porSeccion = {};
+      data.filas.forEach(f => { (porSeccion[f.seccion] = porSeccion[f.seccion] || []).push(f); });
+
       let filasHtml = '';
-      let seccionActual = null;
-      data.filas.forEach(f => {
-        if (f.seccion !== seccionActual) {
-          seccionActual = f.seccion;
-          filasHtml += `<tr style="background:#1a1f3a">
-            <td colspan="${data.periodos.length + 1}" style="padding:6px 10px;color:#fff;font-weight:700;font-size:12px">${esc(SECCION_LABEL[f.seccion] || f.seccion)}</td>
-          </tr>`;
-        }
-        const destacar = ['SALDO_INICIAL','SALDO_FINAL'].includes(f.seccion);
-        const tipoAct  = f.tipoActividad && TIPO_ACT_LABEL[f.tipoActividad];
-        const tipoActBadge = tipoAct ? `<span style="margin-left:8px;font-size:9px;font-weight:600;padding:1px 6px;border-radius:8px;color:#fff;background:${TIPO_ACT_COLOR[f.tipoActividad]}">${esc(tipoAct)}</span>` : '';
-        filasHtml += `<tr ${destacar?'style="font-weight:700;background:#f0fdf4"':''}>
-          <td style="padding:5px 10px 5px 24px">${esc(f.nombre)}${tipoActBadge}</td>
-          ${f.valores.map(v => `<td style="padding:5px 10px;text-align:right;${v<0?'color:#dc2626':''}">${fmtMonto(v)}</td>`).join('')}
+      SECCION_ORDEN.forEach(sec => {
+        const filas = porSeccion[sec];
+        if (!filas || !filas.length) return;
+        const esResumen = ['SALDO_INICIAL','SALDO_FINAL'].includes(sec);
+        const secId = `fc-sec-${sec}`;
+        // Fila de cabecera de sección (clickeable)
+        filasHtml += `<tr class="fc-sec-hdr" data-sec="${sec}" onclick="fcToggleSec('${sec}')"
+            style="background:#1a1f3a;cursor:pointer;user-select:none">
+          <td colspan="${data.periodos.length + 1}" style="padding:6px 10px;color:#fff;font-weight:700;font-size:12px">
+            <span id="fc-arr-${sec}" style="margin-right:6px;font-size:10px">${esResumen ? '' : '▾'}</span>${esc(SECCION_LABEL[sec] || sec)}
+          </td>
         </tr>`;
+        // Filas de la sección (colapsables)
+        filas.forEach(f => {
+          const tipoAct = f.tipoActividad && TIPO_ACT_LABEL[f.tipoActividad];
+          const tipoActBadge = tipoAct ? `<span style="margin-left:8px;font-size:9px;font-weight:600;padding:1px 6px;border-radius:8px;color:#fff;background:${TIPO_ACT_COLOR[f.tipoActividad]}">${esc(tipoAct)}</span>` : '';
+          filasHtml += `<tr class="fc-fila-${sec}" ${esResumen ? 'style="font-weight:700;background:#bbf7d0"' : ''}>
+            <td style="padding:5px 10px 5px 28px">${esc(f.nombre)}${tipoActBadge}</td>
+            ${f.valores.map(v => `<td style="padding:5px 10px;text-align:right;${v<0?'color:#dc2626':''}">${fmtMonto(v)}</td>`).join('')}
+          </tr>`;
+        });
       });
 
       wrap.innerHTML = `
@@ -8322,7 +8333,18 @@ async function viewFlujoCaja(container) {
             </thead>
             <tbody>${filasHtml}</tbody>
           </table>
-        </div>
+        </div>`;
+
+      window.fcToggleSec = function(sec) {
+        const filas = document.querySelectorAll(`.fc-fila-${sec}`);
+        const arr   = document.getElementById(`fc-arr-${sec}`);
+        if (!filas.length) return;
+        const abierto = filas[0].style.display !== 'none';
+        filas.forEach(tr => tr.style.display = abierto ? 'none' : '');
+        if (arr) arr.textContent = abierto ? '▸' : '▾';
+      };
+
+      wrap.innerHTML += `
         <p style="font-size:11px;color:var(--text-muted);margin-top:8px">
           ℹ️ Por ahora se muestra el saldo inicial real (desde Cuentas Bancarias) y la estructura completa del flujo;
           los movimientos reales y proyectados se incorporarán en una próxima entrega.
