@@ -9856,10 +9856,33 @@ async function renderAdminProyTiendas(container) {
     </tr>`;
   }
 
+  async function admProyGuardar(tienda) {
+    const nombre = document.getElementById('admpt-nombre').value.trim();
+    if (!nombre) { toast('El nombre es obligatorio', 'warning'); return; }
+    const payload = {
+      compania: _admProyCompania,
+      nombre,
+      moneda:  document.getElementById('admpt-moneda').value,
+      igvRate: Number(document.getElementById('admpt-igv').value) / 100,
+      rcRate:  Number(document.getElementById('admpt-rc').value)  / 100,
+      tipRate: Number(document.getElementById('admpt-tip').value) / 100,
+      canales: _admProyCanales,
+    };
+    const activaEl = document.getElementById('admpt-activa');
+    if (activaEl) payload.activa = activaEl.checked;
+    try {
+      if (tienda) await PUT(`/proyeccion/tiendas/${tienda._id}`, payload);
+      else        await POST('/proyeccion/tiendas', payload);
+      toast(tienda ? 'Tienda actualizada' : 'Tienda creada', 'success');
+      document.getElementById('modal').classList.add('hidden');
+      reload();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   function openTiendaModal(tienda) {
     _admProyCanales = tienda ? JSON.parse(JSON.stringify(tienda.canales || [])) : [];
     const isEdit = !!tienda;
-    const body = `
+    const html = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
         <div>
           <label style="font-size:12px;display:block;margin-bottom:4px">Nombre *</label>
@@ -9885,44 +9908,22 @@ async function renderAdminProyTiendas(container) {
           <input id="admpt-tip" type="number" class="form-control" value="${pct(tienda?.tipRate ?? 0.10)}" min="0" max="100" step="0.1">
         </div>
         ${isEdit ? `<div><label style="font-size:12px;display:block;margin-bottom:4px">Activa</label>
-          <input type="checkbox" id="admpt-activa" ${tienda.activa?'checked':''} style="width:18px;height:18px;margin-top:8px"></div>` : ''}
+          <input type="checkbox" id="admpt-activa" ${tienda.activa!==false?'checked':''} style="width:18px;height:18px;margin-top:8px"></div>` : ''}
       </div>
       <label style="font-size:12px;display:block;margin-bottom:6px;font-weight:600">Canales de cobro</label>
-      <div id="admpt-canales-wrap">${canalEditorHtml()}</div>`;
+      <div id="admpt-canales-wrap">${canalEditorHtml()}</div>
+      <div style="margin-top:16px;text-align:right">
+        <button class="btn btn-primary" onclick="admProyGuardarModal(${isEdit ? `'${tienda._id}'` : 'null'})">
+          ${isEdit ? 'Guardar cambios' : 'Crear tienda'}
+        </button>
+      </div>`;
 
-    openModal({
-      title: isEdit ? `Editar — ${esc(tienda.nombre)}` : 'Nueva Tienda',
-      body,
-      size: 'medium',
-      buttons: [{
-        label: isEdit ? 'Guardar cambios' : 'Crear tienda',
-        primary: true,
-        onClick: async (close) => {
-          const nombre = document.getElementById('admpt-nombre').value.trim();
-          if (!nombre) { toast('El nombre es obligatorio', 'warning'); return false; }
-          const payload = {
-            compania: _admProyCompania,
-            nombre,
-            moneda:  document.getElementById('admpt-moneda').value,
-            igvRate: Number(document.getElementById('admpt-igv').value) / 100,
-            rcRate:  Number(document.getElementById('admpt-rc').value)  / 100,
-            tipRate: Number(document.getElementById('admpt-tip').value) / 100,
-            canales: _admProyCanales,
-          };
-          if (isEdit) payload.activa = document.getElementById('admpt-activa').checked;
-          try {
-            if (isEdit) await PUT(`/proyeccion/tiendas/${tienda._id}`, payload);
-            else        await POST('/proyeccion/tiendas', payload);
-            toast(isEdit ? 'Tienda actualizada' : 'Tienda creada', 'success');
-            reload(); close();
-          } catch (e) { toast(e.message, 'error'); return false; }
-        }
-      }]
-    });
+    openModal(isEdit ? `Editar — ${esc(tienda.nombre)}` : 'Nueva Tienda', html, null, { medium: true });
   }
 
   window.admProyNueva  = () => openTiendaModal(null);
   window.admProyEditar = id => openTiendaModal(_admProyTiendas.find(t => t._id === id));
+  window.admProyGuardarModal = id => admProyGuardar(id ? _admProyTiendas.find(t => t._id === id) : null);
   window.admProyEliminar = async (id, nombre) => {
     if (!confirm(`¿Eliminar la tienda "${nombre}" y todos sus supuestos?`)) return;
     try { await DEL(`/proyeccion/tiendas/${id}`); toast('Tienda eliminada', 'success'); reload(); }
