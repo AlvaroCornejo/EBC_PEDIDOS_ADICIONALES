@@ -9826,11 +9826,11 @@ async function renderAdminProyTiendas(container) {
     return `
       <table style="width:100%;font-size:12px;border-collapse:collapse;margin-bottom:8px" id="admpt-canales-tbl">
         <thead><tr style="color:var(--text-muted)">
-          <th style="padding:4px 6px;text-align:left">Tipo</th>
-          <th style="padding:4px 6px;text-align:left">Nombre</th>
-          <th style="padding:4px 6px;text-align:right">%</th>
-          <th style="padding:4px 6px;text-align:right">Com%</th>
-          <th style="padding:4px 6px;text-align:right">IGV com%</th>
+          <th style="padding:4px 8px;text-align:center">Tipo</th>
+          <th style="padding:4px 8px;text-align:center">Nombre</th>
+          <th style="padding:4px 8px;text-align:center">%</th>
+          <th style="padding:4px 8px;text-align:center">Com%</th>
+          <th style="padding:4px 8px;text-align:center">IGV Com%</th>
           <th></th>
         </tr></thead>
         <tbody id="admpt-canales-body">
@@ -9847,11 +9847,11 @@ async function renderAdminProyTiendas(container) {
   function canalRowHtml(c, i) {
     const isEf = c.tipo === 'efectivo';
     return `<tr id="admpt-canal-${i}">
-      <td style="padding:3px 6px">${esc(c.tipo)}</td>
-      <td style="padding:3px 6px"><input type="text" value="${esc(c.nombre||'')}" placeholder="${isEf?'—':'Nombre'}" ${isEf?'disabled':''} style="width:90px;font-size:12px;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'nombre',this.value)"></td>
-      <td style="padding:3px 6px"><input type="number" value="${pct(c.pct)}" min="0" max="100" step="0.1" style="width:65px;font-size:12px;text-align:right;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'pct',this.value/100)"></td>
-      <td style="padding:3px 6px"><input type="number" value="${pct(c.comisionRate)}" min="0" max="100" step="0.01" ${isEf?'disabled':''} style="width:65px;font-size:12px;text-align:right;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'comisionRate',this.value/100)"></td>
-      <td style="padding:3px 6px"><input type="number" value="${pct(c.igvComisionRate)}" min="0" max="100" step="0.01" ${isEf?'disabled':''} style="width:65px;font-size:12px;text-align:right;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'igvComisionRate',this.value/100)"></td>
+      <td style="padding:3px 8px;text-align:center">${esc(c.tipo)}</td>
+      <td style="padding:3px 8px;text-align:center"><input type="text" value="${esc(c.nombre||'')}" placeholder="${isEf?'—':'Nombre'}" ${isEf?'disabled':''} style="width:90px;font-size:12px;text-align:center;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'nombre',this.value)"></td>
+      <td style="padding:3px 8px;text-align:center"><input type="number" value="${pct(c.pct)}" min="0" max="100" step="0.1" style="width:65px;font-size:12px;text-align:center;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'pct',this.value/100)"></td>
+      <td style="padding:3px 8px;text-align:center"><input type="number" value="${pct(c.comisionRate)}" min="0" max="100" step="0.01" ${isEf?'disabled':''} style="width:65px;font-size:12px;text-align:center;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'comisionRate',this.value/100)"></td>
+      <td style="padding:3px 8px;text-align:center"><input type="number" value="${pct(c.igvComisionRate)}" min="0" max="100" step="0.01" ${isEf?'disabled':''} style="width:65px;font-size:12px;text-align:center;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'igvComisionRate',this.value/100)"></td>
       <td style="padding:3px 6px"><button type="button" class="btn btn-sm" style="color:#dc2626;border-color:#dc2626;padding:1px 6px" onclick="admProyRemoveCanal(${i})">✕</button></td>
     </tr>`;
   }
