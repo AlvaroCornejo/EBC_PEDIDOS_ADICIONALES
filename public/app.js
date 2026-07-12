@@ -8233,52 +8233,111 @@ async function viewFlujoCaja(container) {
   const TIPO_ACT_LABEL = { OPERACION: 'Operación', FINANCIAMIENTO: 'Financiamiento', INVERSION: 'Inversión' };
   const TIPO_ACT_COLOR = { OPERACION: '#2563eb', FINANCIAMIENTO: '#9333ea', INVERSION: '#ea580c' };
 
+  const fcISOWeekCode = (d => {
+    const u = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = u.getUTCDay() || 7;
+    u.setUTCDate(u.getUTCDate() + 4 - day);
+    const jan4 = new Date(Date.UTC(u.getUTCFullYear(), 0, 4));
+    return u.getUTCFullYear() * 100 + 1 + Math.round(((u - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
+  })(new Date());
+
+  const fcAddWeeks = (yyyyiw, n) => {
+    let w = yyyyiw;
+    for (let i = 0; i < n; i++) {
+      const year = Math.floor(w / 100), week = w % 100;
+      const dow = (m, d2) => new Date(Date.UTC(year, m - 1, d2)).getUTCDay();
+      const max = (dow(1,1) === 4 || dow(12,31) === 4) ? 53 : 52;
+      w = week < max ? year * 100 + week + 1 : (year + 1) * 100 + 1;
+    }
+    return w;
+  };
+
+  const fcWeekLabel = yyyyiw => `Sem ${yyyyiw % 100}/${Math.floor(yyyyiw / 100)}`;
+
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">💵 Flujo de Caja</div>
     </div>
     <div class="page-body">
-      <div class="card mb-16" style="padding:16px">
-        <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end">
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px">Sociedad(es)</label>
-            <div id="fc-socs" style="display:flex;flex-wrap:wrap;gap:10px;max-width:520px">
-              ${socsFC.map((s,i) => `
-                <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
-                  <input type="checkbox" class="fc-soc-chk" value="${esc(s)}" ${i===0?'checked':''}> ${esc(s)}
-                </label>`).join('') || '<span class="text-muted" style="font-size:13px">Sin sociedades asignadas</span>'}
-            </div>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
-            <select id="fc-moneda" class="form-control" style="width:170px">
-              <option value="SOL">Soles (S/)</option>
-              <option value="USD">Dólares (US$)</option>
-              <option value="COMBO">Combinado (en soles)</option>
-            </select>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Periodo</label>
-            <select id="fc-granularidad" class="form-control" style="width:130px">
-              <option value="semana">Semanal</option>
-              <option value="mes">Mensual</option>
-            </select>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px"># Periodos</label>
-            <input id="fc-periodos" type="number" min="1" max="52" value="12" class="form-control" style="width:90px">
-          </div>
-          <div>
-            <button class="btn btn-primary btn-sm" onclick="fcVerFlujo()">🔍 Ver Flujo</button>
-          </div>
-        </div>
+      <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border)">
+        <button class="fc-mode-btn active" data-mode="real"
+          style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)"
+          onclick="fcSetMode('real')">📊 Flujo Real</button>
+        <button class="fc-mode-btn" data-mode="proyeccion"
+          style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)"
+          onclick="fcSetMode('proyeccion')">📈 Proyección</button>
       </div>
 
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
-        <button class="btn btn-outline btn-sm" onclick="imprimirVista('fc-wrap','Flujo de Caja')">🖨️ Imprimir</button>
-        <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-wrap','flujo-de-caja')">📥 Bajar a Excel</button>
+      <!-- Panel Real -->
+      <div id="fc-panel-real">
+        <div class="card mb-16" style="padding:16px">
+          <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end">
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px">Sociedad(es)</label>
+              <div id="fc-socs" style="display:flex;flex-wrap:wrap;gap:10px;max-width:520px">
+                ${socsFC.map((s,i) => `
+                  <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
+                    <input type="checkbox" class="fc-soc-chk" value="${esc(s)}" ${i===0?'checked':''}> ${esc(s)}
+                  </label>`).join('') || '<span class="text-muted" style="font-size:13px">Sin sociedades asignadas</span>'}
+              </div>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
+              <select id="fc-moneda" class="form-control" style="width:170px">
+                <option value="SOL">Soles (S/)</option>
+                <option value="USD">Dólares (US$)</option>
+                <option value="COMBO">Combinado (en soles)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Periodo</label>
+              <select id="fc-granularidad" class="form-control" style="width:130px">
+                <option value="semana">Semanal</option>
+                <option value="mes">Mensual</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px"># Periodos</label>
+              <input id="fc-periodos" type="number" min="1" max="52" value="12" class="form-control" style="width:90px">
+            </div>
+            <div>
+              <button class="btn btn-primary btn-sm" onclick="fcVerFlujo()">🔍 Ver Flujo</button>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+          <button class="btn btn-outline btn-sm" onclick="imprimirVista('fc-wrap','Flujo de Caja')">🖨️ Imprimir</button>
+          <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-wrap','flujo-de-caja')">📥 Bajar a Excel</button>
+        </div>
+        <div id="fc-wrap"><div class="text-muted text-center py-24">Selecciona sociedad(es) y presiona "Ver Flujo".</div></div>
       </div>
-      <div id="fc-wrap"><div class="text-muted text-center py-24">Selecciona sociedad(es) y presiona "Ver Flujo".</div></div>
+
+      <!-- Panel Proyección -->
+      <div id="fc-panel-proyeccion" style="display:none">
+        <div class="card mb-16" style="padding:16px">
+          <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+              <select id="fcproy-compania" class="form-control" style="width:180px">
+                ${socsFC.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Desde (YYYYSS)</label>
+              <input id="fcproy-desde" type="number" value="${fcISOWeekCode}" class="form-control" style="width:110px">
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Hasta (YYYYSS)</label>
+              <input id="fcproy-hasta" type="number" value="${fcAddWeeks(fcISOWeekCode, 11)}" class="form-control" style="width:110px">
+            </div>
+            <div>
+              <button class="btn btn-primary btn-sm" onclick="fcProyCargar()">🔄 Cargar</button>
+            </div>
+          </div>
+        </div>
+        <div id="fcproy-tiendas-wrap"><div class="text-muted text-center py-24">Selecciona una sociedad y presiona "Cargar".</div></div>
+        <div id="fcproy-calculo-wrap"></div>
+      </div>
     </div>`;
 
   window.fcVerFlujo = async function() {
@@ -8351,6 +8410,222 @@ async function viewFlujoCaja(container) {
         </p>`;
     } catch(e) {
       wrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`;
+    }
+  };
+
+  // Tab mode switcher
+  window.fcSetMode = function(mode) {
+    document.querySelectorAll('.fc-mode-btn').forEach(b => {
+      const active = b.dataset.mode === mode;
+      b.style.color       = active ? 'var(--primary)' : 'var(--text-muted)';
+      b.style.borderBottomColor = active ? 'var(--primary)' : 'transparent';
+    });
+    document.getElementById('fc-panel-real').style.display       = mode === 'real'       ? '' : 'none';
+    document.getElementById('fc-panel-proyeccion').style.display = mode === 'proyeccion' ? '' : 'none';
+  };
+  // Activar estilo inicial del tab Real
+  window.fcSetMode('real');
+
+  // ── Proyección: estado módulo-level ──────────────────────────────────────
+  let _fcProyTiendas    = [];
+  let _fcProySupuestos  = {}; // tiendaId → [supuesto]
+
+  const fcProyFmt = n => (n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  window.fcProyCargar = async function() {
+    const compania = document.getElementById('fcproy-compania')?.value;
+    const wrap = document.getElementById('fcproy-tiendas-wrap');
+    if (!compania) { toast('Selecciona una sociedad', 'warning'); return; }
+    wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    document.getElementById('fcproy-calculo-wrap').innerHTML = '';
+    try {
+      _fcProyTiendas = await GET(`/proyeccion/tiendas?compania=${encodeURIComponent(compania)}`);
+      // Cargar supuestos de todas las tiendas en paralelo
+      const results = await Promise.all(_fcProyTiendas.map(t => GET(`/proyeccion/tiendas/${t._id}/supuestos`)));
+      _fcProySupuestos = {};
+      _fcProyTiendas.forEach((t, i) => { _fcProySupuestos[t._id] = results[i]; });
+      fcProyRenderTiendas(compania);
+    } catch (e) { wrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`; }
+  };
+
+  function fcProyRenderTiendas(compania) {
+    const wrap = document.getElementById('fcproy-tiendas-wrap');
+    if (!_fcProyTiendas.length) {
+      wrap.innerHTML = `<div class="text-muted text-center py-24">No hay tiendas configuradas para ${esc(compania)}. Ve a Admin → 🏪 Tiendas para agregarlas.</div>`;
+      return;
+    }
+    const html = _fcProyTiendas.map(t => {
+      const sups = _fcProySupuestos[t._id] || [];
+      const supsRows = sups.map(s => `
+        <tr>
+          <td style="padding:4px 10px">${fcWeekLabel(s.semana)} (${s.semana})</td>
+          <td style="padding:4px 10px;text-align:right">${fcProyFmt(s.ventaBruta)}</td>
+          <td style="padding:4px 10px;text-align:center">
+            <button class="btn btn-sm" style="padding:1px 8px;font-size:11px;color:#dc2626;border-color:#dc2626"
+              onclick="fcProyEliminarSupuesto('${t._id}', ${s.semana})">🗑</button>
+          </td>
+        </tr>`).join('');
+      const canalesDesc = (t.canales || []).map(c => {
+        if (c.tipo === 'efectivo') return `Efectivo ${(c.pct*100).toFixed(0)}%`;
+        return `${c.nombre||c.tipo} ${(c.pct*100).toFixed(0)}% (com ${(c.comisionRate*100).toFixed(1)}%)`;
+      }).join(' · ');
+      return `
+        <div class="card mb-12" style="padding:0;overflow:hidden">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);cursor:pointer"
+            onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+            <div>
+              <span style="font-weight:600;font-size:13px">🏪 ${esc(t.nombre)}</span>
+              <span style="margin-left:10px;font-size:11px;color:var(--text-muted)">${esc(t.moneda)} · IGV ${(t.igvRate*100).toFixed(0)}% · RC ${(t.rcRate*100).toFixed(0)}% · TIP ${(t.tipRate*100).toFixed(0)}%</span>
+              ${canalesDesc ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${esc(canalesDesc)}</div>` : ''}
+            </div>
+            <span style="font-size:11px;color:var(--text-muted)">${sups.length} supuesto(s) ▾</span>
+          </div>
+          <div style="padding:12px 14px">
+            ${sups.length ? `
+              <table style="width:100%;font-size:12px;border-collapse:collapse;margin-bottom:10px">
+                <thead><tr style="color:var(--text-muted)">
+                  <th style="padding:4px 10px;text-align:left;font-weight:500">Semana</th>
+                  <th style="padding:4px 10px;text-align:right;font-weight:500">Venta Bruta (${esc(t.moneda)})</th>
+                  <th></th>
+                </tr></thead>
+                <tbody>${supsRows}</tbody>
+              </table>` : '<p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Sin supuestos — la venta se asume 0.</p>'}
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input id="fcproy-sem-${t._id}" type="number" placeholder="Sem YYYYSS" class="form-control" style="width:120px;font-size:12px">
+              <input id="fcproy-vb-${t._id}" type="number" placeholder="Venta bruta" class="form-control" style="width:130px;font-size:12px" min="0">
+              <button class="btn btn-sm btn-outline" onclick="fcProyAgregarSupuesto('${t._id}')">+ Agregar</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    wrap.innerHTML = `
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" onclick="fcProyVerCalculo()">📈 Ver Cálculo</button>
+      </div>
+      ${html}`;
+  }
+
+  window.fcProyAgregarSupuesto = async function(tiendaId) {
+    const semana    = Number(document.getElementById(`fcproy-sem-${tiendaId}`)?.value);
+    const ventaBruta = Number(document.getElementById(`fcproy-vb-${tiendaId}`)?.value);
+    if (!semana || semana < 190001 || semana > 210053) { toast('Semana inválida (ej: 202638)', 'warning'); return; }
+    if (isNaN(ventaBruta) || ventaBruta < 0) { toast('Venta bruta inválida', 'warning'); return; }
+    try {
+      const sup = await POST(`/proyeccion/tiendas/${tiendaId}/supuestos`, { semana, ventaBruta });
+      const list = _fcProySupuestos[tiendaId] || [];
+      const idx = list.findIndex(s => s.semana === sup.semana);
+      if (idx >= 0) list[idx] = sup; else list.push(sup);
+      list.sort((a, b) => a.semana - b.semana);
+      _fcProySupuestos[tiendaId] = list;
+      const compania = document.getElementById('fcproy-compania')?.value;
+      fcProyRenderTiendas(compania);
+      toast('Supuesto guardado', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  window.fcProyEliminarSupuesto = async function(tiendaId, semana) {
+    if (!confirm(`¿Eliminar supuesto de la semana ${semana}?`)) return;
+    try {
+      await DEL(`/proyeccion/tiendas/${tiendaId}/supuestos/${semana}`);
+      _fcProySupuestos[tiendaId] = (_fcProySupuestos[tiendaId] || []).filter(s => s.semana !== semana);
+      const compania = document.getElementById('fcproy-compania')?.value;
+      fcProyRenderTiendas(compania);
+      toast('Supuesto eliminado', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  window.fcProyVerCalculo = async function() {
+    const compania = document.getElementById('fcproy-compania')?.value;
+    const desde    = document.getElementById('fcproy-desde')?.value;
+    const hasta    = document.getElementById('fcproy-hasta')?.value;
+    const calcWrap = document.getElementById('fcproy-calculo-wrap');
+    if (!compania || !desde || !hasta) { toast('Completa sociedad, desde y hasta', 'warning'); return; }
+    calcWrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Calculando...</div>';
+    try {
+      const data = await GET(`/proyeccion/calculo-tiendas?compania=${encodeURIComponent(compania)}&desde=${desde}&hasta=${hasta}`);
+      if (!data.tiendas.length) {
+        calcWrap.innerHTML = '<div class="text-muted text-center py-24">No hay tiendas activas para esta sociedad.</div>';
+        return;
+      }
+
+      // Recolectar todos los canales únicos (preservar orden: efectivo primero)
+      const channelMap = new Map(); // key → {tipo, nombre, label}
+      data.tiendas.forEach(t => {
+        data.semanas.forEach(sem => {
+          const d = t.porSemana[sem];
+          if (!d) return;
+          d.canales.forEach(c => {
+            const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
+            if (!channelMap.has(key)) channelMap.set(key, { tipo: c.tipo, nombre: c.nombre, label: c.tipo === 'efectivo' ? 'Efectivo' : c.nombre });
+          });
+        });
+      });
+
+      // Agregar por semana
+      const agg = {};
+      data.semanas.forEach(sem => {
+        agg[sem] = { igv: 0, rc: 0, tip: 0, ch: {} };
+        channelMap.forEach((_, key) => { agg[sem].ch[key] = { monto: 0, comision: 0, igvComision: 0 }; });
+        data.tiendas.forEach(t => {
+          const d = t.porSemana[sem];
+          if (!d) return;
+          agg[sem].igv += d.igv || 0;
+          agg[sem].rc  += d.rc  || 0;
+          agg[sem].tip += d.tip || 0;
+          d.canales.forEach(c => {
+            const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
+            if (agg[sem].ch[key]) {
+              agg[sem].ch[key].monto       += c.monto       || 0;
+              agg[sem].ch[key].comision    += c.comision    || 0;
+              agg[sem].ch[key].igvComision += c.igvComision || 0;
+            }
+          });
+        });
+      });
+
+      const thStyle = 'padding:5px 10px;text-align:right;font-size:11px;white-space:nowrap';
+      const tdNum   = v => `<td style="padding:4px 10px;text-align:right;font-size:12px">${fcProyFmt(v)}</td>`;
+      const tdLabel = (lbl, indent) => `<td style="padding:4px 10px ${indent?'4px 22px':''};font-size:12px;white-space:nowrap">${esc(lbl)}</td>`;
+      const trSec   = lbl => `<tr style="background:#1a1f3a"><td colspan="${data.semanas.length+1}" style="padding:5px 10px;color:#fff;font-weight:700;font-size:11px">${lbl}</td></tr>`;
+
+      let tbody = '';
+
+      // INGRESOS
+      tbody += trSec('INGRESOS — Tiendas');
+      channelMap.forEach((ch, key) => {
+        tbody += `<tr>${tdLabel(ch.label, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.monto)).join('')}</tr>`;
+      });
+      tbody += `<tr>${tdLabel('TIP cobrado', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
+
+      // EGRESOS
+      tbody += trSec('EGRESOS — Tiendas');
+      tbody += `<tr>${tdLabel('IGV', true)}${data.semanas.map(s => tdNum(agg[s].igv)).join('')}</tr>`;
+      tbody += `<tr>${tdLabel('RC (Recargo al consumo)', true)}${data.semanas.map(s => tdNum(agg[s].rc)).join('')}</tr>`;
+      tbody += `<tr>${tdLabel('TIP empleados', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
+      channelMap.forEach((ch, key) => {
+        if (ch.tipo === 'efectivo') return;
+        const hasComision = data.semanas.some(s => (agg[s].ch[key]?.comision || 0) > 0);
+        if (!hasComision) return;
+        tbody += `<tr>${tdLabel(`Comisión ${ch.label}`, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.comision)).join('')}</tr>`;
+        const hasIgvCom = data.semanas.some(s => (agg[s].ch[key]?.igvComision || 0) > 0);
+        if (hasIgvCom)
+          tbody += `<tr>${tdLabel(`IGV Comisión ${ch.label}`, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.igvComision)).join('')}</tr>`;
+      });
+
+      calcWrap.innerHTML = `
+        <h3 style="font-size:13px;font-weight:600;margin:16px 0 8px">Cálculo Proyectado — Venta Tiendas · ${esc(compania)}</h3>
+        <div class="card" style="overflow:auto">
+          <table class="data-table" style="font-size:12px;white-space:nowrap">
+            <thead><tr>
+              <th style="position:sticky;left:0;background:#1a1f3a;z-index:1;${thStyle};text-align:left">Línea (S/)</th>
+              ${data.semanas.map(s => `<th style="${thStyle}">${fcWeekLabel(s)}</th>`).join('')}
+            </tr></thead>
+            <tbody>${tbody}</tbody>
+          </table>
+        </div>`;
+    } catch (e) {
+      calcWrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`;
     }
   };
 
@@ -9486,6 +9761,186 @@ async function renderAdminEBCCompanias(container) {
   reload();
 }
 
+// ─── Admin: Tiendas Proyección ────────────────────────────────────
+async function renderAdminProyTiendas(container) {
+  let _admProyCompania = ALL_SOCS_COMPRA[0] || '';
+  let _admProyTiendas  = [];
+  let _admProyCanales  = []; // canales en edición
+
+  const pct = v => (Number(v) * 100).toFixed(2).replace(/\.?0+$/, '');
+
+  async function reload() {
+    if (!_admProyCompania) return;
+    container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+    try {
+      _admProyTiendas = await GET(`/proyeccion/tiendas?compania=${encodeURIComponent(_admProyCompania)}`);
+      render();
+    } catch (e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+  }
+
+  function canalesHtml(tienda) {
+    return (tienda.canales || []).map(c => {
+      const lbl = c.tipo === 'efectivo' ? 'Efectivo' : (c.nombre || c.tipo);
+      const extra = c.tipo !== 'efectivo' ? ` · com ${pct(c.comisionRate)}% · IGV com ${pct(c.igvComisionRate)}%` : '';
+      return `${lbl} ${pct(c.pct)}%${extra}`;
+    }).join('<br>');
+  }
+
+  function render() {
+    container.innerHTML = `
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+        <select id="admpt-compania" class="form-control" style="width:180px">
+          ${ALL_SOCS_COMPRA.map(s => `<option value="${esc(s)}" ${s===_admProyCompania?'selected':''}>${esc(s)}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="admProyNueva()">+ Nueva Tienda</button>
+      </div>
+      ${_admProyTiendas.length ? `
+        <table class="data-table" style="font-size:12px">
+          <thead><tr>
+            <th>Nombre</th><th>Moneda</th><th>IGV</th><th>RC</th><th>TIP</th>
+            <th>Canales</th><th>Activa</th><th></th>
+          </tr></thead>
+          <tbody>
+            ${_admProyTiendas.map(t => `<tr>
+              <td>${esc(t.nombre)}</td>
+              <td>${esc(t.moneda)}</td>
+              <td>${pct(t.igvRate)}%</td>
+              <td>${pct(t.rcRate)}%</td>
+              <td>${pct(t.tipRate)}%</td>
+              <td style="font-size:11px;line-height:1.6">${canalesHtml(t) || '<span class="text-muted">—</span>'}</td>
+              <td>${t.activa ? '✅' : '❌'}</td>
+              <td style="white-space:nowrap">
+                <button class="btn btn-sm btn-outline" style="margin-right:4px" onclick="admProyEditar('${t._id}')">✏️</button>
+                <button class="btn btn-sm" style="color:#dc2626;border-color:#dc2626" onclick="admProyEliminar('${t._id}','${esc(t.nombre)}')">🗑</button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>` : '<p class="text-muted">No hay tiendas configuradas para esta sociedad.</p>'}`;
+
+    document.getElementById('admpt-compania').addEventListener('change', e => {
+      _admProyCompania = e.target.value; reload();
+    });
+  }
+
+  function canalEditorHtml() {
+    return `
+      <table style="width:100%;font-size:12px;border-collapse:collapse;margin-bottom:8px" id="admpt-canales-tbl">
+        <thead><tr style="color:var(--text-muted)">
+          <th style="padding:4px 6px;text-align:left">Tipo</th>
+          <th style="padding:4px 6px;text-align:left">Nombre</th>
+          <th style="padding:4px 6px;text-align:right">%</th>
+          <th style="padding:4px 6px;text-align:right">Com%</th>
+          <th style="padding:4px 6px;text-align:right">IGV com%</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="admpt-canales-body">
+          ${_admProyCanales.map((c, i) => canalRowHtml(c, i)).join('')}
+        </tbody>
+      </table>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" class="btn btn-sm btn-outline" onclick="admProyAddCanal('efectivo')">+ Efectivo</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="admProyAddCanal('TC')">+ TC</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="admProyAddCanal('delivery')">+ Delivery</button>
+      </div>`;
+  }
+
+  function canalRowHtml(c, i) {
+    const isEf = c.tipo === 'efectivo';
+    return `<tr id="admpt-canal-${i}">
+      <td style="padding:3px 6px">${esc(c.tipo)}</td>
+      <td style="padding:3px 6px"><input type="text" value="${esc(c.nombre||'')}" placeholder="${isEf?'—':'Nombre'}" ${isEf?'disabled':''} style="width:90px;font-size:12px;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'nombre',this.value)"></td>
+      <td style="padding:3px 6px"><input type="number" value="${pct(c.pct)}" min="0" max="100" step="0.1" style="width:65px;font-size:12px;text-align:right;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'pct',this.value/100)"></td>
+      <td style="padding:3px 6px"><input type="number" value="${pct(c.comisionRate)}" min="0" max="100" step="0.01" ${isEf?'disabled':''} style="width:65px;font-size:12px;text-align:right;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'comisionRate',this.value/100)"></td>
+      <td style="padding:3px 6px"><input type="number" value="${pct(c.igvComisionRate)}" min="0" max="100" step="0.01" ${isEf?'disabled':''} style="width:65px;font-size:12px;text-align:right;border:1px solid var(--border);padding:2px 4px;border-radius:3px;background:var(--bg)" onchange="admProyCanalField(${i},'igvComisionRate',this.value/100)"></td>
+      <td style="padding:3px 6px"><button type="button" class="btn btn-sm" style="color:#dc2626;border-color:#dc2626;padding:1px 6px" onclick="admProyRemoveCanal(${i})">✕</button></td>
+    </tr>`;
+  }
+
+  function openTiendaModal(tienda) {
+    _admProyCanales = tienda ? JSON.parse(JSON.stringify(tienda.canales || [])) : [];
+    const isEdit = !!tienda;
+    const body = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div>
+          <label style="font-size:12px;display:block;margin-bottom:4px">Nombre *</label>
+          <input id="admpt-nombre" class="form-control" value="${esc(tienda?.nombre||'')}" placeholder="Tienda Centro">
+        </div>
+        <div>
+          <label style="font-size:12px;display:block;margin-bottom:4px">Moneda</label>
+          <select id="admpt-moneda" class="form-control">
+            <option value="PEN" ${tienda?.moneda!=='USD'?'selected':''}>PEN (Soles)</option>
+            <option value="USD" ${tienda?.moneda==='USD'?'selected':''}>USD (Dólares)</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;display:block;margin-bottom:4px">Tasa IGV %</label>
+          <input id="admpt-igv" type="number" class="form-control" value="${pct(tienda?.igvRate ?? 0.18)}" min="0" max="100" step="0.1">
+        </div>
+        <div>
+          <label style="font-size:12px;display:block;margin-bottom:4px">Tasa RC %</label>
+          <input id="admpt-rc" type="number" class="form-control" value="${pct(tienda?.rcRate ?? 0.10)}" min="0" max="100" step="0.1">
+        </div>
+        <div>
+          <label style="font-size:12px;display:block;margin-bottom:4px">Tasa TIP %</label>
+          <input id="admpt-tip" type="number" class="form-control" value="${pct(tienda?.tipRate ?? 0.10)}" min="0" max="100" step="0.1">
+        </div>
+        ${isEdit ? `<div><label style="font-size:12px;display:block;margin-bottom:4px">Activa</label>
+          <input type="checkbox" id="admpt-activa" ${tienda.activa?'checked':''} style="width:18px;height:18px;margin-top:8px"></div>` : ''}
+      </div>
+      <label style="font-size:12px;display:block;margin-bottom:6px;font-weight:600">Canales de cobro</label>
+      <div id="admpt-canales-wrap">${canalEditorHtml()}</div>`;
+
+    openModal({
+      title: isEdit ? `Editar — ${esc(tienda.nombre)}` : 'Nueva Tienda',
+      body,
+      size: 'medium',
+      buttons: [{
+        label: isEdit ? 'Guardar cambios' : 'Crear tienda',
+        primary: true,
+        onClick: async (close) => {
+          const nombre = document.getElementById('admpt-nombre').value.trim();
+          if (!nombre) { toast('El nombre es obligatorio', 'warning'); return false; }
+          const payload = {
+            compania: _admProyCompania,
+            nombre,
+            moneda:  document.getElementById('admpt-moneda').value,
+            igvRate: Number(document.getElementById('admpt-igv').value) / 100,
+            rcRate:  Number(document.getElementById('admpt-rc').value)  / 100,
+            tipRate: Number(document.getElementById('admpt-tip').value) / 100,
+            canales: _admProyCanales,
+          };
+          if (isEdit) payload.activa = document.getElementById('admpt-activa').checked;
+          try {
+            if (isEdit) await PUT(`/proyeccion/tiendas/${tienda._id}`, payload);
+            else        await POST('/proyeccion/tiendas', payload);
+            toast(isEdit ? 'Tienda actualizada' : 'Tienda creada', 'success');
+            reload(); close();
+          } catch (e) { toast(e.message, 'error'); return false; }
+        }
+      }]
+    });
+  }
+
+  window.admProyNueva  = () => openTiendaModal(null);
+  window.admProyEditar = id => openTiendaModal(_admProyTiendas.find(t => t._id === id));
+  window.admProyEliminar = async (id, nombre) => {
+    if (!confirm(`¿Eliminar la tienda "${nombre}" y todos sus supuestos?`)) return;
+    try { await DEL(`/proyeccion/tiendas/${id}`); toast('Tienda eliminada', 'success'); reload(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  window.admProyAddCanal = tipo => {
+    _admProyCanales.push({ tipo, nombre: tipo === 'TC' ? 'TC' : '', pct: 0, comisionRate: 0, igvComisionRate: tipo !== 'efectivo' ? 0.18 : 0 });
+    document.getElementById('admpt-canales-wrap').innerHTML = canalEditorHtml();
+  };
+  window.admProyRemoveCanal = i => {
+    _admProyCanales.splice(i, 1);
+    document.getElementById('admpt-canales-wrap').innerHTML = canalEditorHtml();
+  };
+  window.admProyCanalField = (i, field, val) => { _admProyCanales[i][field] = field === 'nombre' ? val : Number(val); };
+
+  reload();
+}
+
 // ─── View: Autorizaciones de Pago ──────────────────────────────────
 
 let _ebcCompanias     = [];
@@ -9686,6 +10141,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="flujo-caja">💵 Flujo de Caja</button>
         <button class="tab-btn" data-tab="cierre-caja">🧾 Cierre de Caja</button>
         <button class="tab-btn" data-tab="ebc-companias">🏢 Mapeo Empresas EBC</button>
+        <button class="tab-btn" data-tab="proy-tiendas">🏪 Tiendas Proy.</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -9700,6 +10156,7 @@ async function viewAdmin(container) {
       <div id="tab-flujo-caja" class="tab-panel"></div>
       <div id="tab-cierre-caja" class="tab-panel"></div>
       <div id="tab-ebc-companias" class="tab-panel"></div>
+      <div id="tab-proy-tiendas" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -9724,6 +10181,7 @@ async function viewAdmin(container) {
   renderAdminFlujoCaja(document.getElementById('tab-flujo-caja'));
   renderAdminCierreCaja(document.getElementById('tab-cierre-caja'));
   renderAdminEBCCompanias(document.getElementById('tab-ebc-companias'));
+  renderAdminProyTiendas(document.getElementById('tab-proy-tiendas'));
 }
 
 // ─── Admin: Configuración de Cierre de Caja por operación ─────────
