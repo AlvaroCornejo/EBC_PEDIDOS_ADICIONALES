@@ -8535,6 +8535,155 @@ async function viewFlujoCaja(container) {
     } catch (e) { toast(e.message, 'error'); }
   };
 
+  let _fcProyCalcData = null;
+  let _fcProyPorTienda = false;
+
+  function fcProyBuildTbody(data, channelMap, agg, porTienda) {
+    const cols  = data.semanas.length + 1;
+    const tdNum = v => `<td style="padding:4px 10px;text-align:right;font-size:12px">${fcProyFmt(v)}</td>`;
+    const tdLbl = (lbl, indent) => `<td style="padding:4px 10px${indent?' 4px 22px':''};font-size:12px;white-space:nowrap">${esc(lbl)}</td>`;
+    const trSec = (lbl, bg) => `<tr style="background:${bg||'#1a1f3a'}"><td colspan="${cols}" style="padding:5px 10px;color:#fff;font-weight:700;font-size:11px">${lbl}</td></tr>`;
+
+    if (!porTienda) {
+      // ── Vista agregada ────────────────────────────────────────────
+      let t = trSec('INGRESOS — Tiendas');
+      channelMap.forEach((ch, key) => {
+        t += `<tr>${tdLbl(ch.label, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.monto)).join('')}</tr>`;
+      });
+      t += `<tr>${tdLbl('TIP cobrado', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
+      t += trSec('EGRESOS — Tiendas');
+      t += `<tr>${tdLbl('IGV', true)}${data.semanas.map(s => tdNum(agg[s].igv)).join('')}</tr>`;
+      t += `<tr>${tdLbl('RC (Recargo al consumo)', true)}${data.semanas.map(s => tdNum(agg[s].rc)).join('')}</tr>`;
+      t += `<tr>${tdLbl('TIP empleados', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
+      channelMap.forEach((ch, key) => {
+        if (ch.tipo === 'efectivo') return;
+        if (!data.semanas.some(s => (agg[s].ch[key]?.comision || 0) > 0)) return;
+        t += `<tr>${tdLbl(`Comisión ${ch.label}`, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.comision)).join('')}</tr>`;
+        if (data.semanas.some(s => (agg[s].ch[key]?.igvComision || 0) > 0))
+          t += `<tr>${tdLbl(`IGV Comisión ${ch.label}`, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.igvComision)).join('')}</tr>`;
+      });
+      return t;
+    }
+
+    // ── Vista por tienda ──────────────────────────────────────────
+    let t = '';
+    data.tiendas.forEach(tienda => {
+      // Canales de esta tienda
+      const tChMap = new Map();
+      data.semanas.forEach(sem => {
+        const d = tienda.porSemana[sem];
+        if (!d) return;
+        d.canales.forEach(c => {
+          const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
+          if (!tChMap.has(key)) tChMap.set(key, { tipo: c.tipo, nombre: c.nombre, label: c.tipo === 'efectivo' ? 'Efectivo' : c.nombre });
+        });
+      });
+
+      // Sub-header de tienda
+      t += `<tr style="background:#1e3a5f"><td colspan="${cols}" style="padding:6px 10px;color:#93c5fd;font-weight:700;font-size:12px">🏪 ${esc(tienda.nombre)} (${esc(tienda.moneda)})</td></tr>`;
+
+      // INGRESOS de esta tienda
+      t += trSec('  INGRESOS', '#0f2744');
+      tChMap.forEach((ch, key) => {
+        t += `<tr>${tdLbl(ch.label, true)}${data.semanas.map(s => {
+          const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
+          return tdNum(c?.monto || 0);
+        }).join('')}</tr>`;
+      });
+      t += `<tr>${tdLbl('TIP cobrado', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.tip || 0)).join('')}</tr>`;
+
+      // EGRESOS de esta tienda
+      t += trSec('  EGRESOS', '#0f2744');
+      t += `<tr>${tdLbl('IGV', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.igv || 0)).join('')}</tr>`;
+      t += `<tr>${tdLbl('RC (Recargo al consumo)', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.rc || 0)).join('')}</tr>`;
+      t += `<tr>${tdLbl('TIP empleados', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.tip || 0)).join('')}</tr>`;
+      tChMap.forEach((ch, key) => {
+        if (ch.tipo === 'efectivo') return;
+        const hasCom = data.semanas.some(s => {
+          const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
+          return (c?.comision || 0) > 0;
+        });
+        if (!hasCom) return;
+        t += `<tr>${tdLbl(`Comisión ${ch.label}`, true)}${data.semanas.map(s => {
+          const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
+          return tdNum(c?.comision || 0);
+        }).join('')}</tr>`;
+        const hasIgv = data.semanas.some(s => {
+          const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
+          return (c?.igvComision || 0) > 0;
+        });
+        if (hasIgv)
+          t += `<tr>${tdLbl(`IGV Comisión ${ch.label}`, true)}${data.semanas.map(s => {
+            const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
+            return tdNum(c?.igvComision || 0);
+          }).join('')}</tr>`;
+      });
+    });
+    return t;
+  }
+
+  function fcProyRenderResultado(compania) {
+    const data = _fcProyCalcData;
+    const calcWrap = document.getElementById('fcproy-calculo-wrap');
+    const thStyle = 'padding:5px 10px;text-align:right;font-size:11px;white-space:nowrap';
+
+    // Canales únicos globales (para vista agregada)
+    const channelMap = new Map();
+    data.tiendas.forEach(t => {
+      data.semanas.forEach(sem => {
+        (t.porSemana[sem]?.canales || []).forEach(c => {
+          const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
+          if (!channelMap.has(key)) channelMap.set(key, { tipo: c.tipo, nombre: c.nombre, label: c.tipo === 'efectivo' ? 'Efectivo' : c.nombre });
+        });
+      });
+    });
+
+    // Agregados globales
+    const agg = {};
+    data.semanas.forEach(sem => {
+      agg[sem] = { igv: 0, rc: 0, tip: 0, ch: {} };
+      channelMap.forEach((_, key) => { agg[sem].ch[key] = { monto: 0, comision: 0, igvComision: 0 }; });
+      data.tiendas.forEach(t => {
+        const d = t.porSemana[sem];
+        if (!d) return;
+        agg[sem].igv += d.igv || 0;
+        agg[sem].rc  += d.rc  || 0;
+        agg[sem].tip += d.tip || 0;
+        d.canales.forEach(c => {
+          const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
+          if (agg[sem].ch[key]) {
+            agg[sem].ch[key].monto       += c.monto       || 0;
+            agg[sem].ch[key].comision    += c.comision    || 0;
+            agg[sem].ch[key].igvComision += c.igvComision || 0;
+          }
+        });
+      });
+    });
+
+    calcWrap.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px">
+        <h3 style="font-size:13px;font-weight:600;margin:0">Cálculo Proyectado — Venta Tiendas · ${esc(compania)}</h3>
+        <button class="btn btn-sm btn-outline" onclick="fcProyToggleDesglose()">
+          ${_fcProyPorTienda ? '📊 Ver agregado' : '🏪 Desglose por tienda'}
+        </button>
+      </div>
+      <div class="card" style="overflow:auto">
+        <table class="data-table" style="font-size:12px;white-space:nowrap">
+          <thead><tr>
+            <th style="position:sticky;left:0;background:#1a1f3a;z-index:1;${thStyle};text-align:left">Línea (S/)</th>
+            ${data.semanas.map(s => `<th style="${thStyle}">${fcWeekLabel(s)}</th>`).join('')}
+          </tr></thead>
+          <tbody>${fcProyBuildTbody(data, channelMap, agg, _fcProyPorTienda)}</tbody>
+        </table>
+      </div>`;
+  }
+
+  window.fcProyToggleDesglose = function() {
+    const compania = document.getElementById('fcproy-compania')?.value;
+    _fcProyPorTienda = !_fcProyPorTienda;
+    fcProyRenderResultado(compania);
+  };
+
   window.fcProyVerCalculo = async function() {
     const compania = document.getElementById('fcproy-compania')?.value;
     const desde    = document.getElementById('fcproy-desde')?.value;
@@ -8548,82 +8697,9 @@ async function viewFlujoCaja(container) {
         calcWrap.innerHTML = '<div class="text-muted text-center py-24">No hay tiendas activas para esta sociedad.</div>';
         return;
       }
-
-      // Recolectar todos los canales únicos (preservar orden: efectivo primero)
-      const channelMap = new Map(); // key → {tipo, nombre, label}
-      data.tiendas.forEach(t => {
-        data.semanas.forEach(sem => {
-          const d = t.porSemana[sem];
-          if (!d) return;
-          d.canales.forEach(c => {
-            const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
-            if (!channelMap.has(key)) channelMap.set(key, { tipo: c.tipo, nombre: c.nombre, label: c.tipo === 'efectivo' ? 'Efectivo' : c.nombre });
-          });
-        });
-      });
-
-      // Agregar por semana
-      const agg = {};
-      data.semanas.forEach(sem => {
-        agg[sem] = { igv: 0, rc: 0, tip: 0, ch: {} };
-        channelMap.forEach((_, key) => { agg[sem].ch[key] = { monto: 0, comision: 0, igvComision: 0 }; });
-        data.tiendas.forEach(t => {
-          const d = t.porSemana[sem];
-          if (!d) return;
-          agg[sem].igv += d.igv || 0;
-          agg[sem].rc  += d.rc  || 0;
-          agg[sem].tip += d.tip || 0;
-          d.canales.forEach(c => {
-            const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
-            if (agg[sem].ch[key]) {
-              agg[sem].ch[key].monto       += c.monto       || 0;
-              agg[sem].ch[key].comision    += c.comision    || 0;
-              agg[sem].ch[key].igvComision += c.igvComision || 0;
-            }
-          });
-        });
-      });
-
-      const thStyle = 'padding:5px 10px;text-align:right;font-size:11px;white-space:nowrap';
-      const tdNum   = v => `<td style="padding:4px 10px;text-align:right;font-size:12px">${fcProyFmt(v)}</td>`;
-      const tdLabel = (lbl, indent) => `<td style="padding:4px 10px ${indent?'4px 22px':''};font-size:12px;white-space:nowrap">${esc(lbl)}</td>`;
-      const trSec   = lbl => `<tr style="background:#1a1f3a"><td colspan="${data.semanas.length+1}" style="padding:5px 10px;color:#fff;font-weight:700;font-size:11px">${lbl}</td></tr>`;
-
-      let tbody = '';
-
-      // INGRESOS
-      tbody += trSec('INGRESOS — Tiendas');
-      channelMap.forEach((ch, key) => {
-        tbody += `<tr>${tdLabel(ch.label, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.monto)).join('')}</tr>`;
-      });
-      tbody += `<tr>${tdLabel('TIP cobrado', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
-
-      // EGRESOS
-      tbody += trSec('EGRESOS — Tiendas');
-      tbody += `<tr>${tdLabel('IGV', true)}${data.semanas.map(s => tdNum(agg[s].igv)).join('')}</tr>`;
-      tbody += `<tr>${tdLabel('RC (Recargo al consumo)', true)}${data.semanas.map(s => tdNum(agg[s].rc)).join('')}</tr>`;
-      tbody += `<tr>${tdLabel('TIP empleados', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
-      channelMap.forEach((ch, key) => {
-        if (ch.tipo === 'efectivo') return;
-        const hasComision = data.semanas.some(s => (agg[s].ch[key]?.comision || 0) > 0);
-        if (!hasComision) return;
-        tbody += `<tr>${tdLabel(`Comisión ${ch.label}`, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.comision)).join('')}</tr>`;
-        const hasIgvCom = data.semanas.some(s => (agg[s].ch[key]?.igvComision || 0) > 0);
-        if (hasIgvCom)
-          tbody += `<tr>${tdLabel(`IGV Comisión ${ch.label}`, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.igvComision)).join('')}</tr>`;
-      });
-
-      calcWrap.innerHTML = `
-        <h3 style="font-size:13px;font-weight:600;margin:16px 0 8px">Cálculo Proyectado — Venta Tiendas · ${esc(compania)}</h3>
-        <div class="card" style="overflow:auto">
-          <table class="data-table" style="font-size:12px;white-space:nowrap">
-            <thead><tr>
-              <th style="position:sticky;left:0;background:#1a1f3a;z-index:1;${thStyle};text-align:left">Línea (S/)</th>
-              ${data.semanas.map(s => `<th style="${thStyle}">${fcWeekLabel(s)}</th>`).join('')}
-            </tr></thead>
-            <tbody>${tbody}</tbody>
-          </table>
-        </div>`;
+      _fcProyCalcData  = data;
+      _fcProyPorTienda = false;
+      fcProyRenderResultado(compania);
     } catch (e) {
       calcWrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`;
     }
