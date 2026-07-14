@@ -1,6 +1,8 @@
-const express = require('express');
-const router  = express.Router();
-const auth    = require('../middleware/auth');
+const express  = require('express');
+const router   = express.Router();
+const auth     = require('../middleware/auth');
+const multer   = require('multer');
+const ExcelJS  = require('exceljs');
 
 const FlujoCajaLinea       = require('../models/FlujoCajaLinea');
 const FlujoCajaCuenta      = require('../models/FlujoCajaCuenta');
@@ -8,6 +10,10 @@ const FlujoCajaMovBancario = require('../models/FlujoCajaMovBancario');
 const FlujoCajaProveedor   = require('../models/FlujoCajaProveedor');
 const FlujoCajaOperacion   = require('../models/FlujoCajaOperacion');
 const TipoCambio           = require('../models/TipoCambio');
+const EstadoCuenta         = require('../models/EstadoCuenta');
+const PagoERP              = require('../models/PagoERP');
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 router.use(auth);
 
@@ -446,6 +452,240 @@ router.get('/resumen', async (req, res) => {
     });
 
     res.json({ periodos, secciones: FlujoCajaLinea.SECCIONES, filas: grilla, moneda, granularidad });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Helpers de parseo ─────────────────────────────────────────────────────────
+
+function isHtmlBuffer(buffer) {
+  return /^\s*</.test(buffer.slice(0, 50).toString('ascii'));
+}
+
+function parseBbvaHtml(buffer) {
+  const text = buffer.toString('latin1');
+  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  const rows = [];
+  let m;
+  while ((m = rowRegex.exec(text)) !== null) {
+    const cells = [...m[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)];
+    const vals = cells.map(c =>
+      c[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ')
+           .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim()
+    );
+    if (vals.some(v => v)) rows.push(vals);
+  }
+
+  let numeroCuenta = '', moneda = 'SOL', dataStart = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const full = rows[i].join(' ');
+    if (full.includes('Cuenta Actual:')) {
+      const am = full.match(/Cuenta Actual:\s*(\d+)/);
+      if (am) numeroCuenta = am[1].slice(-8);
+    }
+    if (full.includes('Importes en:')) {
+      moneda = full.includes('USD') ? 'USD' : 'SOL';
+    }
+    if (rows[i].some(v => /F\.\s*Operaci/i.test(v))) { dataStart = i + 1; break; }
+  }
+
+  const transacciones = [];
+  for (let i = Math.max(0, dataStart); i < rows.length; i++) {
+    const r = rows[i];
+    const fechaStr = (r[0] || '').trim();
+    if (!fechaStr.match(/^\d{2}-\d{2}-\d{4}$/)) continue;
+    const [day, month, year] = fechaStr.split('-').map(Number);
+    const fecha = new Date(Date.UTC(year, month - 1, day));
+    const nroDoc  = (r[3] || '').trim();
+    const concepto = (r[4] || '').trim();
+    if (!nroDoc || /^saldo/i.test(concepto)) continue;
+    const importe = parseFloat((r[5] || '0').replace(/,/g, '')) || 0;
+    transacciones.push({ fecha, nroDoc, concepto, importe });
+  }
+  return { numeroCuenta, moneda, banco: 'BBVA', transacciones };
+}
+
+async function parseXlsxEECC(buffer, banco) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const ws = wb.worksheets[0];
+  const trxs = [];
+  let primera = true;
+  ws.eachRow({ includeEmpty: false }, row => {
+    if (primera) { primera = false; return; }
+    const v = row.values;
+    try {
+      if (banco === 'BBVA') {
+        if (!v[1]) return;
+        const nroDoc = String(v[4] || '').trim();
+        if (!nroDoc) return;
+        trxs.push({ fecha: v[1] instanceof Date ? v[1] : null,
+                    nroDoc, concepto: String(v[5] || '').trim(), importe: parseFloat(v[6]) || 0 });
+      } else if (banco === 'BCP') {
+        if (!v[1] || !v[7]) return;
+        trxs.push({ fecha: v[1] instanceof Date ? v[1] : null,
+                    nroDoc: String(v[7]).trim(), concepto: String(v[3] || '').trim(), importe: parseFloat(v[4]) || 0 });
+      } else if (banco === 'IBK') {
+        if (!v[1] || !v[3]) return;
+        const nroDoc = String(v[3]).trim();
+        if (!nroDoc || nroDoc === '-') return;
+        const cargo = parseFloat(v[7]) || 0, abono = parseFloat(v[8]) || 0;
+        trxs.push({ fecha: v[1] instanceof Date ? v[1] : null,
+                    nroDoc, concepto: String(v[4] || v[5] || '').trim(),
+                    importe: cargo !== 0 ? cargo : abono });
+      }
+    } catch (_) {}
+  });
+  return trxs;
+}
+
+function parseERPCsv(buffer) {
+  const text = buffer.toString('utf8').replace(/^﻿/, '');
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const vals = []; let cur = '', inQ = false;
+    for (const ch of line + ',') {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    const o = {};
+    headers.forEach((h, i) => { o[h] = (vals[i] || '').trim(); });
+    return o;
+  }).filter(r => r['NumeroProceso']);
+}
+
+function parseFechaERP(str) {
+  if (!str) return null;
+  const [datePart] = str.split(' ');
+  const parts = datePart.split('/');
+  if (parts.length !== 3) return null;
+  const [m, d, y] = parts.map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+// ── POST /eecc/cargar ─────────────────────────────────────────────────────────
+
+router.post('/eecc/cargar', upload.single('archivo'), async (req, res) => {
+  try {
+    const { compania, banco: bancoBody, moneda: monedaBody } = req.body;
+    if (!compania || !req.file) return res.status(400).json({ error: 'Faltan compania o archivo' });
+    if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
+
+    let banco, moneda, transacciones, numeroCuenta;
+
+    if (isHtmlBuffer(req.file.buffer)) {
+      // BBVA HTML-XLS: auto-detectar cuenta, moneda
+      const parsed = parseBbvaHtml(req.file.buffer);
+      banco = 'BBVA';
+      moneda = parsed.moneda;
+      numeroCuenta = parsed.numeroCuenta;
+      transacciones = parsed.transacciones;
+    } else {
+      // XLSX real: usuario selecciona banco y moneda
+      if (!bancoBody || !monedaBody) return res.status(400).json({ error: 'Para archivos XLSX indique banco y moneda' });
+      banco  = bancoBody;
+      moneda = monedaBody;
+      transacciones = await parseXlsxEECC(req.file.buffer, banco);
+      // Intentar obtener numeroCuenta desde FlujoCajaCuenta
+      const cta = await FlujoCajaCuenta.findOne({ compania, banco, moneda }).lean();
+      numeroCuenta = cta?.numeroCuenta || '';
+    }
+
+    await EstadoCuenta.findOneAndUpdate(
+      { compania, banco, moneda },
+      { compania, banco, moneda, cargadoPor: req.user.username, cargadoEn: new Date(), transacciones },
+      { upsert: true, new: true }
+    );
+
+    // Alias de la cuenta para feedback
+    const cta = await FlujoCajaCuenta.findOne({ compania, banco, moneda }).lean();
+    res.json({ ok: true, count: transacciones.length, banco, moneda, numeroCuenta, alias: cta?.alias || '' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── POST /pagos-erp/cargar ────────────────────────────────────────────────────
+
+router.post('/pagos-erp/cargar', upload.single('archivo'), async (req, res) => {
+  try {
+    const { compania } = req.body;
+    if (!compania || !req.file) return res.status(400).json({ error: 'Faltan compania o archivo' });
+    if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
+
+    const rows = parseERPCsv(req.file.buffer);
+    const ahora = new Date();
+    const docs = rows.map(r => ({
+      compania,
+      cuentaBancaria: r['CuentaBancaria'] || '',
+      numeroProceso:  parseInt(r['NumeroProceso'])  || 0,
+      secuencia:      parseInt(r['Secuencia'])       || 0,
+      numeroPago:     parseInt(r['NumeroPago'])      || 0,
+      pagarA:         r['PagarA']                    || '',
+      moneda:         r['MonedaPago']                || '',
+      fechaPago:      parseFechaERP(r['FechaPago']),
+      pagoLocal:      parseFloat(r['PagoMonedaLocal'])      || 0,
+      pagoExtranjero: parseFloat(r['PagoMonedaExtranjera']) || 0,
+      tipoPago:       r['TipoPago']    || '',
+      voucher:        r['VoucherPago'] || '',
+      cargadoEn:      ahora,
+    }));
+
+    await PagoERP.deleteMany({ compania });
+    await PagoERP.insertMany(docs, { ordered: false });
+
+    const cuentas = [...new Set(docs.map(d => d.cuentaBancaria).filter(Boolean))];
+    res.json({ ok: true, total: docs.length, cuentas });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── GET /conciliacion ─────────────────────────────────────────────────────────
+
+router.get('/conciliacion', async (req, res) => {
+  try {
+    const { compania, banco, moneda } = req.query;
+    if (!compania || !banco || !moneda) return res.status(400).json({ error: 'Faltan compania, banco, moneda' });
+    if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
+
+    const eecc = await EstadoCuenta.findOne({ compania, banco, moneda }).lean();
+    if (!eecc) return res.json({ transacciones: [], soloERP: [], stats: { total: 0, conciliados: 0, soloEECC: 0, soloERP: 0 }, cargadoEn: null });
+
+    // Obtener numeroCuenta de la cuenta configurada
+    const cuenta = await FlujoCajaCuenta.findOne({ compania, banco, moneda }).lean();
+    const numeroCuenta = cuenta?.numeroCuenta || '';
+
+    // Pagos ERP de esta cuenta (moneda ERP: LO=SOL, EX=USD)
+    const monedaERP = moneda === 'USD' ? 'EX' : 'LO';
+    const pagos = await PagoERP.find({ compania, cuentaBancaria: numeroCuenta, moneda: monedaERP }).lean();
+
+    // Matching: fecha + importe (tolerancia ±0.02)
+    const usados = new Set();
+    const transacciones = eecc.transacciones.map(trx => {
+      const trxFecha = new Date(trx.fecha).toISOString().slice(0, 10);
+      const trxAbs   = Math.abs(trx.importe);
+      const idx = pagos.findIndex((p, i) => {
+        if (usados.has(i)) return false;
+        const pFecha   = p.fechaPago ? new Date(p.fechaPago).toISOString().slice(0, 10) : '';
+        const pImporte = moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal;
+        return trxFecha === pFecha && Math.abs(trxAbs - pImporte) < 0.02;
+      });
+      if (idx >= 0) {
+        usados.add(idx);
+        const p = pagos[idx];
+        return { ...trx, estado: 'CONCILIADO', erp: { pagarA: p.pagarA, voucher: p.voucher, tipoPago: p.tipoPago, numeroProceso: p.numeroProceso } };
+      }
+      return { ...trx, estado: trx.importe < 0 ? 'SIN_ERP' : 'INGRESO', erp: null };
+    });
+
+    const soloERP = pagos.filter((_, i) => !usados.has(i));
+    const stats = {
+      total: transacciones.length,
+      conciliados: transacciones.filter(t => t.estado === 'CONCILIADO').length,
+      soloEECC: transacciones.filter(t => t.estado !== 'CONCILIADO').length,
+      soloERP: soloERP.length,
+    };
+
+    res.json({ transacciones, soloERP, stats, cargadoEn: eecc.cargadoEn, alias: cuenta?.alias || '' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -8305,6 +8305,59 @@ async function viewFlujoCaja(container) {
             </div>
           </div>
         </div>
+        <!-- Carga de datos bancarios -->
+        <div class="card mb-16" style="padding:14px">
+          <div style="display:flex;gap:12px;align-items:center">
+            <span style="font-weight:700;font-size:13px">📥 Datos bancarios</span>
+            <button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:11px" onclick="fcToggleCarga(this)">▸ Cargar / conciliar</button>
+          </div>
+          <div id="fc-carga-panel" style="display:none;margin-top:14px">
+            <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-bottom:14px">
+              <div>
+                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+                <select id="fc-carga-soc" class="form-control" style="width:160px">
+                  ${socsFC.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Banco</label>
+                <select id="fc-carga-banco" class="form-control" style="width:130px">
+                  <option value="BBVA">BBVA</option>
+                  <option value="BCP">BCP</option>
+                  <option value="IBK">Interbank</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
+                <select id="fc-carga-moneda" class="form-control" style="width:120px">
+                  <option value="SOL">Soles</option>
+                  <option value="USD">Dólares</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
+                <p style="font-weight:600;font-size:12px;margin-bottom:8px">📄 Estado de Cuenta (EECC)</p>
+                <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px">BBVA: HTML-XLS (auto-detecta cuenta) · BCP/IBK: XLSX</p>
+                <input type="file" id="fc-eecc-file" accept=".xls,.xlsx" style="font-size:12px;width:100%">
+                <button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%" onclick="fcCargarEECC()">📤 Cargar EECC</button>
+                <div id="fc-eecc-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
+                <p style="font-weight:600;font-size:12px;margin-bottom:8px">💳 Pagos ERP</p>
+                <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px">CSV de pagos Spring (reemplaza todo para la sociedad)</p>
+                <input type="file" id="fc-erp-file" accept=".csv" style="font-size:12px;width:100%">
+                <button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%" onclick="fcCargarERP()">📤 Cargar Pagos ERP</button>
+                <div id="fc-erp-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
+              </div>
+            </div>
+            <div style="margin-top:12px;text-align:center">
+              <button class="btn btn-outline btn-sm" onclick="fcVerConciliacion()">🔗 Ver Conciliación</button>
+            </div>
+          </div>
+        </div>
+        <div id="fc-conc-wrap" style="margin-bottom:16px"></div>
+
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
           <button class="btn btn-outline btn-sm" onclick="imprimirVista('fc-wrap','Flujo de Caja')">🖨️ Imprimir</button>
           <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-wrap','flujo-de-caja')">📥 Bajar a Excel</button>
@@ -8410,6 +8463,135 @@ async function viewFlujoCaja(container) {
         </p>`;
     } catch(e) {
       wrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`;
+    }
+  };
+
+  // ── Carga de datos bancarios ──────────────────────────────────────────────
+
+  window.fcToggleCarga = function(btn) {
+    const panel = document.getElementById('fc-carga-panel');
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : '';
+    btn.textContent = visible ? '▸ Cargar / conciliar' : '▾ Cerrar';
+  };
+
+  window.fcCargarEECC = async function() {
+    const compania = document.getElementById('fc-carga-soc').value;
+    const banco    = document.getElementById('fc-carga-banco').value;
+    const moneda   = document.getElementById('fc-carga-moneda').value;
+    const fi       = document.getElementById('fc-eecc-file');
+    const st       = document.getElementById('fc-eecc-status');
+    if (!fi.files.length) { toast('Selecciona un archivo EECC', 'warning'); return; }
+    st.textContent = '⏳ Cargando...';
+    const fd = new FormData();
+    fd.append('archivo', fi.files[0]);
+    fd.append('compania', compania);
+    fd.append('banco', banco);
+    fd.append('moneda', moneda);
+    try {
+      const r = await fetch('/api/flujo-caja/eecc/cargar', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
+        body: fd,
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Error');
+      st.innerHTML = `<span style="color:#16a34a">✓ ${j.count} movimientos · ${esc(j.banco)} ${esc(j.moneda)}${j.alias ? ' · ' + esc(j.alias) : ''}</span>`;
+      toast(`EECC cargado: ${j.count} movimientos`);
+    } catch(e) {
+      st.innerHTML = `<span style="color:#dc2626">✗ ${esc(e.message)}</span>`;
+    }
+  };
+
+  window.fcCargarERP = async function() {
+    const compania = document.getElementById('fc-carga-soc').value;
+    const fi = document.getElementById('fc-erp-file');
+    const st = document.getElementById('fc-erp-status');
+    if (!fi.files.length) { toast('Selecciona un archivo CSV de Pagos ERP', 'warning'); return; }
+    st.textContent = '⏳ Cargando...';
+    const fd = new FormData();
+    fd.append('archivo', fi.files[0]);
+    fd.append('compania', compania);
+    try {
+      const r = await fetch('/api/flujo-caja/pagos-erp/cargar', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
+        body: fd,
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Error');
+      st.innerHTML = `<span style="color:#16a34a">✓ ${j.total} pagos · ${j.cuentas.length} cuenta(s): ${j.cuentas.map(esc).join(', ')}</span>`;
+      toast(`Pagos ERP: ${j.total} registros cargados`);
+    } catch(e) {
+      st.innerHTML = `<span style="color:#dc2626">✗ ${esc(e.message)}</span>`;
+    }
+  };
+
+  window.fcVerConciliacion = async function() {
+    const compania = document.getElementById('fc-carga-soc').value;
+    const banco    = document.getElementById('fc-carga-banco').value;
+    const moneda   = document.getElementById('fc-carga-moneda').value;
+    const wrap = document.getElementById('fc-conc-wrap');
+    wrap.innerHTML = '<div class="text-muted text-center py-16">⏳ Calculando conciliación...</div>';
+    try {
+      const data = await GET(`/flujo-caja/conciliacion?compania=${encodeURIComponent(compania)}&banco=${encodeURIComponent(banco)}&moneda=${encodeURIComponent(moneda)}`);
+      const simbolo = moneda === 'USD' ? 'US$' : 'S/';
+      const fmtF = d => d ? new Date(d).toLocaleDateString('es-PE', {day:'2-digit',month:'2-digit',year:'numeric',timeZone:'UTC'}) : '';
+      const fmtN = v => v == null ? '' : Number(v).toLocaleString('es-PE', {minimumFractionDigits:2, maximumFractionDigits:2});
+      const BGMAP = { CONCILIADO: '#dcfce7', SIN_ERP: '#fef9c3', INGRESO: '#dbeafe' };
+      const LBLMAP = { CONCILIADO: '✓ Conciliado', SIN_ERP: '⚠ Sin ERP', INGRESO: '↑ Ingreso' };
+
+      const trxRows = data.transacciones.map(t => {
+        const bg = BGMAP[t.estado] || '';
+        const erpInfo = t.erp
+          ? `<div style="font-size:10px;color:#374151;margin-top:1px">${esc(t.erp.pagarA)} · ${esc(t.erp.voucher)} · ${esc(t.erp.tipoPago)}</div>`
+          : '';
+        return `<tr style="${bg ? 'background:' + bg : ''}">
+          <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fmtF(t.fecha))}</td>
+          <td style="padding:4px 8px;font-size:12px">${esc(t.nroDoc || '')}</td>
+          <td style="padding:4px 8px;font-size:12px;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto || '')}${erpInfo}</td>
+          <td style="padding:4px 8px;font-size:12px;text-align:right;white-space:nowrap;${t.importe<0?'color:#dc2626':''}">${fmtN(t.importe)}</td>
+          <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(LBLMAP[t.estado] || t.estado)}</td>
+        </tr>`;
+      }).join('');
+
+      let erpRows = '';
+      if (data.soloERP.length) {
+        erpRows = `<tr style="background:#1a1f3a"><td colspan="5" style="padding:5px 8px;color:#fff;font-weight:700;font-size:11px">PAGOS ERP SIN MOVIMIENTO EN BANCO (${data.soloERP.length})</td></tr>`;
+        erpRows += data.soloERP.map(p => `<tr style="background:#fee2e2">
+          <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fmtF(p.fechaPago))}</td>
+          <td style="padding:4px 8px;font-size:12px">${esc(p.voucher || '')}</td>
+          <td style="padding:4px 8px;font-size:12px;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.pagarA || '')}</td>
+          <td style="padding:4px 8px;font-size:12px;text-align:right;color:#dc2626;white-space:nowrap">${fmtN(moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal)}</td>
+          <td style="padding:4px 8px;font-size:11px;white-space:nowrap">✗ Sin banco · ${esc(p.tipoPago || '')}</td>
+        </tr>`).join('');
+      }
+
+      const s = data.stats;
+      wrap.innerHTML = `
+        <div class="card mb-16" style="padding:12px">
+          <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+            <b style="font-size:13px">Conciliación ${esc(banco)} ${esc(simbolo)} — ${esc(compania)}${data.alias ? ' · ' + esc(data.alias) : ''}</b>
+            <span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.conciliados} conciliados</span>
+            <span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.soloEECC} solo en EECC</span>
+            <span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.soloERP} solo en ERP</span>
+            ${data.cargadoEn ? `<span style="font-size:11px;color:var(--text-muted)">EECC al ${esc(fmtF(data.cargadoEn))}</span>` : ''}
+          </div>
+          <div style="overflow:auto;max-height:520px">
+            <table class="data-table" style="font-size:12px;width:100%">
+              <thead><tr>
+                <th style="text-align:left;white-space:nowrap">Fecha</th>
+                <th style="text-align:left;white-space:nowrap">Nº Doc</th>
+                <th style="text-align:left">Concepto / Proveedor ERP</th>
+                <th style="text-align:right;white-space:nowrap">Importe (${esc(simbolo)})</th>
+                <th style="text-align:left">Estado</th>
+              </tr></thead>
+              <tbody>${trxRows}${erpRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    } catch(e) {
+      wrap.innerHTML = `<div class="text-center py-16" style="color:#dc2626">${esc(e.message)}</div>`;
     }
   };
 
