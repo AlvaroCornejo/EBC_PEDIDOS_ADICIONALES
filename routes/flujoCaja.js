@@ -495,11 +495,12 @@ function parseBbvaHtml(buffer) {
     if (!fechaStr.match(/^\d{2}-\d{2}-\d{4}$/)) continue;
     const [day, month, year] = fechaStr.split('-').map(Number);
     const fecha = new Date(Date.UTC(year, month - 1, day));
+    const codigo  = (r[2] || '').trim();
     const nroDoc  = (r[3] || '').trim();
     const concepto = (r[4] || '').trim();
     if (!nroDoc || /^saldo/i.test(concepto)) continue;
     const importe = parseFloat((r[5] || '0').replace(/,/g, '')) || 0;
-    transacciones.push({ fecha, nroDoc, concepto, importe });
+    transacciones.push({ fecha, codigo, nroDoc, concepto, importe });
   }
   return { numeroCuenta, moneda, banco: 'BBVA', transacciones };
 }
@@ -648,41 +649,95 @@ router.get('/conciliacion', async (req, res) => {
     if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
 
     const eecc = await EstadoCuenta.findOne({ compania, banco, moneda }).lean();
-    if (!eecc) return res.json({ transacciones: [], soloERP: [], stats: { total: 0, conciliados: 0, soloEECC: 0, soloERP: 0 }, cargadoEn: null });
+    if (!eecc) return res.json({ transacciones: [], soloERP: [], stats: { total: 0, conciliados: 0, soloEECC: 0, soloERP: 0, sinLinea: 0, nuevosProveedores: 0 }, cargadoEn: null });
 
-    // Obtener numeroCuenta de la cuenta configurada
     const cuenta = await FlujoCajaCuenta.findOne({ compania, banco, moneda }).lean();
     const numeroCuenta = cuenta?.numeroCuenta || '';
+    const cuentaId     = cuenta?._id || null;
 
-    // Pagos ERP de esta cuenta (moneda ERP: LO=SOL, EX=USD)
+    // Cargar pagos ERP, tablas de mapeo y líneas en paralelo
     const monedaERP = moneda === 'USD' ? 'EX' : 'LO';
-    const pagos = await PagoERP.find({ compania, cuentaBancaria: numeroCuenta, moneda: monedaERP }).lean();
+    const [pagos, movBancarios, proveedores, operaciones, lineas] = await Promise.all([
+      PagoERP.find({ compania, cuentaBancaria: numeroCuenta, moneda: monedaERP }).lean(),
+      cuentaId ? FlujoCajaMovBancario.find({ compania, cuentaId }).lean() : [],
+      FlujoCajaProveedor.find({ compania }).lean(),
+      FlujoCajaOperacion.find({ compania }).lean(),
+      FlujoCajaLinea.find({ compania, activa: true }).select('nombre seccion').lean(),
+    ]);
 
-    // Matching: fecha + importe (tolerancia ±0.02)
+    // Índices para lookup O(1)
+    const lineaMap   = new Map(lineas.map(l => [String(l._id), l]));
+    const movBanMap  = new Map(movBancarios.map(m => [m.numeroOperacion.trim(), m]));
+    const provMap    = new Map(proveedores.map(p => [p.nombreProveedor.trim().toUpperCase(), p]));
+    const opMap      = new Map(operaciones.map(o => [o.descripcion.trim().toUpperCase(), o]));
+
+    // Matching ERP + asignación de línea del flujo
     const usados = new Set();
+    const nuevosProv = new Map(); // key → nombre original
+
     const transacciones = eecc.transacciones.map(trx => {
       const trxFecha = new Date(trx.fecha).toISOString().slice(0, 10);
       const trxAbs   = Math.abs(trx.importe);
+
+      // ── Match ERP ──
       const idx = pagos.findIndex((p, i) => {
         if (usados.has(i)) return false;
         const pFecha   = p.fechaPago ? new Date(p.fechaPago).toISOString().slice(0, 10) : '';
         const pImporte = moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal;
         return trxFecha === pFecha && Math.abs(trxAbs - pImporte) < 0.02;
       });
+      const estado = idx >= 0 ? 'CONCILIADO' : (trx.importe < 0 ? 'SIN_ERP' : 'INGRESO');
+      let erp = null;
       if (idx >= 0) {
         usados.add(idx);
         const p = pagos[idx];
-        return { ...trx, estado: 'CONCILIADO', erp: { pagarA: p.pagarA, voucher: p.voucher, tipoPago: p.tipoPago, numeroProceso: p.numeroProceso } };
+        erp = { pagarA: p.pagarA, voucher: p.voucher, tipoPago: p.tipoPago, numeroProceso: p.numeroProceso };
       }
-      return { ...trx, estado: trx.importe < 0 ? 'SIN_ERP' : 'INGRESO', erp: null };
+
+      // ── Asignación de línea del flujo (prioridad 1→2→3) ──
+      let lineaId = null, lineaNombre = null, lineaFuente = null;
+
+      // 1. Mapeo Mov. Bancario: por código de operación bancaria
+      const codigo = (trx.codigo || '').trim();
+      if (codigo) {
+        const mb = movBanMap.get(codigo);
+        if (mb?.lineaId) { lineaId = mb.lineaId; lineaFuente = 'MOV_BANCARIO'; }
+      }
+
+      // 2. Mapeo Proveedores: si conciliado y sin línea
+      if (!lineaId && estado === 'CONCILIADO' && erp?.pagarA) {
+        const key = erp.pagarA.trim().toUpperCase();
+        const prov = provMap.get(key);
+        if (prov?.lineaId) { lineaId = prov.lineaId; lineaFuente = 'PROVEEDOR'; }
+        else if (!prov) nuevosProv.set(key, erp.pagarA.trim()); // nuevo → auto-insertar
+      }
+
+      // 3. Mapeo Operaciones: si no conciliado y sin línea
+      if (!lineaId && estado !== 'CONCILIADO' && trx.concepto) {
+        const key = trx.concepto.trim().toUpperCase();
+        const op = opMap.get(key);
+        if (op?.lineaId) { lineaId = op.lineaId; lineaFuente = 'OPERACION'; }
+      }
+
+      if (lineaId) lineaNombre = lineaMap.get(String(lineaId))?.nombre || null;
+
+      return { ...trx, estado, erp, lineaId: lineaId ? String(lineaId) : null, lineaNombre, lineaFuente };
     });
+
+    // Auto-insertar proveedores nuevos sin línea (para que aparezcan en el Mapeo Proveedores)
+    if (nuevosProv.size > 0) {
+      const docs = [...nuevosProv.values()].map(nombre => ({ compania, nombreProveedor: nombre }));
+      try { await FlujoCajaProveedor.insertMany(docs, { ordered: false }); } catch (_) {}
+    }
 
     const soloERP = pagos.filter((_, i) => !usados.has(i));
     const stats = {
-      total: transacciones.length,
-      conciliados: transacciones.filter(t => t.estado === 'CONCILIADO').length,
-      soloEECC: transacciones.filter(t => t.estado !== 'CONCILIADO').length,
-      soloERP: soloERP.length,
+      total:             transacciones.length,
+      conciliados:       transacciones.filter(t => t.estado === 'CONCILIADO').length,
+      soloEECC:          transacciones.filter(t => t.estado !== 'CONCILIADO').length,
+      soloERP:           soloERP.length,
+      sinLinea:          transacciones.filter(t => !t.lineaId).length,
+      nuevosProveedores: nuevosProv.size,
     };
 
     res.json({ transacciones, soloERP, stats, cargadoEn: eecc.cargadoEn, alias: cuenta?.alias || '' });

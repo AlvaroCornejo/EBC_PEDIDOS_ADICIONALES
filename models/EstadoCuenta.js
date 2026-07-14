@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const trxSchema = new mongoose.Schema({
   fecha:    Date,
+  codigo:   { type: String, default: '' }, // código de operación bancaria (p.ej. "612", "016")
   nroDoc:   String,
   concepto: String,
   importe:  Number,

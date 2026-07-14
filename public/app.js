@@ -8541,50 +8541,59 @@ async function viewFlujoCaja(container) {
       const BGMAP = { CONCILIADO: '#dcfce7', SIN_ERP: '#fef9c3', INGRESO: '#dbeafe' };
       const LBLMAP = { CONCILIADO: '✓ Conciliado', SIN_ERP: '⚠ Sin ERP', INGRESO: '↑ Ingreso' };
 
+      const FUENTELBL = { MOV_BANCARIO: 'Cód. op.', PROVEEDOR: 'Proveedor', OPERACION: 'Operación' };
       const trxRows = data.transacciones.map(t => {
         const bg = BGMAP[t.estado] || '';
         const erpInfo = t.erp
           ? `<div style="font-size:10px;color:#374151;margin-top:1px">${esc(t.erp.pagarA)} · ${esc(t.erp.voucher)} · ${esc(t.erp.tipoPago)}</div>`
           : '';
+        const lineaCell = t.lineaNombre
+          ? `<span style="font-size:11px">${esc(t.lineaNombre)}</span><br><span style="font-size:10px;color:var(--text-muted)">${esc(FUENTELBL[t.lineaFuente]||t.lineaFuente||'')}</span>`
+          : `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>`;
         return `<tr style="${bg ? 'background:' + bg : ''}">
           <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fmtF(t.fecha))}</td>
-          <td style="padding:4px 8px;font-size:12px">${esc(t.nroDoc || '')}</td>
-          <td style="padding:4px 8px;font-size:12px;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto || '')}${erpInfo}</td>
+          <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(t.codigo||'')}${t.codigo&&t.nroDoc?' · ':''}${esc(t.nroDoc||'')}</td>
+          <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto || '')}${erpInfo}</td>
           <td style="padding:4px 8px;font-size:12px;text-align:right;white-space:nowrap;${t.importe<0?'color:#dc2626':''}">${fmtN(t.importe)}</td>
           <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(LBLMAP[t.estado] || t.estado)}</td>
+          <td style="padding:4px 8px;line-height:1.3">${lineaCell}</td>
         </tr>`;
       }).join('');
 
       let erpRows = '';
       if (data.soloERP.length) {
-        erpRows = `<tr style="background:#1a1f3a"><td colspan="5" style="padding:5px 8px;color:#fff;font-weight:700;font-size:11px">PAGOS ERP SIN MOVIMIENTO EN BANCO (${data.soloERP.length})</td></tr>`;
+        erpRows = `<tr style="background:#1a1f3a"><td colspan="6" style="padding:5px 8px;color:#fff;font-weight:700;font-size:11px">PAGOS ERP SIN MOVIMIENTO EN BANCO (${data.soloERP.length})</td></tr>`;
         erpRows += data.soloERP.map(p => `<tr style="background:#fee2e2">
           <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fmtF(p.fechaPago))}</td>
           <td style="padding:4px 8px;font-size:12px">${esc(p.voucher || '')}</td>
-          <td style="padding:4px 8px;font-size:12px;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.pagarA || '')}</td>
+          <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.pagarA || '')}</td>
           <td style="padding:4px 8px;font-size:12px;text-align:right;color:#dc2626;white-space:nowrap">${fmtN(moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal)}</td>
           <td style="padding:4px 8px;font-size:11px;white-space:nowrap">✗ Sin banco · ${esc(p.tipoPago || '')}</td>
+          <td></td>
         </tr>`).join('');
       }
 
       const s = data.stats;
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:12px">
-          <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
             <b style="font-size:13px">Conciliación ${esc(banco)} ${esc(simbolo)} — ${esc(compania)}${data.alias ? ' · ' + esc(data.alias) : ''}</b>
             <span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.conciliados} conciliados</span>
             <span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.soloEECC} solo en EECC</span>
             <span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.soloERP} solo en ERP</span>
+            ${s.sinLinea ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">⚠ ${s.sinLinea} sin línea</span>` : ''}
+            ${s.nuevosProveedores ? `<span style="background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:4px;font-size:11px">+${s.nuevosProveedores} prov. nuevos añadidos</span>` : ''}
             ${data.cargadoEn ? `<span style="font-size:11px;color:var(--text-muted)">EECC al ${esc(fmtF(data.cargadoEn))}</span>` : ''}
           </div>
           <div style="overflow:auto;max-height:520px">
             <table class="data-table" style="font-size:12px;width:100%">
               <thead><tr>
                 <th style="text-align:left;white-space:nowrap">Fecha</th>
-                <th style="text-align:left;white-space:nowrap">Nº Doc</th>
+                <th style="text-align:left;white-space:nowrap">Cód / Nº Doc</th>
                 <th style="text-align:left">Concepto / Proveedor ERP</th>
                 <th style="text-align:right;white-space:nowrap">Importe (${esc(simbolo)})</th>
                 <th style="text-align:left">Estado</th>
+                <th style="text-align:left">Línea del flujo</th>
               </tr></thead>
               <tbody>${trxRows}${erpRows}</tbody>
             </table>

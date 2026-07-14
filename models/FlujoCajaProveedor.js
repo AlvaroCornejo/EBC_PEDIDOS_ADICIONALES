@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const schema = new mongoose.Schema({
   compania:        { type: String, required: true },
   nombreProveedor: { type: String, required: true, trim: true },
-  lineaId:         { type: mongoose.Schema.Types.ObjectId, ref: 'FlujoCajaLinea', required: true },
+  lineaId:         { type: mongoose.Schema.Types.ObjectId, ref: 'FlujoCajaLinea', default: null },
 }, { timestamps: true });
 
 schema.index({ compania: 1, nombreProveedor: 1 }, { unique: true });
