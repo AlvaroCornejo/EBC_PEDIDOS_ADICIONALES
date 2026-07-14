@@ -20,11 +20,6 @@ router.use(auth);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const BASE = '__BASE__';
-
-// Debe reflejar ALL_SOCS_COMPRA en public/app.js
-const ALL_SOCS = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
-
 function requireFlujoAccess(req, res, next) {
   if (req.user.role === 'ADMIN' || req.user.rolPago) return next();
   return res.status(403).json({ error: 'Sin acceso a Flujo de Caja' });
@@ -40,7 +35,6 @@ function socsUsuario(user) {
 }
 
 function checkSocAccess(user, compania) {
-  if (compania === BASE) return user.role === 'ADMIN';   // solo ADMIN ve/edita la base
   const socs = socsUsuario(user);
   if (socs === null) return true;
   return socs.includes(compania);
@@ -67,12 +61,11 @@ router.get('/lineas', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /lineas  — crea una línea. Si compania==='__BASE__', se propaga automáticamente
-// a todas las sociedades (crea la línea hija enlazada con baseLineaId).
+// POST /lineas  — crea una línea directamente para la sociedad indicada
 router.post('/lineas', async (req, res) => {
   try {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Solo ADMIN' });
-    const { compania, seccion, nombre, orden, baseLineaId, tipoActividad } = req.body;
+    const { compania, seccion, nombre, orden, tipoActividad } = req.body;
     if (!compania || !seccion || !nombre?.trim())
       return res.status(400).json({ error: 'Faltan campos: compania, seccion, nombre' });
     if (!FlujoCajaLinea.SECCIONES.includes(seccion))
@@ -80,34 +73,11 @@ router.post('/lineas', async (req, res) => {
     if (tipoActividad !== undefined && tipoActividad !== '' && !FlujoCajaLinea.TIPOS_ACTIVIDAD.includes(tipoActividad))
       return res.status(400).json({ error: 'Tipo de actividad inválido' });
     const tipoAct = FlujoCajaLinea.TIPOS_ACTIVIDAD.includes(tipoActividad) ? tipoActividad : 'OPERACION';
-
-    if (compania === BASE) {
-      const base = await FlujoCajaLinea.create({
-        compania: BASE, seccion, nombre: nombre.trim(),
-        orden: Number(orden) || 0, baseLineaId: null, tipoActividad: tipoAct,
-      });
-      // Propagar a todas las sociedades que aún no tengan una línea ligada a esta base
-      for (const soc of ALL_SOCS) {
-        const existe = await FlujoCajaLinea.findOne({ compania: soc, baseLineaId: base._id });
-        if (!existe) {
-          await FlujoCajaLinea.create({
-            compania: soc, seccion, nombre: nombre.trim(),
-            orden: Number(orden) || 0, baseLineaId: base._id, tipoActividad: tipoAct,
-          });
-        }
-      }
-      return res.json(base);
-    }
-
-    // Línea de sociedad: requiere baseLineaId obligatorio (debe ser una línea __BASE__ existente)
-    if (!baseLineaId) return res.status(400).json({ error: 'Debe seleccionar una línea base para enlazar' });
-    const baseLinea = await FlujoCajaLinea.findOne({ _id: baseLineaId, compania: BASE });
-    if (!baseLinea) return res.status(400).json({ error: 'Línea base no encontrada' });
+    if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
 
     const linea = await FlujoCajaLinea.create({
       compania, seccion, nombre: nombre.trim(),
-      orden: Number(orden) || 0, baseLineaId: baseLinea._id,
-      tipoActividad: tipoActividad !== undefined ? tipoAct : baseLinea.tipoActividad,
+      orden: Number(orden) || 0, tipoActividad: tipoAct,
     });
     res.json(linea);
   } catch (e) {
@@ -130,57 +100,26 @@ router.put('/lineas/:id', async (req, res) => {
       if (!FlujoCajaLinea.SECCIONES.includes(seccion)) return res.status(400).json({ error: 'Sección inválida' });
       linea.seccion = seccion;
     }
-    let propagarTipo = false;
     if (tipoActividad !== undefined) {
       if (!FlujoCajaLinea.TIPOS_ACTIVIDAD.includes(tipoActividad)) return res.status(400).json({ error: 'Tipo de actividad inválido' });
-      if (linea.compania === BASE && linea.tipoActividad !== tipoActividad) propagarTipo = true;
       linea.tipoActividad = tipoActividad;
     }
     await linea.save();
-    // Si se cambió el tipo de actividad de una línea __BASE__, sincronizarlo en
-    // todas las líneas heredadas de cada sociedad (la clasificación contable
-    // debe ser consistente entre la base y sus líneas hijas).
-    if (propagarTipo) {
-      await FlujoCajaLinea.updateMany({ baseLineaId: linea._id }, { $set: { tipoActividad: linea.tipoActividad } });
-    }
     res.json(linea);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /lineas/:id  — solo si no tiene líneas hijas dependientes (caso __BASE__)
+// DELETE /lineas/:id  — limpia también los mapeos que la referencian
 router.delete('/lineas/:id', async (req, res) => {
   try {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Solo ADMIN' });
     const linea = await FlujoCajaLinea.findById(req.params.id);
     if (!linea) return res.status(404).json({ error: 'No encontrada' });
-    if (linea.compania === BASE) {
-      const hijas = await FlujoCajaLinea.find({ baseLineaId: linea._id });
-      if (hijas.length > 0) {
-        if (req.query.cascade !== 'true') {
-          return res.status(409).json({
-            error: `Hay ${hijas.length} línea(s) de sociedad enlazadas a esta línea base.`,
-            requiereCascada: true,
-            hijas: hijas.length,
-          });
-        }
-        // Eliminar también las líneas heredadas de cada sociedad (y, de paso, los
-        // mapeos que pudieran apuntar a ellas, para no dejar referencias rotas)
-        const hijaIds = hijas.map(h => h._id);
-        await Promise.all([
-          FlujoCajaMovBancario.deleteMany({ lineaId: { $in: hijaIds } }),
-          FlujoCajaProveedor.deleteMany({ lineaId: { $in: hijaIds } }),
-          FlujoCajaOperacion.deleteMany({ lineaId: { $in: hijaIds } }),
-          FlujoCajaLinea.deleteMany({ _id: { $in: hijaIds } }),
-        ]);
-      }
-    } else {
-      // Línea de sociedad: limpiar también los mapeos que la referencian
-      await Promise.all([
-        FlujoCajaMovBancario.deleteMany({ lineaId: linea._id }),
-        FlujoCajaProveedor.deleteMany({ lineaId: linea._id }),
-        FlujoCajaOperacion.deleteMany({ lineaId: linea._id }),
-      ]);
-    }
+    await Promise.all([
+      FlujoCajaMovBancario.deleteMany({ lineaId: linea._id }),
+      FlujoCajaProveedor.deleteMany({ lineaId: linea._id }),
+      FlujoCajaOperacion.deleteMany({ lineaId: linea._id }),
+    ]);
     await linea.deleteOne();
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -398,23 +337,10 @@ router.get('/resumen', async (req, res) => {
       }
     }
 
-    // ── Estructura de líneas (consolidando por línea base si hay >1 sociedad) ──
-    const lineasBase = await FlujoCajaLinea.find({ compania: BASE, activa: true }).sort({ seccion: 1, orden: 1 }).lean();
-    const lineasSoc  = await FlujoCajaLinea.find({ compania: { $in: companias }, activa: true }).sort({ seccion: 1, orden: 1 }).lean();
-
-    let filas;
-    if (companias.length > 1) {
-      // Consolidado: una fila por línea base; agrupa todas las líneas de sociedad que la referencian
-      filas = lineasBase.map(b => ({
-        id: String(b._id), nombre: b.nombre, seccion: b.seccion, orden: b.orden,
-        tipoActividad: b.tipoActividad || 'OPERACION',
-        lineasHijas: lineasSoc.filter(l => String(l.baseLineaId) === String(b._id)).map(l => l._id),
-      }));
-      // Líneas de sociedad sin línea base activa visible (caso límite) → las agrega sueltas
-    } else {
-      filas = lineasSoc.map(l => ({ id: String(l._id), nombre: l.nombre, seccion: l.seccion, orden: l.orden,
-        tipoActividad: l.tipoActividad || 'OPERACION', lineasHijas: [l._id] }));
-    }
+    // ── Estructura de líneas por sociedad ──
+    const lineasSoc = await FlujoCajaLinea.find({ compania: { $in: companias }, activa: true }).sort({ seccion: 1, orden: 1 }).lean();
+    const filas = lineasSoc.map(l => ({ id: String(l._id), nombre: l.nombre, seccion: l.seccion, orden: l.orden,
+      tipoActividad: l.tipoActividad || 'OPERACION', lineasHijas: [l._id] }));
 
     // ── Saldo inicial real desde las cuentas bancarias ──
     const cuentas = await FlujoCajaCuenta.find({ compania: { $in: companias }, activa: true }).lean();

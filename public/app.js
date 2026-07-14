@@ -10692,7 +10692,6 @@ async function renderAdminCCCorreo(container) {
 
 // ─── Admin: Flujo de Caja ─────────────────────────────────────────
 async function renderAdminFlujoCaja(container) {
-  const BASE = '__BASE__';
   const SECCIONES = [
     ['SALDO_INICIAL',   '1. Saldo Inicial'],
     ['INGRESOS',        '2. Ingresos'],
@@ -10724,7 +10723,6 @@ async function renderAdminFlujoCaja(container) {
       ${TIPOS_ACTIVIDAD.map(([tk,tl])=>`<option value="${tk}" ${current===tk?'selected':''}>${esc(tl)}</option>`).join('')}
     </select>`;
   const SUBTABS = [
-    ['base',      '🧱 Estructura Base'],
     ['sociedad',  '🏢 Estructura por Sociedad'],
     ['cuentas',   '🏦 Cuentas Bancarias'],
     ['movb',      '💳 Mapeo Mov. Bancario'],
@@ -10758,115 +10756,7 @@ async function renderAdminFlujoCaja(container) {
       </select>
     </div>`;
 
-  // ── 1) Estructura Base ──────────────────────────────────────────
-  async function renderBase() {
-    const el = document.getElementById('fc-adm-base');
-    const lineas = await GET(`/flujo-caja/lineas?compania=${encodeURIComponent(BASE)}`);
-    el.innerHTML = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
-        Esta es la estructura base que aplica a todas las sociedades. Al crear una línea aquí,
-        se propaga automáticamente como línea heredada en cada sociedad.
-      </p>
-      <div class="card" style="overflow:hidden;max-width:760px;margin-bottom:16px">
-        <table class="data-table" style="font-size:13px">
-          <thead><tr><th>Sección</th><th>Línea</th><th style="width:160px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
-          <tbody>
-            ${SECCIONES.map(([sk,sl]) => {
-              const filas = lineas.filter(l => l.seccion === sk).sort((a,b) => (a.orden||0) - (b.orden||0));
-              const headerRow = `<tr><td colspan="6" style="background:${seccionBg(sk,0.28)};font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
-              if (!filas.length) return headerRow;
-              return headerRow +
-                filas.map(l => `
-                <tr style="background:${seccionBg(sk,0.07)}">
-                  <td class="text-muted" style="font-size:11px">${esc(sl)}</td>
-                  <td><input class="form-control fc-base-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
-                  <td>${tipoActSelectHtml('fc-base-tipo', l._id, l.tipoActividad || 'OPERACION')}</td>
-                  <td><input type="number" class="form-control fc-base-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
-                  <td class="text-center"><input type="checkbox" class="fc-base-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
-                  <td class="text-center" style="white-space:nowrap">
-                    <button class="btn btn-xs btn-primary" onclick="fcBaseGuardar('${l._id}')" title="Guardar">💾</button>
-                    <button class="btn btn-xs btn-danger" onclick="fcBaseEliminar('${l._id}')" title="Eliminar">✕</button>
-                  </td>
-                </tr>`).join('');
-            }).join('')}
-            ${!lineas.length ? '<tr><td colspan="6" class="text-muted text-center py-8">Sin líneas. Agrega la primera abajo.</td></tr>' : ''}
-          </tbody>
-        </table>
-      </div>
-      <div class="card" style="padding:14px;max-width:760px">
-        <strong style="font-size:13px">+ Nueva línea base</strong>
-        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
-          <div>
-            <label style="font-size:11px;color:var(--text-muted);display:block">Sección</label>
-            <select id="fc-base-new-seccion" class="form-control" style="width:170px;font-size:12px">
-              ${SECCIONES.map(([sk,sl])=>`<option value="${sk}">${esc(sl)}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:11px;color:var(--text-muted);display:block">Nombre de la línea</label>
-            <input id="fc-base-new-nombre" class="form-control" style="width:240px;font-size:12px" placeholder="Ej: Cobranza Clientes">
-          </div>
-          <div>
-            <label style="font-size:11px;color:var(--text-muted);display:block">Tipo de Actividad</label>
-            <select id="fc-base-new-tipo" class="form-control" style="width:160px;font-size:12px">
-              ${TIPOS_ACTIVIDAD.map(([tk,tl])=>`<option value="${tk}">${esc(tl)}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:11px;color:var(--text-muted);display:block">Orden</label>
-            <input id="fc-base-new-orden" type="number" class="form-control" style="width:70px;font-size:12px" value="0">
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="fcBaseAgregar()">+ Agregar</button>
-        </div>
-      </div>`;
-  }
-
-  window.fcBaseAgregar = async () => {
-    const seccion = document.getElementById('fc-base-new-seccion').value;
-    const nombre  = document.getElementById('fc-base-new-nombre').value.trim();
-    const tipoActividad = document.getElementById('fc-base-new-tipo').value;
-    const orden   = document.getElementById('fc-base-new-orden').value;
-    if (!nombre) { toast('Ingresa el nombre de la línea', 'warning'); return; }
-    try {
-      await POST('/flujo-caja/lineas', { compania: BASE, seccion, nombre, tipoActividad, orden });
-      toast('✅ Línea base creada y propagada a todas las sociedades', 'success');
-      await renderBase();
-    } catch(e) { toast(e.message, 'error'); }
-  };
-  window.fcBaseGuardar = async (id) => {
-    const nombre = container.querySelector(`.fc-base-nombre[data-id="${id}"]`)?.value.trim();
-    const tipoActividad = container.querySelector(`.fc-base-tipo[data-id="${id}"]`)?.value;
-    const orden  = container.querySelector(`.fc-base-orden[data-id="${id}"]`)?.value;
-    const activa = container.querySelector(`.fc-base-activa[data-id="${id}"]`)?.checked;
-    try {
-      await PUT(`/flujo-caja/lineas/${id}`, { nombre, tipoActividad, orden, activa });
-      toast('Guardado', 'success');
-      await renderBase();
-    } catch(e) { toast(e.message, 'error'); }
-  };
-  window.fcBaseEliminar = async (id) => {
-    if (!confirm('¿Eliminar esta línea base?')) return;
-    try {
-      await DEL(`/flujo-caja/lineas/${id}`);
-      toast('Eliminada', 'success');
-      await renderBase();
-    } catch(e) {
-      if (e.data?.requiereCascada) {
-        const n = e.data.hijas || 0;
-        if (confirm(`⚠️ Esta línea base tiene ${n} línea(s) heredada(s) en las sociedades (y posiblemente mapeos que la usan).\n\n¿Eliminar TODO en cascada (la línea base + sus ${n} línea(s) de sociedad + los mapeos asociados)?\n\nEsta acción no se puede deshacer. Si solo quieres dejar de usarla sin perder datos, cancela y desactívala en su lugar.`)) {
-          try {
-            await DEL(`/flujo-caja/lineas/${id}?cascade=true`);
-            toast(`🗑️ Línea base y ${n} línea(s) de sociedad eliminadas`, 'success');
-            await renderBase();
-          } catch(e2) { toast(e2.message, 'error'); }
-        }
-      } else {
-        toast(e.message, 'error');
-      }
-    }
-  };
-
-  // ── 2) Estructura por Sociedad ───────────────────────────────────
+  // ── 1) Estructura por Sociedad ───────────────────────────────────
   async function renderSociedad() {
     const el = document.getElementById('fc-adm-sociedad');
     el.innerHTML = `
@@ -10879,27 +10769,22 @@ async function renderAdminFlujoCaja(container) {
 
     async function load() {
       const comp = document.getElementById('fc-soc-comp').value;
-      const [lineas, basesRaw] = await Promise.all([
-        GET(`/flujo-caja/lineas?compania=${encodeURIComponent(comp)}`),
-        GET(`/flujo-caja/lineas?compania=${encodeURIComponent(BASE)}`),
-      ]);
-      const baseById = {}; basesRaw.forEach(b => baseById[b._id] = b);
+      const lineas = await GET(`/flujo-caja/lineas?compania=${encodeURIComponent(comp)}`);
       const cont = document.getElementById('fc-soc-cont');
       cont.innerHTML = `
         <div class="card" style="overflow:hidden;max-width:840px;margin-bottom:16px">
           <table class="data-table" style="font-size:13px">
-            <thead><tr><th>Sección</th><th>Línea</th><th>Línea base</th><th style="width:130px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
+            <thead><tr><th>Sección</th><th>Línea</th><th style="width:160px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
             <tbody>
               ${lineas.length ? SECCIONES.map(([sk,sl]) => {
                 const filas = lineas.filter(l => l.seccion === sk).sort((a,b) => (a.orden||0) - (b.orden||0));
-                const headerRow = `<tr><td colspan="7" style="background:${seccionBg(sk,0.28)};font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
+                const headerRow = `<tr><td colspan="6" style="background:${seccionBg(sk,0.28)};font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
                 if (!filas.length) return headerRow;
                 return headerRow + filas.map(l => `
                 <tr style="background:${seccionBg(sk,0.07)}">
                   <td class="text-muted" style="font-size:11px">${esc(sl)}</td>
                   <td><input class="form-control fc-soc-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
-                  <td class="text-muted" style="font-size:11px">${esc(baseById[l.baseLineaId]?.nombre || '—')}</td>
-                  <td class="text-muted" style="font-size:11px">${esc(tipoActLabel(l.tipoActividad || baseById[l.baseLineaId]?.tipoActividad))}</td>
+                  <td>${tipoActSelectHtml('fc-soc-tipo', l._id, l.tipoActividad || 'OPERACION')}</td>
                   <td><input type="number" class="form-control fc-soc-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
                   <td class="text-center"><input type="checkbox" class="fc-soc-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
                   <td class="text-center" style="white-space:nowrap">
@@ -10907,12 +10792,12 @@ async function renderAdminFlujoCaja(container) {
                     <button class="btn btn-xs btn-danger" onclick="fcSocEliminar('${l._id}')" title="Eliminar">✕</button>
                   </td>
                 </tr>`).join('');
-              }).join('') : '<tr><td colspan="7" class="text-muted text-center py-8">Sin líneas para esta sociedad todavía (crea líneas en Estructura Base para que se hereden).</td></tr>'}
+              }).join('') : '<tr><td colspan="6" class="text-muted text-center py-8">Sin líneas para esta sociedad. Agrega la primera abajo.</td></tr>'}
             </tbody>
           </table>
         </div>
         <div class="card" style="padding:14px;max-width:840px">
-          <strong style="font-size:13px">+ Nueva línea propia de ${esc(comp)}</strong>
+          <strong style="font-size:13px">+ Nueva línea de ${esc(comp)}</strong>
           <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
             <div>
               <label style="font-size:11px;color:var(--text-muted);display:block">Sección</label>
@@ -10922,12 +10807,12 @@ async function renderAdminFlujoCaja(container) {
             </div>
             <div>
               <label style="font-size:11px;color:var(--text-muted);display:block">Nombre de la línea</label>
-              <input id="fc-soc-new-nombre" class="form-control" style="width:220px;font-size:12px" placeholder="Ej: Venta Local Tienda X">
+              <input id="fc-soc-new-nombre" class="form-control" style="width:240px;font-size:12px" placeholder="Ej: Cobranza Clientes">
             </div>
             <div>
-              <label style="font-size:11px;color:var(--text-muted);display:block">Línea base (obligatorio)</label>
-              <select id="fc-soc-new-base" class="form-control" style="width:220px;font-size:12px">
-                ${basesRaw.map(b=>`<option value="${b._id}">${esc((SECCIONES.find(s=>s[0]===b.seccion)||[,b.seccion])[1])} — ${esc(b.nombre)}</option>`).join('')}
+              <label style="font-size:11px;color:var(--text-muted);display:block">Tipo de Actividad</label>
+              <select id="fc-soc-new-tipo" class="form-control" style="width:160px;font-size:12px">
+                ${TIPOS_ACTIVIDAD.map(([tk,tl])=>`<option value="${tk}">${esc(tl)}</option>`).join('')}
               </select>
             </div>
             <div>
@@ -10946,21 +10831,21 @@ async function renderAdminFlujoCaja(container) {
       const comp    = document.getElementById('fc-soc-comp').value;
       const seccion = document.getElementById('fc-soc-new-seccion').value;
       const nombre  = document.getElementById('fc-soc-new-nombre').value.trim();
-      const baseLineaId = document.getElementById('fc-soc-new-base').value;
+      const tipoActividad = document.getElementById('fc-soc-new-tipo').value;
       const orden   = document.getElementById('fc-soc-new-orden').value;
-      if (!nombre)      { toast('Ingresa el nombre de la línea', 'warning'); return; }
-      if (!baseLineaId) { toast('Selecciona la línea base a enlazar', 'warning'); return; }
+      if (!nombre) { toast('Ingresa el nombre de la línea', 'warning'); return; }
       try {
-        await POST('/flujo-caja/lineas', { compania: comp, seccion, nombre, baseLineaId, orden });
+        await POST('/flujo-caja/lineas', { compania: comp, seccion, nombre, tipoActividad, orden });
         toast('✅ Línea agregada', 'success');
         await load();
       } catch(e) { toast(e.message, 'error'); }
     };
     window.fcSocGuardar = async (id) => {
       const nombre = container.querySelector(`.fc-soc-nombre[data-id="${id}"]`)?.value.trim();
+      const tipoActividad = container.querySelector(`.fc-soc-tipo[data-id="${id}"]`)?.value;
       const orden  = container.querySelector(`.fc-soc-orden[data-id="${id}"]`)?.value;
       const activa = container.querySelector(`.fc-soc-activa[data-id="${id}"]`)?.checked;
-      try { await PUT(`/flujo-caja/lineas/${id}`, { nombre, orden, activa }); toast('Guardado', 'success'); await load(); }
+      try { await PUT(`/flujo-caja/lineas/${id}`, { nombre, tipoActividad, orden, activa }); toast('Guardado', 'success'); await load(); }
       catch(e) { toast(e.message, 'error'); }
     };
     window.fcSocEliminar = async (id) => {
@@ -11209,7 +11094,6 @@ async function renderAdminFlujoCaja(container) {
   }
 
   // ── Init ─────────────────────────────────────────────────────────
-  await renderBase();
   await renderSociedad();
   await renderCuentas();
   await renderMapeoGenerico({
