@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const schema = new mongoose.Schema({
   compania:       { type: String, required: true },
+  companiaCode:   { type: String, default: '' },    // CompaniaSocio del CSV, p.ej. "00000100"
   cuentaBancaria: { type: String, required: true }, // código corto ERP, p.ej. 00058217
   numeroProceso:  { type: Number },
   secuencia:      { type: Number },

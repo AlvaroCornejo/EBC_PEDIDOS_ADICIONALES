@@ -8544,35 +8544,53 @@ async function viewFlujoCaja(container) {
       const LBLMAP = { CONCILIADO: '✓ Conciliado', SIN_ERP: '⚠ Sin ERP', INGRESO: '↑ Ingreso' };
 
       const FUENTELBL = { MOV_BANCARIO: 'Cód. op.', PROVEEDOR: 'Proveedor', OPERACION: 'Operación' };
-      const trxRows = data.transacciones.map(t => {
+      const lineaCell = (lineaNombre, lineaFuente) => lineaNombre
+        ? `<span style="font-size:11px">${esc(lineaNombre)}</span><br><span style="font-size:10px;color:var(--text-muted)">${esc(FUENTELBL[lineaFuente]||lineaFuente||'')}</span>`
+        : `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>`;
+
+      const trxRows = data.transacciones.flatMap(t => {
         const bg = BGMAP[t.estado] || '';
-        const erpInfo = t.erp
-          ? `<div style="font-size:10px;color:#374151;margin-top:1px">${esc(t.erp.pagarA)} · ${esc(t.erp.voucher)} · ${esc(t.erp.tipoPago)}</div>`
-          : '';
-        const lineaCell = t.lineaNombre
-          ? `<span style="font-size:11px">${esc(t.lineaNombre)}</span><br><span style="font-size:10px;color:var(--text-muted)">${esc(FUENTELBL[t.lineaFuente]||t.lineaFuente||'')}</span>`
-          : `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>`;
-        return `<tr style="${bg ? 'background:' + bg : ''}">
+        const bgStyle = bg ? `background:${bg}` : '';
+        const rows = [`<tr style="${bgStyle}">
           <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fmtF(t.fecha))}</td>
-          <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(t.codigo||'')}${t.codigo&&t.nroDoc?' · ':''}${esc(t.nroDoc||'')}</td>
-          <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto || '')}${erpInfo}</td>
+          <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(t.codigo||'')}${t.codigo?' · ':''}${esc(t.nroDoc||'')}</td>
+          <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto||'')}</td>
           <td style="padding:4px 8px;font-size:12px;text-align:right;white-space:nowrap;${t.importe<0?'color:#dc2626':''}">${fmtN(t.importe)}</td>
-          <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(LBLMAP[t.estado] || t.estado)}</td>
-          <td style="padding:4px 8px;line-height:1.3">${lineaCell}</td>
-        </tr>`;
+          <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(LBLMAP[t.estado]||t.estado)}</td>
+          <td style="padding:4px 8px;line-height:1.3">${lineaCell(t.lineaNombre, t.lineaFuente)}</td>
+        </tr>`];
+        // Sub-filas por cada registro ERP (solo CONCILIADO)
+        (t.erpRegistros || []).forEach(r => {
+          rows.push(`<tr style="${bgStyle};opacity:0.85">
+            <td style="padding:2px 8px 2px 20px;font-size:10px;color:var(--text-muted);white-space:nowrap">↳ ERP</td>
+            <td></td>
+            <td style="padding:2px 8px;font-size:11px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.pagarA||'')}${r.tipoPago?' · <span style="color:var(--text-muted)">'+esc(r.tipoPago)+'</span>':''}</td>
+            <td style="padding:2px 8px;font-size:11px;text-align:right;white-space:nowrap;color:#dc2626">${fmtN(r.importe)}</td>
+            <td></td>
+            <td style="padding:2px 8px;line-height:1.3">${lineaCell(r.lineaNombre, r.lineaFuente)}</td>
+          </tr>`);
+        });
+        return rows;
       }).join('');
 
       let erpRows = '';
       if (data.soloERP.length) {
         erpRows = `<tr style="background:#1a1f3a"><td colspan="6" style="padding:5px 8px;color:#fff;font-weight:700;font-size:11px">PAGOS ERP SIN MOVIMIENTO EN BANCO (${data.soloERP.length})</td></tr>`;
-        erpRows += data.soloERP.map(p => `<tr style="background:#fee2e2">
-          <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fmtF(p.fechaPago))}</td>
-          <td style="padding:4px 8px;font-size:12px">${esc(p.voucher || '')}</td>
-          <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.pagarA || '')}</td>
-          <td style="padding:4px 8px;font-size:12px;text-align:right;color:#dc2626;white-space:nowrap">${fmtN(moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal)}</td>
-          <td style="padding:4px 8px;font-size:11px;white-space:nowrap">✗ Sin banco · ${esc(p.tipoPago || '')}</td>
-          <td></td>
-        </tr>`).join('');
+        erpRows += data.soloERP.map(g => {
+          const total = moneda === 'USD'
+            ? g.registros.reduce((s,r) => s + r.pagoExtranjero, 0)
+            : g.registros.reduce((s,r) => s + r.pagoLocal, 0);
+          const provs = [...new Set(g.registros.map(r => r.pagarA).filter(Boolean))].join(', ');
+          const fecha = g.registros[0]?.fechaPago ? fmtF(g.registros[0].fechaPago) : '';
+          return `<tr style="background:#fee2e2">
+            <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fecha)}</td>
+            <td style="padding:4px 8px;font-size:12px">${g.numeroPago}</td>
+            <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(provs)}</td>
+            <td style="padding:4px 8px;font-size:12px;text-align:right;color:#dc2626;white-space:nowrap">${fmtN(total)}</td>
+            <td style="padding:4px 8px;font-size:11px;white-space:nowrap">✗ Sin banco · ${g.registros.length} reg.</td>
+            <td></td>
+          </tr>`;
+        }).join('');
       }
 
       const s = data.stats;
