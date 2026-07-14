@@ -9,11 +9,12 @@ const trxSchema = new mongoose.Schema({
 }, { _id: false });
 
 const schema = new mongoose.Schema({
-  compania:  { type: String, required: true },
-  banco:     { type: String, required: true },  // BBVA, BCP, IBK
-  moneda:    { type: String, required: true },  // USD, SOL
-  cargadoPor: String,
-  cargadoEn: { type: Date, default: Date.now },
+  compania:     { type: String, required: true },
+  banco:        { type: String, required: true },  // BBVA, BCP, IBK
+  moneda:       { type: String, required: true },  // USD, SOL
+  numeroCuenta: { type: String, default: '' },     // extraído del extracto bancario
+  cargadoPor:   String,
+  cargadoEn:    { type: Date, default: Date.now },
   transacciones: [trxSchema],
 });
 

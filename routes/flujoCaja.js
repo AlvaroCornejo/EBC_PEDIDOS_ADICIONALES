@@ -524,7 +524,7 @@ router.post('/eecc/cargar', upload.single('archivo'), async (req, res) => {
 
     await EstadoCuenta.findOneAndUpdate(
       { compania, banco, moneda },
-      { compania, banco, moneda, cargadoPor: req.user.username, cargadoEn: new Date(), transacciones },
+      { compania, banco, moneda, numeroCuenta, cargadoPor: req.user.username, cargadoEn: new Date(), transacciones },
       { upsert: true, new: true }
     );
 
@@ -581,7 +581,7 @@ router.get('/conciliacion', async (req, res) => {
     if (!eecc) return res.json({ transacciones: [], soloERP: [], stats: { total: 0, conciliados: 0, soloEECC: 0, soloERP: 0, sinLinea: 0, nuevosProveedores: 0 }, cargadoEn: null });
 
     const cuenta = await FlujoCajaCuenta.findOne({ compania, banco, moneda }).lean();
-    const numeroCuenta = cuenta?.numeroCuenta || '';
+    const numeroCuenta = eecc.numeroCuenta || cuenta?.numeroCuenta || '';
     const cuentaId     = cuenta?._id || null;
 
     // Cargar pagos ERP, tablas de mapeo y líneas en paralelo
