@@ -10983,7 +10983,7 @@ async function renderAdminFlujoCaja(container) {
                 const lineaSel = `<select style="font-size:11px;padding:2px 4px;max-width:260px"
                   onchange="fcMapActualizarLinea('${cfg.endpoint}','${r._id}',this.value)">
                   <option value="">— Sin asignar —</option>
-                  ${lineas.map(l=>`<option value="${l._id}"${lineaActualId===String(l._id)?' selected':''}>${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}</option>`).join('')}
+                  ${[...lineas].sort((a,b)=>{const si=SECCIONES.findIndex(s=>s[0]===a.seccion),sj=SECCIONES.findIndex(s=>s[0]===b.seccion);return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');}).map(l=>`<option value="${l._id}"${lineaActualId===String(l._id)?' selected':''}>${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}</option>`).join('')}
                 </select>`;
                 return `<tr>
                   ${cfg.buildClaveCols(r, cuentas, cuentaLabel)}
