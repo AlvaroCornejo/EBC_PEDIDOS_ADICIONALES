@@ -8337,17 +8337,17 @@ async function viewFlujoCaja(container) {
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
               <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
-                <p style="font-weight:600;font-size:12px;margin-bottom:8px">📄 Estado de Cuenta (EECC)</p>
-                <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px">BBVA: HTML-XLS (auto-detecta cuenta) · BCP/IBK: XLSX</p>
-                <input type="file" id="fc-eecc-file" accept=".xls,.xlsx" style="font-size:12px;width:100%">
-                <button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%" onclick="fcCargarEECC()">📤 Cargar EECC</button>
+                <p style="font-weight:600;font-size:12px;margin-bottom:4px">📄 Estado de Cuenta (EECC)</p>
+                <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">BBVA: HTML-XLS (auto-detecta cuenta) · BCP/IBK: XLSX</p>
+                <input type="file" id="fc-eecc-file" accept=".xls,.xlsx" style="display:none" onchange="fcCargarEECC()">
+                <button class="btn btn-primary btn-sm" style="width:100%" onclick="document.getElementById('fc-eecc-file').click()">📂 Cargar EECC</button>
                 <div id="fc-eecc-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
               </div>
               <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
-                <p style="font-weight:600;font-size:12px;margin-bottom:8px">💳 Pagos ERP</p>
-                <p style="font-size:11px;color:var(--text-muted);margin-bottom:6px">CSV de pagos Spring (reemplaza todo para la sociedad)</p>
-                <input type="file" id="fc-erp-file" accept=".csv" style="font-size:12px;width:100%">
-                <button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%" onclick="fcCargarERP()">📤 Cargar Pagos ERP</button>
+                <p style="font-weight:600;font-size:12px;margin-bottom:4px">💳 Pagos ERP</p>
+                <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">CSV de pagos Spring (reemplaza todo para la sociedad)</p>
+                <input type="file" id="fc-erp-file" accept=".csv" style="display:none" onchange="fcCargarERP()">
+                <button class="btn btn-primary btn-sm" style="width:100%" onclick="document.getElementById('fc-erp-file').click()">📂 Cargar Pagos ERP</button>
                 <div id="fc-erp-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
               </div>
             </div>
@@ -8488,6 +8488,7 @@ async function viewFlujoCaja(container) {
     fd.append('compania', compania);
     fd.append('banco', banco);
     fd.append('moneda', moneda);
+    fi.value = '';
     try {
       const r = await fetch('/api/flujo-caja/eecc/cargar', {
         method: 'POST',
@@ -8512,6 +8513,7 @@ async function viewFlujoCaja(container) {
     const fd = new FormData();
     fd.append('archivo', fi.files[0]);
     fd.append('compania', compania);
+    fi.value = '';
     try {
       const r = await fetch('/api/flujo-caja/pagos-erp/cargar', {
         method: 'POST',
