@@ -609,6 +609,7 @@ router.get('/conciliacion', async (req, res) => {
 
     const usadosNums = new Set(); // numeroPago ya conciliados
     const nuevosProv = new Map(); // pagarAKey → nombre original
+    const nuevasOps  = new Map(); // conceptoKey → descripcion original
 
     const transacciones = eecc.transacciones.map(trx => {
       const trxNum = parseInt(trx.nroDoc, 10);
@@ -663,6 +664,7 @@ router.get('/conciliacion', async (req, res) => {
         const key = trx.concepto.trim().toUpperCase();
         const op = opMap.get(key);
         if (op?.lineaId) { lineaId = op.lineaId; lineaFuente = 'OPERACION'; }
+        else if (!op)    nuevasOps.set(key, trx.concepto.trim());
       }
       if (lineaId) {
         const ldata = lineaMap.get(String(lineaId));
@@ -679,6 +681,12 @@ router.get('/conciliacion', async (req, res) => {
       try { await FlujoCajaProveedor.insertMany(docs, { ordered: false }); } catch (_) {}
     }
 
+    // Auto-insertar operaciones nuevas para que aparezcan en Mapeo Operaciones
+    if (nuevasOps.size > 0) {
+      const docs = [...nuevasOps.values()].map(desc => ({ compania, descripcion: desc }));
+      try { await FlujoCajaOperacion.insertMany(docs, { ordered: false }); } catch (_) {}
+    }
+
     // Grupos ERP sin match en EECC
     const soloERP = [];
     pagoGrupos.forEach((grupo, num) => {
@@ -692,6 +700,7 @@ router.get('/conciliacion', async (req, res) => {
       soloERP:           soloERP.length,
       sinLinea:          transacciones.filter(t => !t.lineaId && t.erpRegistros.every(r => !r.lineaId)).length,
       nuevosProveedores: nuevosProv.size,
+      nuevasOperaciones: nuevasOps.size,
     };
 
     res.json({ transacciones, soloERP, stats, cargadoEn: eecc.cargadoEn, alias: cuenta?.alias || '' });
