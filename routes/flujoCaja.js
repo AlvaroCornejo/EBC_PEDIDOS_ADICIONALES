@@ -65,7 +65,7 @@ router.get('/lineas', async (req, res) => {
 router.post('/lineas', async (req, res) => {
   try {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Solo ADMIN' });
-    const { compania, seccion, nombre, orden, tipoActividad } = req.body;
+    const { compania, seccion, nombre, orden, tipoActividad, esManual } = req.body;
     if (!compania || !seccion || !nombre?.trim())
       return res.status(400).json({ error: 'Faltan campos: compania, seccion, nombre' });
     if (!FlujoCajaLinea.SECCIONES.includes(seccion))
@@ -77,7 +77,7 @@ router.post('/lineas', async (req, res) => {
 
     const linea = await FlujoCajaLinea.create({
       compania, seccion, nombre: nombre.trim(),
-      orden: Number(orden) || 0, tipoActividad: tipoAct,
+      orden: Number(orden) || 0, tipoActividad: tipoAct, esManual: !!esManual,
     });
     res.json(linea);
   } catch (e) {
@@ -92,10 +92,11 @@ router.put('/lineas/:id', async (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Solo ADMIN' });
     const linea = await FlujoCajaLinea.findById(req.params.id);
     if (!linea) return res.status(404).json({ error: 'No encontrada' });
-    const { nombre, orden, seccion, activa, tipoActividad } = req.body;
-    if (nombre !== undefined) linea.nombre = String(nombre).trim();
-    if (orden  !== undefined) linea.orden  = Number(orden) || 0;
-    if (activa !== undefined) linea.activa = !!activa;
+    const { nombre, orden, seccion, activa, tipoActividad, esManual } = req.body;
+    if (nombre    !== undefined) linea.nombre    = String(nombre).trim();
+    if (orden     !== undefined) linea.orden     = Number(orden) || 0;
+    if (activa    !== undefined) linea.activa    = !!activa;
+    if (esManual  !== undefined) linea.esManual  = !!esManual;
     if (seccion !== undefined) {
       if (!FlujoCajaLinea.SECCIONES.includes(seccion)) return res.status(400).json({ error: 'Sección inválida' });
       linea.seccion = seccion;
@@ -337,8 +338,8 @@ router.get('/resumen', async (req, res) => {
       }
     }
 
-    // ── Estructura de líneas por sociedad ──
-    const lineasSoc = await FlujoCajaLinea.find({ compania: { $in: companias }, activa: true }).sort({ seccion: 1, orden: 1 }).lean();
+    // ── Estructura de líneas por sociedad (excluye líneas de asignación manual) ──
+    const lineasSoc = await FlujoCajaLinea.find({ compania: { $in: companias }, activa: true, esManual: { $ne: true } }).sort({ seccion: 1, orden: 1 }).lean();
     const filas = lineasSoc.map(l => ({ id: String(l._id), nombre: l.nombre, seccion: l.seccion, orden: l.orden,
       tipoActividad: l.tipoActividad || 'OPERACION', lineasHijas: [l._id] }));
 
@@ -590,7 +591,7 @@ router.get('/conciliacion', async (req, res) => {
       cuentaId ? FlujoCajaMovBancario.find({ compania, cuentaId }).lean() : [],
       FlujoCajaProveedor.find({ compania }).lean(),
       FlujoCajaOperacion.find({ compania }).lean(),
-      FlujoCajaLinea.find({ compania, activa: true }).select('nombre seccion').lean(),
+      FlujoCajaLinea.find({ compania, activa: true }).select('nombre seccion esManual').lean(),
     ]);
 
     // Índices para lookup O(1)
@@ -630,7 +631,11 @@ router.get('/conciliacion', async (req, res) => {
               if (prov?.lineaId) { lineaId = prov.lineaId; lineaFuente = 'PROVEEDOR'; }
               else if (!prov)    nuevosProv.set(key, p.pagarA.trim());
             }
-            if (lineaId) lineaNombre = lineaMap.get(String(lineaId))?.nombre || null;
+            if (lineaId) {
+              const ldata = lineaMap.get(String(lineaId));
+              if (ldata?.esManual) { lineaFuente = 'MANUAL'; lineaNombre = null; }
+              else lineaNombre = ldata?.nombre || null;
+            }
             return {
               pagarA:    p.pagarA,
               tipoPago:  p.tipoPago,
@@ -659,7 +664,11 @@ router.get('/conciliacion', async (req, res) => {
         const op = opMap.get(key);
         if (op?.lineaId) { lineaId = op.lineaId; lineaFuente = 'OPERACION'; }
       }
-      if (lineaId) lineaNombre = lineaMap.get(String(lineaId))?.nombre || null;
+      if (lineaId) {
+        const ldata = lineaMap.get(String(lineaId));
+        if (ldata?.esManual) { lineaFuente = 'MANUAL'; lineaNombre = null; }
+        else lineaNombre = ldata?.nombre || null;
+      }
 
       return { ...trx, estado, erpRegistros, lineaId: lineaId ? String(lineaId) : null, lineaNombre, lineaFuente };
     });

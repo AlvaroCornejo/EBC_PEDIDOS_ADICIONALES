@@ -8545,9 +8545,12 @@ async function viewFlujoCaja(container) {
       const LBLMAP = { CONCILIADO: '✓ Conciliado', SIN_ERP: '⚠ Sin ERP', INGRESO: '↑ Ingreso' };
 
       const FUENTELBL = { MOV_BANCARIO: 'Cód. op.', PROVEEDOR: 'Proveedor', OPERACION: 'Operación' };
-      const lineaCell = (lineaNombre, lineaFuente) => lineaNombre
-        ? `<span style="font-size:11px">${esc(lineaNombre)}</span><br><span style="font-size:10px;color:var(--text-muted)">${esc(FUENTELBL[lineaFuente]||lineaFuente||'')}</span>`
-        : `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>`;
+      const lineaCell = (lineaNombre, lineaFuente) => {
+        if (lineaFuente === 'MANUAL') return `<span style="font-size:11px;color:#b45309;font-weight:600">⚑ Por asignar</span><br><span style="font-size:10px;color:var(--text-muted)">Asignación manual</span>`;
+        return lineaNombre
+          ? `<span style="font-size:11px">${esc(lineaNombre)}</span><br><span style="font-size:10px;color:var(--text-muted)">${esc(FUENTELBL[lineaFuente]||lineaFuente||'')}</span>`
+          : `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>`;
+      };
 
       const trxRows = data.transacciones.flatMap(t => {
         const bg = BGMAP[t.estado] || '';
@@ -10774,25 +10777,26 @@ async function renderAdminFlujoCaja(container) {
       cont.innerHTML = `
         <div class="card" style="overflow:hidden;max-width:840px;margin-bottom:16px">
           <table class="data-table" style="font-size:13px">
-            <thead><tr><th>Sección</th><th>Línea</th><th style="width:160px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
+            <thead><tr><th>Sección</th><th>Línea</th><th style="width:160px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:100px">Manual</th><th style="width:80px">Acciones</th></tr></thead>
             <tbody>
               ${lineas.length ? SECCIONES.map(([sk,sl]) => {
                 const filas = lineas.filter(l => l.seccion === sk).sort((a,b) => (a.orden||0) - (b.orden||0));
-                const headerRow = `<tr><td colspan="6" style="background:${seccionBg(sk,0.28)};font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
+                const headerRow = `<tr><td colspan="7" style="background:${seccionBg(sk,0.28)};font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
                 if (!filas.length) return headerRow;
                 return headerRow + filas.map(l => `
-                <tr style="background:${seccionBg(sk,0.07)}">
-                  <td class="text-muted" style="font-size:11px">${esc(sl)}</td>
+                <tr style="background:${l.esManual ? 'rgba(234,179,8,0.08)' : seccionBg(sk,0.07)}">
+                  <td class="text-muted" style="font-size:11px">${esc(sl)}${l.esManual ? ' <span style="color:#b45309;font-size:10px">⚑</span>' : ''}</td>
                   <td><input class="form-control fc-soc-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
-                  <td>${tipoActSelectHtml('fc-soc-tipo', l._id, l.tipoActividad || 'OPERACION')}</td>
+                  <td>${l.esManual ? '<span style="font-size:11px;color:#b45309">— no aplica —</span>' : tipoActSelectHtml('fc-soc-tipo', l._id, l.tipoActividad || 'OPERACION')}</td>
                   <td><input type="number" class="form-control fc-soc-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
                   <td class="text-center"><input type="checkbox" class="fc-soc-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
+                  <td class="text-center" title="Si está marcada, este marcador no aparece en la grilla del flujo"><input type="checkbox" class="fc-soc-manual" data-id="${l._id}" ${l.esManual?'checked':''}></td>
                   <td class="text-center" style="white-space:nowrap">
                     <button class="btn btn-xs btn-primary" onclick="fcSocGuardar('${l._id}')" title="Guardar">💾</button>
                     <button class="btn btn-xs btn-danger" onclick="fcSocEliminar('${l._id}')" title="Eliminar">✕</button>
                   </td>
                 </tr>`).join('');
-              }).join('') : '<tr><td colspan="6" class="text-muted text-center py-8">Sin líneas para esta sociedad. Agrega la primera abajo.</td></tr>'}
+              }).join('') : '<tr><td colspan="7" class="text-muted text-center py-8">Sin líneas para esta sociedad. Agrega la primera abajo.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -10819,6 +10823,12 @@ async function renderAdminFlujoCaja(container) {
               <label style="font-size:11px;color:var(--text-muted);display:block">Orden</label>
               <input id="fc-soc-new-orden" type="number" class="form-control" style="width:70px;font-size:12px" value="0">
             </div>
+            <div style="align-self:flex-end;padding-bottom:4px">
+              <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer" title="Marcador para identificar movimientos que requieren asignación caso a caso; no aparece en la grilla del flujo">
+                <input type="checkbox" id="fc-soc-new-manual" style="cursor:pointer">
+                <span style="color:#b45309">⚑ Asignación manual</span>
+              </label>
+            </div>
             <button class="btn btn-primary btn-sm" onclick="fcSocAgregar()">+ Agregar</button>
           </div>
         </div>`;
@@ -10833,19 +10843,21 @@ async function renderAdminFlujoCaja(container) {
       const nombre  = document.getElementById('fc-soc-new-nombre').value.trim();
       const tipoActividad = document.getElementById('fc-soc-new-tipo').value;
       const orden   = document.getElementById('fc-soc-new-orden').value;
+      const esManual = document.getElementById('fc-soc-new-manual').checked;
       if (!nombre) { toast('Ingresa el nombre de la línea', 'warning'); return; }
       try {
-        await POST('/flujo-caja/lineas', { compania: comp, seccion, nombre, tipoActividad, orden });
+        await POST('/flujo-caja/lineas', { compania: comp, seccion, nombre, tipoActividad, orden, esManual });
         toast('✅ Línea agregada', 'success');
         await load();
       } catch(e) { toast(e.message, 'error'); }
     };
     window.fcSocGuardar = async (id) => {
-      const nombre = container.querySelector(`.fc-soc-nombre[data-id="${id}"]`)?.value.trim();
+      const nombre   = container.querySelector(`.fc-soc-nombre[data-id="${id}"]`)?.value.trim();
       const tipoActividad = container.querySelector(`.fc-soc-tipo[data-id="${id}"]`)?.value;
-      const orden  = container.querySelector(`.fc-soc-orden[data-id="${id}"]`)?.value;
-      const activa = container.querySelector(`.fc-soc-activa[data-id="${id}"]`)?.checked;
-      try { await PUT(`/flujo-caja/lineas/${id}`, { nombre, tipoActividad, orden, activa }); toast('Guardado', 'success'); await load(); }
+      const orden    = container.querySelector(`.fc-soc-orden[data-id="${id}"]`)?.value;
+      const activa   = container.querySelector(`.fc-soc-activa[data-id="${id}"]`)?.checked;
+      const esManual = container.querySelector(`.fc-soc-manual[data-id="${id}"]`)?.checked;
+      try { await PUT(`/flujo-caja/lineas/${id}`, { nombre, tipoActividad, orden, activa, esManual }); toast('Guardado', 'success'); await load(); }
       catch(e) { toast(e.message, 'error'); }
     };
     window.fcSocEliminar = async (id) => {
@@ -10971,7 +10983,15 @@ async function renderAdminFlujoCaja(container) {
       const cont = document.getElementById(`fc-${cfg.tabKey}-cont`);
 
       const colHeaders = cfg.campos.map(c => `<th>${esc(c.label)}</th>`).join('');
-      const lineasSorted = [...lineas].sort((a,b)=>{const si=SECCIONES.findIndex(s=>s[0]===a.seccion),sj=SECCIONES.findIndex(s=>s[0]===b.seccion);return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');});
+      const lineasSorted = [...lineas].sort((a,b)=>{
+        if (!!a.esManual !== !!b.esManual) return a.esManual ? 1 : -1;
+        const si=SECCIONES.findIndex(s=>s[0]===a.seccion),sj=SECCIONES.findIndex(s=>s[0]===b.seccion);
+        return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');
+      });
+      const lineaOptionHtml = (l, selectedId) => {
+        const label = l.esManual ? `⚑ ${esc(l.nombre)}` : `${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}`;
+        return `<option value="${l._id}"${selectedId===String(l._id)?' selected':''}>${label}</option>`;
+      };
       const sinAsignar = rows.filter(r => !r.lineaId).length;
 
       cont.innerHTML = `
@@ -10992,7 +11012,7 @@ async function renderAdminFlujoCaja(container) {
                 const lineaSel = `<select style="font-size:11px;padding:2px 4px;max-width:260px"
                   onchange="fcMapActualizarLinea('${cfg.endpoint}','${r._id}',this.value)">
                   <option value="">— Sin asignar —</option>
-                  ${lineasSorted.map(l=>`<option value="${l._id}"${lineaActualId===String(l._id)?' selected':''}>${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}</option>`).join('')}
+                  ${lineasSorted.map(l=>lineaOptionHtml(l, lineaActualId)).join('')}
                 </select>`;
                 return `<tr data-sin-linea="${sinLinea}">
                   ${cfg.buildClaveCols(r, cuentas, cuentaLabel)}
@@ -11014,7 +11034,7 @@ async function renderAdminFlujoCaja(container) {
             <div>
               <label style="font-size:11px;color:var(--text-muted);display:block">Línea del flujo</label>
               <select id="fc-${cfg.tabKey}-new-linea" class="form-control" style="font-size:12px;width:240px">
-                ${lineas.map(l=>`<option value="${l._id}">${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}</option>`).join('') || '<option value="">— Sin líneas —</option>'}
+                ${lineasSorted.map(l=>lineaOptionHtml(l, '')).join('') || '<option value="">— Sin líneas —</option>'}
               </select>
             </div>
             <button class="btn btn-primary btn-sm" onclick="fcMapAgregar('${cfg.endpoint}','${cfg.tabKey}',${JSON.stringify(cfg.campos.map(c=>c.id))})">+ Agregar</button>

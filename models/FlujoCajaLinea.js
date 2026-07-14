@@ -18,6 +18,9 @@ const schema = new mongoose.Schema({
   // varias sociedades agrupando por línea base). Las líneas __BASE__ no tienen padre.
   baseLineaId: { type: mongoose.Schema.Types.ObjectId, ref: 'FlujoCajaLinea', default: null },
   activa:      { type: Boolean, default: true },
+  // Línea marcadora: aparece en mapeos para indicar "asignar caso a caso";
+  // NO se incluye en la grilla del flujo.
+  esManual:    { type: Boolean, default: false },
 }, { timestamps: true });
 
 schema.index({ compania: 1, seccion: 1, orden: 1 });
