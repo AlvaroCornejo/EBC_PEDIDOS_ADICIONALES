@@ -679,11 +679,11 @@ router.get('/conciliacion', async (req, res) => {
       const trxFecha = new Date(trx.fecha).toISOString().slice(0, 10);
       const trxAbs   = Math.abs(trx.importe);
 
-      // ── Match ERP ──
-      const idx = pagos.findIndex((p, i) => {
+      // ── Match ERP (solo egresos: EECC negativo ↔ ERP positivo) ──
+      const idx = trx.importe >= 0 ? -1 : pagos.findIndex((p, i) => {
         if (usados.has(i)) return false;
         const pFecha   = p.fechaPago ? new Date(p.fechaPago).toISOString().slice(0, 10) : '';
-        const pImporte = moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal;
+        const pImporte = Math.abs(moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal);
         return trxFecha === pFecha && Math.abs(trxAbs - pImporte) < 0.02;
       });
       const estado = idx >= 0 ? 'CONCILIADO' : (trx.importe < 0 ? 'SIN_ERP' : 'INGRESO');
