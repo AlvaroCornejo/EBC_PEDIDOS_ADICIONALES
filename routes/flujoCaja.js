@@ -657,21 +657,15 @@ router.get('/conciliacion', async (req, res) => {
     const numeroCuenta = cuenta?.numeroCuenta || '';
     const cuentaId     = cuenta?._id || null;
 
-    // Obtener código de compañía ERP para filtrar pagos
+    // Cargar pagos ERP, tablas de mapeo y líneas en paralelo
     const monedaERP = moneda === 'USD' ? 'EX' : 'LO';
-    const [companiaCodigoDoc, movBancarios, proveedores, operaciones, lineas] = await Promise.all([
-      CompaniaCodigo.findOne({ compania }).lean(),
+    const [pagos, movBancarios, proveedores, operaciones, lineas] = await Promise.all([
+      PagoERP.find({ compania, cuentaBancaria: numeroCuenta, moneda: monedaERP }).lean(),
       cuentaId ? FlujoCajaMovBancario.find({ compania, cuentaId }).lean() : [],
       FlujoCajaProveedor.find({ compania }).lean(),
       FlujoCajaOperacion.find({ compania }).lean(),
       FlujoCajaLinea.find({ compania, activa: true }).select('nombre seccion').lean(),
     ]);
-    const codigoCompania = companiaCodigoDoc?.codigo || null;
-
-    // Cargar pagos ERP filtrando por cuenta, moneda y código de compañía
-    const pagoFilter = { compania, cuentaBancaria: numeroCuenta, moneda: monedaERP };
-    if (codigoCompania) pagoFilter.companiaCode = codigoCompania;
-    const pagos = await PagoERP.find(pagoFilter).lean();
 
     // Índices para lookup O(1)
     const lineaMap  = new Map(lineas.map(l => [String(l._id), l]));
