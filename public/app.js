@@ -8552,15 +8552,17 @@ async function viewFlujoCaja(container) {
       });
       t += `<tr>${tdLbl('TIP cobrado', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
       t += trSec('EGRESOS — Tiendas');
-      t += `<tr>${tdLbl('IGV', true)}${data.semanas.map(s => tdNum(agg[s].igv)).join('')}</tr>`;
+      t += `<tr>${tdLbl('IGV Neto (a pagar SUNAT)', true)}${data.semanas.map(s => {
+        let igvCom = 0;
+        channelMap.forEach((ch, key) => { if (ch.tipo !== 'efectivo') igvCom += agg[s].ch[key]?.igvComision || 0; });
+        return tdNum(agg[s].igv - igvCom);
+      }).join('')}</tr>`;
       t += `<tr>${tdLbl('RC (Recargo al consumo)', true)}${data.semanas.map(s => tdNum(agg[s].rc)).join('')}</tr>`;
       t += `<tr>${tdLbl('TIP empleados', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
       channelMap.forEach((ch, key) => {
         if (ch.tipo === 'efectivo') return;
         if (!data.semanas.some(s => (agg[s].ch[key]?.comision || 0) > 0)) return;
         t += `<tr>${tdLbl(`Comisión ${ch.label}`, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.comision)).join('')}</tr>`;
-        if (data.semanas.some(s => (agg[s].ch[key]?.igvComision || 0) > 0))
-          t += `<tr>${tdLbl(`IGV Comisión ${ch.label}`, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.igvComision)).join('')}</tr>`;
       });
       return t;
     }
@@ -8594,7 +8596,12 @@ async function viewFlujoCaja(container) {
 
       // EGRESOS de esta tienda
       t += trSec('  EGRESOS', '#0f2744');
-      t += `<tr>${tdLbl('IGV', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.igv || 0)).join('')}</tr>`;
+      t += `<tr>${tdLbl('IGV Neto (a pagar SUNAT)', true)}${data.semanas.map(s => {
+        const d = tienda.porSemana[s];
+        if (!d) return tdNum(0);
+        const igvCom = (d.canales || []).reduce((acc, c) => acc + (c.tipo !== 'efectivo' ? (c.igvComision || 0) : 0), 0);
+        return tdNum(d.igv - igvCom);
+      }).join('')}</tr>`;
       t += `<tr>${tdLbl('RC (Recargo al consumo)', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.rc || 0)).join('')}</tr>`;
       t += `<tr>${tdLbl('TIP empleados', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.tip || 0)).join('')}</tr>`;
       tChMap.forEach((ch, key) => {
@@ -8608,15 +8615,6 @@ async function viewFlujoCaja(container) {
           const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
           return tdNum(c?.comision || 0);
         }).join('')}</tr>`;
-        const hasIgv = data.semanas.some(s => {
-          const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
-          return (c?.igvComision || 0) > 0;
-        });
-        if (hasIgv)
-          t += `<tr>${tdLbl(`IGV Comisión ${ch.label}`, true)}${data.semanas.map(s => {
-            const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
-            return tdNum(c?.igvComision || 0);
-          }).join('')}</tr>`;
       });
     });
     return t;
