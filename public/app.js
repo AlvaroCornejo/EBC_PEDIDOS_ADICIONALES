@@ -11092,12 +11092,19 @@ async function renderAdminFlujoCaja(container) {
           <table class="data-table" style="font-size:12px">
             <thead><tr>${colHeaders}<th>Línea del Flujo</th><th style="width:60px">Acciones</th></tr></thead>
             <tbody>
-              ${rows.map(r => `
-              <tr>
-                ${cfg.buildClaveCols(r, cuentas, cuentaLabel)}
-                <td class="text-muted" style="font-size:11px">${esc(r.lineaId?.nombre || '—')}</td>
-                <td class="text-center"><button class="btn btn-xs btn-danger" onclick="fcMapEliminar('${cfg.endpoint}','${cfg.tabKey}','${r._id}')" title="Eliminar">✕</button></td>
-              </tr>`).join('') || `<tr><td colspan="${cfg.campos.length+2}" class="text-muted text-center py-8">Sin registros</td></tr>`}
+              ${rows.map(r => {
+                const lineaActualId = r.lineaId?._id ? String(r.lineaId._id) : (r.lineaId ? String(r.lineaId) : '');
+                const lineaSel = `<select style="font-size:11px;padding:2px 4px;max-width:260px"
+                  onchange="fcMapActualizarLinea('${cfg.endpoint}','${r._id}',this.value)">
+                  <option value="">— Sin asignar —</option>
+                  ${lineas.map(l=>`<option value="${l._id}"${lineaActualId===String(l._id)?' selected':''}>${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}</option>`).join('')}
+                </select>`;
+                return `<tr>
+                  ${cfg.buildClaveCols(r, cuentas, cuentaLabel)}
+                  <td style="padding:4px 8px">${lineaSel}</td>
+                  <td class="text-center"><button class="btn btn-xs btn-danger" onclick="fcMapEliminar('${cfg.endpoint}','${cfg.tabKey}','${r._id}')" title="Eliminar">✕</button></td>
+                </tr>`;
+              }).join('') || `<tr><td colspan="${cfg.campos.length+2}" class="text-muted text-center py-8">Sin registros</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -11143,6 +11150,12 @@ async function renderAdminFlujoCaja(container) {
       if (!confirm('¿Eliminar este registro?')) return;
       try { await DEL(`/flujo-caja/${endpoint}/${id}`); toast('Eliminado', 'success'); await load(); }
       catch(e) { toast(e.message, 'error'); }
+    };
+    window.fcMapActualizarLinea = async (endpoint, id, lineaId) => {
+      try {
+        await PUT(`/flujo-caja/${endpoint}/${id}`, { lineaId: lineaId || null });
+        toast('✅ Línea actualizada', 'success');
+      } catch(e) { toast(e.message, 'error'); }
     };
   }
 
