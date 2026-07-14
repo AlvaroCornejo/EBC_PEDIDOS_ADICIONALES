@@ -10971,21 +10971,30 @@ async function renderAdminFlujoCaja(container) {
       const cont = document.getElementById(`fc-${cfg.tabKey}-cont`);
 
       const colHeaders = cfg.campos.map(c => `<th>${esc(c.label)}</th>`).join('');
+      const lineasSorted = [...lineas].sort((a,b)=>{const si=SECCIONES.findIndex(s=>s[0]===a.seccion),sj=SECCIONES.findIndex(s=>s[0]===b.seccion);return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');});
+      const sinAsignar = rows.filter(r => !r.lineaId).length;
 
       cont.innerHTML = `
         <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${esc(cfg.descripcion)}</p>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none">
+            <input type="checkbox" id="fc-${cfg.tabKey}-filtro-sin" onchange="fcMapFiltrarSin('${cfg.tabKey}',this.checked)" style="cursor:pointer">
+            Solo sin asignar <span style="font-size:11px;color:var(--text-muted)">(${sinAsignar} de ${rows.length})</span>
+          </label>
+        </div>
         <div class="card" style="overflow:hidden;max-width:920px;margin-bottom:16px">
-          <table class="data-table" style="font-size:12px">
+          <table class="data-table" id="fc-${cfg.tabKey}-tabla" style="font-size:12px">
             <thead><tr>${colHeaders}<th>Línea del Flujo</th><th style="width:60px">Acciones</th></tr></thead>
             <tbody>
               ${rows.map(r => {
                 const lineaActualId = r.lineaId?._id ? String(r.lineaId._id) : (r.lineaId ? String(r.lineaId) : '');
+                const sinLinea = !lineaActualId ? '1' : '0';
                 const lineaSel = `<select style="font-size:11px;padding:2px 4px;max-width:260px"
                   onchange="fcMapActualizarLinea('${cfg.endpoint}','${r._id}',this.value)">
                   <option value="">— Sin asignar —</option>
-                  ${[...lineas].sort((a,b)=>{const si=SECCIONES.findIndex(s=>s[0]===a.seccion),sj=SECCIONES.findIndex(s=>s[0]===b.seccion);return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');}).map(l=>`<option value="${l._id}"${lineaActualId===String(l._id)?' selected':''}>${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}</option>`).join('')}
+                  ${lineasSorted.map(l=>`<option value="${l._id}"${lineaActualId===String(l._id)?' selected':''}>${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}</option>`).join('')}
                 </select>`;
-                return `<tr>
+                return `<tr data-sin-linea="${sinLinea}">
                   ${cfg.buildClaveCols(r, cuentas, cuentaLabel)}
                   <td style="padding:4px 8px">${lineaSel}</td>
                   <td class="text-center"><button class="btn btn-xs btn-danger" onclick="fcMapEliminar('${cfg.endpoint}','${cfg.tabKey}','${r._id}')" title="Eliminar">✕</button></td>
@@ -11031,6 +11040,11 @@ async function renderAdminFlujoCaja(container) {
         toast('✅ Agregado', 'success');
         await load();
       } catch(e) { toast(e.message, 'error'); }
+    };
+    window.fcMapFiltrarSin = (tabKey, soloSin) => {
+      document.querySelectorAll(`#fc-${tabKey}-tabla tbody tr`).forEach(tr => {
+        tr.style.display = soloSin && tr.dataset.sinLinea !== '1' ? 'none' : '';
+      });
     };
     window.fcMapEliminar = async (endpoint, tabKey, id) => {
       if (!confirm('¿Eliminar este registro?')) return;
