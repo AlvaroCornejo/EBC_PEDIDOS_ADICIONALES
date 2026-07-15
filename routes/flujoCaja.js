@@ -479,15 +479,26 @@ router.get('/resumen', async (req, res) => {
       }
     }
 
-    // SALDO_FINAL acumulado período a período
+    // SALDO_FINAL e INICIAL se calculan en cadena: SF[i] = SI[i] + movimientos[i]; SI[i+1] = SF[i]
     const sumaSeccion = (sec, periodoIdx) =>
       grilla.filter(f => f.seccion === sec).reduce((s, f) => s + (f.valores[periodoIdx] || 0), 0);
 
-    grilla.filter(f => f.seccion === 'SALDO_FINAL').forEach(f => {
-      periodos.forEach((_, i) => {
-        f.valores[i] = sumaSeccion('SALDO_INICIAL', i) + sumaSeccion('INGRESOS', i)
-                     - sumaSeccion('EGRESOS', i) + sumaSeccion('OTROS', i) + sumaSeccion('POR_IDENTIFICAR', i);
-      });
+    const filasInicial = grilla.filter(f => f.seccion === 'SALDO_INICIAL');
+    const filasFinal   = grilla.filter(f => f.seccion === 'SALDO_FINAL');
+
+    periodos.forEach((_, i) => {
+      // SALDO_FINAL del período i
+      const sf = sumaSeccion('SALDO_INICIAL', i)
+               + sumaSeccion('INGRESOS', i)
+               - sumaSeccion('EGRESOS', i)
+               + sumaSeccion('OTROS', i)
+               + sumaSeccion('POR_IDENTIFICAR', i);
+      filasFinal.forEach(f => { f.valores[i] = sf; });
+
+      // SALDO_INICIAL del período siguiente = SALDO_FINAL del actual
+      if (i + 1 < periodos.length) {
+        filasInicial.forEach(f => { f.valores[i + 1] = sf; });
+      }
     });
 
     res.json({ periodos, secciones: FlujoCajaLinea.SECCIONES, filas: grilla, moneda, granularidad });
