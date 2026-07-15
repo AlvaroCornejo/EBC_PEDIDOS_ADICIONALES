@@ -8551,7 +8551,9 @@ async function viewFlujoCaja(container) {
       // Guardar contexto para funciones de asignación
       _fcConData = { compania, banco, moneda, transacciones: data.transacciones, lineas: data.lineas };
 
+      // Celda de línea para fila EECC sin sub-registros ERP
       const lineaCellTrx = (t) => {
+        if (t.erpRegistros && t.erpRegistros.length > 0) return ''; // líneas vienen de sub-filas ERP
         const nd = (t.nroDoc || '').replace(/'/g, "\\'");
         if (t.lineaFuente === 'MANUAL') {
           return `<span style="font-size:11px;color:#b45309;font-weight:600">⚑ Por asignar</span>
@@ -8571,25 +8573,38 @@ async function viewFlujoCaja(container) {
                 <button onclick="fcConAsignar('${nd}')" style="font-size:10px;padding:2px 6px;border:1px solid #dc2626;border-radius:3px;background:none;color:#dc2626;cursor:pointer;margin-left:4px">🔗 Asignar</button>`;
       };
 
+      // Celda de línea para sub-fila ERP (asignación vía Mapeo Proveedores)
+      const lineaCellErp = (r) => {
+        const pv = (r.pagarA || '').replace(/'/g, "\\'");
+        if (r.lineaNombre) {
+          return `<span style="font-size:11px">${esc(r.lineaNombre)}</span><br>
+                  <span style="font-size:10px;color:var(--text-muted)">Proveedor</span>`;
+        }
+        return `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>
+                <button onclick="fcConAsignarProv('${pv}')" style="font-size:10px;padding:2px 6px;border:1px solid #dc2626;border-radius:3px;background:none;color:#dc2626;cursor:pointer;margin-left:4px">🔗 Mapeo</button>`;
+      };
+
       const trxRows = data.transacciones.flatMap(t => {
         const bg = BGMAP[t.estado] || '';
         const bgStyle = bg ? `background:${bg}` : '';
+        const tieneERP = t.erpRegistros && t.erpRegistros.length > 0;
         const rows = [`<tr style="${bgStyle}">
           <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fmtF(t.fecha))}</td>
           <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(t.codigo||'')}${t.codigo?' · ':''}${esc(t.nroDoc||'')}</td>
           <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto||'')}</td>
           <td style="padding:4px 8px;font-size:12px;text-align:right;white-space:nowrap;${t.importe<0?'color:#dc2626':''}">${fmtN(t.importe)}</td>
           <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(LBLMAP[t.estado]||t.estado)}</td>
-          <td style="padding:4px 8px;line-height:1.4">${lineaCellTrx(t)}</td>
+          <td style="padding:4px 8px;line-height:1.4">${tieneERP ? '' : lineaCellTrx(t)}</td>
         </tr>`];
-        // Sub-filas ERP: desglose para verificación de cuadre (sin columna de línea propia)
+        // Sub-filas ERP: cada una con su propia línea del flujo vía Mapeo Proveedores
         (t.erpRegistros || []).forEach(r => {
-          rows.push(`<tr style="${bgStyle};opacity:0.85">
+          rows.push(`<tr style="${bgStyle};opacity:0.9">
             <td style="padding:2px 8px 2px 20px;font-size:10px;color:var(--text-muted);white-space:nowrap">↳ ERP</td>
             <td></td>
-            <td style="padding:2px 8px;font-size:11px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.pagarA||'')}${r.tipoPago?` · <span style="color:var(--text-muted)">${esc(r.tipoPago)}</span>`:''}</td>
+            <td style="padding:2px 8px;font-size:11px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500">${esc(r.pagarA||'')}${r.tipoPago?` <span style="font-weight:400;color:var(--text-muted)">· ${esc(r.tipoPago)}</span>`:''}</td>
             <td style="padding:2px 8px;font-size:11px;text-align:right;white-space:nowrap;color:#dc2626">${fmtN(r.importe)}</td>
-            <td colspan="2"></td>
+            <td></td>
+            <td style="padding:2px 8px;line-height:1.4">${lineaCellErp(r)}</td>
           </tr>`);
         });
         return rows;
@@ -8617,30 +8632,45 @@ async function viewFlujoCaja(container) {
 
       const s = data.stats;
 
-      // Tarjeta de movimientos sin línea asignada
-      const sinLinea = data.transacciones.filter(t => !t.lineaId);
-      const sinLineaCard = sinLinea.length ? `
+      // Tarjeta de pendientes sin línea asignada (EECC sin ERP + sub-registros ERP sin proveedor mapeado)
+      const sinLineaItems = [];
+      data.transacciones.forEach(t => {
+        if (t.erpRegistros && t.erpRegistros.length > 0) {
+          t.erpRegistros.forEach(r => {
+            if (!r.lineaId) sinLineaItems.push({ fecha: t.fecha, nroDoc: t.nroDoc, concepto: r.pagarA || t.concepto, importe: r.importe, esERP: true, pagarA: r.pagarA });
+          });
+        } else if (!t.lineaId) {
+          sinLineaItems.push({ fecha: t.fecha, nroDoc: t.nroDoc, concepto: t.concepto, importe: t.importe, esERP: false });
+        }
+      });
+      const sinLineaCard = sinLineaItems.length ? `
         <div class="card mb-16" style="padding:12px;border-left:4px solid #f59e0b">
-          <div style="margin-bottom:10px;font-weight:700;font-size:13px;color:#92400e">⚠ ${sinLinea.length} movimiento${sinLinea.length>1?'s':''} sin línea del flujo asignada</div>
+          <div style="margin-bottom:10px;font-weight:700;font-size:13px;color:#92400e">⚠ ${sinLineaItems.length} elemento${sinLineaItems.length>1?'s':''} sin línea del flujo asignada</div>
           <div style="overflow:auto;max-height:280px">
             <table class="data-table" style="font-size:12px;width:100%">
               <thead><tr>
                 <th style="text-align:left;white-space:nowrap">Fecha Op.</th>
                 <th style="text-align:left;white-space:nowrap">Nº Doc</th>
-                <th style="text-align:left">Glosa / Concepto</th>
+                <th style="text-align:left">Concepto / Proveedor</th>
                 <th style="text-align:left;white-space:nowrap">Moneda</th>
                 <th style="text-align:right;white-space:nowrap">Importe</th>
                 <th></th>
               </tr></thead>
-              <tbody>${sinLinea.map(t => {
-                const nd = (t.nroDoc||'').replace(/'/g,"\\'");
+              <tbody>${sinLineaItems.map(item => {
+                const nd = (item.nroDoc||'').replace(/'/g,"\\'");
+                const pv = (item.pagarA||'').replace(/'/g,"\\'");
+                const btn = item.esERP
+                  ? `<button onclick="fcConAsignarProv('${pv}')" class="btn btn-sm" style="font-size:11px;border-color:#f59e0b;color:#92400e;white-space:nowrap">🔗 Mapeo Prov.</button>`
+                  : `<button onclick="fcConAsignar('${nd}')" class="btn btn-sm" style="font-size:11px;border-color:#f59e0b;color:#92400e;white-space:nowrap">🔗 Asignar línea</button>`;
                 return `<tr>
-                  <td style="padding:4px 8px;white-space:nowrap">${esc(fmtF(t.fecha))}</td>
-                  <td style="padding:4px 8px;white-space:nowrap">${esc(t.nroDoc||'')}</td>
-                  <td style="padding:4px 8px;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto||'')}</td>
+                  <td style="padding:4px 8px;white-space:nowrap">${esc(fmtF(item.fecha))}</td>
+                  <td style="padding:4px 8px;white-space:nowrap">${esc(item.nroDoc||'')}</td>
+                  <td style="padding:4px 8px;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                    ${item.esERP ? `<span style="font-size:10px;color:var(--text-muted)">↳ ERP</span> ` : ''}${esc(item.concepto||'')}
+                  </td>
                   <td style="padding:4px 8px;white-space:nowrap">${esc(moneda)}</td>
-                  <td style="padding:4px 8px;text-align:right;white-space:nowrap;${t.importe<0?'color:#dc2626':''}">${fmtN(t.importe)}</td>
-                  <td style="padding:4px 8px"><button onclick="fcConAsignar('${nd}')" class="btn btn-sm" style="font-size:11px;border-color:#f59e0b;color:#92400e;white-space:nowrap">🔗 Asignar línea</button></td>
+                  <td style="padding:4px 8px;text-align:right;white-space:nowrap;${item.importe<0?'color:#dc2626':''}">${fmtN(item.importe)}</td>
+                  <td style="padding:4px 8px">${btn}</td>
                 </tr>`;
               }).join('')}</tbody>
             </table>
@@ -8727,6 +8757,51 @@ async function viewFlujoCaja(container) {
         try {
           await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId: null });
           toast('✅ Asignación directa eliminada', 'success');
+          await window.fcVerConciliacion();
+        } catch(err) { toast(err.message, 'error'); }
+      };
+
+      // Asignación de línea a proveedor desde sub-fila ERP (actualiza Mapeo Proveedores)
+      window.fcConAsignarProv = (pagarA) => {
+        if (!_fcConData) return;
+        const { compania: c, lineas } = _fcConData;
+        const SECC_ORD2 = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
+        const SECC_LBL2 = {'SALDO_INICIAL':'1. Saldo Inicial','INGRESOS':'2. Ingresos','EGRESOS':'3. Egresos','OTROS':'4. Otros','POR_IDENTIFICAR':'5. Por Identificar','SALDO_FINAL':'6. Saldo Final'};
+        const sorted = [...lineas].sort((a,b) => {
+          if (!!a.esManual !== !!b.esManual) return a.esManual ? 1 : -1;
+          const si = SECC_ORD2.indexOf(a.seccion), sj = SECC_ORD2.indexOf(b.seccion);
+          return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');
+        });
+        const html = `
+          <div style="margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:6px">
+            <div style="font-size:11px;color:var(--text-muted)">Proveedor ERP</div>
+            <div style="font-size:13px;margin-top:4px;font-weight:600">${esc(pagarA)}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">La línea asignada quedará guardada en Mapeo de Proveedores y se aplicará a todos los pagos futuros de este proveedor.</div>
+          </div>
+          <label style="font-size:12px;color:var(--text-muted)">Línea del flujo:</label>
+          <select id="fccon-prov-linea-sel" class="form-control" style="font-size:12px;width:100%;margin-top:4px">
+            <option value="">— Seleccionar línea —</option>
+            ${sorted.map(l => {
+              const lbl = l.esManual ? `⚑ ${esc(l.nombre)}` : `${esc(SECC_LBL2[l.seccion]||l.seccion)} — ${esc(l.nombre)}`;
+              return `<option value="${l._id}">${lbl}</option>`;
+            }).join('')}
+          </select>
+          <input type="hidden" id="fccon-prov-nombre" value="${esc(pagarA)}">
+          <div style="margin-top:12px;text-align:right">
+            <button class="btn btn-primary btn-sm" onclick="fcConConfirmarAsignProv()">✓ Guardar en Mapeo</button>
+          </div>`;
+        openModal('🔗 Asignar línea — Mapeo Proveedores', html, null, { medium: true });
+      };
+
+      window.fcConConfirmarAsignProv = async () => {
+        const lineaId        = document.getElementById('fccon-prov-linea-sel')?.value;
+        const nombreProveedor = document.getElementById('fccon-prov-nombre')?.value;
+        if (!lineaId) { toast('Selecciona una línea del flujo', 'warning'); return; }
+        const { compania: c } = _fcConData;
+        try {
+          await PUT('/flujo-caja/proveedor-linea', { compania: c, nombreProveedor, lineaId });
+          document.getElementById('modal')?.classList.add('hidden');
+          toast('✅ Proveedor mapeado. Recargando...', 'success');
           await window.fcVerConciliacion();
         } catch(err) { toast(err.message, 'error'); }
       };

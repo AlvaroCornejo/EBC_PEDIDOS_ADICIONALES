@@ -621,7 +621,7 @@ router.get('/conciliacion', async (req, res) => {
     const transacciones = eecc.transacciones.map(trx => {
       const trxNum = parseInt(trx.nroDoc, 10);
 
-      // 1. Determinar estado y desglose ERP
+      // 1. Estado y desglose ERP
       let estado, erpRegistros = [];
       if (trx.importe >= 0 || isNaN(trxNum)) {
         estado = trx.importe >= 0 ? 'INGRESO' : 'SIN_ERP';
@@ -630,53 +630,71 @@ router.get('/conciliacion', async (req, res) => {
         if (grupo && !usadosNums.has(trxNum)) {
           usadosNums.add(trxNum);
           estado = 'CONCILIADO';
+          // Cada sub-registro ERP obtiene su propia línea vía Mapeo Proveedores
           erpRegistros = grupo.map(p => {
             const key = (p.pagarA || '').trim().toUpperCase();
             if (key && !provMap.has(key)) nuevosProv.set(key, p.pagarA.trim());
-            return { pagarA: p.pagarA, tipoPago: p.tipoPago, importe: moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal };
+            let rLineaId = null, rLineaNombre = null, rLineaFuente = null;
+            if (key) {
+              const prov = provMap.get(key);
+              if (prov?.lineaId) {
+                rLineaId = String(prov.lineaId);
+                ({ lineaNombre: rLineaNombre, lineaFuente: rLineaFuente } = resolverLinea(prov.lineaId, 'PROVEEDOR'));
+              }
+            }
+            return {
+              pagarA:     p.pagarA,
+              tipoPago:   p.tipoPago,
+              importe:    moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal,
+              lineaId:    rLineaId,
+              lineaNombre: rLineaNombre,
+              lineaFuente: rLineaFuente,
+            };
           });
         } else {
           estado = 'SIN_ERP';
         }
       }
 
-      // 2. Una línea por movimiento EECC (4 prioridades)
+      // 2. Línea del movimiento EECC (solo cuando NO hay sub-registros ERP)
+      //    Si hay sub-registros, cada uno ya lleva su propia línea de Mapeo Proveedores.
       let lineaId = null, lineaNombre = null, lineaFuente = null;
 
-      // P0: Asignación directa (manual, persistente — nunca se sobreescribe)
-      const asign = asignMap.get(trx.nroDoc);
-      if (asign?.lineaId) {
-        lineaId = asign.lineaId;
-        ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'DIRECTA'));
-      }
+      if (erpRegistros.length === 0) {
+        // P0: Asignación directa (persistente, nunca se sobreescribe)
+        const asign = asignMap.get(trx.nroDoc);
+        if (asign?.lineaId) {
+          lineaId = asign.lineaId;
+          ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'DIRECTA'));
+        }
 
-      // P1: Mov. Bancario por código de operación
-      if (!lineaId) {
-        const codigo = (trx.codigo || '').trim();
-        if (codigo) {
-          const mb = movBanMap.get(codigo);
-          if (mb?.lineaId) { lineaId = mb.lineaId; ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'MOV_BANCARIO')); }
+        // P1: Mov. Bancario por código de operación
+        if (!lineaId) {
+          const codigo = (trx.codigo || '').trim();
+          if (codigo) {
+            const mb = movBanMap.get(codigo);
+            if (mb?.lineaId) { lineaId = mb.lineaId; ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'MOV_BANCARIO')); }
+          }
+        }
+
+        // P3: Operación por concepto
+        if (!lineaId && trx.concepto) {
+          const key = trx.concepto.trim().toUpperCase();
+          const op = opMap.get(key);
+          if (op?.lineaId) { lineaId = op.lineaId; ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'OPERACION')); }
+          else if (!op) nuevasOps.set(key, trx.concepto.trim());
         }
       }
 
-      // P2: Proveedor — primer sub-registro ERP con línea asignada en Mapeo Proveedores
-      if (!lineaId && estado === 'CONCILIADO') {
-        for (const erp of erpRegistros) {
-          const key = (erp.pagarA || '').trim().toUpperCase();
-          const prov = key ? provMap.get(key) : null;
-          if (prov?.lineaId) { lineaId = prov.lineaId; ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'PROVEEDOR')); break; }
-        }
-      }
-
-      // P3: Operación por concepto (todos los estados como fallback)
-      if (!lineaId && trx.concepto) {
-        const key = trx.concepto.trim().toUpperCase();
-        const op = opMap.get(key);
-        if (op?.lineaId) { lineaId = op.lineaId; ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'OPERACION')); }
-        else if (!op && estado !== 'CONCILIADO') nuevasOps.set(key, trx.concepto.trim());
-      }
-
-      return { ...trx, estado, erpRegistros, lineaId: lineaId ? String(lineaId) : null, lineaNombre, lineaFuente, lineaDirecta: lineaFuente === 'DIRECTA' };
+      return {
+        ...trx,
+        estado,
+        erpRegistros,
+        lineaId:    lineaId ? String(lineaId) : null,
+        lineaNombre,
+        lineaFuente,
+        lineaDirecta: lineaFuente === 'DIRECTA',
+      };
     });
 
     if (nuevosProv.size > 0) {
@@ -693,12 +711,22 @@ router.get('/conciliacion', async (req, res) => {
       if (!usadosNums.has(num)) soloERP.push({ numeroPago: num, registros: grupo });
     });
 
+    // sinLinea: EECC sin ERP y sin línea + sub-registros ERP sin línea
+    let sinLineaCount = 0;
+    transacciones.forEach(t => {
+      if (t.erpRegistros.length > 0) {
+        sinLineaCount += t.erpRegistros.filter(r => !r.lineaId).length;
+      } else if (!t.lineaId) {
+        sinLineaCount += 1;
+      }
+    });
+
     const stats = {
       total:             transacciones.length,
       conciliados:       transacciones.filter(t => t.estado === 'CONCILIADO').length,
       soloEECC:          transacciones.filter(t => t.estado !== 'CONCILIADO').length,
       soloERP:           soloERP.length,
-      sinLinea:          transacciones.filter(t => !t.lineaId).length,
+      sinLinea:          sinLineaCount,
       nuevosProveedores: nuevosProv.size,
       nuevasOperaciones: nuevasOps.size,
     };
@@ -723,6 +751,22 @@ router.put('/asignacion', async (req, res) => {
     await FlujoCajaAsignacion.findOneAndUpdate(
       { compania, banco, moneda, nroDoc },
       { lineaId, asignadoPor: req.user.username, asignadoEn: new Date() },
+      { upsert: true }
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── PUT /proveedor-linea — asignar línea a proveedor desde la conciliación ───
+
+router.put('/proveedor-linea', async (req, res) => {
+  try {
+    const { compania, nombreProveedor, lineaId } = req.body;
+    if (!compania || !nombreProveedor) return res.status(400).json({ error: 'Faltan campos' });
+    if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
+    await FlujoCajaProveedor.findOneAndUpdate(
+      { compania, nombreProveedor: nombreProveedor.trim() },
+      { lineaId: lineaId || null },
       { upsert: true }
     );
     res.json({ ok: true });
