@@ -8775,7 +8775,7 @@ async function viewFlujoCaja(container) {
           await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId });
           document.getElementById('modal')?.classList.add('hidden');
           toast('✅ Línea asignada', 'success');
-          await window.fcVerConciliacion();
+          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
         } catch(err) { toast(err.message, 'error'); }
       };
 
@@ -8785,7 +8785,7 @@ async function viewFlujoCaja(container) {
         try {
           await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId: null });
           toast('✅ Asignación directa eliminada', 'success');
-          await window.fcVerConciliacion();
+          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
         } catch(err) { toast(err.message, 'error'); }
       };
 
@@ -8830,7 +8830,7 @@ async function viewFlujoCaja(container) {
           await PUT('/flujo-caja/proveedor-linea', { compania: c, nombreProveedor, lineaId });
           document.getElementById('modal')?.classList.add('hidden');
           toast('✅ Proveedor mapeado. Recargando...', 'success');
-          await window.fcVerConciliacion();
+          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
         } catch(err) { toast(err.message, 'error'); }
       };
 
