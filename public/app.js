@@ -8432,10 +8432,8 @@ async function viewFlujoCaja(container) {
         </tr>`;
         // Filas de la sección (colapsables)
         filas.forEach(f => {
-          const tipoAct = f.tipoActividad && TIPO_ACT_LABEL[f.tipoActividad];
-          const tipoActBadge = tipoAct ? `<span style="margin-left:8px;font-size:9px;font-weight:600;padding:1px 6px;border-radius:8px;color:#fff;background:${TIPO_ACT_COLOR[f.tipoActividad]}">${esc(tipoAct)}</span>` : '';
           filasHtml += `<tr class="fc-fila-${sec}" ${esResumen ? 'style="font-weight:700;background:#bbf7d0"' : ''}>
-            <td style="padding:5px 10px 5px 28px">${esc(f.nombre)}${tipoActBadge}</td>
+            <td style="padding:5px 10px 5px 28px">${esc(f.nombre)}</td>
             ${f.valores.map(v => `<td style="padding:5px 10px;text-align:right;${v<0?'color:#dc2626':''}">${fmtMonto(v)}</td>`).join('')}
           </tr>`;
         });
@@ -9109,6 +9107,12 @@ async function viewFlujoCaja(container) {
       calcWrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`;
     }
   };
+
+  // Fecha Desde por omisión: lunes de la semana de hace 12 semanas
+  const _fcD = new Date();
+  _fcD.setDate(_fcD.getDate() - 84);
+  _fcD.setDate(_fcD.getDate() - ((_fcD.getDay() || 7) - 1)); // retroceder al lunes
+  document.getElementById('fc-desde').value = _fcD.toISOString().slice(0, 10);
 
   // Carga inicial automática si hay al menos una sociedad
   if (socsFC.length) await window.fcVerFlujo();

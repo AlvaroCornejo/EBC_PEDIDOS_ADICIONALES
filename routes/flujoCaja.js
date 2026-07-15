@@ -474,7 +474,12 @@ router.get('/resumen', async (req, res) => {
             if (op?.lineaId) lineaId = op.lineaId;
           }
 
-          if (lineaId) addToGrilla(lineaId, pkey, trx.importe * factor);
+          if (lineaId) {
+            // EGRESOS se almacenan como valor positivo (la fórmula SF = SI + INGR - EGRE los resta)
+            const seccion = grilla[lineaIdxMap.get(String(lineaId))]?.seccion;
+            const imp = seccion === 'EGRESOS' ? Math.abs(trx.importe) : trx.importe;
+            addToGrilla(lineaId, pkey, imp * factor);
+          }
         }
       }
     }
