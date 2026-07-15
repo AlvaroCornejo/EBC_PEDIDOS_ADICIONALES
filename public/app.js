@@ -8326,49 +8326,25 @@ async function viewFlujoCaja(container) {
           <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-bottom:14px">
             <div>
               <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
-              <select id="fc-carga-soc" class="form-control" style="width:160px">
+              <select id="fc-carga-soc" class="form-control" style="width:160px" onchange="fcCargarCuentas()">
                 ${socsFC.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
               </select>
             </div>
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Banco</label>
-              <select id="fc-carga-banco" class="form-control" style="width:130px">
-                <option value="BBVA">BBVA</option>
-                <option value="BCP">BCP</option>
-                <option value="IBK">Interbank</option>
-              </select>
-            </div>
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
-              <select id="fc-carga-moneda" class="form-control" style="width:120px">
-                <option value="SOL">Soles</option>
-                <option value="USD">Dólares</option>
-              </select>
-            </div>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
-            <div style="display:flex;flex-direction:column;gap:4px;min-width:160px">
-              <span style="font-size:11px;font-weight:600;color:var(--text-muted)">📄 ESTADO DE CUENTA (EECC)</span>
-              <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--bg-secondary);min-width:160px;cursor:pointer" onclick="document.getElementById('fc-eecc-file').click()">
-                <span id="fc-eecc-nombre" style="font-size:11px;color:var(--text-muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sin archivo</span>
-              </div>
-              <input type="file" id="fc-eecc-file" accept=".xls,.xlsx" style="display:none" onchange="fcCargarEECC()">
-              <button class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 12px" onclick="document.getElementById('fc-eecc-file').click()">📂 Cargar</button>
-              <div id="fc-eecc-status" style="font-size:10px;color:var(--text-muted)"></div>
-            </div>
             <div style="display:flex;flex-direction:column;gap:4px;min-width:160px">
               <span style="font-size:11px;font-weight:600;color:var(--text-muted)">💳 PAGOS ERP</span>
-              <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--bg-secondary);min-width:160px;cursor:pointer" onclick="document.getElementById('fc-erp-file').click()">
+              <div style="display:flex;align-items:center;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--bg-secondary);cursor:pointer" onclick="document.getElementById('fc-erp-file').click()">
                 <span id="fc-erp-nombre" style="font-size:11px;color:var(--text-muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sin archivo</span>
               </div>
               <input type="file" id="fc-erp-file" accept=".csv" style="display:none" onchange="fcCargarERP()">
               <button class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 12px" onclick="document.getElementById('fc-erp-file').click()">📂 Cargar</button>
               <div id="fc-erp-status" style="font-size:10px;color:var(--text-muted)"></div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:4px">
-              <button class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 12px" onclick="fcVerConciliacion()">🔗 Ver Conciliación</button>
+            <div style="display:flex;flex-direction:column;gap:4px;justify-content:flex-end">
               <button class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 12px;color:#dc2626;border-color:#dc2626" onclick="fcBorrarDatos()">🗑️ Borrar datos</button>
             </div>
+          </div>
+          <div id="fc-cuentas-wrap" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
+            <span style="font-size:12px;color:var(--text-muted)">Cargando cuentas...</span>
           </div>
         </div>
         <div id="fc-conc-wrap" style="margin-bottom:16px"></div>
@@ -8492,14 +8468,49 @@ async function viewFlujoCaja(container) {
     } catch(e) { toast(e.message, 'error'); }
   };
 
-  window.fcCargarEECC = async function() {
+  window.fcCargarCuentas = async function() {
     const compania = document.getElementById('fc-carga-soc').value;
-    const banco    = document.getElementById('fc-carga-banco').value;
-    const moneda   = document.getElementById('fc-carga-moneda').value;
-    const fi       = document.getElementById('fc-eecc-file');
-    const st       = document.getElementById('fc-eecc-status');
-    if (!fi.files.length) { toast('Selecciona un archivo EECC', 'warning'); return; }
-    document.getElementById('fc-eecc-nombre').textContent = fi.files[0].name;
+    const wrap = document.getElementById('fc-cuentas-wrap');
+    wrap.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Cargando...</span>';
+    try {
+      const cuentas = await GET(`/flujo-caja/cuentas?compania=${encodeURIComponent(compania)}`);
+      if (!cuentas.length) {
+        wrap.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Sin cuentas configuradas para esta sociedad.</span>';
+        return;
+      }
+      wrap.innerHTML = cuentas.map(c => {
+        const bid = `${c.banco}-${c.moneda}`.replace(/[^A-Z0-9-]/gi, '_');
+        const lbl = c.alias ? esc(c.alias) : `${esc(c.banco)} · ${esc(c.moneda)}`;
+        const mon = c.moneda === 'USD' ? '🇺🇸' : '🇵🇪';
+        return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;min-width:170px;max-width:200px;background:var(--bg-secondary)">
+          <p style="font-weight:700;font-size:12px;margin-bottom:2px">${mon} ${lbl}</p>
+          <p style="font-size:10px;color:var(--text-muted);margin-bottom:8px">${esc(c.banco)} · ${c.moneda === 'USD' ? 'Dólares' : 'Soles'}</p>
+          <div style="border:1px solid var(--border);border-radius:5px;padding:3px 7px;background:var(--bg);cursor:pointer;margin-bottom:5px"
+               onclick="document.getElementById('fc-eecc-${bid}').click()">
+            <span id="fc-eecc-nombre-${bid}" style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">Sin archivo</span>
+          </div>
+          <input type="file" id="fc-eecc-${bid}" accept=".xls,.xlsx" style="display:none"
+                 onchange="fcCargarEECC('${esc(c.banco)}','${esc(c.moneda)}','${bid}')">
+          <div style="display:flex;gap:5px">
+            <button class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 10px;flex:1"
+                    onclick="document.getElementById('fc-eecc-${bid}').click()">📂 Cargar</button>
+            <button class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 10px;flex:1"
+                    onclick="fcVerConciliacion('${esc(c.banco)}','${esc(c.moneda)}')">🔗 Conciliar</button>
+          </div>
+          <div id="fc-eecc-status-${bid}" style="font-size:10px;margin-top:4px;color:var(--text-muted)"></div>
+        </div>`;
+      }).join('');
+    } catch(e) {
+      wrap.innerHTML = `<span style="font-size:12px;color:#dc2626">Error: ${esc(e.message)}</span>`;
+    }
+  };
+
+  window.fcCargarEECC = async function(banco, moneda, bid) {
+    const compania = document.getElementById('fc-carga-soc').value;
+    const fi = document.getElementById(`fc-eecc-${bid}`);
+    const st = document.getElementById(`fc-eecc-status-${bid}`);
+    if (!fi.files.length) return;
+    document.getElementById(`fc-eecc-nombre-${bid}`).textContent = fi.files[0].name;
     st.textContent = '⏳ Cargando...';
     const fd = new FormData();
     fd.append('archivo', fi.files[0]);
@@ -8515,8 +8526,8 @@ async function viewFlujoCaja(container) {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Error');
-      st.innerHTML = `<span style="color:#16a34a">✓ ${j.count} movimientos · ${esc(j.banco)} ${esc(j.moneda)}${j.alias ? ' · ' + esc(j.alias) : ''}</span>`;
-      toast(`EECC cargado: ${j.count} movimientos`);
+      st.innerHTML = `<span style="color:#16a34a">✓ ${j.count} movimientos</span>`;
+      toast(`EECC cargado: ${j.count} movimientos · ${banco} ${moneda}`);
     } catch(e) {
       st.innerHTML = `<span style="color:#dc2626">✗ ${esc(e.message)}</span>`;
     }
@@ -8548,10 +8559,8 @@ async function viewFlujoCaja(container) {
     }
   };
 
-  window.fcVerConciliacion = async function() {
+  window.fcVerConciliacion = async function(banco, moneda) {
     const compania = document.getElementById('fc-carga-soc').value;
-    const banco    = document.getElementById('fc-carga-banco').value;
-    const moneda   = document.getElementById('fc-carga-moneda').value;
     const wrap = document.getElementById('fc-conc-wrap');
     wrap.innerHTML = '<div class="text-muted text-center py-16">⏳ Calculando conciliación...</div>';
     try {
@@ -9130,6 +9139,9 @@ async function viewFlujoCaja(container) {
     document.getElementById('fc-desde').value = _fcD.toISOString().slice(0, 10);
     if (socsFC.length) await window.fcVerFlujo();
   }
+
+  // Cargar cuentas del panel de carga al iniciar
+  if (socsFC.length) await window.fcCargarCuentas();
 }
 
 // ─── View: Registro de Bajas, Consumos, Transferencias y 86 ───────
