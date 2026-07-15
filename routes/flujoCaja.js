@@ -668,10 +668,10 @@ router.post('/eecc/cargar', upload.single('archivo'), async (req, res) => {
 
 router.delete('/eecc', async (req, res) => {
   try {
-    const { compania, banco, moneda } = req.query;
-    if (!compania || !banco || !moneda) return res.status(400).json({ error: 'Faltan parámetros' });
+    const { compania } = req.query;
+    if (!compania) return res.status(400).json({ error: 'Falta compania' });
     if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
-    const r = await EstadoCuenta.deleteMany({ compania, banco, moneda });
+    const r = await EstadoCuenta.deleteMany({ compania });
     res.json({ ok: true, deleted: r.deletedCount });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

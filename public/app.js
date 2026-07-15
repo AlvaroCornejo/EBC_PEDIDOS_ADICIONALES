@@ -8346,25 +8346,29 @@ async function viewFlujoCaja(container) {
               </select>
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-            <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
-              <p style="font-weight:600;font-size:12px;margin-bottom:4px">📄 Estado de Cuenta (EECC)</p>
-              <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">BBVA: HTML-XLS (auto-detecta cuenta) · BCP/IBK: XLSX</p>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:160px">
+              <span style="font-size:11px;font-weight:600;color:var(--text-muted)">📄 ESTADO DE CUENTA (EECC)</span>
+              <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--bg-secondary);min-width:160px;cursor:pointer" onclick="document.getElementById('fc-eecc-file').click()">
+                <span id="fc-eecc-nombre" style="font-size:11px;color:var(--text-muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sin archivo</span>
+              </div>
               <input type="file" id="fc-eecc-file" accept=".xls,.xlsx" style="display:none" onchange="fcCargarEECC()">
-              <button class="btn btn-primary btn-sm" style="width:100%" onclick="document.getElementById('fc-eecc-file').click()">📂 Cargar EECC</button>
-              <div id="fc-eecc-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
+              <button class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 12px" onclick="document.getElementById('fc-eecc-file').click()">📂 Cargar</button>
+              <div id="fc-eecc-status" style="font-size:10px;color:var(--text-muted)"></div>
             </div>
-            <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
-              <p style="font-weight:600;font-size:12px;margin-bottom:4px">💳 Pagos ERP</p>
-              <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">CSV de pagos Spring (reemplaza todo para la sociedad)</p>
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:160px">
+              <span style="font-size:11px;font-weight:600;color:var(--text-muted)">💳 PAGOS ERP</span>
+              <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--bg-secondary);min-width:160px;cursor:pointer" onclick="document.getElementById('fc-erp-file').click()">
+                <span id="fc-erp-nombre" style="font-size:11px;color:var(--text-muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sin archivo</span>
+              </div>
               <input type="file" id="fc-erp-file" accept=".csv" style="display:none" onchange="fcCargarERP()">
-              <button class="btn btn-primary btn-sm" style="width:100%" onclick="document.getElementById('fc-erp-file').click()">📂 Cargar Pagos ERP</button>
-              <div id="fc-erp-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
+              <button class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 12px" onclick="document.getElementById('fc-erp-file').click()">📂 Cargar</button>
+              <div id="fc-erp-status" style="font-size:10px;color:var(--text-muted)"></div>
             </div>
-          </div>
-          <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
-            <button class="btn btn-outline btn-sm" onclick="fcVerConciliacion()">🔗 Ver Conciliación</button>
-            <button class="btn btn-outline btn-sm" style="color:#dc2626;border-color:#dc2626" onclick="fcBorrarDatos()">🗑️ Borrar EECC y ERP</button>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <button class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 12px" onclick="fcVerConciliacion()">🔗 Ver Conciliación</button>
+              <button class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 12px;color:#dc2626;border-color:#dc2626" onclick="fcBorrarDatos()">🗑️ Borrar datos</button>
+            </div>
           </div>
         </div>
         <div id="fc-conc-wrap" style="margin-bottom:16px"></div>
@@ -8475,12 +8479,10 @@ async function viewFlujoCaja(container) {
 
   window.fcBorrarDatos = async function() {
     const compania = document.getElementById('fc-carga-soc').value;
-    const banco    = document.getElementById('fc-carga-banco').value;
-    const moneda   = document.getElementById('fc-carga-moneda').value;
-    if (!confirm(`¿Borrar el EECC de ${compania} · ${banco} · ${moneda} y todos los Pagos ERP de ${compania}?\nEsta acción no se puede deshacer.`)) return;
+    if (!confirm(`¿Borrar todos los EECC y Pagos ERP de ${compania}?\nEsta acción no se puede deshacer.`)) return;
     try {
       await Promise.all([
-        DEL(`/flujo-caja/eecc?compania=${encodeURIComponent(compania)}&banco=${encodeURIComponent(banco)}&moneda=${encodeURIComponent(moneda)}`),
+        DEL(`/flujo-caja/eecc?compania=${encodeURIComponent(compania)}`),
         DEL(`/flujo-caja/pagos-erp?compania=${encodeURIComponent(compania)}`),
       ]);
       document.getElementById('fc-eecc-status').textContent = '';
@@ -8497,6 +8499,7 @@ async function viewFlujoCaja(container) {
     const fi       = document.getElementById('fc-eecc-file');
     const st       = document.getElementById('fc-eecc-status');
     if (!fi.files.length) { toast('Selecciona un archivo EECC', 'warning'); return; }
+    document.getElementById('fc-eecc-nombre').textContent = fi.files[0].name;
     st.textContent = '⏳ Cargando...';
     const fd = new FormData();
     fd.append('archivo', fi.files[0]);
@@ -8524,6 +8527,7 @@ async function viewFlujoCaja(container) {
     const fi = document.getElementById('fc-erp-file');
     const st = document.getElementById('fc-erp-status');
     if (!fi.files.length) { toast('Selecciona un archivo CSV de Pagos ERP', 'warning'); return; }
+    document.getElementById('fc-erp-nombre').textContent = fi.files[0].name;
     st.textContent = '⏳ Cargando...';
     const fd = new FormData();
     fd.append('archivo', fi.files[0]);
