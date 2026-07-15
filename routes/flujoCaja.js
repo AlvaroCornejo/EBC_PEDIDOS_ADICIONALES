@@ -360,17 +360,126 @@ router.get('/resumen', async (req, res) => {
       saldoInicialTotal += monto;
     }
 
-    // ── Armar grilla: por ahora solo SALDO_INICIAL trae datos reales; el resto
-    //    queda en 0 (no hay movimientos conciliados ni proyección todavía — 2da entrega) ──
-    const grilla = filas.map(f => {
-      const valores = periodos.map((_, i) => {
-        if (f.seccion === 'SALDO_INICIAL' && i === 0) return saldoInicialTotal;
-        return 0;
-      });
-      return { id: f.id, nombre: f.nombre, seccion: f.seccion, tipoActividad: f.tipoActividad, valores };
+    // ── Cargar datos de EECC y mapeos para poblar la grilla ─────────────────────
+    const monedasEECC = moneda === 'COMBO' ? ['SOL', 'USD'] : [moneda];
+
+    const [allEECC, allPagos, allProveedores, allOperaciones, allMovBancarios, allAsignaciones] = await Promise.all([
+      EstadoCuenta.find({ compania: { $in: companias }, moneda: { $in: monedasEECC } }).lean(),
+      PagoERP.find({ compania: { $in: companias } }).lean(),
+      FlujoCajaProveedor.find({ compania: { $in: companias } }).lean(),
+      FlujoCajaOperacion.find({ compania: { $in: companias } }).lean(),
+      FlujoCajaMovBancario.find({ compania: { $in: companias } }).lean(),
+      FlujoCajaAsignacion.find({ compania: { $in: companias } }).lean(),
+    ]);
+
+    // Mapas de lookup
+    const provMap2  = new Map(allProveedores.map(p => [`${p.compania}|${p.nombreProveedor.trim().toUpperCase()}`, p]));
+    const opMap2    = new Map(allOperaciones.map(o => [`${o.compania}|${o.descripcion.trim().toUpperCase()}`, o]));
+    const mbMap2    = new Map(allMovBancarios.map(m => [`${m.compania}|${m.numeroOperacion.trim()}`, m]));
+    const asignMap2 = new Map(allAsignaciones.map(a => [`${a.compania}|${a.banco}|${a.moneda}|${a.nroDoc}`, a]));
+
+    // PagoERP agrupado por compania|cuentaBancaria|monedaERP|numeroPago
+    const pagoGruposR = new Map();
+    allPagos.forEach(p => {
+      const k = `${p.compania}|${p.cuentaBancaria}|${p.moneda}|${p.numeroPago}`;
+      if (!pagoGruposR.has(k)) pagoGruposR.set(k, []);
+      pagoGruposR.get(k).push(p);
     });
 
-    // SALDO_FINAL = inicial + ingresos - egresos ± otros ± por identificar (queda la fórmula lista)
+    // numeroCuenta fallback por cuenta bancaria
+    const cuentaNroCta = new Map(cuentas.map(c => [`${c.compania}|${c.banco}|${c.moneda}`, c.numeroCuenta || '']));
+
+    // Función: fecha → clave de periodo
+    const periodKeyFn = (fecha) => {
+      const d = new Date(fecha);
+      if (granularidad === 'mes') return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
+      return `${d.getUTCFullYear()}-W${String(isoWeek(d)).padStart(2,'0')}`;
+    };
+    const periodoIdxMap = new Map(periodos.map((p, i) => [p.key, i]));
+
+    // ── Armar grilla ─────────────────────────────────────────────────────────────
+    const grilla = filas.map(f => ({
+      id: f.id, nombre: f.nombre, seccion: f.seccion, tipoActividad: f.tipoActividad,
+      valores: periodos.map((_, i) => f.seccion === 'SALDO_INICIAL' && i === 0 ? saldoInicialTotal : 0),
+    }));
+    const lineaIdxMap = new Map(grilla.map((f, i) => [f.id, i]));
+
+    const addToGrilla = (lineaId, pkey, importe) => {
+      const li = lineaIdxMap.get(String(lineaId));
+      const pi = periodoIdxMap.get(pkey);
+      if (li !== undefined && pi !== undefined) grilla[li].valores[pi] += importe;
+    };
+
+    // Cache de tipos de cambio por fecha
+    const tcCache = new Map();
+    const getTc = async (fecha) => {
+      const k = new Date(fecha).toISOString().slice(0, 10);
+      if (!tcCache.has(k)) tcCache.set(k, await tipoCambioVigente(fecha));
+      return tcCache.get(k);
+    };
+
+    // ── Procesar cada EECC ───────────────────────────────────────────────────────
+    for (const eecc of allEECC) {
+      const { compania: comp, banco, moneda: monedaCta } = eecc;
+      const monedaERP = monedaCta === 'USD' ? 'EX' : 'LO';
+      const numeroCuenta = eecc.numeroCuenta || cuentaNroCta.get(`${comp}|${banco}|${monedaCta}`) || '';
+      const usados = new Set();
+
+      for (const trx of (eecc.transacciones || [])) {
+        const pkey = periodKeyFn(trx.fecha);
+        if (!periodoIdxMap.has(pkey)) continue; // fuera del rango visible
+
+        // Factor de conversión USD→SOL para modo COMBO
+        let factor = 1;
+        if (moneda === 'COMBO' && monedaCta === 'USD') {
+          const tc = await getTc(trx.fecha);
+          if (!tc) continue;
+          factor = tc;
+        }
+
+        // Determinar si es conciliado
+        const trxNum = parseInt(trx.nroDoc, 10);
+        let erpGrupo = null;
+        if (!isNaN(trxNum) && trx.importe < 0 && numeroCuenta) {
+          const pk = `${comp}|${numeroCuenta}|${monedaERP}|${trxNum}`;
+          const gr = pagoGruposR.get(pk);
+          if (gr && !usados.has(trxNum)) { usados.add(trxNum); erpGrupo = gr; }
+        }
+
+        if (erpGrupo) {
+          // Cada sub-registro ERP → línea por Mapeo Proveedores
+          for (const erp of erpGrupo) {
+            const key = (erp.pagarA || '').trim().toUpperCase();
+            if (!key) continue;
+            const prov = provMap2.get(`${comp}|${key}`);
+            if (prov?.lineaId) {
+              const imp = (monedaCta === 'USD' ? erp.pagoExtranjero : erp.pagoLocal) * factor;
+              addToGrilla(prov.lineaId, pkey, imp);
+            }
+          }
+        } else {
+          // Sin ERP: P0 → P1 → P3
+          let lineaId = null;
+
+          const ak = `${comp}|${banco}|${monedaCta}|${trx.nroDoc}`;
+          const asign = asignMap2.get(ak);
+          if (asign?.lineaId) lineaId = asign.lineaId;
+
+          if (!lineaId && trx.codigo) {
+            const mb = mbMap2.get(`${comp}|${trx.codigo.trim()}`);
+            if (mb?.lineaId) lineaId = mb.lineaId;
+          }
+          if (!lineaId && trx.concepto) {
+            const op = opMap2.get(`${comp}|${trx.concepto.trim().toUpperCase()}`);
+            if (op?.lineaId) lineaId = op.lineaId;
+          }
+
+          if (lineaId) addToGrilla(lineaId, pkey, trx.importe * factor);
+        }
+      }
+    }
+
+    // SALDO_FINAL acumulado período a período
     const sumaSeccion = (sec, periodoIdx) =>
       grilla.filter(f => f.seccion === sec).reduce((s, f) => s + (f.valores[periodoIdx] || 0), 0);
 
