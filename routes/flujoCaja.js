@@ -321,7 +321,8 @@ router.get('/resumen', async (req, res) => {
     }
 
     // ── Periodos (columnas) ──
-    const hoy = new Date();
+    // Si se indica una fecha de inicio, los periodos arrancan desde esa semana/mes
+    const hoy = req.query.desde ? new Date(req.query.desde + 'T12:00:00Z') : new Date();
     const periodos = [];
     if (granularidad === 'mes') {
       for (let i = 0; i < numPeriodos; i++) {

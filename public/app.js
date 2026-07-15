@@ -8298,6 +8298,10 @@ async function viewFlujoCaja(container) {
               </select>
             </div>
             <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Desde</label>
+              <input id="fc-desde" type="date" class="form-control" style="width:145px">
+            </div>
+            <div>
               <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px"># Periodos</label>
               <input id="fc-periodos" type="number" min="1" max="52" value="12" class="form-control" style="width:90px">
             </div>
@@ -8399,11 +8403,13 @@ async function viewFlujoCaja(container) {
     const moneda    = document.getElementById('fc-moneda').value;
     const granularidad = document.getElementById('fc-granularidad').value;
     const periodos  = document.getElementById('fc-periodos').value || 12;
+    const desde     = document.getElementById('fc-desde').value; // YYYY-MM-DD o vacío
     const wrap = document.getElementById('fc-wrap');
     if (!companias.length) { toast('Selecciona al menos una sociedad', 'warning'); return; }
     wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
-      const data = await GET(`/flujo-caja/resumen?companias=${encodeURIComponent(companias.join(','))}&moneda=${moneda}&granularidad=${granularidad}&periodos=${periodos}`);
+      const desdeParam = desde ? `&desde=${encodeURIComponent(desde)}` : '';
+      const data = await GET(`/flujo-caja/resumen?companias=${encodeURIComponent(companias.join(','))}&moneda=${moneda}&granularidad=${granularidad}&periodos=${periodos}${desdeParam}`);
       const simbolo = moneda === 'USD' ? 'US$' : 'S/';
 
       const SECCION_ORDEN = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
