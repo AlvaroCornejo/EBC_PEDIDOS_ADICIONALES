@@ -8261,17 +8261,20 @@ async function viewFlujoCaja(container) {
     </div>
     <div class="page-body">
       <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border)">
-        <button class="fc-mode-btn active" data-mode="real"
+        ${esAdminFC ? `<button class="fc-mode-btn" data-mode="real"
           style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)"
-          onclick="fcSetMode('real')">📊 Flujo Real</button>
+          onclick="fcSetMode('real')">📊 Flujo Real</button>` : ''}
+        <button class="fc-mode-btn" data-mode="carga"
+          style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)"
+          onclick="fcSetMode('carga')">📂 Carga y Conciliación</button>
         <button class="fc-mode-btn" data-mode="proyeccion"
           style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)"
           onclick="fcSetMode('proyeccion')">📈 Proyección</button>
       </div>
 
-      <!-- Panel Real -->
-      <div id="fc-panel-real">
-        <div class="card mb-16" style="padding:16px">
+      <!-- Panel Flujo Real (solo administrador) -->
+      <div id="fc-panel-real" style="display:none">
+        ${esAdminFC ? `<div class="card mb-16" style="padding:16px">
           <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end">
             <div>
               <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px">Sociedad(es)</label>
@@ -8310,64 +8313,61 @@ async function viewFlujoCaja(container) {
             </div>
           </div>
         </div>
-        <!-- Carga de datos bancarios -->
-        <div class="card mb-16" style="padding:14px">
-          <div style="display:flex;gap:12px;align-items:center">
-            <span style="font-weight:700;font-size:13px">📥 Datos bancarios</span>
-            <button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:11px" onclick="fcToggleCarga(this)">▸ Cargar / conciliar</button>
-          </div>
-          <div id="fc-carga-panel" style="display:none;margin-top:14px">
-            <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-bottom:14px">
-              <div>
-                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
-                <select id="fc-carga-soc" class="form-control" style="width:160px">
-                  ${socsFC.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
-                </select>
-              </div>
-              <div>
-                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Banco</label>
-                <select id="fc-carga-banco" class="form-control" style="width:130px">
-                  <option value="BBVA">BBVA</option>
-                  <option value="BCP">BCP</option>
-                  <option value="IBK">Interbank</option>
-                </select>
-              </div>
-              <div>
-                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
-                <select id="fc-carga-moneda" class="form-control" style="width:120px">
-                  <option value="SOL">Soles</option>
-                  <option value="USD">Dólares</option>
-                </select>
-              </div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-              <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
-                <p style="font-weight:600;font-size:12px;margin-bottom:4px">📄 Estado de Cuenta (EECC)</p>
-                <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">BBVA: HTML-XLS (auto-detecta cuenta) · BCP/IBK: XLSX</p>
-                <input type="file" id="fc-eecc-file" accept=".xls,.xlsx" style="display:none" onchange="fcCargarEECC()">
-                <button class="btn btn-primary btn-sm" style="width:100%" onclick="document.getElementById('fc-eecc-file').click()">📂 Cargar EECC</button>
-                <div id="fc-eecc-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
-              </div>
-              <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
-                <p style="font-weight:600;font-size:12px;margin-bottom:4px">💳 Pagos ERP</p>
-                <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">CSV de pagos Spring (reemplaza todo para la sociedad)</p>
-                <input type="file" id="fc-erp-file" accept=".csv" style="display:none" onchange="fcCargarERP()">
-                <button class="btn btn-primary btn-sm" style="width:100%" onclick="document.getElementById('fc-erp-file').click()">📂 Cargar Pagos ERP</button>
-                <div id="fc-erp-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
-              </div>
-            </div>
-            <div style="margin-top:12px;text-align:center">
-              <button class="btn btn-outline btn-sm" onclick="fcVerConciliacion()">🔗 Ver Conciliación</button>
-            </div>
-          </div>
-        </div>
-        <div id="fc-conc-wrap" style="margin-bottom:16px"></div>
-
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
           <button class="btn btn-outline btn-sm" onclick="imprimirVista('fc-wrap','Flujo de Caja')">🖨️ Imprimir</button>
           <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-wrap','flujo-de-caja')">📥 Bajar a Excel</button>
         </div>
-        <div id="fc-wrap"><div class="text-muted text-center py-24">Selecciona sociedad(es) y presiona "Ver Flujo".</div></div>
+        <div id="fc-wrap"><div class="text-muted text-center py-24">Selecciona sociedad(es) y presiona "Ver Flujo".</div></div>` : ''}
+      </div>
+
+      <!-- Panel Carga y Conciliación -->
+      <div id="fc-panel-carga" style="display:none">
+        <div class="card mb-16" style="padding:14px">
+          <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-bottom:14px">
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+              <select id="fc-carga-soc" class="form-control" style="width:160px">
+                ${socsFC.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Banco</label>
+              <select id="fc-carga-banco" class="form-control" style="width:130px">
+                <option value="BBVA">BBVA</option>
+                <option value="BCP">BCP</option>
+                <option value="IBK">Interbank</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
+              <select id="fc-carga-moneda" class="form-control" style="width:120px">
+                <option value="SOL">Soles</option>
+                <option value="USD">Dólares</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
+              <p style="font-weight:600;font-size:12px;margin-bottom:4px">📄 Estado de Cuenta (EECC)</p>
+              <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">BBVA: HTML-XLS (auto-detecta cuenta) · BCP/IBK: XLSX</p>
+              <input type="file" id="fc-eecc-file" accept=".xls,.xlsx" style="display:none" onchange="fcCargarEECC()">
+              <button class="btn btn-primary btn-sm" style="width:100%" onclick="document.getElementById('fc-eecc-file').click()">📂 Cargar EECC</button>
+              <div id="fc-eecc-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:6px;padding:12px">
+              <p style="font-weight:600;font-size:12px;margin-bottom:4px">💳 Pagos ERP</p>
+              <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">CSV de pagos Spring (reemplaza todo para la sociedad)</p>
+              <input type="file" id="fc-erp-file" accept=".csv" style="display:none" onchange="fcCargarERP()">
+              <button class="btn btn-primary btn-sm" style="width:100%" onclick="document.getElementById('fc-erp-file').click()">📂 Cargar Pagos ERP</button>
+              <div id="fc-erp-status" style="font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
+            <button class="btn btn-outline btn-sm" onclick="fcVerConciliacion()">🔗 Ver Conciliación</button>
+            <button class="btn btn-outline btn-sm" style="color:#dc2626;border-color:#dc2626" onclick="fcBorrarDatos()">🗑️ Borrar EECC y ERP</button>
+          </div>
+        </div>
+        <div id="fc-conc-wrap" style="margin-bottom:16px"></div>
       </div>
 
       <!-- Panel Proyección -->
@@ -8473,11 +8473,21 @@ async function viewFlujoCaja(container) {
 
   // ── Carga de datos bancarios ──────────────────────────────────────────────
 
-  window.fcToggleCarga = function(btn) {
-    const panel = document.getElementById('fc-carga-panel');
-    const visible = panel.style.display !== 'none';
-    panel.style.display = visible ? 'none' : '';
-    btn.textContent = visible ? '▸ Cargar / conciliar' : '▾ Cerrar';
+  window.fcBorrarDatos = async function() {
+    const compania = document.getElementById('fc-carga-soc').value;
+    const banco    = document.getElementById('fc-carga-banco').value;
+    const moneda   = document.getElementById('fc-carga-moneda').value;
+    if (!confirm(`¿Borrar el EECC de ${compania} · ${banco} · ${moneda} y todos los Pagos ERP de ${compania}?\nEsta acción no se puede deshacer.`)) return;
+    try {
+      await Promise.all([
+        DEL(`/flujo-caja/eecc?compania=${encodeURIComponent(compania)}&banco=${encodeURIComponent(banco)}&moneda=${encodeURIComponent(moneda)}`),
+        DEL(`/flujo-caja/pagos-erp?compania=${encodeURIComponent(compania)}`),
+      ]);
+      document.getElementById('fc-eecc-status').textContent = '';
+      document.getElementById('fc-erp-status').textContent = '';
+      document.getElementById('fc-conc-wrap').innerHTML = '';
+      toast('EECC y Pagos ERP borrados', 'success');
+    } catch(e) { toast(e.message, 'error'); }
   };
 
   window.fcCargarEECC = async function() {
@@ -8819,14 +8829,14 @@ async function viewFlujoCaja(container) {
   window.fcSetMode = function(mode) {
     document.querySelectorAll('.fc-mode-btn').forEach(b => {
       const active = b.dataset.mode === mode;
-      b.style.color       = active ? 'var(--primary)' : 'var(--text-muted)';
+      b.style.color             = active ? 'var(--primary)' : 'var(--text-muted)';
       b.style.borderBottomColor = active ? 'var(--primary)' : 'transparent';
     });
     document.getElementById('fc-panel-real').style.display       = mode === 'real'       ? '' : 'none';
+    document.getElementById('fc-panel-carga').style.display      = mode === 'carga'      ? '' : 'none';
     document.getElementById('fc-panel-proyeccion').style.display = mode === 'proyeccion' ? '' : 'none';
   };
-  // Activar estilo inicial del tab Real
-  window.fcSetMode('real');
+  window.fcSetMode(esAdminFC ? 'real' : 'carga');
 
   // ── Conciliación: contexto para modal de asignación ─────────────────────
   let _fcConData = null; // { compania, banco, moneda, transacciones, lineas }
@@ -9108,14 +9118,14 @@ async function viewFlujoCaja(container) {
     }
   };
 
-  // Fecha Desde por omisión: lunes de la semana de hace 12 semanas
-  const _fcD = new Date();
-  _fcD.setDate(_fcD.getDate() - 84);
-  _fcD.setDate(_fcD.getDate() - ((_fcD.getDay() || 7) - 1)); // retroceder al lunes
-  document.getElementById('fc-desde').value = _fcD.toISOString().slice(0, 10);
-
-  // Carga inicial automática si hay al menos una sociedad
-  if (socsFC.length) await window.fcVerFlujo();
+  // Fecha Desde por omisión y carga automática del flujo (solo admin)
+  if (esAdminFC) {
+    const _fcD = new Date();
+    _fcD.setDate(_fcD.getDate() - 84);
+    _fcD.setDate(_fcD.getDate() - ((_fcD.getDay() || 7) - 1)); // retroceder al lunes
+    document.getElementById('fc-desde').value = _fcD.toISOString().slice(0, 10);
+    if (socsFC.length) await window.fcVerFlujo();
+  }
 }
 
 // ─── View: Registro de Bajas, Consumos, Transferencias y 86 ───────

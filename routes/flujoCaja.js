@@ -309,6 +309,9 @@ async function tipoCambioVigente(fecha) {
 
 router.get('/resumen', async (req, res) => {
   try {
+    if (req.user.role !== 'ADMIN' && req.user.rolPago !== 'admin')
+      return res.status(403).json({ error: 'Solo administrador puede ver el flujo' });
+
     const companias = String(req.query.companias || '').split(',').map(s => s.trim()).filter(Boolean);
     const moneda       = (req.query.moneda || 'SOL').toUpperCase();        // SOL | USD | COMBO
     const granularidad = (req.query.granularidad || 'semana').toLowerCase(); // semana | mes
@@ -661,6 +664,18 @@ router.post('/eecc/cargar', upload.single('archivo'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── DELETE /eecc ─────────────────────────────────────────────────────────────
+
+router.delete('/eecc', async (req, res) => {
+  try {
+    const { compania, banco, moneda } = req.query;
+    if (!compania || !banco || !moneda) return res.status(400).json({ error: 'Faltan parámetros' });
+    if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
+    const r = await EstadoCuenta.deleteMany({ compania, banco, moneda });
+    res.json({ ok: true, deleted: r.deletedCount });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── POST /pagos-erp/cargar ────────────────────────────────────────────────────
 
 router.post('/pagos-erp/cargar', upload.single('archivo'), async (req, res) => {
@@ -693,6 +708,18 @@ router.post('/pagos-erp/cargar', upload.single('archivo'), async (req, res) => {
 
     const cuentas = [...new Set(docs.map(d => d.cuentaBancaria).filter(Boolean))];
     res.json({ ok: true, total: docs.length, cuentas });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── DELETE /pagos-erp ────────────────────────────────────────────────────────
+
+router.delete('/pagos-erp', async (req, res) => {
+  try {
+    const { compania } = req.query;
+    if (!compania) return res.status(400).json({ error: 'Falta compania' });
+    if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
+    const r = await PagoERP.deleteMany({ compania });
+    res.json({ ok: true, deleted: r.deletedCount });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
