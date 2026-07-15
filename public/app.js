@@ -8461,7 +8461,8 @@ async function viewFlujoCaja(container) {
         DEL(`/flujo-caja/eecc?compania=${encodeURIComponent(compania)}`),
         DEL(`/flujo-caja/pagos-erp?compania=${encodeURIComponent(compania)}`),
       ]);
-      document.getElementById('fc-eecc-status').textContent = '';
+      document.querySelectorAll('[id^="fc-eecc-status-"]').forEach(el => { el.textContent = ''; });
+      document.querySelectorAll('[id^="fc-eecc-nombre-"]').forEach(el => { el.textContent = 'Sin archivo'; });
       document.getElementById('fc-erp-status').textContent = '';
       document.getElementById('fc-conc-wrap').innerHTML = '';
       toast('EECC y Pagos ERP borrados', 'success');
