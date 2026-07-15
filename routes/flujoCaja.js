@@ -9,6 +9,7 @@ const FlujoCajaCuenta      = require('../models/FlujoCajaCuenta');
 const FlujoCajaMovBancario = require('../models/FlujoCajaMovBancario');
 const FlujoCajaProveedor   = require('../models/FlujoCajaProveedor');
 const FlujoCajaOperacion   = require('../models/FlujoCajaOperacion');
+const FlujoCajaAsignacion  = require('../models/FlujoCajaAsignacion');
 const TipoCambio           = require('../models/TipoCambio');
 const EstadoCuenta         = require('../models/EstadoCuenta');
 const PagoERP              = require('../models/PagoERP');
@@ -578,43 +579,49 @@ router.get('/conciliacion', async (req, res) => {
     if (!checkSocAccess(req.user, compania)) return res.status(403).json({ error: 'Sin acceso' });
 
     const eecc = await EstadoCuenta.findOne({ compania, banco, moneda }).lean();
-    if (!eecc) return res.json({ transacciones: [], soloERP: [], stats: { total: 0, conciliados: 0, soloEECC: 0, soloERP: 0, sinLinea: 0, nuevosProveedores: 0 }, cargadoEn: null });
+    if (!eecc) return res.json({ transacciones: [], soloERP: [], lineas: [], stats: { total: 0, conciliados: 0, soloEECC: 0, soloERP: 0, sinLinea: 0, nuevosProveedores: 0, nuevasOperaciones: 0 }, cargadoEn: null });
 
     const cuenta = await FlujoCajaCuenta.findOne({ compania, banco, moneda }).lean();
     const numeroCuenta = eecc.numeroCuenta || cuenta?.numeroCuenta || '';
     const cuentaId     = cuenta?._id || null;
 
-    // Cargar pagos ERP, tablas de mapeo y líneas en paralelo
     const monedaERP = moneda === 'USD' ? 'EX' : 'LO';
-    const [pagos, movBancarios, proveedores, operaciones, lineas] = await Promise.all([
+    const [pagos, movBancarios, proveedores, operaciones, lineas, asignaciones] = await Promise.all([
       PagoERP.find({ compania, cuentaBancaria: numeroCuenta, moneda: monedaERP }).lean(),
       cuentaId ? FlujoCajaMovBancario.find({ compania, cuentaId }).lean() : [],
       FlujoCajaProveedor.find({ compania }).lean(),
       FlujoCajaOperacion.find({ compania }).lean(),
-      FlujoCajaLinea.find({ compania, activa: true }).select('nombre seccion esManual').lean(),
+      FlujoCajaLinea.find({ compania, activa: true }).select('nombre seccion orden esManual').lean(),
+      FlujoCajaAsignacion.find({ compania, banco, moneda }).lean(),
     ]);
 
-    // Índices para lookup O(1)
     const lineaMap  = new Map(lineas.map(l => [String(l._id), l]));
     const movBanMap = new Map(movBancarios.map(m => [m.numeroOperacion.trim(), m]));
     const provMap   = new Map(proveedores.map(p => [p.nombreProveedor.trim().toUpperCase(), p]));
     const opMap     = new Map(operaciones.map(o => [o.descripcion.trim().toUpperCase(), o]));
+    const asignMap  = new Map(asignaciones.map(a => [a.nroDoc, a]));
 
-    // Agrupar pagos ERP por numeroPago (puede haber varios registros por pago)
-    const pagoGrupos = new Map(); // numeroPago → pagos[]
+    const pagoGrupos = new Map();
     pagos.forEach(p => {
       if (!pagoGrupos.has(p.numeroPago)) pagoGrupos.set(p.numeroPago, []);
       pagoGrupos.get(p.numeroPago).push(p);
     });
 
-    const usadosNums = new Set(); // numeroPago ya conciliados
-    const nuevosProv = new Map(); // pagarAKey → nombre original
-    const nuevasOps  = new Map(); // conceptoKey → descripcion original
+    const usadosNums = new Set();
+    const nuevosProv = new Map();
+    const nuevasOps  = new Map();
+
+    const resolverLinea = (lineaId, fuente) => {
+      const ldata = lineaMap.get(String(lineaId));
+      if (!ldata) return { lineaNombre: null, lineaFuente: fuente };
+      if (ldata.esManual) return { lineaNombre: null, lineaFuente: 'MANUAL' };
+      return { lineaNombre: ldata.nombre, lineaFuente: fuente };
+    };
 
     const transacciones = eecc.transacciones.map(trx => {
       const trxNum = parseInt(trx.nroDoc, 10);
 
-      // ── Match ERP: egreso (negativo) + numeroPago === nroDoc ──
+      // 1. Determinar estado y desglose ERP
       let estado, erpRegistros = [];
       if (trx.importe >= 0 || isNaN(trxNum)) {
         estado = trx.importe >= 0 ? 'INGRESO' : 'SIN_ERP';
@@ -623,71 +630,64 @@ router.get('/conciliacion', async (req, res) => {
         if (grupo && !usadosNums.has(trxNum)) {
           usadosNums.add(trxNum);
           estado = 'CONCILIADO';
-          // Asignación de línea por cada registro ERP (Mapeo Proveedores)
           erpRegistros = grupo.map(p => {
-            let lineaId = null, lineaNombre = null, lineaFuente = null;
             const key = (p.pagarA || '').trim().toUpperCase();
-            if (key) {
-              const prov = provMap.get(key);
-              if (prov?.lineaId) { lineaId = prov.lineaId; lineaFuente = 'PROVEEDOR'; }
-              else if (!prov)    nuevosProv.set(key, p.pagarA.trim());
-            }
-            if (lineaId) {
-              const ldata = lineaMap.get(String(lineaId));
-              if (ldata?.esManual) { lineaFuente = 'MANUAL'; lineaNombre = null; }
-              else lineaNombre = ldata?.nombre || null;
-            }
-            return {
-              pagarA:    p.pagarA,
-              tipoPago:  p.tipoPago,
-              importe:   moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal,
-              lineaId:   lineaId ? String(lineaId) : null,
-              lineaNombre,
-              lineaFuente,
-            };
+            if (key && !provMap.has(key)) nuevosProv.set(key, p.pagarA.trim());
+            return { pagarA: p.pagarA, tipoPago: p.tipoPago, importe: moneda === 'USD' ? p.pagoExtranjero : p.pagoLocal };
           });
         } else {
           estado = 'SIN_ERP';
         }
       }
 
-      // ── Línea del flujo de la fila bancaria ──
-      // Prioridad 1: Mov. Bancario por código de operación (siempre)
-      // Prioridad 3: Operación por concepto (solo SIN_ERP / INGRESO)
+      // 2. Una línea por movimiento EECC (4 prioridades)
       let lineaId = null, lineaNombre = null, lineaFuente = null;
-      const codigo = (trx.codigo || '').trim();
-      if (codigo) {
-        const mb = movBanMap.get(codigo);
-        if (mb?.lineaId) { lineaId = mb.lineaId; lineaFuente = 'MOV_BANCARIO'; }
+
+      // P0: Asignación directa (manual, persistente — nunca se sobreescribe)
+      const asign = asignMap.get(trx.nroDoc);
+      if (asign?.lineaId) {
+        lineaId = asign.lineaId;
+        ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'DIRECTA'));
       }
-      if (!lineaId && estado !== 'CONCILIADO' && trx.concepto) {
+
+      // P1: Mov. Bancario por código de operación
+      if (!lineaId) {
+        const codigo = (trx.codigo || '').trim();
+        if (codigo) {
+          const mb = movBanMap.get(codigo);
+          if (mb?.lineaId) { lineaId = mb.lineaId; ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'MOV_BANCARIO')); }
+        }
+      }
+
+      // P2: Proveedor — primer sub-registro ERP con línea asignada en Mapeo Proveedores
+      if (!lineaId && estado === 'CONCILIADO') {
+        for (const erp of erpRegistros) {
+          const key = (erp.pagarA || '').trim().toUpperCase();
+          const prov = key ? provMap.get(key) : null;
+          if (prov?.lineaId) { lineaId = prov.lineaId; ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'PROVEEDOR')); break; }
+        }
+      }
+
+      // P3: Operación por concepto (todos los estados como fallback)
+      if (!lineaId && trx.concepto) {
         const key = trx.concepto.trim().toUpperCase();
         const op = opMap.get(key);
-        if (op?.lineaId) { lineaId = op.lineaId; lineaFuente = 'OPERACION'; }
-        else if (!op)    nuevasOps.set(key, trx.concepto.trim());
-      }
-      if (lineaId) {
-        const ldata = lineaMap.get(String(lineaId));
-        if (ldata?.esManual) { lineaFuente = 'MANUAL'; lineaNombre = null; }
-        else lineaNombre = ldata?.nombre || null;
+        if (op?.lineaId) { lineaId = op.lineaId; ({ lineaNombre, lineaFuente } = resolverLinea(lineaId, 'OPERACION')); }
+        else if (!op && estado !== 'CONCILIADO') nuevasOps.set(key, trx.concepto.trim());
       }
 
-      return { ...trx, estado, erpRegistros, lineaId: lineaId ? String(lineaId) : null, lineaNombre, lineaFuente };
+      return { ...trx, estado, erpRegistros, lineaId: lineaId ? String(lineaId) : null, lineaNombre, lineaFuente, lineaDirecta: lineaFuente === 'DIRECTA' };
     });
 
-    // Auto-insertar proveedores nuevos para que aparezcan en Mapeo Proveedores
     if (nuevosProv.size > 0) {
       const docs = [...nuevosProv.values()].map(nombre => ({ compania, nombreProveedor: nombre }));
       try { await FlujoCajaProveedor.insertMany(docs, { ordered: false }); } catch (_) {}
     }
-
-    // Auto-insertar operaciones nuevas para que aparezcan en Mapeo Operaciones
     if (nuevasOps.size > 0) {
       const docs = [...nuevasOps.values()].map(desc => ({ compania, descripcion: desc }));
       try { await FlujoCajaOperacion.insertMany(docs, { ordered: false }); } catch (_) {}
     }
 
-    // Grupos ERP sin match en EECC
     const soloERP = [];
     pagoGrupos.forEach((grupo, num) => {
       if (!usadosNums.has(num)) soloERP.push({ numeroPago: num, registros: grupo });
@@ -698,12 +698,34 @@ router.get('/conciliacion', async (req, res) => {
       conciliados:       transacciones.filter(t => t.estado === 'CONCILIADO').length,
       soloEECC:          transacciones.filter(t => t.estado !== 'CONCILIADO').length,
       soloERP:           soloERP.length,
-      sinLinea:          transacciones.filter(t => !t.lineaId && t.erpRegistros.every(r => !r.lineaId)).length,
+      sinLinea:          transacciones.filter(t => !t.lineaId).length,
       nuevosProveedores: nuevosProv.size,
       nuevasOperaciones: nuevasOps.size,
     };
 
-    res.json({ transacciones, soloERP, stats, cargadoEn: eecc.cargadoEn, alias: cuenta?.alias || '' });
+    res.json({ transacciones, soloERP, lineas, stats, cargadoEn: eecc.cargadoEn, alias: cuenta?.alias || '' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── PUT /asignacion — guardar/borrar asignación directa de línea a movimiento ──
+
+router.put('/asignacion', async (req, res) => {
+  try {
+    const { compania, banco, moneda, nroDoc, lineaId } = req.body;
+    if (!compania || !banco || !moneda || nroDoc == null)
+      return res.status(400).json({ error: 'Faltan campos' });
+    if (!checkSocAccess(req.user, compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    if (!lineaId) {
+      await FlujoCajaAsignacion.deleteOne({ compania, banco, moneda, nroDoc });
+      return res.json({ ok: true, deleted: true });
+    }
+    await FlujoCajaAsignacion.findOneAndUpdate(
+      { compania, banco, moneda, nroDoc },
+      { lineaId, asignadoPor: req.user.username, asignadoEn: new Date() },
+      { upsert: true }
+    );
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

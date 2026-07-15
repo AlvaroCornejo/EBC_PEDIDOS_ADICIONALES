@@ -8544,12 +8544,31 @@ async function viewFlujoCaja(container) {
       const BGMAP = { CONCILIADO: '#dcfce7', SIN_ERP: '#fef9c3', INGRESO: '#dbeafe' };
       const LBLMAP = { CONCILIADO: '✓ Conciliado', SIN_ERP: '⚠ Sin ERP', INGRESO: '↑ Ingreso' };
 
-      const FUENTELBL = { MOV_BANCARIO: 'Cód. op.', PROVEEDOR: 'Proveedor', OPERACION: 'Operación' };
-      const lineaCell = (lineaNombre, lineaFuente) => {
-        if (lineaFuente === 'MANUAL') return `<span style="font-size:11px;color:#b45309;font-weight:600">⚑ Por asignar</span><br><span style="font-size:10px;color:var(--text-muted)">Asignación manual</span>`;
-        return lineaNombre
-          ? `<span style="font-size:11px">${esc(lineaNombre)}</span><br><span style="font-size:10px;color:var(--text-muted)">${esc(FUENTELBL[lineaFuente]||lineaFuente||'')}</span>`
-          : `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>`;
+      const FUENTELBL = { MOV_BANCARIO: 'Cód. op.', PROVEEDOR: 'Proveedor', OPERACION: 'Operación', DIRECTA: 'Directo' };
+      const SECC_ORD = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
+      const SECC_LBL = {'SALDO_INICIAL':'1. Saldo Inicial','INGRESOS':'2. Ingresos','EGRESOS':'3. Egresos','OTROS':'4. Otros','POR_IDENTIFICAR':'5. Por Identificar','SALDO_FINAL':'6. Saldo Final'};
+
+      // Guardar contexto para funciones de asignación
+      _fcConData = { compania, banco, moneda, transacciones: data.transacciones, lineas: data.lineas };
+
+      const lineaCellTrx = (t) => {
+        const nd = (t.nroDoc || '').replace(/'/g, "\\'");
+        if (t.lineaFuente === 'MANUAL') {
+          return `<span style="font-size:11px;color:#b45309;font-weight:600">⚑ Por asignar</span>
+                  <button onclick="fcConAsignar('${nd}')" style="font-size:10px;color:#b45309;background:none;border:none;cursor:pointer;text-decoration:underline;padding:0 0 0 4px">✏ Cambiar</button>
+                  ${t.lineaDirecta ? `<button onclick="fcConQuitarAsign('${nd}')" style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0 0 0 2px">✕</button>` : ''}`;
+        }
+        if (t.lineaNombre) {
+          const src = `<span style="font-size:10px;color:var(--text-muted)">${esc(FUENTELBL[t.lineaFuente]||t.lineaFuente||'')}</span>`;
+          if (t.lineaDirecta) {
+            return `<span style="font-size:11px">${esc(t.lineaNombre)}</span> ${src}
+                    <button onclick="fcConAsignar('${nd}')" style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0 0 0 4px" title="Cambiar">✏</button>
+                    <button onclick="fcConQuitarAsign('${nd}')" style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0 0 0 2px" title="Quitar asignación directa">✕</button>`;
+          }
+          return `<span style="font-size:11px">${esc(t.lineaNombre)}</span><br>${src}`;
+        }
+        return `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>
+                <button onclick="fcConAsignar('${nd}')" style="font-size:10px;padding:2px 6px;border:1px solid #dc2626;border-radius:3px;background:none;color:#dc2626;cursor:pointer;margin-left:4px">🔗 Asignar</button>`;
       };
 
       const trxRows = data.transacciones.flatMap(t => {
@@ -8561,17 +8580,16 @@ async function viewFlujoCaja(container) {
           <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto||'')}</td>
           <td style="padding:4px 8px;font-size:12px;text-align:right;white-space:nowrap;${t.importe<0?'color:#dc2626':''}">${fmtN(t.importe)}</td>
           <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(LBLMAP[t.estado]||t.estado)}</td>
-          <td style="padding:4px 8px;line-height:1.3">${lineaCell(t.lineaNombre, t.lineaFuente)}</td>
+          <td style="padding:4px 8px;line-height:1.4">${lineaCellTrx(t)}</td>
         </tr>`];
-        // Sub-filas por cada registro ERP (solo CONCILIADO)
+        // Sub-filas ERP: desglose para verificación de cuadre (sin columna de línea propia)
         (t.erpRegistros || []).forEach(r => {
           rows.push(`<tr style="${bgStyle};opacity:0.85">
             <td style="padding:2px 8px 2px 20px;font-size:10px;color:var(--text-muted);white-space:nowrap">↳ ERP</td>
             <td></td>
-            <td style="padding:2px 8px;font-size:11px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.pagarA||'')}${r.tipoPago?' · <span style="color:var(--text-muted)">'+esc(r.tipoPago)+'</span>':''}</td>
+            <td style="padding:2px 8px;font-size:11px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.pagarA||'')}${r.tipoPago?` · <span style="color:var(--text-muted)">${esc(r.tipoPago)}</span>`:''}</td>
             <td style="padding:2px 8px;font-size:11px;text-align:right;white-space:nowrap;color:#dc2626">${fmtN(r.importe)}</td>
-            <td></td>
-            <td style="padding:2px 8px;line-height:1.3">${lineaCell(r.lineaNombre, r.lineaFuente)}</td>
+            <td colspan="2"></td>
           </tr>`);
         });
         return rows;
@@ -8598,6 +8616,37 @@ async function viewFlujoCaja(container) {
       }
 
       const s = data.stats;
+
+      // Tarjeta de movimientos sin línea asignada
+      const sinLinea = data.transacciones.filter(t => !t.lineaId);
+      const sinLineaCard = sinLinea.length ? `
+        <div class="card mb-16" style="padding:12px;border-left:4px solid #f59e0b">
+          <div style="margin-bottom:10px;font-weight:700;font-size:13px;color:#92400e">⚠ ${sinLinea.length} movimiento${sinLinea.length>1?'s':''} sin línea del flujo asignada</div>
+          <div style="overflow:auto;max-height:280px">
+            <table class="data-table" style="font-size:12px;width:100%">
+              <thead><tr>
+                <th style="text-align:left;white-space:nowrap">Fecha Op.</th>
+                <th style="text-align:left;white-space:nowrap">Nº Doc</th>
+                <th style="text-align:left">Glosa / Concepto</th>
+                <th style="text-align:left;white-space:nowrap">Moneda</th>
+                <th style="text-align:right;white-space:nowrap">Importe</th>
+                <th></th>
+              </tr></thead>
+              <tbody>${sinLinea.map(t => {
+                const nd = (t.nroDoc||'').replace(/'/g,"\\'");
+                return `<tr>
+                  <td style="padding:4px 8px;white-space:nowrap">${esc(fmtF(t.fecha))}</td>
+                  <td style="padding:4px 8px;white-space:nowrap">${esc(t.nroDoc||'')}</td>
+                  <td style="padding:4px 8px;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto||'')}</td>
+                  <td style="padding:4px 8px;white-space:nowrap">${esc(moneda)}</td>
+                  <td style="padding:4px 8px;text-align:right;white-space:nowrap;${t.importe<0?'color:#dc2626':''}">${fmtN(t.importe)}</td>
+                  <td style="padding:4px 8px"><button onclick="fcConAsignar('${nd}')" class="btn btn-sm" style="font-size:11px;border-color:#f59e0b;color:#92400e;white-space:nowrap">🔗 Asignar línea</button></td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table>
+          </div>
+        </div>` : '';
+
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:12px">
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
@@ -8622,7 +8671,66 @@ async function viewFlujoCaja(container) {
               <tbody>${trxRows}${erpRows}</tbody>
             </table>
           </div>
-        </div>`;
+        </div>
+        ${sinLineaCard}`;
+
+      // Funciones de asignación directa (en closure sobre compania/banco/moneda/data)
+      window.fcConAsignar = (nroDoc) => {
+        if (!_fcConData) return;
+        const { transacciones, lineas } = _fcConData;
+        const t = transacciones.find(tx => tx.nroDoc === nroDoc) || {};
+        const SECC_ORD2 = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
+        const SECC_LBL2 = {'SALDO_INICIAL':'1. Saldo Inicial','INGRESOS':'2. Ingresos','EGRESOS':'3. Egresos','OTROS':'4. Otros','POR_IDENTIFICAR':'5. Por Identificar','SALDO_FINAL':'6. Saldo Final'};
+        const sorted = [...lineas].sort((a,b) => {
+          if (!!a.esManual !== !!b.esManual) return a.esManual ? 1 : -1;
+          const si = SECC_ORD2.indexOf(a.seccion), sj = SECC_ORD2.indexOf(b.seccion);
+          return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');
+        });
+        const html = `
+          <div style="margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:6px">
+            <div style="font-size:11px;color:var(--text-muted)">Fecha: <b>${esc(fmtF(t.fecha))}</b> &nbsp;·&nbsp; Nº: <b>${esc(nroDoc)}</b></div>
+            <div style="font-size:13px;margin-top:4px;font-weight:600">${esc(t.concepto||'')}</div>
+            <div style="font-size:13px;margin-top:2px;color:${(t.importe||0)<0?'#dc2626':'#16a34a'}">${esc(simbolo)} ${fmtN(t.importe)}</div>
+          </div>
+          <label style="font-size:12px;color:var(--text-muted)">Línea del flujo:</label>
+          <select id="fccon-linea-sel" class="form-control" style="font-size:12px;width:100%;margin-top:4px">
+            <option value="">— Seleccionar línea —</option>
+            ${sorted.map(l => {
+              const lbl = l.esManual ? `⚑ ${esc(l.nombre)}` : `${esc(SECC_LBL2[l.seccion]||l.seccion)} — ${esc(l.nombre)}`;
+              const sel = t.lineaId === String(l._id) ? ' selected' : '';
+              return `<option value="${l._id}"${sel}>${lbl}</option>`;
+            }).join('')}
+          </select>
+          <input type="hidden" id="fccon-nrodoc-val" value="${esc(nroDoc)}">
+          <div style="margin-top:12px;text-align:right">
+            <button class="btn btn-primary btn-sm" onclick="fcConConfirmarAsign()">✓ Asignar</button>
+          </div>`;
+        openModal('🔗 Asignar línea del flujo', html, null, { medium: true });
+      };
+
+      window.fcConConfirmarAsign = async () => {
+        const lineaId = document.getElementById('fccon-linea-sel')?.value;
+        const nroDoc  = document.getElementById('fccon-nrodoc-val')?.value;
+        if (!lineaId) { toast('Selecciona una línea del flujo', 'warning'); return; }
+        const { compania: c, banco: b, moneda: m } = _fcConData;
+        try {
+          await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId });
+          document.getElementById('modal')?.classList.add('hidden');
+          toast('✅ Línea asignada', 'success');
+          await window.fcVerConciliacion();
+        } catch(err) { toast(err.message, 'error'); }
+      };
+
+      window.fcConQuitarAsign = async (nroDoc) => {
+        if (!confirm('¿Quitar la asignación directa de esta línea?')) return;
+        const { compania: c, banco: b, moneda: m } = _fcConData;
+        try {
+          await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId: null });
+          toast('✅ Asignación directa eliminada', 'success');
+          await window.fcVerConciliacion();
+        } catch(err) { toast(err.message, 'error'); }
+      };
+
     } catch(e) {
       wrap.innerHTML = `<div class="text-center py-16" style="color:#dc2626">${esc(e.message)}</div>`;
     }
@@ -8640,6 +8748,9 @@ async function viewFlujoCaja(container) {
   };
   // Activar estilo inicial del tab Real
   window.fcSetMode('real');
+
+  // ── Conciliación: contexto para modal de asignación ─────────────────────
+  let _fcConData = null; // { compania, banco, moneda, transacciones, lineas }
 
   // ── Proyección: estado módulo-level ──────────────────────────────────────
   let _fcProyTiendas    = [];
