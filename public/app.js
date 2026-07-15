@@ -8671,34 +8671,47 @@ async function viewFlujoCaja(container) {
           sinLineaItems.push({ fecha: t.fecha, nroDoc: t.nroDoc, concepto: t.concepto, importe: t.importe, esERP: false });
         }
       });
+      const _slSecc = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
+      const _slLbl  = {'SALDO_INICIAL':'1. Saldo Inicial','INGRESOS':'2. Ingresos','EGRESOS':'3. Egresos','OTROS':'4. Otros','POR_IDENTIFICAR':'5. Por Identificar','SALDO_FINAL':'6. Saldo Final'};
+      const _slSorted = [...data.lineas].sort((a,b) => {
+        if (!!a.esManual !== !!b.esManual) return a.esManual ? 1 : -1;
+        const si = _slSecc.indexOf(a.seccion), sj = _slSecc.indexOf(b.seccion);
+        return si!==sj ? si-sj : (a.orden||0)-(b.orden||0) || a.nombre.localeCompare(b.nombre,'es');
+      });
+      const _lineaOpts = '<option value="">— Seleccionar línea —</option>' +
+        _slSorted.map(l => {
+          const lbl = l.esManual ? `⚑ ${esc(l.nombre)}` : `${esc(_slLbl[l.seccion]||l.seccion)} — ${esc(l.nombre)}`;
+          return `<option value="${l._id}">${lbl}</option>`;
+        }).join('');
+
       const sinLineaCard = sinLineaItems.length ? `
         <div class="card mb-16" style="padding:12px;border-left:4px solid #f59e0b">
           <div style="margin-bottom:10px;font-weight:700;font-size:13px;color:#92400e">⚠ ${sinLineaItems.length} elemento${sinLineaItems.length>1?'s':''} sin línea del flujo asignada</div>
-          <div style="overflow:auto;max-height:280px">
+          <div style="overflow:auto;max-height:320px">
             <table class="data-table" style="font-size:12px;width:100%">
               <thead><tr>
                 <th style="text-align:left;white-space:nowrap">Fecha Op.</th>
                 <th style="text-align:left;white-space:nowrap">Nº Doc</th>
                 <th style="text-align:left">Concepto / Proveedor</th>
-                <th style="text-align:left;white-space:nowrap">Moneda</th>
                 <th style="text-align:right;white-space:nowrap">Importe</th>
-                <th></th>
+                <th style="text-align:left;min-width:220px">Línea del flujo</th>
               </tr></thead>
               <tbody>${sinLineaItems.map(item => {
-                const nd = (item.nroDoc||'').replace(/'/g,"\\'");
-                const pv = (item.pagarA||'').replace(/'/g,"\\'");
-                const btn = item.esERP
-                  ? `<button onclick="fcConAsignarProv('${pv}')" class="btn btn-sm" style="font-size:11px;border-color:#f59e0b;color:#92400e;white-space:nowrap">🔗 Mapeo Prov.</button>`
-                  : `<button onclick="fcConAsignar('${nd}')" class="btn btn-sm" style="font-size:11px;border-color:#f59e0b;color:#92400e;white-space:nowrap">🔗 Asignar línea</button>`;
+                const nd  = (item.nroDoc||'').replace(/'/g,"\\'");
+                const pv  = (item.pagarA||'').replace(/'/g,"\\'");
+                const sel = item.esERP
+                  ? `<select class="form-control" style="font-size:11px;padding:2px 6px;height:auto"
+                       onchange="if(this.value)fcConMapearProvDirecto('${pv}',this.value)">${_lineaOpts}</select>`
+                  : `<select class="form-control" style="font-size:11px;padding:2px 6px;height:auto"
+                       onchange="if(this.value)fcConAsignarDirecto('${nd}',this.value)">${_lineaOpts}</select>`;
                 return `<tr>
                   <td style="padding:4px 8px;white-space:nowrap">${esc(fmtF(item.fecha))}</td>
                   <td style="padding:4px 8px;white-space:nowrap">${esc(item.nroDoc||'')}</td>
-                  <td style="padding:4px 8px;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                  <td style="padding:4px 8px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                     ${item.esERP ? `<span style="font-size:10px;color:var(--text-muted)">↳ ERP</span> ` : ''}${esc(item.concepto||'')}
                   </td>
-                  <td style="padding:4px 8px;white-space:nowrap">${esc(moneda)}</td>
                   <td style="padding:4px 8px;text-align:right;white-space:nowrap;${item.importe<0?'color:#dc2626':''}">${fmtN(item.importe)}</td>
-                  <td style="padding:4px 8px">${btn}</td>
+                  <td style="padding:4px 8px">${sel}</td>
                 </tr>`;
               }).join('')}</tbody>
             </table>
@@ -8775,6 +8788,26 @@ async function viewFlujoCaja(container) {
           await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId });
           document.getElementById('modal')?.classList.add('hidden');
           toast('✅ Línea asignada', 'success');
+          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
+        } catch(err) { toast(err.message, 'error'); }
+      };
+
+      window.fcConAsignarDirecto = async (nroDoc, lineaId) => {
+        if (!lineaId || !_fcConData) return;
+        const { compania: c, banco: b, moneda: m } = _fcConData;
+        try {
+          await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId });
+          toast('✅ Línea asignada', 'success');
+          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
+        } catch(err) { toast(err.message, 'error'); }
+      };
+
+      window.fcConMapearProvDirecto = async (pagarA, lineaId) => {
+        if (!lineaId || !_fcConData) return;
+        const { compania: c } = _fcConData;
+        try {
+          await PUT('/flujo-caja/proveedor-linea', { compania: c, nombreProveedor: pagarA, lineaId });
+          toast('✅ Proveedor mapeado', 'success');
           await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
         } catch(err) { toast(err.message, 'error'); }
       };
