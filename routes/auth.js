@@ -20,6 +20,7 @@ function buildPayload(user) {
     transferenciaDestinos: user.transferenciaDestinos || [],
     rolCaja: user.rolCaja || '', accesoOficina: !!user.accesoOficina, accesoDepositos: !!user.accesoDepositos,
     rolObligaciones: user.rolObligaciones || '', companiasEBC: user.companiasEBC || [],
+    accesoEERR: !!user.accesoEERR, operacionesEERR: user.operacionesEERR || [],
   };
 }
 

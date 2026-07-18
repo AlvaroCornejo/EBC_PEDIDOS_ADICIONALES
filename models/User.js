@@ -27,7 +27,9 @@ const userSchema = new mongoose.Schema({
   accesoOficina:        { type: Boolean, default: false },
   accesoDepositos:      { type: Boolean, default: false },
   rolObligaciones:      { type: String, default: '', enum: ['', 'autorizador'] },
-  companiasEBC:         { type: [String], default: [] }
+  companiasEBC:         { type: [String], default: [] },
+  accesoEERR:           { type: Boolean, default: false },
+  operacionesEERR:      { type: [String], default: [] },
 });
 
 module.exports = mongoose.model('User', userSchema);

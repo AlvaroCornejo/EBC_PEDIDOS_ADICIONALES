@@ -62,6 +62,7 @@ app.use('/api/recetas',    require('./routes/recetas'));
 app.use('/api/caja',       require('./routes/caja'));
 app.use('/api/obligaciones-ebc', require('./routes/obligacionesEBC'));
 app.use('/api/proyeccion',      require('./routes/proyeccion'));
+app.use('/api/eerr',            require('./routes/eerr'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

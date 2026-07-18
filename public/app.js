@@ -262,6 +262,7 @@ const NAV_ITEMS = [
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
   { id: 'autorizaciones', label: 'Incluir Pagos', icon: '📋', roles: [ROLES.ADMIN], extraPermAny: ['rolObligaciones', 'rolPago'] },
+  { id: 'pl',             label: 'PL',              icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoEERR' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -321,7 +322,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -10666,6 +10667,427 @@ window.ebcGuardarComentario = async function(id, comentario) {
   }
 };
 
+// ─── PL — Estado de Resultados ───────────────────────────────────────────────
+
+const PL_ESTRUCTURA = [
+  { type:'header', label:'VENTA NETA' },
+  { type:'item',   grupo:'VENTA NETA A&B' },
+  { type:'item',   grupo:'VENTA NETA EVENTOS' },
+  { type:'item',   grupo:'AUSPICIOS' },
+  { type:'item',   grupo:'REDENCION PROMOCIONAL' },
+  { type:'item',   grupo:'OTROS INGRESOS' },
+  { type:'subtotal', key:'VENTA_NETA', label:'VENTA NETA',
+    grupos:['VENTA NETA A&B','VENTA NETA EVENTOS','AUSPICIOS','REDENCION PROMOCIONAL','OTROS INGRESOS'] },
+
+  { type:'item', grupo:'COSTO DE VENTA' },
+
+  { type:'computed', key:'MARGEN', label:'MARGEN DE CONTRIBUCIÓN', bold:true,
+    fn: t => (t['VENTA_NETA']||0) - (t['COSTO DE VENTA']||0) },
+
+  { type:'header', label:'PLANILLA' },
+  { type:'item', grupo:'SUELDOS' },
+  { type:'item', grupo:'ASIGNACION FAMILIAR' },
+  { type:'item', grupo:'FERIADOS' },
+  { type:'item', grupo:'GRATIFICACIONES' },
+  { type:'item', grupo:'CTS' },
+  { type:'item', grupo:'ESSALUD' },
+  { type:'item', grupo:'EPS' },
+  { type:'item', grupo:'VACACIONES' },
+  { type:'item', grupo:'ATENCION AL PERSONAL' },
+  { type:'item', grupo:'BONIFICACIONES' },
+  { type:'item', grupo:'CANASTAS Y BONOS' },
+  { type:'item', grupo:'CAPACITACION' },
+  { type:'item', grupo:'INDEMNIZACIONES' },
+  { type:'item', grupo:'SEGURO DE VIDA' },
+  { type:'subtotal', key:'PLANILLA', label:'TOTAL PLANILLA',
+    grupos:['SUELDOS','ASIGNACION FAMILIAR','FERIADOS','GRATIFICACIONES','CTS','ESSALUD','EPS','VACACIONES','ATENCION AL PERSONAL','BONIFICACIONES','CANASTAS Y BONOS','CAPACITACION','INDEMNIZACIONES','SEGURO DE VIDA'] },
+
+  { type:'header', label:'GASTOS DE OCUPACIÓN' },
+  { type:'item', grupo:'ALQUILERES' },
+  { type:'item', grupo:'ARBITRIOS' },
+  { type:'item', grupo:'VALET PARKING' },
+  { type:'item', grupo:'VIGILANCIA' },
+  { type:'subtotal', key:'GASTOS_OCUPACION', label:'TOTAL GASTOS DE OCUPACIÓN',
+    grupos:['ALQUILERES','ARBITRIOS','VALET PARKING','VIGILANCIA'] },
+
+  { type:'header', label:'SSPP' },
+  { type:'item', grupo:'ELECTRICIDAD' },
+  { type:'item', grupo:'AGUA' },
+  { type:'item', grupo:'GAS' },
+  { type:'item', grupo:'INTERNET' },
+  { type:'item', grupo:'TELEFONO' },
+  { type:'subtotal', key:'SSPP', label:'TOTAL SSPP',
+    grupos:['ELECTRICIDAD','AGUA','GAS','INTERNET','TELEFONO'] },
+
+  { type:'header', label:'ASESORÍAS' },
+  { type:'item', grupo:'ASESORIA ADMINISTRATIVA' },
+  { type:'item', grupo:'ASESORIA CONTABLE' },
+  { type:'item', grupo:'ASESORIA LEGAL' },
+  { type:'subtotal', key:'ASESORIAS', label:'TOTAL ASESORÍAS',
+    grupos:['ASESORIA ADMINISTRATIVA','ASESORIA CONTABLE','ASESORIA LEGAL'] },
+
+  { type:'header', label:'COMISIÓN OPERADORAS' },
+  { type:'item', grupo:'COMISION TARJETA DE CREDITO' },
+  { type:'item', grupo:'COMISION DELIVERY' },
+  { type:'subtotal', key:'COMISIONES_OP', label:'TOTAL COMISIÓN OPERADORAS',
+    grupos:['COMISION TARJETA DE CREDITO','COMISION DELIVERY'] },
+
+  { type:'header', label:'MANTENIMIENTO' },
+  { type:'item', grupo:'MANTENIMIENTO' },
+  { type:'item', grupo:'FUMIGACION' },
+  { type:'item', grupo:'JARDINERIA' },
+  { type:'subtotal', key:'MANTENIMIENTO', label:'TOTAL MANTENIMIENTO',
+    grupos:['MANTENIMIENTO','FUMIGACION','JARDINERIA'] },
+
+  { type:'header', label:'SERVICIOS DE TERCEROS' },
+  { type:'item', grupo:'TRANSPORTE' },
+  { type:'item', grupo:'PASAJES AEREOS' },
+  { type:'item', grupo:'PUBLICIDAD' },
+  { type:'item', grupo:'GESTION REDES SOCIALES' },
+  { type:'item', grupo:'MOVILIDAD' },
+  { type:'item', grupo:'ESTACIONAMIENTO Y PEAJES' },
+  { type:'item', grupo:'OTROS ALQUILERES' },
+  { type:'item', grupo:'LAVANDERIA' },
+  { type:'item', grupo:'COMISIONES' },
+  { type:'item', grupo:'I+D' },
+  { type:'item', grupo:'HONORARIOS' },
+  { type:'item', grupo:'ALQUILERES ARTICULOS DE RESTAURANTE' },
+  { type:'item', grupo:'ALQUILERES OTROS' },
+  { type:'item', grupo:'OTROS SERVICIOS DE TERCEROS' },
+  { type:'subtotal', key:'SERV_TERCEROS', label:'TOTAL SERVICIOS DE TERCEROS',
+    grupos:['TRANSPORTE','PASAJES AEREOS','PUBLICIDAD','GESTION REDES SOCIALES','MOVILIDAD','ESTACIONAMIENTO Y PEAJES','OTROS ALQUILERES','LAVANDERIA','COMISIONES','I+D','HONORARIOS','ALQUILERES ARTICULOS DE RESTAURANTE','ALQUILERES OTROS','OTROS SERVICIOS DE TERCEROS'] },
+
+  { type:'header', label:'OTROS GASTOS' },
+  { type:'item', grupo:'ECONOMATO' },
+  { type:'item', grupo:'GASTOS BANCARIOS' },
+  { type:'item', grupo:'GASTOS DE IMPRENTA' },
+  { type:'item', grupo:'GASTOS DE LABORATORIO' },
+  { type:'item', grupo:'GASTOS DE REPRESENTACION' },
+  { type:'item', grupo:'GASTOS NOTARIALES' },
+  { type:'item', grupo:'GASTOS REPARABLES' },
+  { type:'item', grupo:'GASTOS VARIOS' },
+  { type:'item', grupo:'IGV' },
+  { type:'item', grupo:'ITF' },
+  { type:'item', grupo:'MATERIALES DE LIMPIEZA' },
+  { type:'item', grupo:'MEMBRESIAS' },
+  { type:'item', grupo:'SANCIONES' },
+  { type:'item', grupo:'SEGURO VEHICULAR' },
+  { type:'item', grupo:'SEGUROS MULTIRIESGO' },
+  { type:'item', grupo:'ACCESORIOS' },
+  { type:'item', grupo:'SUMINISTROS PARA RESTAURANTE' },
+  { type:'item', grupo:'ACTIVOS MENORES' },
+  { type:'item', grupo:'COMBUSTIBLES' },
+  { type:'item', grupo:'ARTICULOS DE FERRETERIA' },
+  { type:'item', grupo:'SUSCRIPCIONES' },
+  { type:'item', grupo:'TASAS Y DERECHOS' },
+  { type:'item', grupo:'COSTO DE ENAJENACION' },
+  { type:'item', grupo:'REDONDEOS' },
+  { type:'item', grupo:'REGALIAS' },
+  { type:'subtotal', key:'OTROS_GASTOS', label:'TOTAL OTROS GASTOS',
+    grupos:['ECONOMATO','GASTOS BANCARIOS','GASTOS DE IMPRENTA','GASTOS DE LABORATORIO','GASTOS DE REPRESENTACION','GASTOS NOTARIALES','GASTOS REPARABLES','GASTOS VARIOS','IGV','ITF','MATERIALES DE LIMPIEZA','MEMBRESIAS','SANCIONES','SEGURO VEHICULAR','SEGUROS MULTIRIESGO','ACCESORIOS','SUMINISTROS PARA RESTAURANTE','ACTIVOS MENORES','COMBUSTIBLES','ARTICULOS DE FERRETERIA','SUSCRIPCIONES','TASAS Y DERECHOS','COSTO DE ENAJENACION','REDONDEOS','REGALIAS'] },
+
+  { type:'computed', key:'EBITDA', label:'EBITDA', bold:true,
+    fn: t => (t['MARGEN']||0) - (t['PLANILLA']||0) - (t['GASTOS_OCUPACION']||0) - (t['SSPP']||0) - (t['ASESORIAS']||0) - (t['COMISIONES_OP']||0) - (t['MANTENIMIENTO']||0) - (t['SERV_TERCEROS']||0) - (t['OTROS_GASTOS']||0) },
+
+  { type:'header', label:'PROVISIONES' },
+  { type:'item', grupo:'DEPRECIACION' },
+  { type:'item', grupo:'MUEBLES Y ENSERES' },
+  { type:'item', grupo:'AMORTIZACION' },
+  { type:'subtotal', key:'PROVISIONES', label:'TOTAL PROVISIONES',
+    grupos:['DEPRECIACION','MUEBLES Y ENSERES','AMORTIZACION'] },
+
+  { type:'computed', key:'UTIL_OPERATIVA', label:'UTILIDAD OPERATIVA', bold:true,
+    fn: t => (t['EBITDA']||0) - (t['PROVISIONES']||0) },
+
+  { type:'header', label:'FINANCIEROS' },
+  { type:'item', grupo:'INGRESOS FINANCIEROS' },
+  { type:'item', grupo:'INTERESES' },
+  { type:'item', grupo:'DIFERENCIA DE CAMBIO NETA' },
+  { type:'subtotal', key:'FINANCIEROS', label:'TOTAL FINANCIEROS',
+    grupos:['INGRESOS FINANCIEROS','INTERESES','DIFERENCIA DE CAMBIO NETA'] },
+
+  { type:'computed', key:'UTIL_NETA', label:'UTILIDAD NETA', bold:true,
+    fn: t => (t['UTIL_OPERATIVA']||0) - (t['FINANCIEROS']||0) },
+
+  { type:'item', grupo:'IMPUESTO A LA RENTA' },
+
+  { type:'computed', key:'UTIL_NETA_DI', label:'UTILIDAD NETA DESPUES DE IMPUESTOS', bold:true,
+    fn: t => (t['UTIL_NETA']||0) - (t['IMPUESTO A LA RENTA']||0) },
+];
+
+async function viewPL(container) {
+  const isAdmin = S.user.role === 'ADMIN';
+  const opAuth  = S.user.operacionesEERR || [];
+
+  // Cargar lista de unidades disponibles
+  let unidadesDisp = [];
+  try { unidadesDisp = await GET('/eerr/unidades'); } catch {}
+
+  // Periodo defaults: año actual, enero → mes actual
+  const hoy = new Date();
+  const mesActual = hoy.getMonth() + 1;
+  const anioActual = hoy.getFullYear();
+  const primerPeriodo = `${anioActual}01`;
+  const periodoActual = `${anioActual}${String(mesActual).padStart(2,'0')}`;
+
+  container.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">📊 Estado de Resultados — PL</h1>
+    </div>
+    <div class="card mb-16" style="padding:16px">
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
+        <div>
+          <label class="form-label">Desde</label>
+          <input type="month" id="pl-desde" class="form-control" style="width:160px"
+            value="${anioActual}-${String(mesActual).padStart(2,'0')}">
+        </div>
+        <div>
+          <label class="form-label">Hasta</label>
+          <input type="month" id="pl-hasta" class="form-control" style="width:160px"
+            value="${anioActual}-${String(mesActual).padStart(2,'0')}">
+        </div>
+        <div>
+          <label class="form-label">Columnas</label>
+          <select id="pl-cols" class="form-control" style="width:180px">
+            <option value="operacion">Operaciones</option>
+            <option value="anio">Años</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="plConsultar()">🔍 Consultar</button>
+      </div>
+      ${unidadesDisp.length ? `
+      <div style="margin-top:12px">
+        <label class="form-label" style="margin-bottom:6px">Operaciones</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${unidadesDisp.map(u => `
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg-card)">
+              <input type="checkbox" name="pl-unidad" value="${esc(u)}" checked
+                style="width:13px;height:13px;accent-color:var(--primary)">
+              ${esc(u)}
+            </label>`).join('')}
+        </div>
+      </div>` : ''}
+    </div>
+    <div id="pl-resultado"></div>`;
+
+  window.plConsultar = async function() {
+    const wrap = document.getElementById('pl-resultado');
+    wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Consultando...</div>';
+    try {
+      const desde = (document.getElementById('pl-desde').value || '').replace('-','');
+      const hasta  = (document.getElementById('pl-hasta').value || '').replace('-','');
+      if (!desde || !hasta) { toast('Selecciona período Desde y Hasta', 'warning'); return; }
+      const periodoDesde = desde + '01';
+      const periodoHasta = hasta + '12';
+      const cols = document.getElementById('pl-cols').value;
+      const unidades = [...document.querySelectorAll('input[name="pl-unidad"]:checked')].map(c => c.value);
+      if (!unidades.length) { toast('Selecciona al menos una operación', 'warning'); wrap.innerHTML=''; return; }
+
+      const qs = new URLSearchParams({ periodoDesde, periodoHasta, cols, unidades: unidades.join(',') });
+      const data = await GET(`/eerr/resumen?${qs}`);
+
+      // Build lookup: grupo -> { col: amount }
+      const lookup = {};
+      data.datos.forEach(r => {
+        lookup[r.grupo] = r;
+      });
+
+      // Compute totals per column using the structure
+      function colVal(col, row) {
+        if (row.type === 'item')     return lookup[row.grupo]?.[col] || 0;
+        if (row.type === 'subtotal') return row.grupos.reduce((s, g) => s + (lookup[g]?.[col] || 0), 0);
+        if (row.type === 'computed') {
+          // Build temp totals object for this column
+          const t = {};
+          PL_ESTRUCTURA.forEach(r => {
+            if (r.type === 'item')     t[r.grupo] = lookup[r.grupo]?.[col] || 0;
+            if (r.type === 'subtotal') t[r.key]   = r.grupos.reduce((s, g) => s + (lookup[g]?.[col] || 0), 0);
+          });
+          // Resolve computed chain in order
+          PL_ESTRUCTURA.forEach(r => {
+            if (r.type === 'computed') t[r.key] = r.fn(t);
+          });
+          return t[row.key] || 0;
+        }
+        return null;
+      }
+
+      // Grand total column
+      const totalCol = '__TOTAL__';
+      const allCols = [...data.columnas, totalCol];
+
+      const fmtN = v => {
+        if (v === null || v === undefined) return '';
+        const abs = Math.abs(v);
+        const s = abs >= 1000 ? abs.toLocaleString('es-PE', {minimumFractionDigits:0, maximumFractionDigits:0})
+                               : abs.toFixed(0);
+        return v < 0 ? `(${s})` : s;
+      };
+      const fmtPct = (v, base) => (!base ? '' : ((v/base)*100).toFixed(1)+'%');
+
+      // The last column of data is total; we compute separately
+      const colsData = data.columnas;
+
+      const headerCols = colsData.map(c => `<th style="text-align:right;padding:6px 10px;white-space:nowrap">${esc(String(c))}</th>`).join('')
+        + `<th style="text-align:right;padding:6px 10px;font-weight:700">TOTAL</th>`;
+
+      let rowsHtml = '';
+      // Compute all values per row per col (including total)
+      const cache = {};  // key -> { col: val }
+      function getVal(row, col) {
+        const ckey = (row.key || row.grupo || row.label) + '||' + col;
+        if (cache[ckey] !== undefined) return cache[ckey];
+        let v;
+        if (row.type === 'item') {
+          v = lookup[row.grupo]?.[col] || 0;
+        } else if (row.type === 'subtotal') {
+          v = row.grupos.reduce((s, g) => {
+            const gkey = g + '||' + col;
+            if (cache[gkey] !== undefined) return s + cache[gkey];
+            const gv = lookup[g]?.[col] || 0;
+            cache[gkey] = gv;
+            return s + gv;
+          }, 0);
+        } else if (row.type === 'computed') {
+          // Build t for this col
+          const t = {};
+          PL_ESTRUCTURA.forEach(r => {
+            if (r.type === 'item')     t[r.grupo] = lookup[r.grupo]?.[col] || 0;
+            if (r.type === 'subtotal') t[r.key]   = r.grupos.reduce((s, g) => s + (lookup[g]?.[col] || 0), 0);
+          });
+          PL_ESTRUCTURA.forEach(r => {
+            if (r.type === 'computed') t[r.key] = r.fn(t);
+          });
+          v = t[row.key] || 0;
+        } else { v = null; }
+        cache[ckey] = v;
+        return v;
+      }
+
+      // Compute total col
+      function getTotal(row) {
+        if (row.type === 'header') return null;
+        return colsData.reduce((s, c) => s + (getVal(row, c) || 0), 0);
+      }
+
+      // Get VENTA_NETA total for % base
+      const ventaNetaRow = PL_ESTRUCTURA.find(r => r.key === 'VENTA_NETA');
+      function getVentaNeta(col) {
+        if (!ventaNetaRow) return 0;
+        return col === totalCol
+          ? colsData.reduce((s, c) => s + (getVal(ventaNetaRow, c) || 0), 0)
+          : getVal(ventaNetaRow, col);
+      }
+
+      PL_ESTRUCTURA.forEach(row => {
+        if (row.type === 'header') {
+          rowsHtml += `<tr><td colspan="${allCols.length*2+1}" style="padding:10px 8px 4px;font-weight:700;font-size:12px;color:var(--text-muted);text-transform:uppercase;background:var(--bg-page)">${esc(row.label)}</td></tr>`;
+          return;
+        }
+        const label = row.type === 'item' ? row.grupo : row.label;
+        const isBold = row.bold || row.type === 'subtotal' || row.type === 'computed';
+        const isDrillable = row.type === 'item';
+        const bgStyle = (row.type === 'subtotal' || row.type === 'computed')
+          ? 'background:var(--bg-hover)'
+          : '';
+        const labelStyle = `padding:5px 8px 5px ${isDrillable?'20px':'8px'};font-weight:${isBold?'600':'normal'};font-size:13px;white-space:nowrap`;
+        const dataOnClick = isDrillable
+          ? `onclick="plDrilldown('${esc(row.grupo).replace(/'/g,"\\'")}', this)"` : '';
+
+        let rowCells = colsData.map(col => {
+          const v = getVal(row, col);
+          const vn = getVentaNeta(col);
+          const pct = fmtPct(v, vn);
+          const color = v < 0 ? 'color:#dc2626' : '';
+          return `<td style="text-align:right;padding:5px 10px;font-size:13px;${color};${bgStyle}">${fmtN(v)}</td>
+                  <td style="text-align:right;padding:5px 10px;font-size:12px;color:var(--text-muted);${bgStyle}">${pct}</td>`;
+        }).join('');
+        const tot = getTotal(row);
+        const totVN = getVentaNeta(totalCol);
+        const totPct = fmtPct(tot, totVN);
+        const totColor = tot < 0 ? 'color:#dc2626' : '';
+        rowCells += `<td style="text-align:right;padding:5px 10px;font-size:13px;font-weight:700;${totColor};${bgStyle}">${fmtN(tot)}</td>`;
+
+        rowsHtml += `<tr ${dataOnClick} style="${isDrillable?'cursor:pointer':''}">
+          <td style="${labelStyle};${bgStyle}">${isBold ? `<strong>${esc(label)}</strong>` : esc(label)}</td>
+          ${rowCells}
+        </tr>`;
+
+        // Placeholder for drill-down detail
+        if (isDrillable) {
+          rowsHtml += `<tr id="pl-drill-${esc(row.grupo).replace(/[^A-Z0-9]/gi,'_')}" style="display:none"><td colspan="${allCols.length*2+1}" style="padding:0 8px 8px 24px;background:var(--bg-hover)"></td></tr>`;
+        }
+      });
+
+      // Double-header for each column (value + %)
+      const headerHtml = `<thead>
+        <tr>
+          <th style="text-align:left;padding:6px 8px;min-width:200px">Concepto</th>
+          ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 10px;white-space:nowrap;border-left:1px solid var(--border)">${esc(String(c))}</th>`).join('')}
+          <th style="text-align:center;padding:6px 10px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>
+        </tr>
+        <tr style="font-size:11px;color:var(--text-muted)">
+          <th></th>
+          ${colsData.map(() => `<th style="text-align:right;padding:2px 10px;border-left:1px solid var(--border)">S/</th><th style="text-align:right;padding:2px 10px">%</th>`).join('')}
+          <th style="text-align:right;padding:2px 10px;border-left:1px solid var(--border)">S/</th>
+        </tr>
+      </thead>`;
+
+      wrap.innerHTML = `
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            ${headerHtml}
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>`;
+
+      // Store context for drill-down
+      window._plContext = { periodoDesde, periodoHasta, cols, unidades };
+
+    } catch(e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+  };
+
+  window.plDrilldown = async function(grupo, rowEl) {
+    const rowId = 'pl-drill-' + grupo.replace(/[^A-Z0-9]/gi,'_');
+    const detailRow = document.getElementById(rowId);
+    if (!detailRow) return;
+    if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
+    const td = detailRow.querySelector('td');
+    td.innerHTML = '<div style="padding:8px;color:var(--text-muted)">⏳ Cargando...</div>';
+    detailRow.style.display = '';
+    try {
+      const { periodoDesde, periodoHasta, cols, unidades } = window._plContext || {};
+      const qs = new URLSearchParams({ grupo, periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
+      const data = await GET(`/eerr/detalle?${qs}`);
+      if (!data.datos.length) { td.innerHTML = '<div style="padding:8px;color:var(--text-muted)">Sin detalle</div>'; return; }
+      const colsD = data.columnas;
+      const fmtN = v => {
+        if (!v) return '';
+        const abs = Math.abs(v);
+        const s = abs >= 1000 ? abs.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0}) : abs.toFixed(0);
+        return v < 0 ? `(${s})` : s;
+      };
+      td.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>
+          <th style="text-align:left;padding:4px 8px;color:var(--text-muted)">Proveedor / Persona</th>
+          ${colsD.map(c => `<th style="text-align:right;padding:4px 8px;color:var(--text-muted)">${esc(String(c))}</th>`).join('')}
+          <th style="text-align:right;padding:4px 8px;color:var(--text-muted);font-weight:700">TOTAL</th>
+        </tr></thead>
+        <tbody>${data.datos.slice(0,100).map(r => {
+          const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
+          return `<tr>
+            <td style="padding:3px 8px">${esc(r.persona||'(sin proveedor)')}</td>
+            ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${fmtN(r[c])}</td>`).join('')}
+            <td style="text-align:right;padding:3px 8px;font-weight:600">${fmtN(tot)}</td>
+          </tr>`;
+        }).join('')}
+        ${data.datos.length > 100 ? `<tr><td colspan="${colsD.length+2}" style="padding:4px 8px;color:var(--text-muted);font-style:italic">... y ${data.datos.length-100} más</td></tr>` : ''}
+        </tbody>
+      </table>`;
+    } catch(e) { td.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+  };
+}
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -12065,6 +12487,17 @@ function showUserModal(user, onSave) {
 ">
             <span>📋 <strong>Incluir Pago de Obligaciones</strong></span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-eerr" ${user?.accesoEERR?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>📊 <strong>PL — Estado de Resultados</strong></span>
+          </label>
+        </div>
+        <div id="um-eerr-ops-section" style="margin-top:10px;display:${user?.accesoEERR?'block':'none'}">
+          <label class="form-label" style="font-size:12px;margin-bottom:6px">Operaciones EERR autorizadas</label>
+          <div id="um-eerr-ops-wrap" style="display:flex;flex-wrap:wrap;gap:6px">
+            <span style="color:var(--text-muted);font-size:12px">Cargando...</span>
+          </div>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -12087,6 +12520,28 @@ function showUserModal(user, onSave) {
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
+
+  // Load EERR unidades for the operaciones checkboxes
+  (async () => {
+    try {
+      const unidades = await GET('/eerr/unidades');
+      const wrap = document.getElementById('um-eerr-ops-wrap');
+      if (!wrap) return;
+      wrap.innerHTML = unidades.map(u => `
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;border:1px solid var(--border);border-radius:5px;padding:3px 8px;background:var(--bg-card)">
+          <input type="checkbox" name="um-eerr-op" value="${esc(u)}"
+            ${(user?.operacionesEERR||[]).includes(u)?'checked':''}
+            style="width:12px;height:12px;accent-color:var(--primary)">
+          ${esc(u)}
+        </label>`).join('');
+    } catch {}
+  })();
+
+  // Toggle EERR ops section on checkbox change
+  document.getElementById('um-eerr')?.addEventListener('change', function() {
+    const sec = document.getElementById('um-eerr-ops-section');
+    if (sec) sec.style.display = this.checked ? 'block' : 'none';
+  });
 
   document.getElementById('um-save').addEventListener('click', async () => {
     const errEl = document.getElementById('um-error');
@@ -12118,6 +12573,8 @@ function showUserModal(user, onSave) {
       acceso86:             !isAdmin && (document.getElementById('um-acc-86')?.checked              ?? false),
       accesoOficina:        !isAdmin && (document.getElementById('um-acc-oficina')?.checked         ?? false),
       accesoDepositos:      !isAdmin && (document.getElementById('um-acc-depositos')?.checked       ?? false),
+      accesoEERR:           !isAdmin && (document.getElementById('um-eerr')?.checked                ?? false),
+      operacionesEERR:      isAdmin ? [] : [...document.querySelectorAll('input[name="um-eerr-op"]:checked')].map(cb => cb.value),
       sociedadesCompra,
       sociedadesPago,
     };

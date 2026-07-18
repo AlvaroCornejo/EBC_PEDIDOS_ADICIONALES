@@ -83,15 +83,22 @@ if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-recetas & set ERRORES=1) else echo  O
 
 :: â”€â”€ 9. EBC Obligaciones -> MongoDB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo.
-echo [9/9] EBC Obligaciones
+echo [9/10] EBC Obligaciones
 call "%APP%\sync-obligaciones.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-obligaciones & set ERRORES=1) else echo  OK
 
 :: â”€â”€ Resumen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo.
 echo ============================================================
+
+:: -- 10. EBC EERR (Estado de Resultados) -> MongoDB --
+echo.
+echo [10/10] EBC EERR - Estado de Resultados
+call "%APP%\sync-eerr.bat"
+if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-eerr ^& set ERRORES=1) else echo  OK
 if %ERRORES% EQU 0 (echo  RESULTADO: TODO OK) else echo  RESULTADO: CON ERRORES (ver arriba)
 echo  Fin: %DATE% %TIME%
 echo ============================================================
 
 exit /b %ERRORES%
+
