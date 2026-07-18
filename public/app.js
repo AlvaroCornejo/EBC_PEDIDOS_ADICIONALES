@@ -10817,8 +10817,8 @@ const PL_ESTRUCTURA = [
 
 async function viewPL(container) {
   const isAdmin = S.user.role === 'ADMIN';
-  // Para no-admin: usar directamente las operaciones del JWT (sin depender de la BD)
-  const opAuth  = isAdmin ? [] : (S.user.operacionesEERR || []);
+  // Usar el campo operations existente (mismas operaciones que el resto de la app)
+  const opAuth = isAdmin ? [] : (S.user.operations || []);
 
   // Admin: cargar unidades desde la BD (puede estar vacía si aún no se importaron datos)
   let unidadesDisp = isAdmin ? [] : opAuth;
@@ -12519,12 +12519,6 @@ function showUserModal(user, onSave) {
             <span>📊 <strong>PL — Estado de Resultados</strong></span>
           </label>
         </div>
-        <div id="um-eerr-ops-section" style="margin-top:10px;display:${user?.accesoEERR?'block':'none'}">
-          <label class="form-label" style="font-size:12px;margin-bottom:6px">Operaciones EERR autorizadas</label>
-          <div id="um-eerr-ops-wrap" style="display:flex;flex-wrap:wrap;gap:6px">
-            <span style="color:var(--text-muted);font-size:12px">Cargando...</span>
-          </div>
-        </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
     </form>
@@ -12546,28 +12540,6 @@ function showUserModal(user, onSave) {
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
-
-  // Load EERR unidades for the operaciones checkboxes
-  (async () => {
-    try {
-      const unidades = await GET('/eerr/unidades');
-      const wrap = document.getElementById('um-eerr-ops-wrap');
-      if (!wrap) return;
-      wrap.innerHTML = unidades.map(u => `
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;border:1px solid var(--border);border-radius:5px;padding:3px 8px;background:var(--bg-card)">
-          <input type="checkbox" name="um-eerr-op" value="${esc(u)}"
-            ${(user?.operacionesEERR||[]).includes(u)?'checked':''}
-            style="width:12px;height:12px;accent-color:var(--primary)">
-          ${esc(u)}
-        </label>`).join('');
-    } catch {}
-  })();
-
-  // Toggle EERR ops section on checkbox change
-  document.getElementById('um-eerr')?.addEventListener('change', function() {
-    const sec = document.getElementById('um-eerr-ops-section');
-    if (sec) sec.style.display = this.checked ? 'block' : 'none';
-  });
 
   document.getElementById('um-save').addEventListener('click', async () => {
     const errEl = document.getElementById('um-error');
@@ -12600,7 +12572,6 @@ function showUserModal(user, onSave) {
       accesoOficina:        !isAdmin && (document.getElementById('um-acc-oficina')?.checked         ?? false),
       accesoDepositos:      !isAdmin && (document.getElementById('um-acc-depositos')?.checked       ?? false),
       accesoEERR:           !isAdmin && (document.getElementById('um-eerr')?.checked                ?? false),
-      operacionesEERR:      isAdmin ? [] : [...document.querySelectorAll('input[name="um-eerr-op"]:checked')].map(cb => cb.value),
       sociedadesCompra,
       sociedadesPago,
     };

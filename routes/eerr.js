@@ -13,7 +13,7 @@ function canAccess(user) {
 function unidadesAuth(user, requested) {
   const authorized = user.role === 'ADMIN'
     ? requested  // admin puede ver cualquiera
-    : (user.operacionesEERR || []).filter(u => !requested.length || requested.includes(u));
+    : (user.operations || []).filter(u => !requested.length || requested.includes(u));
   return authorized;
 }
 
@@ -24,7 +24,7 @@ router.get('/unidades', async (req, res) => {
     const todas = await Eerr.distinct('unidad');
     const auth = req.user.role === 'ADMIN'
       ? todas
-      : (req.user.operacionesEERR || []).filter(u => todas.includes(u));
+      : (req.user.operations || []).filter(u => todas.includes(u));
     res.json(auth.sort());
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -44,7 +44,7 @@ router.get('/resumen', async (req, res) => {
       : [];
     const unidades = req.user.role === 'ADMIN'
       ? unidadesReq
-      : (req.user.operacionesEERR || []).filter(u => !unidadesReq.length || unidadesReq.includes(u));
+      : (req.user.operations || []).filter(u => !unidadesReq.length || unidadesReq.includes(u));
 
     const match = {
       periodo: { $gte: periodoDesde, $lte: periodoHasta },
@@ -124,7 +124,7 @@ router.get('/detalle', async (req, res) => {
       : [];
     const unidades = req.user.role === 'ADMIN'
       ? unidadesReq
-      : (req.user.operacionesEERR || []).filter(u => !unidadesReq.length || unidadesReq.includes(u));
+      : (req.user.operations || []).filter(u => !unidadesReq.length || unidadesReq.includes(u));
 
     const match = {
       grupo,
