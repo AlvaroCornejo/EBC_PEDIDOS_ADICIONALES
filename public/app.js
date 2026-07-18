@@ -10901,8 +10901,8 @@ async function viewPL(container) {
       const desde = (document.getElementById('pl-desde').value || '').replace('-','');
       const hasta  = (document.getElementById('pl-hasta').value || '').replace('-','');
       if (!desde || !hasta) { toast('Selecciona período Desde y Hasta', 'warning'); return; }
-      const periodoDesde = desde + '01';
-      const periodoHasta = hasta + '12';
+      const periodoDesde = desde;  // YYYYMM (6 dígitos), igual que el campo PERIODO en EERR
+      const periodoHasta = hasta;
       const cols = document.getElementById('pl-cols').value;
       const unidades = [...document.querySelectorAll('input[name="pl-unidad"]:checked')].map(c => c.value);
       // Admin sin unidades seleccionadas = consultar todas
