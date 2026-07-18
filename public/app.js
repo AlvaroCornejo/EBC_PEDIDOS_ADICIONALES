@@ -11996,7 +11996,7 @@ function showUserModal(user, onSave) {
         </div>
       </div>
       <div id="um-permisos-extra" class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
-        <label style="display:block;font-weight:600;margin-bottom:10px;color:#b42318">🗑️ Bajas / Consumos / Transferencias / 86</label>
+        <label style="display:block;font-weight:600;margin-bottom:10px;color:var(--text-muted)">Módulos Autorizados</label>
         <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-acc-bajas" ${user?.accesoBajas?'checked':''}
@@ -12019,7 +12019,7 @@ function showUserModal(user, onSave) {
             <span>🚫 <strong>86</strong></span>
           </label>
         </div>
-        <label style="display:block;font-weight:600;margin-bottom:10px;color:#92400e">🧾 Cierre de Caja</label>
+        <div style="margin-bottom:10px"></div>
         <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-acc-oficina" ${user?.accesoOficina?'checked':''}
@@ -12032,7 +12032,7 @@ function showUserModal(user, onSave) {
             <span>🏦 <strong>Depósito Bancario</strong></span>
           </label>
         </div>
-        <label style="display:block;font-weight:600;margin-bottom:10px;color:#0369a1">🔍 Otros Permisos</label>
+        <div style="margin-bottom:10px"></div>
         <div style="display:flex;flex-direction:column;gap:10px">
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-kardex" ${user?.puedeVerKardex?'checked':''}
