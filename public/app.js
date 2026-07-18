@@ -10817,18 +10817,35 @@ const PL_ESTRUCTURA = [
 
 async function viewPL(container) {
   const isAdmin = S.user.role === 'ADMIN';
-  const opAuth  = S.user.operacionesEERR || [];
+  // Para no-admin: usar directamente las operaciones del JWT (sin depender de la BD)
+  const opAuth  = isAdmin ? [] : (S.user.operacionesEERR || []);
 
-  // Cargar lista de unidades disponibles
-  let unidadesDisp = [];
-  try { unidadesDisp = await GET('/eerr/unidades'); } catch {}
+  // Admin: cargar unidades desde la BD (puede estar vacía si aún no se importaron datos)
+  let unidadesDisp = isAdmin ? [] : opAuth;
+  if (isAdmin) {
+    try { unidadesDisp = await GET('/eerr/unidades'); } catch {}
+  }
 
   // Periodo defaults: año actual, enero → mes actual
   const hoy = new Date();
   const mesActual = hoy.getMonth() + 1;
   const anioActual = hoy.getFullYear();
-  const primerPeriodo = `${anioActual}01`;
-  const periodoActual = `${anioActual}${String(mesActual).padStart(2,'0')}`;
+
+  const renderOpsSection = (lista) => lista.length
+    ? `<div style="margin-top:12px">
+        <label class="form-label" style="margin-bottom:6px">Operaciones</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px" id="pl-ops-wrap">
+          ${lista.map(u => `
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg-card)">
+              <input type="checkbox" name="pl-unidad" value="${esc(u)}" checked
+                style="width:13px;height:13px;accent-color:var(--primary)">
+              ${esc(u)}
+            </label>`).join('')}
+        </div>
+      </div>`
+    : `<div style="margin-top:12px;color:var(--text-muted);font-size:13px">
+        ${isAdmin ? '⚠️ Base de datos EERR vacía — ejecutar <code>node scripts/importEerr.js</code> en el servidor' : ''}
+      </div>`;
 
   container.innerHTML = `
     <div class="page-header">
@@ -10855,20 +10872,27 @@ async function viewPL(container) {
         </div>
         <button class="btn btn-primary" onclick="plConsultar()">🔍 Consultar</button>
       </div>
-      ${unidadesDisp.length ? `
-      <div style="margin-top:12px">
-        <label class="form-label" style="margin-bottom:6px">Operaciones</label>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
-          ${unidadesDisp.map(u => `
-            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg-card)">
-              <input type="checkbox" name="pl-unidad" value="${esc(u)}" checked
-                style="width:13px;height:13px;accent-color:var(--primary)">
-              ${esc(u)}
-            </label>`).join('')}
-        </div>
-      </div>` : ''}
+      ${renderOpsSection(unidadesDisp)}
     </div>
     <div id="pl-resultado"></div>`;
+
+  // Admin: si BD estaba vacía al cargar, hacer un segundo intento después de renderizar
+  // (por si el import acaba de terminar en background)
+  if (isAdmin && !unidadesDisp.length) {
+    setTimeout(async () => {
+      try {
+        const lista = await GET('/eerr/unidades');
+        if (lista.length) {
+          const wrap = document.querySelector('.card.mb-16');
+          if (wrap) {
+            const existing = document.getElementById('pl-ops-wrap')?.closest('div[style*="margin-top:12px"]');
+            if (existing) existing.outerHTML = renderOpsSection(lista);
+            else wrap.insertAdjacentHTML('beforeend', renderOpsSection(lista));
+          }
+        }
+      } catch {}
+    }, 3000);
+  }
 
   window.plConsultar = async function() {
     const wrap = document.getElementById('pl-resultado');
@@ -10881,9 +10905,11 @@ async function viewPL(container) {
       const periodoHasta = hasta + '12';
       const cols = document.getElementById('pl-cols').value;
       const unidades = [...document.querySelectorAll('input[name="pl-unidad"]:checked')].map(c => c.value);
-      if (!unidades.length) { toast('Selecciona al menos una operación', 'warning'); wrap.innerHTML=''; return; }
+      // Admin sin unidades seleccionadas = consultar todas
+      if (!isAdmin && !unidades.length) { toast('Selecciona al menos una operación', 'warning'); wrap.innerHTML=''; return; }
 
-      const qs = new URLSearchParams({ periodoDesde, periodoHasta, cols, unidades: unidades.join(',') });
+      const qs = new URLSearchParams({ periodoDesde, periodoHasta, cols });
+      if (unidades.length) qs.set('unidades', unidades.join(','));
       const data = await GET(`/eerr/resumen?${qs}`);
 
       // Build lookup: grupo -> { col: amount }
