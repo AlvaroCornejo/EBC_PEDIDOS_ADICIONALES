@@ -10843,7 +10843,11 @@ async function viewPL(container) {
     const row2 = ALL_OPS_ROW2.filter(u => lista.includes(u));
     const extra = lista.filter(u => !ALL_OPS_ROW1.includes(u) && !ALL_OPS_ROW2.includes(u));
     return `<div style="margin-top:12px" id="pl-ops-wrap">
-        <label class="form-label" style="margin-bottom:6px">Sedes</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+          <label class="form-label" style="margin-bottom:0">Sedes</label>
+          <button type="button" onclick="document.querySelectorAll('input[name=\\'pl-unidad\\']').forEach(c=>c.checked=false)"
+            style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-page);color:var(--text-muted);cursor:pointer">Borrar selección</button>
+        </div>
         <div style="display:flex;flex-direction:column;gap:6px">
           ${row1.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${row1.map(mkChk).join('')}</div>` : ''}
           ${row2.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${row2.map(mkChk).join('')}</div>` : ''}
@@ -11178,40 +11182,44 @@ async function viewPL(container) {
     return v < 0 ? `(${s})` : s;
   };
 
-  // Level 3: persona breakdown for a single grupo
-  window.plDrilldownPersona = async function(rowId, grupo, rowEl) {
-    const detailRow = document.getElementById(rowId);
-    if (!detailRow) return;
-    if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
-    const td = detailRow.querySelector('td');
-    td.innerHTML = '<div style="padding:6px 16px;color:var(--text-muted);font-size:12px">⏳ Cargando...</div>';
-    detailRow.style.display = '';
+  // Render a persona table into a container element (shared by level-1 items and level-2 items)
+  async function _plRenderPersonas(container, grupo) {
+    const { periodoDesde, periodoHasta, cols, unidades } = window._plContext || {};
+    container.innerHTML = '<div style="padding:6px;color:var(--text-muted);font-size:12px">⏳ Cargando...</div>';
     try {
-      const { periodoDesde, periodoHasta, cols, unidades } = window._plContext || {};
       const qs = new URLSearchParams({ grupo, periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
       const data = await GET(`/eerr/detalle?${qs}`);
-      if (!data.datos.length) { td.innerHTML = '<div style="padding:6px 16px;color:var(--text-muted);font-size:12px">Sin detalle</div>'; return; }
+      if (!data.datos.length) { container.innerHTML = '<div style="padding:6px 8px;color:var(--text-muted);font-size:12px">Sin detalle</div>'; return; }
       const colsD = data.columnas;
-      td.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0">
+      container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0">
         <thead><tr style="background:var(--bg-page)">
-          <th style="text-align:left;padding:3px 10px 3px 24px;color:var(--text-muted);white-space:nowrap;min-width:200px">Proveedor / Persona</th>
+          <th style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px">Proveedor / Persona</th>
           ${colsD.map(c=>`<th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:80px">${esc(String(c))}</th>`).join('')}
           <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:80px">TOTAL</th>
         </tr></thead>
         <tbody>${data.datos.slice(0,100).map(r => {
           const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
           return `<tr style="border-bottom:1px solid var(--border)">
-            <td style="padding:3px 10px 3px 24px;white-space:nowrap">${esc(r.persona||'(sin proveedor)')}</td>
+            <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.persona||'(sin proveedor)')}</td>
             ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${_plFmtN(r[c])}</td>`).join('')}
             <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(tot)}</td>
           </tr>`;
         }).join('')}
         ${data.datos.length>100?`<tr><td colspan="${colsD.length+2}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
         </tbody></table>`;
-    } catch(e) { td.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+    } catch(e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+  }
+
+  // Level 2→3: persona breakdown from a level-2 item row (called via onclick in innerHTML)
+  window.plDrilldownPersona = function(rowId, grupo, rowEl) {
+    const detailRow = document.getElementById(rowId);
+    if (!detailRow) return;
+    if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
+    detailRow.style.display = '';
+    _plRenderPersonas(detailRow.querySelector('td'), grupo);
   };
 
-  // Level 1→2: subtotal expands to its items; item goes straight to personas
+  // Level 1→2 (subtotal) or Level 1→3 (standalone item)
   window.plDrilldown = function(rowId, gruposStr, rowEl) {
     const detailRow = document.getElementById(rowId);
     if (!detailRow) return;
@@ -11219,51 +11227,17 @@ async function viewPL(container) {
     const td = detailRow.querySelector('td');
     detailRow.style.display = '';
 
-    const { lookup, colsData } = window._plContext || {};
+    const { lookup, colsData, multiSede: ms } = window._plContext || {};
     const grupos = gruposStr.split(',').map(g => g.trim()).filter(Boolean);
 
     if (grupos.length === 1) {
-      // Standalone item → go straight to persona level
-      td.innerHTML = '';
-      plDrilldownPersona(rowId + '_p', grupos[0], rowEl);
-      // Inject a sub-row for the persona table inside this td
-      td.innerHTML = `<div id="${rowId}_p_wrap"><table style="width:auto;border-collapse:collapse"><tbody>
-        <tr id="${rowId}_p" style="display:none"><td style="padding:0"></td></tr>
-      </tbody></table></div>`;
-      // Just call persona directly using td as container
-      td.innerHTML = '<div style="padding:6px;color:var(--text-muted);font-size:12px">⏳ Cargando...</div>';
-      (async () => {
-        const { periodoDesde, periodoHasta, cols, unidades } = window._plContext || {};
-        try {
-          const qs = new URLSearchParams({ grupo: grupos[0], periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
-          const data = await GET(`/eerr/detalle?${qs}`);
-          if (!data.datos.length) { td.innerHTML = '<div style="padding:6px 8px;color:var(--text-muted);font-size:12px">Sin detalle</div>'; return; }
-          const colsD = data.columnas;
-          td.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0">
-            <thead><tr style="background:var(--bg-page)">
-              <th style="text-align:left;padding:3px 10px 3px 16px;color:var(--text-muted);white-space:nowrap;min-width:200px">Proveedor / Persona</th>
-              ${colsD.map(c=>`<th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:80px">${esc(String(c))}</th>`).join('')}
-              <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:80px">TOTAL</th>
-            </tr></thead>
-            <tbody>${data.datos.slice(0,100).map(r => {
-              const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
-              return `<tr style="border-bottom:1px solid var(--border)">
-                <td style="padding:3px 10px 3px 16px;white-space:nowrap">${esc(r.persona||'(sin proveedor)')}</td>
-                ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${_plFmtN(r[c])}</td>`).join('')}
-                <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(tot)}</td>
-              </tr>`;
-            }).join('')}
-            ${data.datos.length>100?`<tr><td colspan="${colsD.length+2}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
-            </tbody></table>`;
-        } catch(e) { td.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
-      })();
+      // Standalone item → persona level directly
+      _plRenderPersonas(td, grupos[0]);
       return;
     }
 
-    // Multiple grupos (subtotal) → Level 2: show each item with values aligned to parent columns
+    // Subtotal → Level 2: list items with their values, each clickable for persona detail
     const cd = colsData || [];
-    const ms = multiSede;
-    // Same column count as parent: 1 concepto + (S/+%) per data col + TOTAL + optional ELIM + TOT NETO
     const colSpan = 1 + cd.length * 2 + 1 + (ms ? 2 : 0);
     let html = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:0"><tbody>`;
     grupos.forEach(grupo => {
