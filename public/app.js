@@ -10833,21 +10833,24 @@ async function viewPL(container) {
   const mesActual = hoy.getMonth() + 1;
   const anioActual = hoy.getFullYear();
 
-  const renderOpsSection = (lista) => lista.length
-    ? `<div style="margin-top:12px">
-        <label class="form-label" style="margin-bottom:6px">Sedes</label>
-        <div style="display:flex;flex-wrap:wrap;gap:8px" id="pl-ops-wrap">
-          ${lista.map(u => `
-            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg-card)">
-              <input type="checkbox" name="pl-unidad" value="${esc(u)}" checked
+  const renderOpsSection = (lista) => {
+    if (!lista.length) return `<div style="margin-top:12px;color:var(--text-muted);font-size:13px">${isAdmin ? '⚠️ Base de datos EERR vacía — ejecutar <code>node scripts/importEerr.js</code> en el servidor' : ''}</div>`;
+    const mkChk = u => `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg-card)">
+              <input type="checkbox" name="pl-unidad" value="${esc(u)}" ${lista.includes(u)?'checked':''}
                 style="width:13px;height:13px;accent-color:var(--primary)">
-              ${esc(u)}
-            </label>`).join('')}
+              ${esc(u)}</label>`;
+    const row1 = ALL_OPS_ROW1.filter(u => lista.includes(u));
+    const row2 = ALL_OPS_ROW2.filter(u => lista.includes(u));
+    const extra = lista.filter(u => !ALL_OPS_ROW1.includes(u) && !ALL_OPS_ROW2.includes(u));
+    return `<div style="margin-top:12px" id="pl-ops-wrap">
+        <label class="form-label" style="margin-bottom:6px">Sedes</label>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${row1.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${row1.map(mkChk).join('')}</div>` : ''}
+          ${row2.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${row2.map(mkChk).join('')}</div>` : ''}
+          ${extra.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${extra.map(mkChk).join('')}</div>` : ''}
         </div>
-      </div>`
-    : `<div style="margin-top:12px;color:var(--text-muted);font-size:13px">
-        ${isAdmin ? '⚠️ Base de datos EERR vacía — ejecutar <code>node scripts/importEerr.js</code> en el servidor' : ''}
       </div>`;
+  };
 
   container.innerHTML = `
     <div class="page-header">
@@ -10903,12 +10906,10 @@ async function viewPL(container) {
       try {
         const lista = await GET('/eerr/unidades');
         if (lista.length) {
+          const existing = document.getElementById('pl-ops-wrap');
           const wrap = document.querySelector('.card.mb-16');
-          if (wrap) {
-            const existing = document.getElementById('pl-ops-wrap')?.closest('div[style*="margin-top:12px"]');
-            if (existing) existing.outerHTML = renderOpsSection(lista);
-            else wrap.insertAdjacentHTML('beforeend', renderOpsSection(lista));
-          }
+          if (existing) existing.outerHTML = renderOpsSection(lista);
+          else if (wrap) wrap.insertAdjacentHTML('beforeend', renderOpsSection(lista));
         }
       } catch {}
     }, 3000);
