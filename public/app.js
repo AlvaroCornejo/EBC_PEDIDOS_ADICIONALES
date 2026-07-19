@@ -11142,7 +11142,7 @@ async function viewPL(container) {
         ? `<th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th>
            <th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th>`
         : '';
-      const headerHtml = `<thead>
+      const headerHtml = `<thead style="position:sticky;top:0;z-index:10;background:var(--bg-card)">
         <tr>
           <th style="text-align:left;padding:6px 8px;min-width:220px;max-width:220px;white-space:nowrap">Concepto</th>
           ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 8px;white-space:nowrap;border-left:1px solid var(--border)">${esc(String(c))}</th>`).join('')}
@@ -11166,7 +11166,7 @@ async function viewPL(container) {
         </div>`;
 
       // Store context for drill-down (lookup needed for level-2 item expansion)
-      window._plContext = { periodoDesde, periodoHasta, cols, unidades, lookup, colsData };
+      window._plContext = { periodoDesde, periodoHasta, cols, unidades, lookup, colsData, multiSede };
 
     } catch(e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   };
@@ -11260,23 +11260,29 @@ async function viewPL(container) {
       return;
     }
 
-    // Multiple grupos (subtotal) → Level 2: show each item with its values
-    const colSpan = (colsData||[]).length * 2 + 2;
-    let html = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0"><tbody>`;
+    // Multiple grupos (subtotal) → Level 2: show each item with values aligned to parent columns
+    const cd = colsData || [];
+    const ms = multiSede;
+    // Same column count as parent: 1 concepto + (S/+%) per data col + TOTAL + optional ELIM + TOT NETO
+    const colSpan = 1 + cd.length * 2 + 1 + (ms ? 2 : 0);
+    let html = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:0"><tbody>`;
     grupos.forEach(grupo => {
       const drillId = 'pl-d2-' + grupo.replace(/[^A-Z0-9]/gi,'_');
-      const vals = (colsData||[]).map(col => {
+      const g = grupo.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      const vals = cd.map(col => {
         const v = lookup?.[grupo]?.[col] || 0;
-        return `<td style="text-align:right;padding:4px 8px;min-width:80px">${_plFmtN(v)}</td>`;
+        return `<td style="text-align:right;padding:4px 8px;min-width:90px">${_plFmtN(v)}</td><td style="min-width:52px"></td>`;
       }).join('');
-      const tot = (colsData||[]).reduce((s,c)=>s+(lookup?.[grupo]?.[c]||0),0);
-      html += `<tr onclick="plDrilldownPersona('${drillId}','${grupo.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}',this)"
+      const tot = cd.reduce((s,c)=>s+(lookup?.[grupo]?.[c]||0),0);
+      const extraCells = ms ? `<td style="min-width:90px"></td><td style="min-width:90px"></td>` : '';
+      html += `<tr onclick="plDrilldownPersona('${drillId}','${g}',this)"
           style="cursor:pointer;border-bottom:1px solid var(--border)">
-        <td style="padding:4px 8px 4px 16px;white-space:nowrap;min-width:220px;font-size:12px">${esc(grupo)}</td>
+        <td style="padding:4px 8px 4px 20px;white-space:nowrap;min-width:220px">${esc(grupo)}</td>
         ${vals}
-        <td style="text-align:right;padding:4px 8px;font-weight:600;min-width:80px">${_plFmtN(tot)}</td>
+        <td style="text-align:right;padding:4px 8px;font-weight:600;min-width:90px">${_plFmtN(tot)}</td>
+        ${extraCells}
       </tr>
-      <tr id="${drillId}" style="display:none"><td colspan="${colSpan}" style="padding:0 0 0 16px;background:var(--bg-page)"></td></tr>`;
+      <tr id="${drillId}" style="display:none"><td colspan="${colSpan}" style="padding:0 0 0 20px;background:var(--bg-page)"></td></tr>`;
     });
     html += `</tbody></table>`;
     td.innerHTML = html;
