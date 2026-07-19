@@ -13,7 +13,9 @@ const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULT
 const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pagos']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
-const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
+const ALL_OPS = ['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28', 'GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP'];
+const ALL_OPS_ROW1 = ['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28'];
+const ALL_OPS_ROW2 = ['GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
 
 // ─── State ───────────────────────────────────────────────────────
@@ -10933,9 +10935,11 @@ async function viewPL(container) {
 
       // Build lookup: grupo -> { col: amount }
       const lookup = {};
-      data.datos.forEach(r => {
-        lookup[r.grupo] = r;
-      });
+      data.datos.forEach(r => { lookup[r.grupo] = r; });
+
+      // Raw total of ALL soles before sign flip (used for balance check)
+      const rawTotal = data.datos.reduce((s, r) =>
+        s + data.columnas.reduce((s2, col) => s2 + (r[col] || 0), 0), 0);
 
       // Flip sign for income items (stored negative in DB, display positive)
       PL_ESTRUCTURA.forEach(row => {
@@ -11038,18 +11042,23 @@ async function viewPL(container) {
           : getVal(ventaNetaRow, col);
       }
 
-      PL_ESTRUCTURA.forEach(row => {
-        if (row.type === 'header') {
-          rowsHtml += `<tr><td colspan="${allCols.length*2+1+(multiSede?2:0)}" style="padding:10px 8px 4px;font-weight:700;font-size:12px;color:var(--text-muted);text-transform:uppercase;background:var(--bg-page)">${esc(row.label)}</td></tr>`;
-          return;
-        }
+      // Summary view: only subtotals, computed, and standalone items (not in any subtotal)
+      const gruposEnSubtotal = new Set(
+        PL_ESTRUCTURA.filter(r => r.type === 'subtotal').flatMap(r => r.grupos)
+      );
+      const rowsToRender = PL_ESTRUCTURA.filter(r => {
+        if (r.type === 'header') return false;
+        if (r.type === 'item') return !gruposEnSubtotal.has(r.grupo);
+        return true;
+      });
+
+      const totalCols = allCols.length * 2 + 1 + (multiSede ? 2 : 0);
+
+      rowsToRender.forEach(row => {
         const label = row.type === 'item' ? row.grupo : row.label;
-        const isBold = row.bold || row.type === 'subtotal' || row.type === 'computed';
         const isDrillable = row.type === 'item';
-        const bgStyle = (row.type === 'subtotal' || row.type === 'computed')
-          ? 'background:var(--bg-hover)'
-          : '';
-        const labelStyle = `padding:5px 8px 5px ${isDrillable?'20px':'8px'};font-weight:${isBold?'600':'normal'};font-size:13px;white-space:nowrap;min-width:220px;max-width:280px`;
+        const bgStyle = 'background:var(--bg-hover)';
+        const labelStyle = `padding:6px 8px 6px ${isDrillable?'20px':'8px'};font-weight:600;font-size:13px;white-space:nowrap;min-width:220px;max-width:280px`;
         const dataOnClick = isDrillable
           ? `onclick="plDrilldown('${esc(row.grupo).replace(/'/g,"\\'")}', this)"` : '';
 
@@ -11058,33 +11067,43 @@ async function viewPL(container) {
           const vn = getVentaNeta(col);
           const pct = fmtPct(v, vn);
           const color = v < 0 ? 'color:#dc2626' : '';
-          return `<td style="text-align:right;padding:5px 8px;font-size:13px;min-width:90px;${color};${bgStyle}">${fmtN(v)}</td>
-                  <td style="text-align:right;padding:5px 6px;font-size:11px;min-width:52px;color:var(--text-muted);${bgStyle}">${pct}</td>`;
+          return `<td style="text-align:right;padding:6px 8px;font-size:13px;min-width:90px;${color};${bgStyle}">${fmtN(v)}</td>
+                  <td style="text-align:right;padding:6px 6px;font-size:11px;min-width:52px;color:var(--text-muted);${bgStyle}">${pct}</td>`;
         }).join('');
         const tot = getTotal(row);
         const totVN = getVentaNeta(totalCol);
-        const totPct = fmtPct(tot, totVN);
         const totColor = tot < 0 ? 'color:#dc2626' : '';
-        rowCells += `<td style="text-align:right;padding:5px 8px;font-size:13px;font-weight:700;min-width:90px;${totColor};${bgStyle}">${fmtN(tot)}</td>`;
+        rowCells += `<td style="text-align:right;padding:6px 8px;font-size:13px;font-weight:700;min-width:90px;${totColor};${bgStyle}">${fmtN(tot)}</td>`;
         if (multiSede) {
-          // Eliminación: 0 for now (intercompany transactions TBD)
           const elim = 0;
           const neto = tot - elim;
           const netoColor = neto < 0 ? 'color:#dc2626' : '';
-          rowCells += `<td style="text-align:right;padding:5px 8px;font-size:13px;min-width:90px;${bgStyle}">${fmtN(elim)}</td>`;
-          rowCells += `<td style="text-align:right;padding:5px 8px;font-size:13px;font-weight:700;min-width:90px;${netoColor};${bgStyle}">${fmtN(neto)}</td>`;
+          rowCells += `<td style="text-align:right;padding:6px 8px;font-size:13px;min-width:90px;${bgStyle}">${fmtN(elim)}</td>`;
+          rowCells += `<td style="text-align:right;padding:6px 8px;font-size:13px;font-weight:700;min-width:90px;${netoColor};${bgStyle}">${fmtN(neto)}</td>`;
         }
 
         rowsHtml += `<tr ${dataOnClick} style="${isDrillable?'cursor:pointer':''}">
-          <td style="${labelStyle};${bgStyle}">${isBold ? `<strong>${esc(label)}</strong>` : esc(label)}</td>
+          <td style="${labelStyle};${bgStyle}"><strong>${esc(label)}</strong></td>
           ${rowCells}
         </tr>`;
 
-        // Placeholder for drill-down detail
         if (isDrillable) {
-          rowsHtml += `<tr id="pl-drill-${esc(row.grupo).replace(/[^A-Z0-9]/gi,'_')}" style="display:none"><td colspan="${allCols.length*2+1+(multiSede?2:0)}" style="padding:0 8px 8px 24px;background:var(--bg-hover)"></td></tr>`;
+          rowsHtml += `<tr id="pl-drill-${esc(row.grupo).replace(/[^A-Z0-9]/gi,'_')}" style="display:none"><td colspan="${totalCols}" style="padding:0 8px 8px 24px;background:var(--bg-hover)"></td></tr>`;
         }
       });
+
+      // Balance check: UTIL_NETA_DI + rawTotal should ≈ 0
+      const utilNetaDIRow = PL_ESTRUCTURA.find(r => r.key === 'UTIL_NETA_DI');
+      const utilNetaDITotal = utilNetaDIRow ? getTotal(utilNetaDIRow) : null;
+      if (utilNetaDITotal !== null) {
+        const diff = utilNetaDITotal + rawTotal;
+        const ok = Math.abs(diff) < 1;
+        const bgOk = ok ? '#16a34a' : '#dc2626';
+        const label = ok ? '✓ OK — Balance cuadra' : `⚠ ERROR — Diferencia: ${fmtN(diff)}`;
+        rowsHtml += `<tr>
+          <td colspan="${totalCols}" style="padding:8px 12px;font-weight:700;font-size:13px;color:#fff;background:${bgOk};border-radius:0 0 4px 4px;text-align:center">${label}</td>
+        </tr>`;
+      }
 
       // Double-header for each column (value + %)
       const extraHeaders = multiSede
@@ -12479,19 +12498,25 @@ function showUserModal(user, onSave) {
         </div>
       </div>
       <div class="form-group" id="um-ops-section"><label>Operaciones Autorizadas</label>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
-          ${ALL_OPS.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-            <input type="checkbox" name="um-op" value="${op}" ${(user?.operations||[]).includes(op)?'checked':''}>
-            ${op}
-          </label>`).join('')}
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+          ${[ALL_OPS_ROW1, ALL_OPS_ROW2].map(row => `
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${row.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+              <input type="checkbox" name="um-op" value="${op}" ${(user?.operations||[]).includes(op)?'checked':''}>
+              ${op}
+            </label>`).join('')}
+          </div>`).join('')}
         </div>
       </div>
       <div class="form-group" id="um-transf-dest-section"><label>Operaciones Destino para Transferencias</label>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
-          ${ALL_OPS.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-            <input type="checkbox" name="um-transf-dest" value="${op}" ${(user?.transferenciaDestinos||[]).includes(op)?'checked':''}>
-            ${op}
-          </label>`).join('')}
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+          ${[ALL_OPS_ROW1, ALL_OPS_ROW2].map(row => `
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${row.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+              <input type="checkbox" name="um-transf-dest" value="${op}" ${(user?.transferenciaDestinos||[]).includes(op)?'checked':''}>
+              ${op}
+            </label>`).join('')}
+          </div>`).join('')}
         </div>
       </div>
       <div id="um-permisos-extra" class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
