@@ -10859,7 +10859,7 @@ async function viewPL(container) {
           <div>
             <label class="form-label">Año desde</label>
             <select id="pl-anio-desde" class="form-control" style="width:90px">
-              ${[anioActual-2,anioActual-1,anioActual,anioActual+1].map(y=>`<option value="${y}"${y===anioActual?' selected':''}>${y}</option>`).join('')}
+              ${[anioActual-4,anioActual-3,anioActual-2,anioActual-1,anioActual,anioActual+1].map(y=>`<option value="${y}"${y===anioActual?' selected':''}>${y}</option>`).join('')}
             </select>
           </div>
           <div>
@@ -10873,7 +10873,7 @@ async function viewPL(container) {
           <div>
             <label class="form-label">Año hasta</label>
             <select id="pl-anio-hasta" class="form-control" style="width:90px">
-              ${[anioActual-2,anioActual-1,anioActual,anioActual+1].map(y=>`<option value="${y}"${y===anioActual?' selected':''}>${y}</option>`).join('')}
+              ${[anioActual-4,anioActual-3,anioActual-2,anioActual-1,anioActual,anioActual+1].map(y=>`<option value="${y}"${y===anioActual?' selected':''}>${y}</option>`).join('')}
             </select>
           </div>
           <div>
@@ -11054,41 +11054,68 @@ async function viewPL(container) {
 
       const totalCols = allCols.length * 2 + 1 + (multiSede ? 2 : 0);
 
+      // Rows that get green+bold highlight
+      const keyRows = new Set(['VENTA_NETA','MARGEN','EBITDA','UTIL_OPERATIVA','UTIL_NETA','UTIL_NETA_DI']);
+      const keyItems = new Set(['COSTO DE VENTA']); // standalone items also highlighted
+      // Rows with font size +1
+      const bigRows = new Set(['VENTA_NETA','EBITDA']);
+      const bigItems = new Set(['COSTO DE VENTA']);
+
       rowsToRender.forEach(row => {
-        const label = row.type === 'item' ? row.grupo : row.label;
-        const isDrillable = row.type === 'item';
-        const bgStyle = 'background:var(--bg-hover)';
-        const labelStyle = `padding:6px 8px 6px ${isDrillable?'20px':'8px'};font-weight:600;font-size:13px;white-space:nowrap;min-width:220px;max-width:280px`;
+        const rawLabel = row.type === 'item' ? row.grupo : row.label;
+        // Strip leading "TOTAL " from labels
+        const label = rawLabel.replace(/^TOTAL\s+/i, '');
+
+        const rowKey = row.key || row.grupo || '';
+        const isKey = keyRows.has(rowKey) || keyItems.has(row.grupo || '');
+        const isBig = bigRows.has(rowKey) || bigItems.has(row.grupo || '');
+
+        // Only subtotals and standalone items are drillable (not computed)
+        const isDrillable = row.type === 'item' || row.type === 'subtotal';
+        const drillId = row.type === 'item'
+          ? 'pl-drill-' + (row.grupo||'').replace(/[^A-Z0-9]/gi,'_')
+          : 'pl-drill-' + rowKey;
+        // For subtotals pass all grupos; for items pass single grupo
+        const drillGrupos = row.type === 'subtotal'
+          ? row.grupos.join(',')
+          : (row.grupo || '');
+
+        const bg = isKey ? '#16a34a' : 'var(--bg-hover)';
+        const textColor = isKey ? 'color:#fff' : '';
+        const bgStyle = `background:${bg}`;
+        const fsize = isBig ? '14px' : '13px';
+        const psize = isBig ? '12px' : '11px';
+
         const dataOnClick = isDrillable
-          ? `onclick="plDrilldown('${esc(row.grupo).replace(/'/g,"\\'")}', this)"` : '';
+          ? `onclick="plDrilldown('${drillId}','${drillGrupos.replace(/'/g,"\\'")}',this)"` : '';
 
         let rowCells = colsData.map(col => {
           const v = getVal(row, col);
           const vn = getVentaNeta(col);
           const pct = fmtPct(v, vn);
-          const color = v < 0 ? 'color:#dc2626' : '';
-          return `<td style="text-align:right;padding:6px 8px;font-size:13px;min-width:90px;${color};${bgStyle}">${fmtN(v)}</td>
-                  <td style="text-align:right;padding:6px 6px;font-size:11px;min-width:52px;color:var(--text-muted);${bgStyle}">${pct}</td>`;
+          const numColor = isKey ? '' : (v < 0 ? 'color:#dc2626' : '');
+          return `<td style="text-align:right;padding:6px 8px;font-size:${fsize};min-width:90px;${numColor};${bgStyle};${textColor}">${fmtN(v)}</td>
+                  <td style="text-align:right;padding:6px 6px;font-size:${psize};min-width:52px;${bgStyle};${isKey?textColor:'color:var(--text-muted)'}">${pct}</td>`;
         }).join('');
         const tot = getTotal(row);
         const totVN = getVentaNeta(totalCol);
-        const totColor = tot < 0 ? 'color:#dc2626' : '';
-        rowCells += `<td style="text-align:right;padding:6px 8px;font-size:13px;font-weight:700;min-width:90px;${totColor};${bgStyle}">${fmtN(tot)}</td>`;
+        const totColor = isKey ? '' : (tot < 0 ? 'color:#dc2626' : '');
+        rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};font-weight:700;min-width:90px;${totColor};${bgStyle};${textColor}">${fmtN(tot)}</td>`;
         if (multiSede) {
           const elim = 0;
           const neto = tot - elim;
-          const netoColor = neto < 0 ? 'color:#dc2626' : '';
-          rowCells += `<td style="text-align:right;padding:6px 8px;font-size:13px;min-width:90px;${bgStyle}">${fmtN(elim)}</td>`;
-          rowCells += `<td style="text-align:right;padding:6px 8px;font-size:13px;font-weight:700;min-width:90px;${netoColor};${bgStyle}">${fmtN(neto)}</td>`;
+          const netoColor = isKey ? '' : (neto < 0 ? 'color:#dc2626' : '');
+          rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};min-width:90px;${bgStyle};${textColor}">${fmtN(elim)}</td>`;
+          rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};font-weight:700;min-width:90px;${netoColor};${bgStyle};${textColor}">${fmtN(neto)}</td>`;
         }
 
         rowsHtml += `<tr ${dataOnClick} style="${isDrillable?'cursor:pointer':''}">
-          <td style="${labelStyle};${bgStyle}"><strong>${esc(label)}</strong></td>
+          <td style="padding:6px 8px;font-weight:700;font-size:${fsize};white-space:nowrap;min-width:220px;max-width:280px;${bgStyle};${textColor}">${esc(label)}</td>
           ${rowCells}
         </tr>`;
 
         if (isDrillable) {
-          rowsHtml += `<tr id="pl-drill-${esc(row.grupo).replace(/[^A-Z0-9]/gi,'_')}" style="display:none"><td colspan="${totalCols}" style="padding:0 8px 8px 24px;background:var(--bg-hover)"></td></tr>`;
+          rowsHtml += `<tr id="${drillId}" style="display:none"><td colspan="${totalCols}" style="padding:0 8px 8px 16px;background:var(--bg-page)"></td></tr>`;
         }
       });
 
@@ -11143,8 +11170,7 @@ async function viewPL(container) {
     } catch(e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   };
 
-  window.plDrilldown = async function(grupo, rowEl) {
-    const rowId = 'pl-drill-' + grupo.replace(/[^A-Z0-9]/gi,'_');
+  window.plDrilldown = async function(rowId, gruposStr, rowEl) {
     const detailRow = document.getElementById(rowId);
     if (!detailRow) return;
     if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
@@ -11153,7 +11179,11 @@ async function viewPL(container) {
     detailRow.style.display = '';
     try {
       const { periodoDesde, periodoHasta, cols, unidades } = window._plContext || {};
-      const qs = new URLSearchParams({ grupo, periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
+      const grupos = gruposStr.split(',').map(g => g.trim()).filter(Boolean);
+      const qs = new URLSearchParams({ periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
+      // Single grupo → use grupo param; multiple → use grupos param
+      if (grupos.length === 1) qs.set('grupo', grupos[0]);
+      else qs.set('grupos', grupos.join(','));
       const data = await GET(`/eerr/detalle?${qs}`);
       if (!data.datos.length) { td.innerHTML = '<div style="padding:8px;color:var(--text-muted)">Sin detalle</div>'; return; }
       const colsD = data.columnas;

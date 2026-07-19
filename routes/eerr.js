@@ -102,8 +102,12 @@ router.get('/detalle', async (req, res) => {
   try {
     if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
 
-    const { grupo } = req.query;
-    if (!grupo) return res.status(400).json({ error: 'Falta grupo' });
+    // Accept single grupo or comma-separated grupos (for subtotal drill-down)
+    const grupoList = req.query.grupos
+      ? req.query.grupos.split(',').map(g => g.trim()).filter(Boolean)
+      : req.query.grupo ? [req.query.grupo] : [];
+    if (!grupoList.length) return res.status(400).json({ error: 'Falta grupo' });
+    const grupoFilter = grupoList.length === 1 ? grupoList[0] : { $in: grupoList };
 
     const periodoDesde = parseInt(req.query.periodoDesde) || 0;
     const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
@@ -117,7 +121,7 @@ router.get('/detalle', async (req, res) => {
       : (req.user.operations || []).filter(u => !sedesReq.length || sedesReq.includes(u));
 
     const match = {
-      grupo,
+      grupo: grupoFilter,
       periodo: { $gte: periodoDesde, $lte: periodoHasta },
       ...(sedes.length && { sede: { $in: sedes } }),
     };
