@@ -11162,7 +11162,7 @@ async function viewPL(container) {
       </thead>`;
 
       wrap.innerHTML = `
-        <div style="overflow-x:auto">
+        <div style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 340px)">
           <table style="width:auto;border-collapse:collapse;font-size:13px;table-layout:auto">
             ${headerHtml}
             <tbody>${rowsHtml}</tbody>
@@ -11223,43 +11223,66 @@ async function viewPL(container) {
   window.plDrilldown = function(rowId, gruposStr, rowEl) {
     const detailRow = document.getElementById(rowId);
     if (!detailRow) return;
-    if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
-    const td = detailRow.querySelector('td');
-    detailRow.style.display = '';
+    const tbody = detailRow.parentElement;
 
-    const { lookup, colsData, multiSede: ms } = window._plContext || {};
-    const grupos = gruposStr.split(',').map(g => g.trim()).filter(Boolean);
-
-    if (grupos.length === 1) {
-      // Standalone item → persona level directly
-      _plRenderPersonas(td, grupos[0]);
+    // Toggle if already expanded: remove child rows
+    const existing = tbody.querySelectorAll(`tr[data-drill-parent="${rowId}"]`);
+    if (existing.length) {
+      existing.forEach(r => r.remove());
+      detailRow.style.display = 'none';
       return;
     }
 
-    // Subtotal → Level 2: list items with their values, each clickable for persona detail
+    const { lookup, colsData, multiSede: ms } = window._plContext || {};
+    const grupos = gruposStr.split(',').map(g => g.trim()).filter(Boolean);
     const cd = colsData || [];
+
+    if (grupos.length === 1) {
+      // Standalone item → persona level directly in placeholder row
+      if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
+      detailRow.style.display = '';
+      _plRenderPersonas(detailRow.querySelector('td'), grupos[0]);
+      return;
+    }
+
+    // Subtotal → inject real <tr> rows into parent <tbody> for perfect column alignment
     const colSpan = 1 + cd.length * 2 + 1 + (ms ? 2 : 0);
-    let html = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:0"><tbody>`;
+    const border = 'border-bottom:1px solid var(--border)';
+    let insertAfter = detailRow;
+
     grupos.forEach(grupo => {
-      const drillId = 'pl-d2-' + grupo.replace(/[^A-Z0-9]/gi,'_');
-      const g = grupo.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-      const vals = cd.map(col => {
+      const drillId2 = 'pl-d2-' + rowId + '_' + grupo.replace(/[^A-Z0-9]/gi,'_');
+      const valCells = cd.map(col => {
         const v = lookup?.[grupo]?.[col] || 0;
-        return `<td style="text-align:right;padding:4px 8px;min-width:90px">${_plFmtN(v)}</td><td style="min-width:52px"></td>`;
+        return `<td style="text-align:right;padding:5px 8px;font-size:12px;min-width:90px;${border}">${_plFmtN(v)}</td>
+                <td style="min-width:52px;${border}"></td>`;
       }).join('');
       const tot = cd.reduce((s,c)=>s+(lookup?.[grupo]?.[c]||0),0);
-      const extraCells = ms ? `<td style="min-width:90px"></td><td style="min-width:90px"></td>` : '';
-      html += `<tr onclick="plDrilldownPersona('${drillId}','${g}',this)"
-          style="cursor:pointer;border-bottom:1px solid var(--border)">
-        <td style="padding:4px 8px 4px 20px;white-space:nowrap;min-width:220px">${esc(grupo)}</td>
-        ${vals}
-        <td style="text-align:right;padding:4px 8px;font-weight:600;min-width:90px">${_plFmtN(tot)}</td>
+      const extraCells = ms
+        ? `<td style="min-width:90px;${border}"></td><td style="min-width:90px;${border}"></td>`
+        : '';
+
+      const itemRow = document.createElement('tr');
+      itemRow.setAttribute('data-drill-parent', rowId);
+      itemRow.style.cursor = 'pointer';
+      itemRow.innerHTML = `
+        <td style="padding:5px 8px 5px 32px;white-space:nowrap;font-size:12px;min-width:220px;${border}">${esc(grupo)}</td>
+        ${valCells}
+        <td style="text-align:right;padding:5px 8px;font-size:12px;font-weight:600;min-width:90px;${border}">${_plFmtN(tot)}</td>
         ${extraCells}
-      </tr>
-      <tr id="${drillId}" style="display:none"><td colspan="${colSpan}" style="padding:0 0 0 20px;background:var(--bg-page)"></td></tr>`;
+      `;
+      itemRow.addEventListener('click', () => plDrilldownPersona(drillId2, grupo, itemRow));
+
+      const personaRow = document.createElement('tr');
+      personaRow.id = drillId2;
+      personaRow.setAttribute('data-drill-parent', rowId);
+      personaRow.style.display = 'none';
+      personaRow.innerHTML = `<td colspan="${colSpan}" style="padding:0 0 4px 32px;background:var(--bg-page)"></td>`;
+
+      insertAfter.after(itemRow);
+      itemRow.after(personaRow);
+      insertAfter = personaRow;
     });
-    html += `</tbody></table>`;
-    td.innerHTML = html;
   };
 }
 
