@@ -10671,11 +10671,11 @@ window.ebcGuardarComentario = async function(id, comentario) {
 
 const PL_ESTRUCTURA = [
   { type:'header', label:'VENTA NETA' },
-  { type:'item',   grupo:'VENTA NETA A&B' },
-  { type:'item',   grupo:'VENTA NETA EVENTOS' },
-  { type:'item',   grupo:'AUSPICIOS' },
-  { type:'item',   grupo:'REDENCION PROMOCIONAL' },
-  { type:'item',   grupo:'OTROS INGRESOS' },
+  { type:'item',   grupo:'VENTA NETA A&B',         flipSign:true },
+  { type:'item',   grupo:'VENTA NETA EVENTOS',      flipSign:true },
+  { type:'item',   grupo:'AUSPICIOS',               flipSign:true },
+  { type:'item',   grupo:'REDENCION PROMOCIONAL',   flipSign:true },
+  { type:'item',   grupo:'OTROS INGRESOS',          flipSign:true },
   { type:'subtotal', key:'VENTA_NETA', label:'VENTA NETA',
     grupos:['VENTA NETA A&B','VENTA NETA EVENTOS','AUSPICIOS','REDENCION PROMOCIONAL','OTROS INGRESOS'] },
 
@@ -10800,7 +10800,7 @@ const PL_ESTRUCTURA = [
     fn: t => (t['EBITDA']||0) - (t['PROVISIONES']||0) },
 
   { type:'header', label:'FINANCIEROS' },
-  { type:'item', grupo:'INGRESOS FINANCIEROS' },
+  { type:'item', grupo:'INGRESOS FINANCIEROS', flipSign:true },
   { type:'item', grupo:'INTERESES' },
   { type:'item', grupo:'DIFERENCIA DE CAMBIO NETA' },
   { type:'subtotal', key:'FINANCIEROS', label:'TOTAL FINANCIEROS',
@@ -10833,7 +10833,7 @@ async function viewPL(container) {
 
   const renderOpsSection = (lista) => lista.length
     ? `<div style="margin-top:12px">
-        <label class="form-label" style="margin-bottom:6px">Operaciones</label>
+        <label class="form-label" style="margin-bottom:6px">Sedes</label>
         <div style="display:flex;flex-wrap:wrap;gap:8px" id="pl-ops-wrap">
           ${lista.map(u => `
             <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg-card)">
@@ -10853,15 +10853,33 @@ async function viewPL(container) {
     </div>
     <div class="card mb-16" style="padding:16px">
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
-        <div>
-          <label class="form-label">Desde</label>
-          <input type="month" id="pl-desde" class="form-control" style="width:160px"
-            value="${anioActual}-${String(mesActual).padStart(2,'0')}">
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div>
+            <label class="form-label">Año desde</label>
+            <select id="pl-anio-desde" class="form-control" style="width:90px">
+              ${[anioActual-2,anioActual-1,anioActual,anioActual+1].map(y=>`<option value="${y}"${y===anioActual?' selected':''}>${y}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Mes desde</label>
+            <select id="pl-mes-desde" class="form-control" style="width:110px">
+              ${['01 Ene','02 Feb','03 Mar','04 Abr','05 May','06 Jun','07 Jul','08 Ago','09 Set','10 Oct','11 Nov','12 Dic'].map((m,i)=>{const v=String(i+1).padStart(2,'0');return`<option value="${v}"${v==='01'?' selected':''}>${m}</option>`;}).join('')}
+            </select>
+          </div>
         </div>
-        <div>
-          <label class="form-label">Hasta</label>
-          <input type="month" id="pl-hasta" class="form-control" style="width:160px"
-            value="${anioActual}-${String(mesActual).padStart(2,'0')}">
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div>
+            <label class="form-label">Año hasta</label>
+            <select id="pl-anio-hasta" class="form-control" style="width:90px">
+              ${[anioActual-2,anioActual-1,anioActual,anioActual+1].map(y=>`<option value="${y}"${y===anioActual?' selected':''}>${y}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Mes hasta</label>
+            <select id="pl-mes-hasta" class="form-control" style="width:110px">
+              ${['01 Ene','02 Feb','03 Mar','04 Abr','05 May','06 Jun','07 Jul','08 Ago','09 Set','10 Oct','11 Nov','12 Dic'].map((m,i)=>{const v=String(i+1).padStart(2,'0');return`<option value="${v}"${v===String(mesActual).padStart(2,'0')?' selected':''}>${m}</option>`;}).join('')}
+            </select>
+          </div>
         </div>
         <div>
           <label class="form-label">Columnas</label>
@@ -10898,11 +10916,12 @@ async function viewPL(container) {
     const wrap = document.getElementById('pl-resultado');
     wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Consultando...</div>';
     try {
-      const desde = (document.getElementById('pl-desde').value || '').replace('-','');
-      const hasta  = (document.getElementById('pl-hasta').value || '').replace('-','');
-      if (!desde || !hasta) { toast('Selecciona período Desde y Hasta', 'warning'); return; }
-      const periodoDesde = desde;  // YYYYMM (6 dígitos), igual que el campo PERIODO en EERR
-      const periodoHasta = hasta;
+      const anioDesde = document.getElementById('pl-anio-desde').value;
+      const mesDesde  = document.getElementById('pl-mes-desde').value;
+      const anioHasta = document.getElementById('pl-anio-hasta').value;
+      const mesHasta  = document.getElementById('pl-mes-hasta').value;
+      const periodoDesde = anioDesde + mesDesde;  // YYYYMM (6 dígitos)
+      const periodoHasta = anioHasta + mesHasta;
       const cols = document.getElementById('pl-cols').value;
       const unidades = [...document.querySelectorAll('input[name="pl-unidad"]:checked')].map(c => c.value);
       // Admin sin unidades seleccionadas = consultar todas
@@ -10916,6 +10935,17 @@ async function viewPL(container) {
       const lookup = {};
       data.datos.forEach(r => {
         lookup[r.grupo] = r;
+      });
+
+      // Flip sign for income items (stored negative in DB, display positive)
+      PL_ESTRUCTURA.forEach(row => {
+        if (row.type === 'item' && row.flipSign && lookup[row.grupo]) {
+          data.columnas.forEach(col => {
+            if (lookup[row.grupo][col] !== undefined) {
+              lookup[row.grupo][col] = -lookup[row.grupo][col];
+            }
+          });
+        }
       });
 
       // Compute totals per column using the structure
@@ -10937,6 +10967,9 @@ async function viewPL(container) {
         }
         return null;
       }
+
+      // Extra columns when multiple sedes selected in operacion mode
+      const multiSede = cols === 'operacion' && data.columnas.length > 1;
 
       // Grand total column
       const totalCol = '__TOTAL__';
@@ -11007,7 +11040,7 @@ async function viewPL(container) {
 
       PL_ESTRUCTURA.forEach(row => {
         if (row.type === 'header') {
-          rowsHtml += `<tr><td colspan="${allCols.length*2+1}" style="padding:10px 8px 4px;font-weight:700;font-size:12px;color:var(--text-muted);text-transform:uppercase;background:var(--bg-page)">${esc(row.label)}</td></tr>`;
+          rowsHtml += `<tr><td colspan="${allCols.length*2+1+(multiSede?2:0)}" style="padding:10px 8px 4px;font-weight:700;font-size:12px;color:var(--text-muted);text-transform:uppercase;background:var(--bg-page)">${esc(row.label)}</td></tr>`;
           return;
         }
         const label = row.type === 'item' ? row.grupo : row.label;
@@ -11016,7 +11049,7 @@ async function viewPL(container) {
         const bgStyle = (row.type === 'subtotal' || row.type === 'computed')
           ? 'background:var(--bg-hover)'
           : '';
-        const labelStyle = `padding:5px 8px 5px ${isDrillable?'20px':'8px'};font-weight:${isBold?'600':'normal'};font-size:13px;white-space:nowrap`;
+        const labelStyle = `padding:5px 8px 5px ${isDrillable?'20px':'8px'};font-weight:${isBold?'600':'normal'};font-size:13px;white-space:nowrap;min-width:220px;max-width:280px`;
         const dataOnClick = isDrillable
           ? `onclick="plDrilldown('${esc(row.grupo).replace(/'/g,"\\'")}', this)"` : '';
 
@@ -11025,14 +11058,22 @@ async function viewPL(container) {
           const vn = getVentaNeta(col);
           const pct = fmtPct(v, vn);
           const color = v < 0 ? 'color:#dc2626' : '';
-          return `<td style="text-align:right;padding:5px 10px;font-size:13px;${color};${bgStyle}">${fmtN(v)}</td>
-                  <td style="text-align:right;padding:5px 10px;font-size:12px;color:var(--text-muted);${bgStyle}">${pct}</td>`;
+          return `<td style="text-align:right;padding:5px 8px;font-size:13px;min-width:90px;${color};${bgStyle}">${fmtN(v)}</td>
+                  <td style="text-align:right;padding:5px 6px;font-size:11px;min-width:52px;color:var(--text-muted);${bgStyle}">${pct}</td>`;
         }).join('');
         const tot = getTotal(row);
         const totVN = getVentaNeta(totalCol);
         const totPct = fmtPct(tot, totVN);
         const totColor = tot < 0 ? 'color:#dc2626' : '';
-        rowCells += `<td style="text-align:right;padding:5px 10px;font-size:13px;font-weight:700;${totColor};${bgStyle}">${fmtN(tot)}</td>`;
+        rowCells += `<td style="text-align:right;padding:5px 8px;font-size:13px;font-weight:700;min-width:90px;${totColor};${bgStyle}">${fmtN(tot)}</td>`;
+        if (multiSede) {
+          // Eliminación: 0 for now (intercompany transactions TBD)
+          const elim = 0;
+          const neto = tot - elim;
+          const netoColor = neto < 0 ? 'color:#dc2626' : '';
+          rowCells += `<td style="text-align:right;padding:5px 8px;font-size:13px;min-width:90px;${bgStyle}">${fmtN(elim)}</td>`;
+          rowCells += `<td style="text-align:right;padding:5px 8px;font-size:13px;font-weight:700;min-width:90px;${netoColor};${bgStyle}">${fmtN(neto)}</td>`;
+        }
 
         rowsHtml += `<tr ${dataOnClick} style="${isDrillable?'cursor:pointer':''}">
           <td style="${labelStyle};${bgStyle}">${isBold ? `<strong>${esc(label)}</strong>` : esc(label)}</td>
@@ -11041,27 +11082,37 @@ async function viewPL(container) {
 
         // Placeholder for drill-down detail
         if (isDrillable) {
-          rowsHtml += `<tr id="pl-drill-${esc(row.grupo).replace(/[^A-Z0-9]/gi,'_')}" style="display:none"><td colspan="${allCols.length*2+1}" style="padding:0 8px 8px 24px;background:var(--bg-hover)"></td></tr>`;
+          rowsHtml += `<tr id="pl-drill-${esc(row.grupo).replace(/[^A-Z0-9]/gi,'_')}" style="display:none"><td colspan="${allCols.length*2+1+(multiSede?2:0)}" style="padding:0 8px 8px 24px;background:var(--bg-hover)"></td></tr>`;
         }
       });
 
       // Double-header for each column (value + %)
+      const extraHeaders = multiSede
+        ? `<th style="text-align:center;padding:6px 8px;border-left:1px solid var(--border);white-space:nowrap">ELIMINACIÓN</th>
+           <th style="text-align:center;padding:6px 8px;border-left:1px solid var(--border);font-weight:700;white-space:nowrap">TOTAL NETO</th>`
+        : '';
+      const extraSubHeaders = multiSede
+        ? `<th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th>
+           <th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th>`
+        : '';
       const headerHtml = `<thead>
         <tr>
-          <th style="text-align:left;padding:6px 8px;min-width:200px">Concepto</th>
-          ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 10px;white-space:nowrap;border-left:1px solid var(--border)">${esc(String(c))}</th>`).join('')}
-          <th style="text-align:center;padding:6px 10px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>
+          <th style="text-align:left;padding:6px 8px;min-width:220px;max-width:220px;white-space:nowrap">Concepto</th>
+          ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 8px;white-space:nowrap;border-left:1px solid var(--border)">${esc(String(c))}</th>`).join('')}
+          <th style="text-align:center;padding:6px 8px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>
+          ${extraHeaders}
         </tr>
         <tr style="font-size:11px;color:var(--text-muted)">
           <th></th>
-          ${colsData.map(() => `<th style="text-align:right;padding:2px 10px;border-left:1px solid var(--border)">S/</th><th style="text-align:right;padding:2px 10px">%</th>`).join('')}
-          <th style="text-align:right;padding:2px 10px;border-left:1px solid var(--border)">S/</th>
+          ${colsData.map(() => `<th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th><th style="text-align:right;padding:2px 6px">%</th>`).join('')}
+          <th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th>
+          ${extraSubHeaders}
         </tr>
       </thead>`;
 
       wrap.innerHTML = `
         <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <table style="width:auto;border-collapse:collapse;font-size:13px;table-layout:auto">
             ${headerHtml}
             <tbody>${rowsHtml}</tbody>
           </table>

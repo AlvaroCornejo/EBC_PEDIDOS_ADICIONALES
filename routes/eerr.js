@@ -9,19 +9,11 @@ function canAccess(user) {
   return user.role === 'ADMIN' || !!user.accesoEERR;
 }
 
-// Unidades autorizadas para el usuario
-function unidadesAuth(user, requested) {
-  const authorized = user.role === 'ADMIN'
-    ? requested  // admin puede ver cualquiera
-    : (user.operations || []).filter(u => !requested.length || requested.includes(u));
-  return authorized;
-}
-
-// GET /unidades — lista de unidades disponibles (filtradas por permiso)
+// GET /sedes — lista de sedes disponibles (filtradas por permiso)
 router.get('/unidades', async (req, res) => {
   try {
     if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
-    const todas = await Eerr.distinct('unidad');
+    const todas = await Eerr.distinct('sede');
     const auth = req.user.role === 'ADMIN'
       ? todas
       : (req.user.operations || []).filter(u => todas.includes(u));
@@ -29,7 +21,7 @@ router.get('/unidades', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /resumen — agrega SOLES por GRUPO, columnas por operacion o año
+// GET /resumen — agrega SOLES por GRUPO, columnas por sede o año
 // Query: periodoDesde, periodoHasta, unidades (csv), cols (operacion|anio)
 router.get('/resumen', async (req, res) => {
   try {
@@ -39,16 +31,16 @@ router.get('/resumen', async (req, res) => {
     const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
     const cols = req.query.cols === 'anio' ? 'anio' : 'operacion';
 
-    const unidadesReq = req.query.unidades
+    const sedesReq = req.query.unidades
       ? req.query.unidades.split(',').map(u => u.trim()).filter(Boolean)
       : [];
-    const unidades = req.user.role === 'ADMIN'
-      ? unidadesReq
-      : (req.user.operations || []).filter(u => !unidadesReq.length || unidadesReq.includes(u));
+    const sedes = req.user.role === 'ADMIN'
+      ? sedesReq
+      : (req.user.operations || []).filter(u => !sedesReq.length || sedesReq.includes(u));
 
     const match = {
       periodo: { $gte: periodoDesde, $lte: periodoHasta },
-      ...(unidades.length && { unidad: { $in: unidades } }),
+      ...(sedes.length && { sede: { $in: sedes } }),
     };
 
     let columnas, datos;
@@ -56,20 +48,18 @@ router.get('/resumen', async (req, res) => {
     if (cols === 'operacion') {
       const agg = await Eerr.aggregate([
         { $match: match },
-        { $group: { _id: { grupo: '$grupo', unidad: '$unidad' }, soles: { $sum: '$soles' } } },
-        { $sort: { '_id.unidad': 1 } },
+        { $group: { _id: { grupo: '$grupo', sede: '$sede' }, soles: { $sum: '$soles' } } },
+        { $sort: { '_id.sede': 1 } },
       ]);
 
-      // Collect column order
       const colSet = new Set();
-      agg.forEach(r => colSet.add(r._id.unidad));
+      agg.forEach(r => colSet.add(r._id.sede));
       columnas = [...colSet].sort();
 
-      // Pivot
       const map = {};
       agg.forEach(r => {
         if (!map[r._id.grupo]) map[r._id.grupo] = {};
-        map[r._id.grupo][r._id.unidad] = (map[r._id.grupo][r._id.unidad] || 0) + r.soles;
+        map[r._id.grupo][r._id.sede] = (map[r._id.grupo][r._id.sede] || 0) + r.soles;
       });
       datos = Object.entries(map).map(([grupo, vals]) => ({ grupo, ...vals }));
 
@@ -119,17 +109,17 @@ router.get('/detalle', async (req, res) => {
     const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
     const cols = req.query.cols === 'anio' ? 'anio' : 'operacion';
 
-    const unidadesReq = req.query.unidades
+    const sedesReq = req.query.unidades
       ? req.query.unidades.split(',').map(u => u.trim()).filter(Boolean)
       : [];
-    const unidades = req.user.role === 'ADMIN'
-      ? unidadesReq
-      : (req.user.operations || []).filter(u => !unidadesReq.length || unidadesReq.includes(u));
+    const sedes = req.user.role === 'ADMIN'
+      ? sedesReq
+      : (req.user.operations || []).filter(u => !sedesReq.length || sedesReq.includes(u));
 
     const match = {
       grupo,
       periodo: { $gte: periodoDesde, $lte: periodoHasta },
-      ...(unidades.length && { unidad: { $in: unidades } }),
+      ...(sedes.length && { sede: { $in: sedes } }),
     };
 
     let columnas, datos;
@@ -137,19 +127,19 @@ router.get('/detalle', async (req, res) => {
     if (cols === 'operacion') {
       const agg = await Eerr.aggregate([
         { $match: match },
-        { $group: { _id: { persona: '$persona', unidad: '$unidad' }, soles: { $sum: '$soles' } } },
-        { $sort: { '_id.unidad': 1, '_id.persona': 1 } },
+        { $group: { _id: { persona: '$persona', sede: '$sede' }, soles: { $sum: '$soles' } } },
+        { $sort: { '_id.sede': 1, '_id.persona': 1 } },
       ]);
 
       const colSet = new Set();
-      agg.forEach(r => colSet.add(r._id.unidad));
+      agg.forEach(r => colSet.add(r._id.sede));
       columnas = [...colSet].sort();
 
       const map = {};
       agg.forEach(r => {
         const p = r._id.persona || '(sin proveedor)';
         if (!map[p]) map[p] = {};
-        map[p][r._id.unidad] = (map[p][r._id.unidad] || 0) + r.soles;
+        map[p][r._id.sede] = (map[p][r._id.sede] || 0) + r.soles;
       });
       datos = Object.entries(map)
         .map(([persona, vals]) => ({ persona, ...vals }))
