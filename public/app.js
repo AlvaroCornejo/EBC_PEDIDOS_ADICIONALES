@@ -11165,53 +11165,121 @@ async function viewPL(container) {
           </table>
         </div>`;
 
-      // Store context for drill-down
-      window._plContext = { periodoDesde, periodoHasta, cols, unidades };
+      // Store context for drill-down (lookup needed for level-2 item expansion)
+      window._plContext = { periodoDesde, periodoHasta, cols, unidades, lookup, colsData };
 
     } catch(e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   };
 
-  window.plDrilldown = async function(rowId, gruposStr, rowEl) {
+  const _plFmtN = v => {
+    if (v === null || v === undefined || v === 0) return '';
+    const abs = Math.abs(v);
+    const s = abs >= 1000 ? abs.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0}) : abs.toFixed(0);
+    return v < 0 ? `(${s})` : s;
+  };
+
+  // Level 3: persona breakdown for a single grupo
+  window.plDrilldownPersona = async function(rowId, grupo, rowEl) {
     const detailRow = document.getElementById(rowId);
     if (!detailRow) return;
     if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
     const td = detailRow.querySelector('td');
-    td.innerHTML = '<div style="padding:8px;color:var(--text-muted)">⏳ Cargando...</div>';
+    td.innerHTML = '<div style="padding:6px 16px;color:var(--text-muted);font-size:12px">⏳ Cargando...</div>';
     detailRow.style.display = '';
     try {
       const { periodoDesde, periodoHasta, cols, unidades } = window._plContext || {};
-      const grupos = gruposStr.split(',').map(g => g.trim()).filter(Boolean);
-      const qs = new URLSearchParams({ periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
-      // Single grupo → use grupo param; multiple → use grupos param
-      if (grupos.length === 1) qs.set('grupo', grupos[0]);
-      else qs.set('grupos', grupos.join(','));
+      const qs = new URLSearchParams({ grupo, periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
       const data = await GET(`/eerr/detalle?${qs}`);
-      if (!data.datos.length) { td.innerHTML = '<div style="padding:8px;color:var(--text-muted)">Sin detalle</div>'; return; }
+      if (!data.datos.length) { td.innerHTML = '<div style="padding:6px 16px;color:var(--text-muted);font-size:12px">Sin detalle</div>'; return; }
       const colsD = data.columnas;
-      const fmtN = v => {
-        if (!v) return '';
-        const abs = Math.abs(v);
-        const s = abs >= 1000 ? abs.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0}) : abs.toFixed(0);
-        return v < 0 ? `(${s})` : s;
-      };
-      td.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr>
-          <th style="text-align:left;padding:4px 8px;color:var(--text-muted)">Proveedor / Persona</th>
-          ${colsD.map(c => `<th style="text-align:right;padding:4px 8px;color:var(--text-muted)">${esc(String(c))}</th>`).join('')}
-          <th style="text-align:right;padding:4px 8px;color:var(--text-muted);font-weight:700">TOTAL</th>
+      td.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0">
+        <thead><tr style="background:var(--bg-page)">
+          <th style="text-align:left;padding:3px 10px 3px 24px;color:var(--text-muted);white-space:nowrap;min-width:200px">Proveedor / Persona</th>
+          ${colsD.map(c=>`<th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:80px">${esc(String(c))}</th>`).join('')}
+          <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:80px">TOTAL</th>
         </tr></thead>
         <tbody>${data.datos.slice(0,100).map(r => {
           const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
-          return `<tr>
-            <td style="padding:3px 8px">${esc(r.persona||'(sin proveedor)')}</td>
-            ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${fmtN(r[c])}</td>`).join('')}
-            <td style="text-align:right;padding:3px 8px;font-weight:600">${fmtN(tot)}</td>
+          return `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:3px 10px 3px 24px;white-space:nowrap">${esc(r.persona||'(sin proveedor)')}</td>
+            ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${_plFmtN(r[c])}</td>`).join('')}
+            <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(tot)}</td>
           </tr>`;
         }).join('')}
-        ${data.datos.length > 100 ? `<tr><td colspan="${colsD.length+2}" style="padding:4px 8px;color:var(--text-muted);font-style:italic">... y ${data.datos.length-100} más</td></tr>` : ''}
-        </tbody>
-      </table>`;
+        ${data.datos.length>100?`<tr><td colspan="${colsD.length+2}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
+        </tbody></table>`;
     } catch(e) { td.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+  };
+
+  // Level 1→2: subtotal expands to its items; item goes straight to personas
+  window.plDrilldown = function(rowId, gruposStr, rowEl) {
+    const detailRow = document.getElementById(rowId);
+    if (!detailRow) return;
+    if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
+    const td = detailRow.querySelector('td');
+    detailRow.style.display = '';
+
+    const { lookup, colsData } = window._plContext || {};
+    const grupos = gruposStr.split(',').map(g => g.trim()).filter(Boolean);
+
+    if (grupos.length === 1) {
+      // Standalone item → go straight to persona level
+      td.innerHTML = '';
+      plDrilldownPersona(rowId + '_p', grupos[0], rowEl);
+      // Inject a sub-row for the persona table inside this td
+      td.innerHTML = `<div id="${rowId}_p_wrap"><table style="width:auto;border-collapse:collapse"><tbody>
+        <tr id="${rowId}_p" style="display:none"><td style="padding:0"></td></tr>
+      </tbody></table></div>`;
+      // Just call persona directly using td as container
+      td.innerHTML = '<div style="padding:6px;color:var(--text-muted);font-size:12px">⏳ Cargando...</div>';
+      (async () => {
+        const { periodoDesde, periodoHasta, cols, unidades } = window._plContext || {};
+        try {
+          const qs = new URLSearchParams({ grupo: grupos[0], periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
+          const data = await GET(`/eerr/detalle?${qs}`);
+          if (!data.datos.length) { td.innerHTML = '<div style="padding:6px 8px;color:var(--text-muted);font-size:12px">Sin detalle</div>'; return; }
+          const colsD = data.columnas;
+          td.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0">
+            <thead><tr style="background:var(--bg-page)">
+              <th style="text-align:left;padding:3px 10px 3px 16px;color:var(--text-muted);white-space:nowrap;min-width:200px">Proveedor / Persona</th>
+              ${colsD.map(c=>`<th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:80px">${esc(String(c))}</th>`).join('')}
+              <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:80px">TOTAL</th>
+            </tr></thead>
+            <tbody>${data.datos.slice(0,100).map(r => {
+              const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
+              return `<tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:3px 10px 3px 16px;white-space:nowrap">${esc(r.persona||'(sin proveedor)')}</td>
+                ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${_plFmtN(r[c])}</td>`).join('')}
+                <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(tot)}</td>
+              </tr>`;
+            }).join('')}
+            ${data.datos.length>100?`<tr><td colspan="${colsD.length+2}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
+            </tbody></table>`;
+        } catch(e) { td.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+      })();
+      return;
+    }
+
+    // Multiple grupos (subtotal) → Level 2: show each item with its values
+    const colSpan = (colsData||[]).length * 2 + 2;
+    let html = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0"><tbody>`;
+    grupos.forEach(grupo => {
+      const drillId = 'pl-d2-' + grupo.replace(/[^A-Z0-9]/gi,'_');
+      const vals = (colsData||[]).map(col => {
+        const v = lookup?.[grupo]?.[col] || 0;
+        return `<td style="text-align:right;padding:4px 8px;min-width:80px">${_plFmtN(v)}</td>`;
+      }).join('');
+      const tot = (colsData||[]).reduce((s,c)=>s+(lookup?.[grupo]?.[c]||0),0);
+      html += `<tr onclick="plDrilldownPersona('${drillId}','${grupo.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}',this)"
+          style="cursor:pointer;border-bottom:1px solid var(--border)">
+        <td style="padding:4px 8px 4px 16px;white-space:nowrap;min-width:220px;font-size:12px">${esc(grupo)}</td>
+        ${vals}
+        <td style="text-align:right;padding:4px 8px;font-weight:600;min-width:80px">${_plFmtN(tot)}</td>
+      </tr>
+      <tr id="${drillId}" style="display:none"><td colspan="${colSpan}" style="padding:0 0 0 16px;background:var(--bg-page)"></td></tr>`;
+    });
+    html += `</tbody></table>`;
+    td.innerHTML = html;
   };
 }
 
