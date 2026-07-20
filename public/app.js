@@ -10895,9 +10895,11 @@ async function viewPL(container) {
           <select id="pl-cols" class="form-control" style="width:180px">
             <option value="operacion">Operaciones</option>
             <option value="anio">Años</option>
+            <option value="mes">Meses (seriado)</option>
           </select>
         </div>
         <button class="btn btn-primary" onclick="plConsultar()">🔍 Consultar</button>
+        <button class="btn btn-outline" id="pl-export-btn" style="display:none" onclick="plExportarExcel()">📥 Exportar a Excel</button>
       </div>
       ${renderOpsSection(unidadesDisp)}
     </div>
@@ -10980,6 +10982,16 @@ async function viewPL(container) {
       // Extra columns when multiple sedes selected in operacion mode
       const multiSede = cols === 'operacion' && data.columnas.length > 1;
 
+      const MESES_ABR = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Set','Oct','Nov','Dic'];
+      const fmtCol = c => {
+        if (cols === 'mes' && /^\d{6}$/.test(String(c))) {
+          const s = String(c);
+          const mIdx = parseInt(s.slice(4,6), 10) - 1;
+          return `${MESES_ABR[mIdx] || s.slice(4,6)} ${s.slice(0,4)}`;
+        }
+        return String(c);
+      };
+
       // Grand total column
       const totalCol = '__TOTAL__';
       const allCols = [...data.columnas, totalCol];
@@ -11056,7 +11068,8 @@ async function viewPL(container) {
         if (r.type === 'item') return !gruposEnSubtotal.has(r.grupo);
         return true;
       }).filter(r => {
-        // Ocultar filas con todos los valores en cero
+        // Subtotales y calculados siempre se muestran; items standalone solo si tienen datos
+        if (r.type !== 'item') return true;
         const total = colsData.reduce((s, c) => s + Math.abs(getVal(r, c) || 0), 0);
         return total !== 0;
       });
@@ -11069,6 +11082,8 @@ async function viewPL(container) {
       // Rows with font size +1
       const bigRows = new Set(['VENTA_NETA','EBITDA']);
       const bigItems = new Set(['COSTO DE VENTA']);
+
+      const exportRows = [];
 
       rowsToRender.forEach(row => {
         const rawLabel = row.type === 'item' ? row.grupo : row.label;
@@ -11123,6 +11138,12 @@ async function viewPL(container) {
           ${rowCells}
         </tr>`;
 
+        const exportRow = { concepto: label };
+        colsData.forEach(col => { exportRow[fmtCol(col)] = getVal(row, col); });
+        exportRow['TOTAL'] = tot;
+        if (multiSede) { exportRow['ELIMINACION'] = 0; exportRow['TOTAL NETO'] = tot; }
+        exportRows.push(exportRow);
+
         if (isDrillable) {
           rowsHtml += `<tr id="${drillId}" style="display:none"><td colspan="${totalCols}" style="padding:0 8px 8px 16px;background:var(--bg-page)"></td></tr>`;
         }
@@ -11153,7 +11174,7 @@ async function viewPL(container) {
       const headerHtml = `<thead style="position:sticky;top:0;z-index:10;background:var(--bg-card)">
         <tr>
           <th style="text-align:left;padding:6px 8px;min-width:220px;max-width:220px;white-space:nowrap">Concepto</th>
-          ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 8px;white-space:nowrap;border-left:1px solid var(--border)">${esc(String(c))}</th>`).join('')}
+          ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 8px;white-space:nowrap;border-left:1px solid var(--border)">${esc(fmtCol(c))}</th>`).join('')}
           <th style="text-align:center;padding:6px 8px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>
           ${extraHeaders}
         </tr>
@@ -11174,9 +11195,36 @@ async function viewPL(container) {
         </div>`;
 
       // Store context for drill-down (lookup needed for level-2 item expansion)
-      window._plContext = { periodoDesde, periodoHasta, cols, unidades, lookup, colsData, multiSede };
+      window._plContext = { periodoDesde, periodoHasta, cols, unidades, lookup, colsData, multiSede, exportRows };
+
+      const exportBtn = document.getElementById('pl-export-btn');
+      if (exportBtn) exportBtn.style.display = '';
 
     } catch(e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+  };
+
+  window.plExportarExcel = function() {
+    const { exportRows } = window._plContext || {};
+    if (!exportRows || !exportRows.length) { toast('No hay datos para exportar', 'warning'); return; }
+    const headers = Object.keys(exportRows[0]);
+    const escCsv = v => {
+      const s = v === null || v === undefined ? '' : String(v);
+      return /[",\n;]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    };
+    const lines = [headers.map(escCsv).join(';')];
+    exportRows.forEach(r => {
+      lines.push(headers.map(h => escCsv(typeof r[h] === 'number' ? r[h].toFixed(2) : r[h])).join(';'));
+    });
+    const csv = '﻿' + lines.join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `PL_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   const _plFmtN = v => {
