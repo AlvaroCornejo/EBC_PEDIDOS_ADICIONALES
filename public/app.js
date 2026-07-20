@@ -11124,11 +11124,11 @@ async function viewPL(container) {
         }
       });
 
-      // Balance check: UTIL_NETA_DI + rawTotal should ≈ 0
+      // Balance check: rawTotal (suma directa BD) debe coincidir con UTIL_NETA_DI (calculado)
       const utilNetaDIRow = PL_ESTRUCTURA.find(r => r.key === 'UTIL_NETA_DI');
       const utilNetaDITotal = utilNetaDIRow ? getTotal(utilNetaDIRow) : null;
       if (utilNetaDITotal !== null) {
-        const diff = utilNetaDITotal + rawTotal;
+        const diff = rawTotal - utilNetaDITotal;
         const ok = Math.abs(diff) < 1;
         const bgOk = ok ? '#16a34a' : '#dc2626';
         const label = ok ? '✓ OK — Balance cuadra' : `⚠ ERROR — Diferencia: ${fmtN(diff)}`;
