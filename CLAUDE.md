@@ -20,8 +20,8 @@
 ## Operaciones disponibles (ALL_OPS) — orden exacto
 
 ```javascript
-['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28', 'GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP']
-// Fila 1 (admin form): AASI, CORPQ, CDLAO, PLANTA, CORPFK, CDL28
+['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28', 'MUVON', 'GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP']
+// Fila 1 (admin form): AASI, CORPQ, CDLAO, PLANTA, CORPFK, CDL28, MUVON
 // Fila 2 (admin form): GBGOL, GBADC, GBSRQ, GBCFR, GBCRP, GBPLANTA, GBCORP
 // GBCFR2 eliminado
 ```

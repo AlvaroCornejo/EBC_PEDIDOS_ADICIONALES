@@ -13,8 +13,8 @@ const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULT
 const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pagos']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
-const ALL_OPS = ['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28', 'GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP'];
-const ALL_OPS_ROW1 = ['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28'];
+const ALL_OPS = ['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28', 'MUVON', 'GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP'];
+const ALL_OPS_ROW1 = ['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28', 'MUVON'];
 const ALL_OPS_ROW2 = ['GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP'];
 const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
 
