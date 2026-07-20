@@ -10948,6 +10948,12 @@ async function viewPL(container) {
       const rawTotal = data.datos.reduce((s, r) =>
         s + data.columnas.reduce((s2, col) => s2 + (r[col] || 0), 0), 0);
 
+      // Raw total per column (for per-column balance check)
+      const rawTotalByCol = {};
+      data.columnas.forEach(col => {
+        rawTotalByCol[col] = data.datos.reduce((s, r) => s + (r[col] || 0), 0);
+      });
+
       // Flip sign for income items (stored negative in DB, display positive)
       PL_ESTRUCTURA.forEach(row => {
         if (row.type === 'item' && row.flipSign && lookup[row.grupo]) {
@@ -11149,16 +11155,29 @@ async function viewPL(container) {
         }
       });
 
-      // Balance check: rawTotal (suma directa BD) debe coincidir con UTIL_NETA_DI (calculado)
+      // Balance check por columna: rawTotalByCol debe coincidir con UTIL_NETA_DI calculado por columna
       const utilNetaDIRow = PL_ESTRUCTURA.find(r => r.key === 'UTIL_NETA_DI');
-      const utilNetaDITotal = utilNetaDIRow ? getTotal(utilNetaDIRow) : null;
-      if (utilNetaDITotal !== null) {
-        const diff = rawTotal - utilNetaDITotal;
-        const ok = Math.abs(diff) < 1;
-        const bgOk = ok ? '#16a34a' : '#dc2626';
-        const label = ok ? '✓ OK — Balance cuadra' : `⚠ ERROR — Diferencia: ${fmtN(diff)}`;
+      if (utilNetaDIRow) {
+        let allOk = true;
+        const balCells = colsData.map(col => {
+          const diff = (rawTotalByCol[col] || 0) - getVal(utilNetaDIRow, col);
+          const ok = Math.abs(diff) < 1;
+          if (!ok) allOk = false;
+          const bgCell = ok ? '#16a34a' : '#dc2626';
+          const title = ok ? 'Balance cuadra' : `Diferencia: ${fmtN(diff)}`;
+          return `<td colspan="2" style="padding:6px 8px;text-align:center;color:#fff;background:${bgCell};font-weight:700" title="${esc(title)}">${ok ? '✓ OK' : '⚠ ERROR'}</td>`;
+        }).join('');
+        const diffTot = rawTotal - getTotal(utilNetaDIRow);
+        const okTot = Math.abs(diffTot) < 1;
+        const bgTot = okTot ? '#16a34a' : '#dc2626';
+        const extraBalCells = multiSede
+          ? `<td style="background:${bgTot};color:#fff"></td><td style="background:${bgTot};color:#fff"></td>`
+          : '';
         rowsHtml += `<tr>
-          <td colspan="${totalCols}" style="padding:8px 12px;font-weight:700;font-size:13px;color:#fff;background:${bgOk};border-radius:0 0 4px 4px;text-align:center">${label}</td>
+          <td style="padding:6px 8px;font-weight:700;font-size:13px;background:var(--bg-hover)">BALANCE</td>
+          ${balCells}
+          <td style="padding:6px 8px;text-align:center;color:#fff;background:${bgTot};font-weight:700" title="${esc(okTot?'Balance cuadra':'Diferencia: '+fmtN(diffTot))}">${okTot ? '✓ OK' : '⚠ ERROR'}</td>
+          ${extraBalCells}
         </tr>`;
       }
 
