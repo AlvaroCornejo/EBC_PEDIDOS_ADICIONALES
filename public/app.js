@@ -11075,8 +11075,11 @@ async function viewPL(container) {
         if (r.type === 'item') return !gruposEnSubtotal.has(r.grupo);
         return true;
       }).filter(r => {
-        // Subtotales y calculados siempre se muestran; items standalone solo si tienen datos
+        // Subtotales y calculados siempre se muestran; items standalone solo si tienen datos,
+        // salvo PARTICIPACION DE LOS TRABAJADORES e IMPUESTO A LA RENTA que siempre se muestran
         if (r.type !== 'item') return true;
+        const alwaysShow = new Set(['PARTICIPACION DE LOS TRABAJADORES', 'IMPUESTO A LA RENTA']);
+        if (alwaysShow.has(r.grupo || '')) return true;
         const total = colsData.reduce((s, c) => s + Math.abs(getVal(r, c) || 0), 0);
         return total !== 0;
       });
