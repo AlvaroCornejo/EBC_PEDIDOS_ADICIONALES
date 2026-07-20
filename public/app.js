@@ -11255,6 +11255,9 @@ async function viewPL(container) {
     let insertAfter = detailRow;
 
     grupos.forEach(grupo => {
+      const absTotal = cd.reduce((s,c) => s + Math.abs(lookup?.[grupo]?.[c]||0), 0);
+      if (absTotal === 0) return; // no mostrar grupos sin datos
+
       const drillId2 = 'pl-d2-' + rowId + '_' + grupo.replace(/[^A-Z0-9]/gi,'_');
       const valCells = cd.map(col => {
         const v = lookup?.[grupo]?.[col] || 0;
