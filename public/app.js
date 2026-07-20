@@ -10811,10 +10811,11 @@ const PL_ESTRUCTURA = [
   { type:'computed', key:'UTIL_NETA', label:'UTILIDAD NETA', bold:true,
     fn: t => (t['UTIL_OPERATIVA']||0) + (t['FINANCIEROS']||0) },
 
+  { type:'item', grupo:'PARTICIPACION DE LOS TRABAJADORES' },
   { type:'item', grupo:'IMPUESTO A LA RENTA' },
 
   { type:'computed', key:'UTIL_NETA_DI', label:'UTILIDAD NETA DESPUES DE IMPUESTOS', bold:true,
-    fn: t => (t['UTIL_NETA']||0) + (t['IMPUESTO A LA RENTA']||0) },
+    fn: t => (t['UTIL_NETA']||0) + (t['PARTICIPACION DE LOS TRABAJADORES']||0) + (t['IMPUESTO A LA RENTA']||0) },
 ];
 
 async function viewPL(container) {
