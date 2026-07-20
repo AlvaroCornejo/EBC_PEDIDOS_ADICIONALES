@@ -11104,8 +11104,8 @@ async function viewPL(container) {
           ? row.grupos.join(',')
           : (row.grupo || '');
 
-        const bg = isKey ? '#16a34a' : 'var(--bg-hover)';
-        const textColor = isKey ? 'color:#fff' : '';
+        const bg = isKey ? '#bbf7d0' : 'var(--bg-hover)';
+        const textColor = isKey ? 'color:#000' : '';
         const bgStyle = `background:${bg}`;
         const fsize = isBig ? '14px' : '13px';
         const psize = isBig ? '12px' : '11px';
@@ -11117,20 +11117,20 @@ async function viewPL(container) {
           const v = getVal(row, col);
           const vn = getVentaNeta(col);
           const pct = fmtPct(v, vn);
-          const numColor = isKey ? '' : (v < 0 ? 'color:#dc2626' : '');
-          return `<td style="text-align:right;padding:6px 8px;font-size:${fsize};min-width:90px;${numColor};${bgStyle};${textColor}">${fmtN(v)}</td>
+          const numColor = v < 0 ? 'color:#dc2626' : '';
+          return `<td style="text-align:right;padding:6px 8px;font-size:${fsize};min-width:90px;${bgStyle};${textColor};${numColor}">${fmtN(v)}</td>
                   <td style="text-align:right;padding:6px 6px;font-size:${psize};min-width:52px;${bgStyle};${isKey?textColor:'color:var(--text-muted)'}">${pct}</td>`;
         }).join('');
         const tot = getTotal(row);
         const totVN = getVentaNeta(totalCol);
-        const totColor = isKey ? '' : (tot < 0 ? 'color:#dc2626' : '');
-        rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};font-weight:700;min-width:90px;${totColor};${bgStyle};${textColor}">${fmtN(tot)}</td>`;
+        const totColor = tot < 0 ? 'color:#dc2626' : '';
+        rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};font-weight:700;min-width:90px;${bgStyle};${textColor};${totColor}">${fmtN(tot)}</td>`;
         if (multiSede) {
           const elim = 0;
           const neto = tot - elim;
-          const netoColor = isKey ? '' : (neto < 0 ? 'color:#dc2626' : '');
+          const netoColor = neto < 0 ? 'color:#dc2626' : '';
           rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};min-width:90px;${bgStyle};${textColor}">${fmtN(elim)}</td>`;
-          rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};font-weight:700;min-width:90px;${netoColor};${bgStyle};${textColor}">${fmtN(neto)}</td>`;
+          rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};font-weight:700;min-width:90px;${bgStyle};${textColor};${netoColor}">${fmtN(neto)}</td>`;
         }
 
         rowsHtml += `<tr ${dataOnClick} style="${isDrillable?'cursor:pointer':''}">
