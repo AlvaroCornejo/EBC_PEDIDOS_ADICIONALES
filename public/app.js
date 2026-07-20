@@ -10684,7 +10684,7 @@ const PL_ESTRUCTURA = [
   { type:'item', grupo:'COSTO DE VENTA' },
 
   { type:'computed', key:'MARGEN', label:'MARGEN DE CONTRIBUCIÓN', bold:true,
-    fn: t => (t['VENTA_NETA']||0) - (t['COSTO DE VENTA']||0) },
+    fn: t => (t['VENTA_NETA']||0) + (t['COSTO DE VENTA']||0) },
 
   { type:'header', label:'PLANILLA' },
   { type:'item', grupo:'SUELDOS' },
@@ -10789,7 +10789,7 @@ const PL_ESTRUCTURA = [
     grupos:['ECONOMATO','GASTOS BANCARIOS','GASTOS DE IMPRENTA','GASTOS DE LABORATORIO','GASTOS DE REPRESENTACION','GASTOS NOTARIALES','GASTOS REPARABLES','GASTOS VARIOS','IGV','ITF','MATERIALES DE LIMPIEZA','MEMBRESIAS','SANCIONES','SEGURO VEHICULAR','SEGUROS MULTIRIESGO','ACCESORIOS','SUMINISTROS PARA RESTAURANTE','ACTIVOS MENORES','COMBUSTIBLES','ARTICULOS DE FERRETERIA','SUSCRIPCIONES','TASAS Y DERECHOS','COSTO DE ENAJENACION','REDONDEOS','REGALIAS'] },
 
   { type:'computed', key:'EBITDA', label:'EBITDA', bold:true,
-    fn: t => (t['MARGEN']||0) - (t['PLANILLA']||0) - (t['GASTOS_OCUPACION']||0) - (t['SSPP']||0) - (t['ASESORIAS']||0) - (t['COMISIONES_OP']||0) - (t['MANTENIMIENTO']||0) - (t['SERV_TERCEROS']||0) - (t['OTROS_GASTOS']||0) },
+    fn: t => (t['MARGEN']||0) + (t['PLANILLA']||0) + (t['GASTOS_OCUPACION']||0) + (t['SSPP']||0) + (t['ASESORIAS']||0) + (t['COMISIONES_OP']||0) + (t['MANTENIMIENTO']||0) + (t['SERV_TERCEROS']||0) + (t['OTROS_GASTOS']||0) },
 
   { type:'header', label:'PROVISIONES' },
   { type:'item', grupo:'DEPRECIACION' },
@@ -10799,7 +10799,7 @@ const PL_ESTRUCTURA = [
     grupos:['DEPRECIACION','MUEBLES Y ENSERES','AMORTIZACION'] },
 
   { type:'computed', key:'UTIL_OPERATIVA', label:'UTILIDAD OPERATIVA', bold:true,
-    fn: t => (t['EBITDA']||0) - (t['PROVISIONES']||0) },
+    fn: t => (t['EBITDA']||0) + (t['PROVISIONES']||0) },
 
   { type:'header', label:'FINANCIEROS' },
   { type:'item', grupo:'INGRESOS FINANCIEROS' },
@@ -10809,12 +10809,12 @@ const PL_ESTRUCTURA = [
     grupos:['INGRESOS FINANCIEROS','INTERESES','DIFERENCIA DE CAMBIO NETA'] },
 
   { type:'computed', key:'UTIL_NETA', label:'UTILIDAD NETA', bold:true,
-    fn: t => (t['UTIL_OPERATIVA']||0) - (t['FINANCIEROS']||0) },
+    fn: t => (t['UTIL_OPERATIVA']||0) + (t['FINANCIEROS']||0) },
 
   { type:'item', grupo:'IMPUESTO A LA RENTA' },
 
   { type:'computed', key:'UTIL_NETA_DI', label:'UTILIDAD NETA DESPUES DE IMPUESTOS', bold:true,
-    fn: t => (t['UTIL_NETA']||0) - (t['IMPUESTO A LA RENTA']||0) },
+    fn: t => (t['UTIL_NETA']||0) + (t['IMPUESTO A LA RENTA']||0) },
 ];
 
 async function viewPL(container) {
