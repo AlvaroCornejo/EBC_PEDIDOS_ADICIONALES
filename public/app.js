@@ -11055,6 +11055,10 @@ async function viewPL(container) {
         if (r.type === 'header') return false;
         if (r.type === 'item') return !gruposEnSubtotal.has(r.grupo);
         return true;
+      }).filter(r => {
+        // Ocultar filas con todos los valores en cero
+        const total = colsData.reduce((s, c) => s + Math.abs(getVal(r, c) || 0), 0);
+        return total !== 0;
       });
 
       const totalCols = allCols.length * 2 + 1 + (multiSede ? 2 : 0);
