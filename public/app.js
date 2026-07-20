@@ -10673,11 +10673,11 @@ window.ebcGuardarComentario = async function(id, comentario) {
 
 const PL_ESTRUCTURA = [
   { type:'header', label:'VENTA NETA' },
-  { type:'item',   grupo:'VENTA NETA A&B',         flipSign:true },
-  { type:'item',   grupo:'VENTA NETA EVENTOS',      flipSign:true },
-  { type:'item',   grupo:'AUSPICIOS',               flipSign:true },
-  { type:'item',   grupo:'REDENCION PROMOCIONAL',   flipSign:true },
-  { type:'item',   grupo:'OTROS INGRESOS',          flipSign:true },
+  { type:'item',   grupo:'VENTA NETA A&B' },
+  { type:'item',   grupo:'VENTA NETA EVENTOS' },
+  { type:'item',   grupo:'AUSPICIOS' },
+  { type:'item',   grupo:'REDENCION PROMOCIONAL' },
+  { type:'item',   grupo:'OTROS INGRESOS' },
   { type:'subtotal', key:'VENTA_NETA', label:'VENTA NETA',
     grupos:['VENTA NETA A&B','VENTA NETA EVENTOS','AUSPICIOS','REDENCION PROMOCIONAL','OTROS INGRESOS'] },
 
@@ -10802,7 +10802,7 @@ const PL_ESTRUCTURA = [
     fn: t => (t['EBITDA']||0) - (t['PROVISIONES']||0) },
 
   { type:'header', label:'FINANCIEROS' },
-  { type:'item', grupo:'INGRESOS FINANCIEROS', flipSign:true },
+  { type:'item', grupo:'INGRESOS FINANCIEROS' },
   { type:'item', grupo:'INTERESES' },
   { type:'item', grupo:'DIFERENCIA DE CAMBIO NETA' },
   { type:'subtotal', key:'FINANCIEROS', label:'TOTAL FINANCIEROS',
