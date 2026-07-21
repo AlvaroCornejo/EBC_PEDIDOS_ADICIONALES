@@ -11424,17 +11424,19 @@ async function viewConciliacion(container) {
         : `<span style="color:#dc2626;font-weight:700">⚠</span>`;
 
       // ── Sección 1: ERP Efectivo vs CAJA ──
+      const cw = 'padding:4px 6px;font-size:11px;width:70px'; // columna angosta
       const s1rows = c1.dias.map(d => `
         <tr style="${(!d.okSol || !d.okUsd) ? 'background:#fef2f2' : ''}">
-          <td style="padding:5px 10px;font-size:12px">${esc(d.fecha)}</td>
-          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.cajaSol)}</td>
-          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.erpSol)}</td>
-          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.difSol)}</td>
-          <td style="padding:5px 10px;text-align:center">${badge(d.okSol)}</td>
-          <td style="padding:5px 10px;text-align:right;font-size:12px;border-left:1px solid var(--border)">${fmt(d.cajaUsd)}</td>
-          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.erpUsd)}</td>
-          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.difUsd)}</td>
-          <td style="padding:5px 10px;text-align:center">${badge(d.okUsd)}</td>
+          <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
+          <td style="${cw};text-align:right">${fmt(d.cajaSol)}</td>
+          <td style="${cw};text-align:right">${fmt(d.erpSol)}</td>
+          <td style="${cw};text-align:right">${fmt(d.difSol)}</td>
+          <td style="padding:4px 4px;text-align:center;width:22px">${badge(d.okSol)}</td>
+          <td style="${cw};text-align:right;border-left:1px solid var(--border)">${fmt(d.cajaUsd)}</td>
+          <td style="${cw};text-align:right">${fmt(d.erpUsd)}</td>
+          <td style="${cw};text-align:right">${d.vueltoUsd ? fmt(d.vueltoUsd) : ''}</td>
+          <td style="${cw};text-align:right">${fmt(d.difUsd)}</td>
+          <td style="padding:4px 4px;text-align:center;width:22px">${badge(d.okUsd)}</td>
         </tr>`).join('');
       const s1errores = c1.dias.filter(d => !d.okSol || !d.okUsd).length;
 
@@ -11493,20 +11495,21 @@ async function viewConciliacion(container) {
             <span style="font-size:11px;color:${s1errores?'#dc2626':'#16a34a'}">${s1errores ? `⚠ ${s1errores} día(s) con diferencia` : '✓ Todo cuadra'}</span>
           </div>
           <div style="overflow-x:auto;max-height:360px;overflow-y:auto">
-            <table style="width:100%;border-collapse:collapse">
+            <table style="width:auto;border-collapse:collapse">
               <thead style="position:sticky;top:0;background:var(--bg-card)"><tr style="color:var(--text-muted)">
-                <th style="padding:5px 10px;text-align:left;font-size:11px">Fecha</th>
-                <th colspan="4" style="padding:5px 10px;text-align:center;font-size:11px">Soles</th>
-                <th colspan="4" style="padding:5px 10px;text-align:center;font-size:11px;border-left:1px solid var(--border)">Dólares</th>
+                <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
+                <th colspan="4" style="padding:4px 6px;text-align:center;font-size:11px">Soles</th>
+                <th colspan="5" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">Dólares</th>
               </tr>
               <tr style="color:var(--text-muted);font-size:10px">
                 <th></th>
-                <th style="padding:2px 10px;text-align:right">CAJA</th><th style="padding:2px 10px;text-align:right">ERP</th>
-                <th style="padding:2px 10px;text-align:right">Dif.</th><th></th>
-                <th style="padding:2px 10px;text-align:right;border-left:1px solid var(--border)">CAJA</th><th style="padding:2px 10px;text-align:right">ERP</th>
-                <th style="padding:2px 10px;text-align:right">Dif.</th><th></th>
+                <th style="padding:2px 6px;text-align:right">CAJA</th><th style="padding:2px 6px;text-align:right">ERP</th>
+                <th style="padding:2px 6px;text-align:right">Dif.</th><th></th>
+                <th style="padding:2px 6px;text-align:right;border-left:1px solid var(--border)">CAJA</th><th style="padding:2px 6px;text-align:right">ERP</th>
+                <th style="padding:2px 6px;text-align:right">Vuelto</th>
+                <th style="padding:2px 6px;text-align:right">Dif.</th><th></th>
               </tr></thead>
-              <tbody>${s1rows || '<tr><td colspan="9" class="text-muted text-center" style="padding:16px">Sin datos en el rango</td></tr>'}</tbody>
+              <tbody>${s1rows || '<tr><td colspan="10" class="text-muted text-center" style="padding:16px">Sin datos en el rango</td></tr>'}</tbody>
             </table>
           </div>
         </div>

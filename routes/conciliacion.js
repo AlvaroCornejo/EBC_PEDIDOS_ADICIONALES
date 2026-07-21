@@ -148,11 +148,17 @@ router.get('/check1', async (req, res) => {
     });
 
     const erpPorDia = {}; // ymd -> { sol, usd }
+    const tcPorDia = {};  // ymd -> { suma, count } tipo de cambio del dia (COBRANZA ERP)
     erpRows.forEach(r => {
       const k = ymd(r.fecha);
       if (!erpPorDia[k]) erpPorDia[k] = { sol: 0, usd: 0 };
       if (r.moneda === 'Soles') erpPorDia[k].sol += r.cobranzaMoneda;
       else erpPorDia[k].usd += r.cobranzaMoneda;
+      if (r.tipoCambio) {
+        if (!tcPorDia[k]) tcPorDia[k] = { suma: 0, count: 0 };
+        tcPorDia[k].suma += r.tipoCambio;
+        tcPorDia[k].count++;
+      }
     });
 
     const dias = cajaRows
@@ -160,12 +166,15 @@ router.get('/check1', async (req, res) => {
       .map(c => {
         const k = ymd(c.fecha);
         const erp = erpPorDia[k] || { sol: 0, usd: 0 };
+        const tcInfo = tcPorDia[k];
+        const tc = tcInfo ? tcInfo.suma / tcInfo.count : null;
+        const vueltoUsd = (c.vueltoSoles && tc) ? c.vueltoSoles / tc : 0;
         const difSol = (c.cobranzaEfectivo || 0) - erp.sol;
-        const difUsd = (c.cobranzaEfectivoUsd || 0) - erp.usd;
+        const difUsd = (c.cobranzaEfectivoUsd || 0) - erp.usd + vueltoUsd;
         return {
           fecha: k,
           cajaSol: c.cobranzaEfectivo || 0, erpSol: erp.sol, difSol, okSol: Math.abs(difSol) < TOL,
-          cajaUsd: c.cobranzaEfectivoUsd || 0, erpUsd: erp.usd, difUsd, okUsd: Math.abs(difUsd) < TOL,
+          cajaUsd: c.cobranzaEfectivoUsd || 0, erpUsd: erp.usd, vueltoUsd, difUsd, okUsd: Math.abs(difUsd) < TOL,
         };
       });
 
