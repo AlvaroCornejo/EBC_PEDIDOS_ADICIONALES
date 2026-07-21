@@ -21,6 +21,7 @@ function buildPayload(user) {
     rolCaja: user.rolCaja || '', accesoOficina: !!user.accesoOficina, accesoDepositos: !!user.accesoDepositos,
     rolObligaciones: user.rolObligaciones || '', companiasEBC: user.companiasEBC || [],
     accesoEERR: !!user.accesoEERR, operacionesEERR: user.operacionesEERR || [],
+    accesoConciliacion: !!user.accesoConciliacion, sociedadesConciliacion: user.sociedadesConciliacion || [],
   };
 }
 

@@ -265,6 +265,7 @@ const NAV_ITEMS = [
   { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
   { id: 'autorizaciones', label: 'Incluir Pagos', icon: '📋', roles: [ROLES.ADMIN], extraPermAny: ['rolObligaciones', 'rolPago'] },
   { id: 'pl',             label: 'PL',              icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoEERR' },
+  { id: 'conciliacion',   label: 'Conciliación Cobranzas', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoConciliacion' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -324,7 +325,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, items: viewItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -11364,6 +11365,191 @@ async function viewPL(container) {
   };
 }
 
+async function viewConciliacion(container) {
+  const isAdmin = S.user.role === 'ADMIN';
+  let sociedades = [];
+  try { sociedades = await GET('/conciliacion/sociedades'); } catch (e) { /* sin config aun */ }
+
+  const hoy = new Date();
+  const hace30 = new Date(hoy.getTime() - 30 * 86400000);
+  const iso = d => d.toISOString().slice(0, 10);
+
+  container.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">🏦 Conciliación de Cobranzas</h1>
+    </div>
+    <div class="card mb-16" style="padding:16px">
+      ${!sociedades.length ? `<div class="text-muted" style="margin-bottom:12px">
+          ${isAdmin ? '⚠️ No hay sociedades configuradas — ir a Admin → Conciliación de Cobranzas para definir las rutas de archivos.' : '⚠️ No tiene sociedades autorizadas para conciliación.'}
+        </div>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
+        <div>
+          <label class="form-label">Sociedad</label>
+          <select id="cc-sociedad" class="form-control" style="width:160px">
+            ${sociedades.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Fecha desde</label>
+          <input type="date" id="cc-desde" class="form-control" value="${iso(hace30)}">
+        </div>
+        <div>
+          <label class="form-label">Fecha hasta</label>
+          <input type="date" id="cc-hasta" class="form-control" value="${iso(hoy)}">
+        </div>
+        <button class="btn btn-primary" onclick="ccConsultar()" ${!sociedades.length ? 'disabled' : ''}>🔍 Consultar</button>
+      </div>
+    </div>
+    <div id="cc-resultado"></div>`;
+
+  window.ccConsultar = async function() {
+    const wrap = document.getElementById('cc-resultado');
+    wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Consultando...</div>';
+    try {
+      const sociedad = document.getElementById('cc-sociedad').value;
+      const fechaDesde = document.getElementById('cc-desde').value;
+      const fechaHasta = document.getElementById('cc-hasta').value;
+      const qs = new URLSearchParams({ sociedad, fechaDesde, fechaHasta });
+
+      const [c1, c2, c3] = await Promise.all([
+        GET(`/conciliacion/check1?${qs}`),
+        GET(`/conciliacion/check2?${qs}`),
+        GET(`/conciliacion/check3?${qs}`),
+      ]);
+
+      const fmt = v => (v === null || v === undefined) ? '' :
+        Math.abs(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const badge = ok => ok
+        ? `<span style="color:#16a34a;font-weight:700">✓</span>`
+        : `<span style="color:#dc2626;font-weight:700">⚠</span>`;
+
+      // ── Sección 1: ERP Efectivo vs CAJA ──
+      const s1rows = c1.dias.map(d => `
+        <tr style="${(!d.okSol || !d.okUsd) ? 'background:#fef2f2' : ''}">
+          <td style="padding:5px 10px;font-size:12px">${esc(d.fecha)}</td>
+          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.cajaSol)}</td>
+          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.erpSol)}</td>
+          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.difSol)}</td>
+          <td style="padding:5px 10px;text-align:center">${badge(d.okSol)}</td>
+          <td style="padding:5px 10px;text-align:right;font-size:12px;border-left:1px solid var(--border)">${fmt(d.cajaUsd)}</td>
+          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.erpUsd)}</td>
+          <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.difUsd)}</td>
+          <td style="padding:5px 10px;text-align:center">${badge(d.okUsd)}</td>
+        </tr>`).join('');
+      const s1errores = c1.dias.filter(d => !d.okSol || !d.okUsd).length;
+
+      // ── Sección 2: Depósito vs suma de días ──
+      function tablaDep2(arr) {
+        if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin depósitos en el rango.</p>';
+        return `<table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#f8fafc;color:var(--text-muted)">
+            <th style="padding:5px 10px;text-align:left;font-size:11px">Fecha Depósito</th>
+            <th style="padding:5px 10px;text-align:right;font-size:11px">Monto</th>
+            <th style="padding:5px 10px;text-align:left;font-size:11px">Días incluidos</th>
+            <th style="padding:5px 10px;text-align:right;font-size:11px">Suma Días</th>
+            <th style="padding:5px 10px;text-align:center;font-size:11px">Estado</th>
+          </tr></thead>
+          <tbody>${arr.map(d => `
+            <tr style="${!d.ok ? 'background:#fef2f2' : ''}">
+              <td style="padding:5px 10px;font-size:12px">${esc(d.fecha)}</td>
+              <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.deposito)}</td>
+              <td style="padding:5px 10px;font-size:11px;color:var(--text-muted)">${d.dias ? d.dias.join(', ') : '—'}</td>
+              <td style="padding:5px 10px;text-align:right;font-size:12px">${d.sumaDias!=null ? fmt(d.sumaDias) : '—'}</td>
+              <td style="padding:5px 10px;text-align:center">${badge(d.ok)}</td>
+            </tr>`).join('')}
+          </tbody></table>`;
+      }
+      const s2errores = c2.pen.filter(d=>!d.ok).length + c2.usd.filter(d=>!d.ok).length;
+
+      // ── Sección 3: Depósito vs Banco (EECC) ──
+      function tablaDep3(arr) {
+        if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin depósitos en el rango.</p>';
+        return `<table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#f8fafc;color:var(--text-muted)">
+            <th style="padding:5px 10px;text-align:left;font-size:11px">Fecha Depósito</th>
+            <th style="padding:5px 10px;text-align:right;font-size:11px">Monto</th>
+            <th style="padding:5px 10px;text-align:left;font-size:11px">Banco</th>
+            <th style="padding:5px 10px;text-align:left;font-size:11px">Fecha Banco</th>
+            <th style="padding:5px 10px;text-align:right;font-size:11px">Importe Banco</th>
+            <th style="padding:5px 10px;text-align:center;font-size:11px">Estado</th>
+          </tr></thead>
+          <tbody>${arr.map(d => `
+            <tr style="${!d.okBanco ? 'background:#fef2f2' : ''}">
+              <td style="padding:5px 10px;font-size:12px">${esc(d.fecha)}</td>
+              <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.deposito)}</td>
+              <td style="padding:5px 10px;font-size:12px">${d.banco ? esc(d.banco.banco) : '—'}</td>
+              <td style="padding:5px 10px;font-size:12px">${d.banco ? esc(d.banco.fecha) : '—'}</td>
+              <td style="padding:5px 10px;text-align:right;font-size:12px">${d.banco ? fmt(d.banco.importe) : '—'}</td>
+              <td style="padding:5px 10px;text-align:center">${badge(d.okBanco)}</td>
+            </tr>`).join('')}
+          </tbody></table>`;
+      }
+      const s3errores = c3.pen.filter(d=>!d.okBanco).length + c3.usd.filter(d=>!d.okBanco).length;
+
+      wrap.innerHTML = `
+        <div class="card mb-16" style="padding:0;overflow:hidden">
+          <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <strong style="font-size:13px">1️⃣ Cobranza Efectivo — COBRANZA ERP vs CAJA</strong>
+            <span style="font-size:11px;color:${s1errores?'#dc2626':'#16a34a'}">${s1errores ? `⚠ ${s1errores} día(s) con diferencia` : '✓ Todo cuadra'}</span>
+          </div>
+          <div style="overflow-x:auto;max-height:360px;overflow-y:auto">
+            <table style="width:100%;border-collapse:collapse">
+              <thead style="position:sticky;top:0;background:var(--bg-card)"><tr style="color:var(--text-muted)">
+                <th style="padding:5px 10px;text-align:left;font-size:11px">Fecha</th>
+                <th colspan="4" style="padding:5px 10px;text-align:center;font-size:11px">Soles</th>
+                <th colspan="4" style="padding:5px 10px;text-align:center;font-size:11px;border-left:1px solid var(--border)">Dólares</th>
+              </tr>
+              <tr style="color:var(--text-muted);font-size:10px">
+                <th></th>
+                <th style="padding:2px 10px;text-align:right">CAJA</th><th style="padding:2px 10px;text-align:right">ERP</th>
+                <th style="padding:2px 10px;text-align:right">Dif.</th><th></th>
+                <th style="padding:2px 10px;text-align:right;border-left:1px solid var(--border)">CAJA</th><th style="padding:2px 10px;text-align:right">ERP</th>
+                <th style="padding:2px 10px;text-align:right">Dif.</th><th></th>
+              </tr></thead>
+              <tbody>${s1rows || '<tr><td colspan="9" class="text-muted text-center" style="padding:16px">Sin datos en el rango</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card mb-16" style="padding:0;overflow:hidden">
+          <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <strong style="font-size:13px">2️⃣ Depósito CAJA vs Suma de Días (Efectivo + Tip − Vuelto)</strong>
+            <span style="font-size:11px;color:${s2errores?'#dc2626':'#16a34a'}">${s2errores ? `⚠ ${s2errores} depósito(s) sin cuadrar` : '✓ Todo cuadra'}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+            <div style="border-right:1px solid var(--border)">
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES (DEPOSITO PEN)</div>
+              ${tablaDep2(c2.pen)}
+            </div>
+            <div>
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES (DEPOSITO USD)</div>
+              ${tablaDep2(c2.usd)}
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-16" style="padding:0;overflow:hidden">
+          <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <strong style="font-size:13px">3️⃣ Depósito CAJA vs Movimiento Bancario (EECC)</strong>
+            <span style="font-size:11px;color:${s3errores?'#dc2626':'#16a34a'}">${s3errores ? `⚠ ${s3errores} depósito(s) sin ubicar en banco` : '✓ Todo cuadra'}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+            <div style="border-right:1px solid var(--border)">
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
+              ${tablaDep3(c3.pen)}
+            </div>
+            <div>
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
+              ${tablaDep3(c3.usd)}
+            </div>
+          </div>
+        </div>`;
+    } catch (e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+  };
+
+  if (sociedades.length) window.ccConsultar();
+}
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -11386,6 +11572,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="cierre-caja">🧾 Cierre de Caja</button>
         <button class="tab-btn" data-tab="ebc-companias">🏢 Mapeo Empresas EBC</button>
         <button class="tab-btn" data-tab="proy-tiendas">🏪 Tiendas Proy.</button>
+        <button class="tab-btn" data-tab="conciliacion">🏦 Conciliación Cobranzas</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -11401,6 +11588,7 @@ async function viewAdmin(container) {
       <div id="tab-cierre-caja" class="tab-panel"></div>
       <div id="tab-ebc-companias" class="tab-panel"></div>
       <div id="tab-proy-tiendas" class="tab-panel"></div>
+      <div id="tab-conciliacion" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -11426,6 +11614,56 @@ async function viewAdmin(container) {
   renderAdminCierreCaja(document.getElementById('tab-cierre-caja'));
   renderAdminEBCCompanias(document.getElementById('tab-ebc-companias'));
   renderAdminProyTiendas(document.getElementById('tab-proy-tiendas'));
+  renderAdminConciliacion(document.getElementById('tab-conciliacion'));
+}
+
+// ─── Admin: Conciliación de Cobranzas — rutas de archivos por sociedad ──
+async function renderAdminConciliacion(container) {
+  container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  let configs = [];
+  try { configs = await GET('/conciliacion/config'); } catch (err) { container.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+
+  const bySoc = {};
+  configs.forEach(c => { bySoc[c.sociedad] = c; });
+
+  container.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">
+      Define, para cada sociedad, la ruta local de los archivos usados en la conciliación de cobranzas.
+      El EECC de Bancos incluye todas las hojas por banco y moneda; el archivo de Cobranza incluye las
+      hojas "COBRANZA ERP" y "CAJA"; el reporte de TC se usará más adelante para conciliar tarjetas.
+    </p>
+    <div class="card" style="overflow:hidden">
+      <table class="data-table" style="font-size:13px">
+        <thead><tr><th style="width:100px">Sociedad</th><th>Ruta EECC Bancos</th><th>Ruta Cobranza</th><th>Ruta Reporte TC</th></tr></thead>
+        <tbody>
+          ${ALL_SOCS_COMPRA.map(s => {
+            const c = bySoc[s] || {};
+            return `<tr>
+              <td style="font-weight:600">${esc(s)}</td>
+              <td><input type="text" class="form-control acc-eecc" data-soc="${esc(s)}" value="${esc(c.rutaEECC||'')}" placeholder="C:\\...\\Q EECC BANCOS.xlsx"></td>
+              <td><input type="text" class="form-control acc-cobranza" data-soc="${esc(s)}" value="${esc(c.rutaCobranza||'')}" placeholder="C:\\...\\Q COBRANZA.xlsx"></td>
+              <td><input type="text" class="form-control acc-tc" data-soc="${esc(s)}" value="${esc(c.rutaTC||'')}" placeholder="C:\\...\\Q TC.xlsx"></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
+  async function guardar(soc, body) {
+    try {
+      await PUT(`/conciliacion/config/${encodeURIComponent(soc)}`, body);
+      toast(`Configuración de ${soc} actualizada`, 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  container.querySelectorAll('.acc-eecc').forEach(el => {
+    el.addEventListener('change', () => guardar(el.dataset.soc, { rutaEECC: el.value.trim() }));
+  });
+  container.querySelectorAll('.acc-cobranza').forEach(el => {
+    el.addEventListener('change', () => guardar(el.dataset.soc, { rutaCobranza: el.value.trim() }));
+  });
+  container.querySelectorAll('.acc-tc').forEach(el => {
+    el.addEventListener('change', () => guardar(el.dataset.soc, { rutaTC: el.value.trim() }));
+  });
 }
 
 // ─── Admin: Configuración de Cierre de Caja por operación ─────────
@@ -12774,6 +13012,11 @@ function showUserModal(user, onSave) {
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>📊 <strong>PL — Estado de Resultados</strong></span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-conciliacion" ${user?.accesoConciliacion?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🏦 <strong>Conciliación de Cobranzas</strong></span>
+          </label>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -12805,6 +13048,7 @@ function showUserModal(user, onSave) {
     // Lista unificada de sociedades para Pagos, Flujo de Caja y (si tiene el permiso) Precios de Compra
     const sociedadesPago   = isAdmin ? [] : [...document.querySelectorAll('input[name="um-soc-pago"]:checked')].map(cb => cb.value);
     const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? sociedadesPago : [];
+    const sociedadesConciliacion = (!isAdmin && document.getElementById('um-conciliacion')?.checked) ? sociedadesPago : [];
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
@@ -12828,8 +13072,10 @@ function showUserModal(user, onSave) {
       accesoOficina:        !isAdmin && (document.getElementById('um-acc-oficina')?.checked         ?? false),
       accesoDepositos:      !isAdmin && (document.getElementById('um-acc-depositos')?.checked       ?? false),
       accesoEERR:           !isAdmin && (document.getElementById('um-eerr')?.checked                ?? false),
+      accesoConciliacion:   !isAdmin && (document.getElementById('um-conciliacion')?.checked         ?? false),
       sociedadesCompra,
       sociedadesPago,
+      sociedadesConciliacion,
     };
     const pwd = document.getElementById('um-password').value;
     if (pwd) data.password = pwd;

@@ -93,9 +93,15 @@ echo ============================================================
 
 :: -- 10. EBC EERR (Estado de Resultados) -> MongoDB --
 echo.
-echo [10/10] EBC EERR - Estado de Resultados
+echo [10/11] EBC EERR - Estado de Resultados
 call "%APP%\sync-eerr.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-eerr ^& set ERRORES=1) else echo  OK
+
+:: -- 11. Conciliacion de Cobranzas (EECC + Cobranza) -> MongoDB --
+echo.
+echo [11/11] Conciliacion de Cobranzas
+call "%APP%\sync-conciliacion.bat"
+if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-conciliacion ^& set ERRORES=1) else echo  OK
 if %ERRORES% EQU 0 (echo  RESULTADO: TODO OK) else echo  RESULTADO: CON ERRORES (ver arriba)
 echo  Fin: %DATE% %TIME%
 echo ============================================================

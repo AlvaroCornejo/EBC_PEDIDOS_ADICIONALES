@@ -253,3 +253,51 @@ visibles según permiso). Funciones globales prefijo `cj*` y estado módulo-leve
   `scripts/migrarTurnosCaja.js`, ya ejecutado — no volver a correr salvo nueva migración de índice).
 - **Eliminar cierres**: `DELETE /caja/cierres/:id` ya permitía ADMIN sin restricción (bloquea a
   no-admin si el efectivo ya se movió); botón 🗑️ en la tabla de Cierres solo visible para ADMIN.
+
+### Sesión 6 — Conciliación de Cobranzas (efectivo, en construcción)
+
+Nuevo módulo para conciliar cobranzas registradas vs. lo que ingresa al banco. Por **Sociedades
+Autorizadas** (reutiliza `ALL_SOCS_COMPRA`: ERSAC, FRQ1, GB, MUVON, QUIASMO, FACTORIAL K). Primera
+etapa: conciliación de efectivo (tarjetas/transferencias se harán después con `Q TC.xlsx`).
+
+**Archivos fuente** (uno por sociedad, configurables en `Admin → Conciliación Cobranzas`):
+- `rutaEECC` — `Q EECC BANCOS.xlsx`, una hoja por banco+moneda (ej. `Q_BBVA_SOL`, `Q_BBVA_DOL`),
+  columnas: `F. Operación, F. Valor, Código, Nº. Doc., Concepto, Importe, Oficina, BANCO, MONEDA`.
+  Un solo archivo cubre soles y dólares (no hace falta separar por moneda).
+- `rutaCobranza` — `Q COBRANZA.xlsx` con 2 hojas:
+  - `COBRANZA ERP`: `DOCUMENTO, FECHA COBRANZA, MEDIO PAGO, OTRO MEDIO DE PAGO, TC, TARJETA,
+    TIPO DE CAMBIO, COBRANZA MONEDA, MONEDA, VENTA, TIP, COBRANZA`. `MEDIO PAGO` ∈ {Efectivo,
+    Tarjeta de Crédito, Cheque, Varios}; `MONEDA` ∈ {Soles, Dolares}.
+  - `CAJA`: `FECHA, COBRANZA EFECTIVO, TIP EFECTIVO, TIP EFECTIVO CMZ, TIP FACT, TIP FACT CMZ,
+    VUELTO EN SOLES, DEPOSITO PEN, COBRANZA EFECTIVO USD, TIP USD, DEPOSITO USD`. `DEPOSITO PEN/USD`
+    es disperso (solo aparece el día que se hizo un depósito) y ya viene en negativo.
+- `rutaTC` — `Q TC.xlsx` (hoja `Q TC TODAS`), pendiente de usar en la conciliación de tarjetas.
+
+**Modelos** (`models/`): `ConciliacionConfig` (rutas por sociedad), `EeccMovimiento`, `CobranzaErp`,
+`CajaDiaria`. Import: `scripts/importConciliacion.js` (`sync-conciliacion.bat`, paso 11/11 de
+`sync-master.bat`) — recorre cada `ConciliacionConfig`, hace `deleteMany({sociedad})` + reinserta.
+
+**Backend** (`routes/conciliacion.js`, montado en `/api/conciliacion`). Acceso: `accesoConciliacion`
+(boolean) + `sociedadesConciliacion` (array) en `User`, scoping igual a `sociedadesCompra`.
+- `GET/PUT /config(/:sociedad)` — rutas de archivos (solo ADMIN).
+- `GET /sociedades` — sociedades con config, filtradas por `sociedadesConciliacion` si no es ADMIN.
+- `GET /check1` — por día, `COBRANZA ERP` (solo `MEDIO PAGO=Efectivo`) sumado por moneda vs.
+  `CAJA.COBRANZA_EFECTIVO` / `COBRANZA_EFECTIVO_USD`. Ambos deben coincidir (confirmado con datos
+  reales: coinciden la mayoría de los días, las diferencias son reales y deben investigarse).
+- `GET /check2` — valida que `DEPOSITO_PEN`/`DEPOSITO_USD` (cuando aparece) sea igual a la suma de
+  `COBRANZA_EFECTIVO + TIP_EFECTIVO (+ VUELTO_EN_SOLES, ya negativo)` de uno o varios días
+  **consecutivos** hacia atrás — probando primero incluyendo el día del depósito, luego solo desde
+  el día anterior (`matchDeposits` en `routes/conciliacion.js`, ventana `MAX_LOOKBACK=20` días,
+  tolerancia `TOL=0.5`). Los días ya consumidos por un depósito no se reutilizan en el siguiente.
+- `GET /check3` — busca el monto del depósito (valor absoluto) como movimiento positivo en
+  `EeccMovimiento` de la misma sociedad+moneda, dentro de `MAX_DIAS_BANCO=6` días posteriores al
+  depósito.
+
+**Frontend**: nav `conciliacion` → `viewConciliacion` (selector sociedad + rango de fechas, 3
+tarjetas de reporte con badges ✓/⚠ por fila). Admin: tab `🏦 Conciliación Cobranzas` →
+`renderAdminConciliacion` (inputs de ruta por sociedad, guardado on-change vía `PUT /config/:sociedad`).
+
+**Pendiente**: conciliación de tarjetas/transferencias con `Q TC.xlsx` (ESTABLECIMIENTO, TARJETA,
+FECHA VENTA, VENTA, ESTADO, COMISION MERCHANT, COMISION EMISOR, IGV COMISION, DEPOSITO,
+FECHA DEPOSITO, COMISION TOTAL, TC, AUTORIZACION, MONEDA, EMISOR, Neto_Parcial,
+Fecha y Hora de Operación).

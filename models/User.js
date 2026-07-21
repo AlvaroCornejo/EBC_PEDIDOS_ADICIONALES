@@ -30,6 +30,8 @@ const userSchema = new mongoose.Schema({
   companiasEBC:         { type: [String], default: [] },
   accesoEERR:           { type: Boolean, default: false },
   operacionesEERR:      { type: [String], default: [] },
+  accesoConciliacion:   { type: Boolean, default: false },
+  sociedadesConciliacion: { type: [String], default: [] },
 });
 
 module.exports = mongoose.model('User', userSchema);
