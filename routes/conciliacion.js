@@ -74,7 +74,8 @@ function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField, tol
   const sorted = [...cajaRows].sort((a, b) => a.fecha - b.fecha);
   // unconsumed guarda, por dia, el desglose (ef/tip/vuelto) ademas del monto total
   let unconsumed = []; // { fecha, monto, ef, tip, vuelto }
-  const resultados = [];
+  const resultados = [];      // resultado final, en orden (placeholders para los no emparejados)
+  const sinMatch = [];        // depositos que no encontraron match, para la 2da pasada
 
   // skip=0: incluye el dia del deposito; skip=1: desde el dia anterior; skip=2: desde 2 dias antes
   function tryMatch(queue, target, skip) {
@@ -94,19 +95,8 @@ function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField, tol
     return null;
   }
 
-  // Sin match: suma diagnostica de TODOS los dias aun no consumidos (sin marcar como usados),
-  // para mostrar el desglose y la diferencia real aunque no cuadre.
-  function sumaDiagnostica(queue) {
-    let cum = 0, sumEf = 0, sumTip = 0, sumVuelto = 0;
-    const dias = [];
-    for (let idx = queue.length - 1, count = 0; idx >= 0 && count < MAX_LOOKBACK; idx--, count++) {
-      cum += queue[idx].monto;
-      sumEf += queue[idx].ef; sumTip += queue[idx].tip; sumVuelto += queue[idx].vuelto;
-      dias.unshift(queue[idx].fecha);
-    }
-    return { dias, total: cum, sumEf, sumTip, sumVuelto };
-  }
-
+  // 1ra pasada: solo matching real (los depositos que no matchean NO consumen dias,
+  // para que un deposito futuro los pueda usar).
   sorted.forEach(row => {
     const ef = row[efField] || 0;
     const tip = row[tipField] || 0;
@@ -125,12 +115,32 @@ function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField, tol
       });
       unconsumed = m.remaining;
     } else {
-      const d = sumaDiagnostica(unconsumed);
-      resultados.push({
-        fecha: row.fecha, deposito: dep, dias: d.dias, ok: false, diferencia: target - d.total, sumaDias: d.total,
-        sumEf: d.sumEf, sumTip: d.sumTip, sumVuelto: vueltoField ? d.sumVuelto : null,
-      });
+      const placeholder = { fecha: row.fecha, deposito: dep, target };
+      resultados.push(placeholder);
+      sinMatch.push(placeholder);
     }
+  });
+
+  // 2da pasada: reparte los dias que quedaron SIN consumir por ningun match real
+  // (`unconsumed` final, ya sin los dias que un deposito futuro sí logró usar) entre
+  // los depositos sin match, en orden cronologico, para que cada dia aparezca una sola vez.
+  let ptr = 0;
+  sinMatch.forEach(placeholder => {
+    let sumEf = 0, sumTip = 0, sumVuelto = 0, total = 0;
+    const dias = [];
+    while (ptr < unconsumed.length && unconsumed[ptr].fecha <= placeholder.fecha) {
+      const e = unconsumed[ptr];
+      sumEf += e.ef; sumTip += e.tip; sumVuelto += e.vuelto; total += e.monto;
+      dias.push(e.fecha);
+      ptr++;
+    }
+    placeholder.dias = dias;
+    placeholder.ok = false;
+    placeholder.sumaDias = total;
+    placeholder.diferencia = placeholder.target - total;
+    placeholder.sumEf = sumEf; placeholder.sumTip = sumTip;
+    placeholder.sumVuelto = vueltoField ? sumVuelto : null;
+    delete placeholder.target;
   });
 
   return resultados;
