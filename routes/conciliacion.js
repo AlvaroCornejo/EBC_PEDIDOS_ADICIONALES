@@ -71,39 +71,47 @@ router.get('/sociedades', async (req, res) => {
 // Empareja depositos (CAJA) contra la suma de dias consecutivos de efectivo+tip(+vuelto)
 function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField }) {
   const sorted = [...cajaRows].sort((a, b) => a.fecha - b.fecha);
-  let unconsumed = []; // { fecha, monto }
+  // unconsumed guarda, por dia, el desglose (ef/tip/vuelto) ademas del monto total
+  let unconsumed = []; // { fecha, monto, ef, tip, vuelto }
   const resultados = [];
 
-  function tryMatch(queue, target, includeLast) {
-    const startIdx = includeLast ? queue.length - 1 : queue.length - 2;
+  // skip=0: incluye el dia del deposito; skip=1: desde el dia anterior; skip=2: desde 2 dias antes
+  function tryMatch(queue, target, skip) {
+    const startIdx = queue.length - 1 - skip;
     if (startIdx < 0) return null;
-    let cum = 0;
+    let cum = 0, sumEf = 0, sumTip = 0, sumVuelto = 0;
     const dias = [];
     for (let idx = startIdx; idx >= 0 && dias.length < MAX_LOOKBACK; idx--) {
       cum += queue[idx].monto;
+      sumEf += queue[idx].ef; sumTip += queue[idx].tip; sumVuelto += queue[idx].vuelto;
       dias.unshift(queue[idx].fecha);
       if (Math.abs(cum - target) < TOL) {
         const remaining = queue.slice(0, idx).concat(queue.slice(startIdx + 1));
-        return { dias, remaining, total: cum };
+        return { dias, remaining, total: cum, sumEf, sumTip, sumVuelto };
       }
     }
     return null;
   }
 
   sorted.forEach(row => {
-    const montoDia = (row[efField] || 0) + (row[tipField] || 0) + (vueltoField ? (row[vueltoField] || 0) : 0);
-    unconsumed.push({ fecha: row.fecha, monto: montoDia });
+    const ef = row[efField] || 0;
+    const tip = row[tipField] || 0;
+    const vuelto = vueltoField ? (row[vueltoField] || 0) : 0;
+    unconsumed.push({ fecha: row.fecha, monto: ef + tip + vuelto, ef, tip, vuelto });
 
     const dep = row[depField];
     if (dep === null || dep === undefined) return;
     const target = Math.abs(dep);
 
-    let m = tryMatch(unconsumed, target, true) || tryMatch(unconsumed, target, false);
+    let m = tryMatch(unconsumed, target, 0) || tryMatch(unconsumed, target, 1) || tryMatch(unconsumed, target, 2);
     if (m) {
-      resultados.push({ fecha: row.fecha, deposito: dep, dias: m.dias, ok: true, diferencia: 0, sumaDias: m.total });
+      resultados.push({
+        fecha: row.fecha, deposito: dep, dias: m.dias, ok: true, diferencia: 0, sumaDias: m.total,
+        sumEf: m.sumEf, sumTip: m.sumTip, sumVuelto: vueltoField ? m.sumVuelto : null,
+      });
       unconsumed = m.remaining;
     } else {
-      resultados.push({ fecha: row.fecha, deposito: dep, dias: null, ok: false, diferencia: null, sumaDias: null });
+      resultados.push({ fecha: row.fecha, deposito: dep, dias: null, ok: false, diferencia: null, sumaDias: null, sumEf: null, sumTip: null, sumVuelto: null });
     }
   });
 
@@ -208,6 +216,7 @@ router.get('/check2', async (req, res) => {
       fecha: ymd(d.fecha), deposito: d.deposito,
       dias: d.dias ? d.dias.map(ymd) : null,
       ok: d.ok, diferencia: d.diferencia, sumaDias: d.sumaDias,
+      sumEf: d.sumEf, sumTip: d.sumTip, sumVuelto: d.sumVuelto,
     }));
 
     res.json({ pen: fmt(pen), usd: fmt(usd) });

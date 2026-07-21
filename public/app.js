@@ -11472,23 +11472,32 @@ async function viewConciliacion(container) {
       const s1errores = c1.dias.filter(d => !d.okSol || !d.okUsd).length;
 
       // ── Sección 2: Depósito vs suma de días ──
+      const cw2 = 'padding:4px 6px;font-size:11px;width:66px';
+      const tdSigned2 = v => (v === null || v === undefined) ? `<td style="${cw2};text-align:right">—</td>`
+        : `<td style="${cw2};text-align:right;${v < 0 ? 'color:#dc2626' : ''}">${fmtSigned(v)}</td>`;
       function tablaDep2(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin depósitos en el rango.</p>';
-        return `<table style="width:100%;border-collapse:collapse">
+        return `<table style="width:auto;border-collapse:collapse">
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
-            <th style="padding:5px 10px;text-align:left;font-size:11px">Fecha Depósito</th>
-            <th style="padding:5px 10px;text-align:right;font-size:11px">Monto</th>
-            <th style="padding:5px 10px;text-align:left;font-size:11px">Días incluidos</th>
-            <th style="padding:5px 10px;text-align:right;font-size:11px">Suma Días</th>
-            <th style="padding:5px 10px;text-align:center;font-size:11px">Estado</th>
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha Dep.</th>
+            <th style="${cw2};text-align:right">Monto</th>
+            <th style="padding:4px 6px;text-align:left;font-size:11px">Días incluidos</th>
+            <th style="${cw2};text-align:right">Efectivo</th>
+            <th style="${cw2};text-align:right">Tip</th>
+            <th style="${cw2};text-align:right">Vuelto</th>
+            <th style="${cw2};text-align:right">Suma</th>
+            <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
           </tr></thead>
           <tbody>${arr.map(d => `
             <tr style="${!d.ok ? 'background:#fef2f2' : ''}">
-              <td style="padding:5px 10px;font-size:12px">${esc(d.fecha)}</td>
-              <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.deposito)}</td>
-              <td style="padding:5px 10px;font-size:11px;color:var(--text-muted)">${d.dias ? d.dias.join(', ') : '—'}</td>
-              <td style="padding:5px 10px;text-align:right;font-size:12px">${d.sumaDias!=null ? fmt(d.sumaDias) : '—'}</td>
-              <td style="padding:5px 10px;text-align:center">${badge(d.ok)}</td>
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
+              <td style="${cw2};text-align:right">${fmt(d.deposito)}</td>
+              <td style="padding:4px 6px;font-size:10px;color:var(--text-muted)">${d.dias ? d.dias.join(', ') : '—'}</td>
+              ${tdSigned2(d.sumEf)}
+              ${tdSigned2(d.sumTip)}
+              ${tdSigned2(d.sumVuelto)}
+              ${tdSigned2(d.sumaDias)}
+              <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>
             </tr>`).join('')}
           </tbody></table>`;
       }
