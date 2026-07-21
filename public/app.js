@@ -11505,26 +11505,33 @@ async function viewConciliacion(container) {
       }
       const s2errores = c2.pen.filter(d=>!d.ok).length + c2.usd.filter(d=>!d.ok).length;
 
-      // ── Sección 3: Depósito vs Banco (EECC) ──
+      // ── Sección 3: Depósito vs Banco (EECC) — el depósito puede llegar como 2
+      // movimientos separados (Efectivo y TIP); se buscan y muestran en la misma línea.
+      const cw3 = 'padding:4px 6px;font-size:11px;width:64px';
+      function celdaComponente(target, banco, ok) {
+        if (Math.abs(target || 0) < 1) return `<td colspan="2" style="padding:4px 6px;text-align:center;font-size:10px;color:var(--text-muted)">n/a</td>`;
+        const color = ok ? '' : 'color:#dc2626';
+        return `
+          <td style="${cw3};text-align:right;${color}">${fmt(target)}</td>
+          <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);white-space:nowrap">${banco ? `${esc(banco.fecha)} · ${fmt(banco.importe)}` : '—'}</td>`;
+      }
       function tablaDep3(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin depósitos en el rango.</p>';
-        return `<table style="width:100%;border-collapse:collapse">
+        return `<table style="width:auto;border-collapse:collapse">
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
-            <th style="padding:5px 10px;text-align:left;font-size:11px">Fecha Depósito</th>
-            <th style="padding:5px 10px;text-align:right;font-size:11px">Monto</th>
-            <th style="padding:5px 10px;text-align:left;font-size:11px">Banco</th>
-            <th style="padding:5px 10px;text-align:left;font-size:11px">Fecha Banco</th>
-            <th style="padding:5px 10px;text-align:right;font-size:11px">Importe Banco</th>
-            <th style="padding:5px 10px;text-align:center;font-size:11px">Estado</th>
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha Dep.</th>
+            <th style="${cw3};text-align:right">Monto</th>
+            <th colspan="2" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">Efectivo → Banco</th>
+            <th colspan="2" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">TIP → Banco</th>
+            <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
           </tr></thead>
           <tbody>${arr.map(d => `
             <tr style="${!d.okBanco ? 'background:#fef2f2' : ''}">
-              <td style="padding:5px 10px;font-size:12px">${esc(d.fecha)}</td>
-              <td style="padding:5px 10px;text-align:right;font-size:12px">${fmt(d.deposito)}</td>
-              <td style="padding:5px 10px;font-size:12px">${d.banco ? esc(d.banco.banco) : '—'}</td>
-              <td style="padding:5px 10px;font-size:12px">${d.banco ? esc(d.banco.fecha) : '—'}</td>
-              <td style="padding:5px 10px;text-align:right;font-size:12px">${d.banco ? fmt(d.banco.importe) : '—'}</td>
-              <td style="padding:5px 10px;text-align:center">${badge(d.okBanco)}</td>
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
+              <td style="${cw3};text-align:right">${fmt(d.deposito)}</td>
+              ${celdaComponente(d.targetEf, d.bancoEf, d.okEf)}
+              ${celdaComponente(d.targetTip, d.bancoTip, d.okTip)}
+              <td style="padding:4px 4px;text-align:center">${badge(d.okBanco)}</td>
             </tr>`).join('')}
           </tbody></table>`;
       }

@@ -146,21 +146,35 @@ function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField, tol
   return resultados;
 }
 
-// Busca el deposito (monto absoluto) en el EECC del banco, dentro de una ventana de dias posteriores
+// Busca un monto especifico (importe positivo) en el EECC, desde `fecha` hacia adelante,
+// excluyendo movimientos ya usados (`excluir`) para no reutilizar el mismo movimiento dos veces.
+function buscarEnBanco(target, fecha, eeccRows, excluir) {
+  if (Math.abs(target) < TOL) return { movimiento: null, ok: true, na: true }; // nada que buscar
+  const candidato = eeccRows.find(e =>
+    e !== excluir &&
+    e.importe > 0 &&
+    Math.abs(e.importe - target) < TOL &&
+    e.fechaOperacion >= fecha &&
+    (e.fechaOperacion - fecha) / 86400000 <= MAX_DIAS_BANCO
+  );
+  return { movimiento: candidato || null, ok: !!candidato, na: false };
+}
+
+// El deposito de CAJA (sumEf+sumTip+sumVuelto) puede llegar al banco como DOS movimientos
+// separados (Efectivo y TIP); se busca cada uno por su lado, siempre en la misma fila por fecha.
 function matchEnBanco(depositos, eeccRows) {
   return depositos.map(d => {
-    const target = Math.abs(d.deposito);
-    const candidatos = eeccRows.filter(e =>
-      e.importe > 0 &&
-      Math.abs(e.importe - target) < TOL &&
-      e.fechaOperacion >= d.fecha &&
-      (e.fechaOperacion - d.fecha) / 86400000 <= MAX_DIAS_BANCO
-    );
-    const match = candidatos[0] || null;
+    const targetEf  = (d.sumEf || 0) + (d.sumVuelto || 0);
+    const targetTip = d.sumTip || 0;
+    const bEf  = buscarEnBanco(targetEf, d.fecha, eeccRows);
+    const bTip = buscarEnBanco(targetTip, d.fecha, eeccRows, bEf.movimiento);
+    const fmtMov = m => m ? { fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco } : null;
     return {
       ...d,
-      banco: match ? { fecha: match.fechaOperacion, importe: match.importe, concepto: match.concepto, banco: match.banco } : null,
-      okBanco: !!match,
+      targetEf, targetTip,
+      bancoEf: fmtMov(bEf.movimiento), okEf: bEf.ok,
+      bancoTip: fmtMov(bTip.movimiento), okTip: bTip.ok,
+      okBanco: bEf.ok && bTip.ok,
     };
   });
 }
@@ -270,14 +284,20 @@ router.get('/check3', async (req, res) => {
     const eeccSol = await EeccMovimiento.find({ sociedad, moneda: 'SOL', fechaOperacion: { $gte: fechaConMargen, $lte: fechaHastaMargen } });
     const eeccUsd = await EeccMovimiento.find({ sociedad, moneda: 'USD', fechaOperacion: { $gte: fechaConMargen, $lte: fechaHastaMargen } });
 
-    const depPen = cajaRows.filter(c => c.depositoPen !== null && c.depositoPen !== undefined && c.fecha >= fechaDesde)
-      .map(c => ({ fecha: c.fecha, deposito: c.depositoPen }));
-    const depUsd = cajaRows.filter(c => c.depositoUsd !== null && c.depositoUsd !== undefined && c.fecha >= fechaDesde)
-      .map(c => ({ fecha: c.fecha, deposito: c.depositoUsd }));
+    // Reutiliza el mismo desglose (Efectivo/Tip/Vuelto) que check2 para poder
+    // buscar cada componente por separado en el EECC.
+    const depPen = matchDeposits(cajaRows, { efField: 'cobranzaEfectivo', tipField: 'tipEfectivo', vueltoField: 'vueltoSoles', depField: 'depositoPen', tol: TOL_DEP_PEN })
+      .filter(d => d.fecha >= fechaDesde);
+    const depUsd = matchDeposits(cajaRows, { efField: 'cobranzaEfectivoUsd', tipField: 'tipUsd', vueltoField: null, depField: 'depositoUsd' })
+      .filter(d => d.fecha >= fechaDesde);
 
+    const fmtMov = m => m ? { fecha: ymd(m.fecha), importe: m.importe, concepto: m.concepto, banco: m.banco } : null;
     const fmt = arr => arr.map(d => ({
-      fecha: ymd(d.fecha), deposito: d.deposito, okBanco: d.okBanco,
-      banco: d.banco ? { fecha: ymd(d.banco.fecha), importe: d.banco.importe, concepto: d.banco.concepto, banco: d.banco.banco } : null,
+      fecha: ymd(d.fecha), deposito: d.deposito,
+      targetEf: d.targetEf, targetTip: d.targetTip,
+      bancoEf: fmtMov(d.bancoEf), okEf: d.okEf,
+      bancoTip: fmtMov(d.bancoTip), okTip: d.okTip,
+      okBanco: d.okBanco,
     }));
 
     res.json({ pen: fmt(matchEnBanco(depPen, eeccSol)), usd: fmt(matchEnBanco(depUsd, eeccUsd)) });
