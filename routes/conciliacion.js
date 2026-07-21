@@ -9,6 +9,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 const TOL = 0.5;
+const TOL_DEP_PEN = 10;    // tolerancia para conciliar depositos en soles
 const MAX_LOOKBACK = 20;   // dias maximos hacia atras al buscar un deposito
 const MAX_DIAS_BANCO = 6;  // dias maximos desde el deposito hasta que aparezca en el EECC
 
@@ -69,7 +70,7 @@ router.get('/sociedades', async (req, res) => {
 // ─── Helpers de conciliación ───────────────────────────────────────────
 
 // Empareja depositos (CAJA) contra la suma de dias consecutivos de efectivo+tip(+vuelto)
-function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField }) {
+function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField, tol = TOL }) {
   const sorted = [...cajaRows].sort((a, b) => a.fecha - b.fecha);
   // unconsumed guarda, por dia, el desglose (ef/tip/vuelto) ademas del monto total
   let unconsumed = []; // { fecha, monto, ef, tip, vuelto }
@@ -85,12 +86,25 @@ function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField }) {
       cum += queue[idx].monto;
       sumEf += queue[idx].ef; sumTip += queue[idx].tip; sumVuelto += queue[idx].vuelto;
       dias.unshift(queue[idx].fecha);
-      if (Math.abs(cum - target) < TOL) {
+      if (Math.abs(cum - target) < tol) {
         const remaining = queue.slice(0, idx).concat(queue.slice(startIdx + 1));
         return { dias, remaining, total: cum, sumEf, sumTip, sumVuelto };
       }
     }
     return null;
+  }
+
+  // Sin match: suma diagnostica de TODOS los dias aun no consumidos (sin marcar como usados),
+  // para mostrar el desglose y la diferencia real aunque no cuadre.
+  function sumaDiagnostica(queue) {
+    let cum = 0, sumEf = 0, sumTip = 0, sumVuelto = 0;
+    const dias = [];
+    for (let idx = queue.length - 1, count = 0; idx >= 0 && count < MAX_LOOKBACK; idx--, count++) {
+      cum += queue[idx].monto;
+      sumEf += queue[idx].ef; sumTip += queue[idx].tip; sumVuelto += queue[idx].vuelto;
+      dias.unshift(queue[idx].fecha);
+    }
+    return { dias, total: cum, sumEf, sumTip, sumVuelto };
   }
 
   sorted.forEach(row => {
@@ -106,12 +120,16 @@ function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField }) {
     let m = tryMatch(unconsumed, target, 0) || tryMatch(unconsumed, target, 1) || tryMatch(unconsumed, target, 2);
     if (m) {
       resultados.push({
-        fecha: row.fecha, deposito: dep, dias: m.dias, ok: true, diferencia: 0, sumaDias: m.total,
+        fecha: row.fecha, deposito: dep, dias: m.dias, ok: true, diferencia: target - m.total, sumaDias: m.total,
         sumEf: m.sumEf, sumTip: m.sumTip, sumVuelto: vueltoField ? m.sumVuelto : null,
       });
       unconsumed = m.remaining;
     } else {
-      resultados.push({ fecha: row.fecha, deposito: dep, dias: null, ok: false, diferencia: null, sumaDias: null, sumEf: null, sumTip: null, sumVuelto: null });
+      const d = sumaDiagnostica(unconsumed);
+      resultados.push({
+        fecha: row.fecha, deposito: dep, dias: d.dias, ok: false, diferencia: target - d.total, sumaDias: d.total,
+        sumEf: d.sumEf, sumTip: d.sumTip, sumVuelto: vueltoField ? d.sumVuelto : null,
+      });
     }
   });
 
@@ -207,7 +225,7 @@ router.get('/check2', async (req, res) => {
       sociedad, fecha: { $gte: fechaConMargen, $lte: fechaHasta },
     });
 
-    const pen = matchDeposits(cajaRows, { efField: 'cobranzaEfectivo', tipField: 'tipEfectivo', vueltoField: 'vueltoSoles', depField: 'depositoPen' })
+    const pen = matchDeposits(cajaRows, { efField: 'cobranzaEfectivo', tipField: 'tipEfectivo', vueltoField: 'vueltoSoles', depField: 'depositoPen', tol: TOL_DEP_PEN })
       .filter(d => d.fecha >= fechaDesde);
     const usd = matchDeposits(cajaRows, { efField: 'cobranzaEfectivoUsd', tipField: 'tipUsd', vueltoField: null, depField: 'depositoUsd' })
       .filter(d => d.fecha >= fechaDesde);

@@ -11486,17 +11486,19 @@ async function viewConciliacion(container) {
             <th style="${cw2};text-align:right">Tip</th>
             <th style="${cw2};text-align:right">Vuelto</th>
             <th style="${cw2};text-align:right">Suma</th>
+            <th style="${cw2};text-align:right">Diferencia</th>
             <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
           </tr></thead>
           <tbody>${arr.map(d => `
             <tr style="${!d.ok ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
               <td style="${cw2};text-align:right">${fmt(d.deposito)}</td>
-              <td style="padding:4px 6px;font-size:10px;color:var(--text-muted)">${d.dias ? d.dias.join(', ') : '—'}</td>
+              <td style="padding:4px 6px;font-size:10px;color:var(--text-muted)">${(d.dias && d.dias.length) ? d.dias.join(', ') : '—'}</td>
               ${tdSigned2(d.sumEf)}
               ${tdSigned2(d.sumTip)}
               ${tdSigned2(d.sumVuelto)}
               ${tdSigned2(d.sumaDias)}
+              ${tdSigned2(d.diferencia)}
               <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>
             </tr>`).join('')}
           </tbody></table>`;
