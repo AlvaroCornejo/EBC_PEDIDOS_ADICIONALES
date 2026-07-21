@@ -11428,18 +11428,46 @@ async function viewConciliacion(container) {
 
       // ── Sección 1: ERP Efectivo vs CAJA ──
       const cw = 'padding:4px 6px;font-size:11px;width:70px'; // columna angosta
-      const s1rows = c1.dias.map(d => `
+
+      // Agrupa días contiguos con diferencia (separados por un día "ok") y suma el bloque.
+      // Si la suma del bloque da ~0, es un desfase de días (no un error real).
+      function agruparContiguos(dias, difField, okField) {
+        const grupos = new Array(dias.length).fill(null);
+        let i = 0;
+        while (i < dias.length) {
+          if (dias[i][okField]) { grupos[i] = { rowspan: 1, sum: 0, ok: true, dias: 1 }; i++; continue; }
+          let j = i, sum = 0;
+          while (j < dias.length && !dias[j][okField]) { sum += dias[j][difField]; j++; }
+          grupos[i] = { rowspan: j - i, sum, ok: Math.abs(sum) < 1, dias: j - i };
+          for (let k = i + 1; k < j; k++) grupos[k] = 'skip';
+          i = j;
+        }
+        return grupos;
+      }
+      const gruposSol = agruparContiguos(c1.dias, 'difSol', 'okSol');
+      const gruposUsd = agruparContiguos(c1.dias, 'difUsd', 'okUsd');
+      const tdGrupo = g => {
+        if (g === 'skip') return '';
+        if (g.dias === 1) return `<td rowspan="1" style="padding:4px 4px;text-align:center;width:26px">—</td>`;
+        const color = g.ok ? '#16a34a' : '#dc2626';
+        return `<td rowspan="${g.rowspan}" style="padding:4px 6px;text-align:center;font-size:11px;font-weight:700;color:${color};background:var(--bg-secondary);vertical-align:middle"
+                    title="${g.dias} días contiguos, suma=${g.sum.toFixed(2)}">${g.ok ? '✓' : fmtSigned(g.sum)}</td>`;
+      };
+
+      const s1rows = c1.dias.map((d, idx) => `
         <tr style="${(!d.okSol || !d.okUsd) ? 'background:#fef2f2' : ''}">
           <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
           <td style="${cw};text-align:right">${fmt(d.cajaSol)}</td>
           <td style="${cw};text-align:right">${fmt(d.erpSol)}</td>
           ${tdSigned(d.difSol)}
           <td style="padding:4px 4px;text-align:center;width:22px">${badge(d.okSol)}</td>
+          ${tdGrupo(gruposSol[idx])}
           <td style="${cw};text-align:right;border-left:1px solid var(--border)">${fmt(d.cajaUsd)}</td>
           <td style="${cw};text-align:right">${fmt(d.erpUsd)}</td>
           <td style="${cw};text-align:right">${d.vueltoUsd ? fmt(d.vueltoUsd) : ''}</td>
           ${tdSigned(d.difUsd)}
           <td style="padding:4px 4px;text-align:center;width:22px">${badge(d.okUsd)}</td>
+          ${tdGrupo(gruposUsd[idx])}
         </tr>`).join('');
       const s1errores = c1.dias.filter(d => !d.okSol || !d.okUsd).length;
 
@@ -11501,18 +11529,18 @@ async function viewConciliacion(container) {
             <table style="width:auto;border-collapse:collapse">
               <thead style="position:sticky;top:0;background:var(--bg-card)"><tr style="color:var(--text-muted)">
                 <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
-                <th colspan="4" style="padding:4px 6px;text-align:center;font-size:11px">Soles</th>
-                <th colspan="5" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">Dólares</th>
+                <th colspan="5" style="padding:4px 6px;text-align:center;font-size:11px">Soles</th>
+                <th colspan="6" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">Dólares</th>
               </tr>
               <tr style="color:var(--text-muted);font-size:10px">
                 <th></th>
                 <th style="padding:2px 6px;text-align:right">CAJA</th><th style="padding:2px 6px;text-align:right">ERP</th>
-                <th style="padding:2px 6px;text-align:right">Dif.</th><th></th>
+                <th style="padding:2px 6px;text-align:right">Dif.</th><th></th><th title="Suma de días contiguos con diferencia">Grupo</th>
                 <th style="padding:2px 6px;text-align:right;border-left:1px solid var(--border)">CAJA</th><th style="padding:2px 6px;text-align:right">ERP</th>
                 <th style="padding:2px 6px;text-align:right">Vuelto</th>
-                <th style="padding:2px 6px;text-align:right">Dif.</th><th></th>
+                <th style="padding:2px 6px;text-align:right">Dif.</th><th></th><th title="Suma de días contiguos con diferencia">Grupo</th>
               </tr></thead>
-              <tbody>${s1rows || '<tr><td colspan="10" class="text-muted text-center" style="padding:16px">Sin datos en el rango</td></tr>'}</tbody>
+              <tbody>${s1rows || '<tr><td colspan="12" class="text-muted text-center" style="padding:16px">Sin datos en el rango</td></tr>'}</tbody>
             </table>
           </div>
         </div>
