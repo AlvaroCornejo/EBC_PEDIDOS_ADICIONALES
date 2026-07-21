@@ -11419,6 +11419,9 @@ async function viewConciliacion(container) {
 
       const fmt = v => (v === null || v === undefined) ? '' :
         Math.abs(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtSigned = v => (v === null || v === undefined) ? '' :
+        (v < 0 ? '-' : '') + Math.abs(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const tdSigned = v => `<td style="${cw};text-align:right;${v < 0 ? 'color:#dc2626' : ''}">${fmtSigned(v)}</td>`;
       const badge = ok => ok
         ? `<span style="color:#16a34a;font-weight:700">✓</span>`
         : `<span style="color:#dc2626;font-weight:700">⚠</span>`;
@@ -11430,12 +11433,12 @@ async function viewConciliacion(container) {
           <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
           <td style="${cw};text-align:right">${fmt(d.cajaSol)}</td>
           <td style="${cw};text-align:right">${fmt(d.erpSol)}</td>
-          <td style="${cw};text-align:right">${fmt(d.difSol)}</td>
+          ${tdSigned(d.difSol)}
           <td style="padding:4px 4px;text-align:center;width:22px">${badge(d.okSol)}</td>
           <td style="${cw};text-align:right;border-left:1px solid var(--border)">${fmt(d.cajaUsd)}</td>
           <td style="${cw};text-align:right">${fmt(d.erpUsd)}</td>
           <td style="${cw};text-align:right">${d.vueltoUsd ? fmt(d.vueltoUsd) : ''}</td>
-          <td style="${cw};text-align:right">${fmt(d.difUsd)}</td>
+          ${tdSigned(d.difUsd)}
           <td style="padding:4px 4px;text-align:center;width:22px">${badge(d.okUsd)}</td>
         </tr>`).join('');
       const s1errores = c1.dias.filter(d => !d.okSol || !d.okUsd).length;
