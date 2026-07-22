@@ -11508,12 +11508,12 @@ async function viewConciliacion(container) {
       // ── Sección 3: Depósito vs Banco (EECC) — el depósito puede llegar como 2
       // movimientos separados (Efectivo y TIP); se buscan y muestran en la misma línea.
       const cw3 = 'padding:4px 6px;font-size:11px;width:64px';
-      function celdaComponente(target, banco, ok) {
-        if (Math.abs(target || 0) < 1) return `<td colspan="2" style="padding:4px 6px;text-align:center;font-size:10px;color:var(--text-muted)">n/a</td>`;
+      function celdaComponente(target, banco, ok, extraHtml) {
+        if (Math.abs(target || 0) < 1) return `<td colspan="2" style="padding:4px 6px;text-align:center;font-size:10px;color:var(--text-muted)">n/a${extraHtml||''}</td>`;
         const color = ok ? '' : 'color:#dc2626';
         return `
           <td style="${cw3};text-align:right;${color}">${fmt(target)}</td>
-          <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);white-space:nowrap">${banco ? `${esc(banco.fecha)} · ${fmt(banco.importe)}${banco.nroDoc ? ' · Nº'+esc(banco.nroDoc) : ''}` : '—'}</td>`;
+          <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);white-space:nowrap">${banco ? `${esc(banco.fecha)} · ${fmt(banco.importe)}${banco.nroDoc ? ' · Nº'+esc(banco.nroDoc) : ''}` : '—'}${extraHtml||''}</td>`;
       }
       function tablaDep3(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin depósitos en el rango.</p>';
@@ -11523,25 +11523,31 @@ async function viewConciliacion(container) {
             <th style="${cw3};text-align:right">Monto</th>
             <th colspan="2" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">Efectivo → Banco</th>
             <th colspan="2" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">TIP → Banco</th>
+            <th style="${cw3};text-align:right">Diferencia</th>
             <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
           </tr></thead>
-          <tbody>${arr.map(d => d.bancoSinCaja ? `
-            <tr style="background:#fef3c7">
-              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
-              <td style="${cw3};text-align:right">—</td>
-              <td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#92400e">
-                ⚠ Ingreso en efectivo en banco sin depósito en CAJA: ${fmt(d.bancoSinCaja.importe)}${d.bancoSinCaja.nroDoc ? ' · Nº'+esc(d.bancoSinCaja.nroDoc) : ''}
-              </td>
-              <td style="padding:4px 4px;text-align:center">⚠</td>
-            </tr>` : `
+          <tbody>${arr.map(d => {
+            const extrasHtml = d.extras.length
+              ? `<div style="margin-top:2px;color:#92400e;font-size:10px">${d.extras.map(e =>
+                  `⚠ sin CAJA: ${fmt(e.importe)}${e.nroDoc ? ' · Nº'+esc(e.nroDoc) : ''}`).join('<br>')}</div>`
+              : '';
+            let centroHtml;
+            if (d.deposito === null) {
+              centroHtml = `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:10px">${extrasHtml || '—'}</td>`;
+            } else if (d.combinado) {
+              centroHtml = `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#2563eb">🔗 Depósito único: ${esc(d.combinado.fecha)} · ${fmt(d.combinado.importe)}${d.combinado.nroDoc ? ' · Nº'+esc(d.combinado.nroDoc) : ''}${extrasHtml}</td>`;
+            } else {
+              centroHtml = celdaComponente(d.targetEf, d.bancoEf, d.okEf) + celdaComponente(d.targetTip, d.bancoTip, d.okTip, extrasHtml);
+            }
+            return `
             <tr style="${!d.okBanco ? 'background:#fef2f2' : ''}">
-              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
-              <td style="${cw3};text-align:right">${fmt(d.deposito)}</td>
-              ${d.combinado
-                ? `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#2563eb">🔗 Depósito único: ${esc(d.combinado.fecha)} · ${fmt(d.combinado.importe)}${d.combinado.nroDoc ? ' · Nº'+esc(d.combinado.nroDoc) : ''}</td>`
-                : celdaComponente(d.targetEf, d.bancoEf, d.okEf) + celdaComponente(d.targetTip, d.bancoTip, d.okTip)}
-              <td style="padding:4px 4px;text-align:center">${badge(d.okBanco)}</td>
-            </tr>`).join('')}
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap;vertical-align:top">${esc(d.fecha)}</td>
+              <td style="${cw3};text-align:right;vertical-align:top">${d.deposito !== null ? fmt(d.deposito) : '—'}</td>
+              ${centroHtml}
+              <td style="${cw3};text-align:right;vertical-align:top;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
+              <td style="padding:4px 4px;text-align:center;vertical-align:top">${badge(d.okBanco)}</td>
+            </tr>`;
+          }).join('')}
           </tbody></table>`;
       }
       const s3errores = c3.pen.filter(d=>!d.okBanco).length + c3.usd.filter(d=>!d.okBanco).length;

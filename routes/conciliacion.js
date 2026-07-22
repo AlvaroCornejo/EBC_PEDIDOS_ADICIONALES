@@ -194,20 +194,38 @@ function matchEnBanco(depositos, eeccRows) {
       bancoEf: fmtMov(bEf.movimiento), okEf: bEf.ok,
       bancoTip: fmtMov(bTip.movimiento), okTip: bTip.ok,
       combinado,
+      extras: [],
       okBanco: (bEf.ok && bTip.ok) || !!combinado,
     };
   });
 
   // Movimientos "INGRESO EN EFECTIVO" del EECC que no se usaron en ningun match
-  const sinCaja = eeccRows
-    .filter(e => (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO && !usados.has(e))
-    .map(e => ({
-      fecha: e.fechaOperacion, deposito: null,
-      targetEf: null, targetTip: null, bancoEf: null, okEf: false, bancoTip: null, okTip: false, combinado: null,
-      bancoSinCaja: fmtMov(e), okBanco: false,
-    }));
+  const sinCajaMovs = eeccRows.filter(e => (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO && !usados.has(e));
 
-  return [...filas, ...sinCaja].sort((a, b) => a.fecha - b.fecha);
+  // Una sola fila por dia: si ya existe una fila de deposito en esa fecha, los movimientos
+  // sin CAJA se agregan como `extras` en la MISMA fila; si no hay deposito ese dia, se crea
+  // una fila propia (deposito:null) agrupando todos los extras de esa fecha.
+  const filasPorFecha = {};
+  filas.forEach(f => { filasPorFecha[ymd(f.fecha)] = f; });
+  const extrasPorFechaNueva = {};
+  sinCajaMovs.forEach(e => {
+    const k = ymd(e.fechaOperacion);
+    const fila = filasPorFecha[k];
+    if (fila) { fila.extras.push(fmtMov(e)); return; }
+    if (!extrasPorFechaNueva[k]) extrasPorFechaNueva[k] = { fecha: e.fechaOperacion, deposito: null, targetEf: null, targetTip: null, bancoEf: null, okEf: false, bancoTip: null, okTip: false, combinado: null, extras: [], okBanco: false };
+    extrasPorFechaNueva[k].extras.push(fmtMov(e));
+  });
+
+  const resultado = [...filas, ...Object.values(extrasPorFechaNueva)];
+
+  // Diferencia total del dia: deposito CAJA vs lo encontrado en el banco (matches + extras sin CAJA)
+  resultado.forEach(f => {
+    const encontradoMatch = f.combinado ? f.combinado.importe : (f.bancoEf?.importe || 0) + (f.bancoTip?.importe || 0);
+    const encontradoExtras = f.extras.reduce((s, e) => s + e.importe, 0);
+    f.diferencia = (f.deposito !== null ? Math.abs(f.deposito) : 0) - encontradoMatch - encontradoExtras;
+  });
+
+  return resultado.sort((a, b) => a.fecha - b.fecha);
 }
 
 // ─── GET /check1 — COBRANZA ERP (Efectivo) vs CAJA.COBRANZA_EFECTIVO(_USD), por dia ──
@@ -329,7 +347,8 @@ router.get('/check3', async (req, res) => {
       bancoEf: fmtMov(d.bancoEf), okEf: d.okEf,
       bancoTip: fmtMov(d.bancoTip), okTip: d.okTip,
       combinado: fmtMov(d.combinado),
-      bancoSinCaja: fmtMov(d.bancoSinCaja),
+      extras: (d.extras || []).map(fmtMov),
+      diferencia: d.diferencia,
       okBanco: d.okBanco,
     }));
 
