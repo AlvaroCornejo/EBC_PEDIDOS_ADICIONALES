@@ -149,12 +149,16 @@ function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField, tol
 const CONCEPTO_DEPOSITO_EFECTIVO = 'INGRESO EN EFECTIVO';
 
 // Busca un monto especifico (importe positivo) en el EECC, desde `fecha` hacia adelante,
-// solo entre movimientos con concepto "INGRESO EN EFECTIVO", excluyendo movimientos ya
-// usados (`excluir`) para no reutilizar el mismo movimiento dos veces.
-function buscarEnBanco(target, fecha, eeccRows, excluir) {
+// solo entre movimientos con concepto "INGRESO EN EFECTIVO". Excluye movimientos ya
+// reservados en `usados` (compartido entre TODAS las busquedas de esta conciliacion,
+// para que un mismo movimiento del banco jamas se use en mas de una conciliacion) y,
+// opcionalmente, uno adicional (`excluirTambien`) para no reutilizarlo dentro del mismo
+// deposito (ej. el match de Efectivo no puede volver a usarse para el de TIP).
+function buscarEnBanco(target, fecha, eeccRows, usados, excluirTambien) {
   if (Math.abs(target) < TOL) return { movimiento: null, ok: true, na: true }; // nada que buscar
   const candidato = eeccRows.find(e =>
-    e !== excluir &&
+    !usados.has(e) &&
+    e !== excluirTambien &&
     e.importe > 0 &&
     (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO &&
     Math.abs(e.importe - target) < TOL &&
@@ -169,22 +173,28 @@ function buscarEnBanco(target, fecha, eeccRows, excluir) {
 // por la suma de ambos — 2da conciliacion, si la primera no encuentra ambos componentes.
 // Ademas, se listan los movimientos "INGRESO EN EFECTIVO" del EECC que no calzaron con
 // ningun deposito de CAJA (posible ingreso bancario sin registrar en caja).
-function matchEnBanco(depositos, eeccRows) {
-  const usados = new Set();
+//
+// INVARIANTE: un movimiento del EECC solo puede formar parte de UNA conciliacion. El Set
+// `usados` se comparte entre TODAS las busquedas (no solo se llena despues del match, sino
+// que se consulta EN cada busqueda) para que el deposito de un dia no pueda reclamar un
+// movimiento que un deposito anterior ya reservo. Cuando se agregue la conciliacion de
+// tarjetas/transferencias, debe seguir el mismo patron (recibir/actualizar este mismo Set,
+// o uno equivalente) para no reutilizar un movimiento ya conciliado por otra conciliacion.
+function matchEnBanco(depositos, eeccRows, usados = new Set()) {
   const fmtMov = m => m ? { fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
 
   const filas = depositos.map(d => {
     const targetEf  = (d.sumEf || 0) + (d.sumVuelto || 0);
     const targetTip = d.sumTip || 0;
-    const bEf  = buscarEnBanco(targetEf, d.fecha, eeccRows);
-    const bTip = buscarEnBanco(targetTip, d.fecha, eeccRows, bEf.movimiento);
+    const bEf  = buscarEnBanco(targetEf, d.fecha, eeccRows, usados);
     if (bEf.movimiento) usados.add(bEf.movimiento);
+    const bTip = buscarEnBanco(targetTip, d.fecha, eeccRows, usados, bEf.movimiento);
     if (bTip.movimiento) usados.add(bTip.movimiento);
 
     let combinado = null;
     if (!(bEf.ok && bTip.ok)) {
       const targetCombo = targetEf + targetTip;
-      const bCombo = buscarEnBanco(targetCombo, d.fecha, eeccRows);
+      const bCombo = buscarEnBanco(targetCombo, d.fecha, eeccRows, usados);
       if (bCombo.ok && !bCombo.na) { combinado = fmtMov(bCombo.movimiento); usados.add(bCombo.movimiento); }
     }
 
