@@ -4,6 +4,7 @@ const ConciliacionConfig = require('../models/ConciliacionConfig');
 const EeccMovimiento     = require('../models/EeccMovimiento');
 const CobranzaErp        = require('../models/CobranzaErp');
 const CajaDiaria         = require('../models/CajaDiaria');
+const TcMovimiento       = require('../models/TcMovimiento');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -452,6 +453,68 @@ router.get('/check4', async (req, res) => {
     }));
 
     res.json({ pen: fmt(pen), usd: fmt(usd) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+const TC_OPERADORES = ['IZIPAY', 'NIUBIZ', 'AMEX', 'DINERS'];
+
+// COBRANZA ERP (Tarjeta de Credito, TC en TC_OPERADORES) vs Q TC: se concilia por
+// TARJETA (4 digitos en COBRANZA) == ultimos 4 digitos de TARJETA en Q TC, + misma fecha
+// de venta + mismo monto (con tolerancia) — la combinacion evita cruzar dos ventas
+// distintas que por coincidencia compartan los mismos 4 digitos de tarjeta.
+function matchTC(cobranzas, tcRows) {
+  const usados = new Set();
+  return cobranzas.map(c => {
+    const target = Math.abs(c.cobranzaMoneda);
+    const candidato = tcRows.find(t =>
+      !usados.has(t) &&
+      t.tarjetaUlt4 === c.tarjeta &&
+      ymd(t.fechaVenta) === ymd(c.fecha) &&
+      Math.abs(t.venta - target) < TOL
+    );
+    if (candidato) usados.add(candidato);
+    return {
+      documento: c.documento, fecha: c.fecha, tarjeta: c.tarjeta, tcOperador: c.tc, monto: c.cobranzaMoneda,
+      tcMov: candidato ? {
+        establecimiento: candidato.establecimiento, venta: candidato.venta, estado: candidato.estado,
+        deposito: candidato.deposito, fechaDeposito: candidato.fechaDeposito,
+        comisionTotal: candidato.comisionTotal, tc: candidato.tc, autorizacion: candidato.autorizacion,
+      } : null,
+      ok: !!candidato,
+    };
+  });
+}
+
+// ─── GET /check5 — Tarjeta de Credito: COBRANZA ERP vs Q TC ──────────────
+router.get('/check5', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const { sociedad } = req.query;
+    if (!sociedad || !checkSociedad(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
+
+    const fechaDesde = req.query.fechaDesde ? new Date(req.query.fechaDesde) : new Date('2000-01-01');
+    const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta) : new Date('2100-01-01');
+    fechaHasta.setHours(23, 59, 59, 999);
+
+    const cobranzas = await CobranzaErp.find({
+      sociedad, medioPago: 'Tarjeta de Crédito',
+      tc: { $in: TC_OPERADORES.map(o => new RegExp(`^${o}$`, 'i')) },
+      fecha: { $gte: fechaDesde, $lte: fechaHasta },
+    });
+    const tcRows = await TcMovimiento.find({ sociedad, fechaVenta: { $gte: fechaDesde, $lte: fechaHasta } });
+
+    const resultado = matchTC(cobranzas, tcRows);
+
+    const fmt = arr => arr.map(e => ({
+      documento: e.documento, fecha: ymd(e.fecha), tarjeta: e.tarjeta, tcOperador: e.tcOperador, monto: e.monto, ok: e.ok,
+      tcMov: e.tcMov ? {
+        establecimiento: e.tcMov.establecimiento, venta: e.tcMov.venta, estado: e.tcMov.estado,
+        deposito: e.tcMov.deposito, fechaDeposito: e.tcMov.fechaDeposito ? ymd(e.tcMov.fechaDeposito) : null,
+        comisionTotal: e.tcMov.comisionTotal, tc: e.tcMov.tc, autorizacion: e.tcMov.autorizacion,
+      } : null,
+    }));
+
+    res.json({ resultado: fmt(resultado) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

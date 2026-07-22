@@ -307,23 +307,32 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
   de eventos pueden demorar más en aparecer). No hay un `Concepto` de banco identificable para estos
   pagos (se revisaron: nombres de empresas, "ABONO INMEDIATO", "TIN00X...", sin patrón común), así que
   la única señal confiable es el monto — por eso depende de que los importes de eventos no se repitan.
+- `GET /check5` — Tarjeta de Crédito: `COBRANZA ERP` con `MEDIO PAGO = "Tarjeta de Crédito"` y
+  `TC` ∈ {IZIPAY, NIUBIZ, AMEX, DINERS} (case-insensitive) vs `TcMovimiento` (import de `Q TC.xlsx`,
+  hoja `Q TC TODAS`). Llave de conciliación: `TARJETA` (4 dígitos en COBRANZA) == últimos 4 dígitos
+  de `TARJETA` en Q TC (`TcMovimiento.tarjetaUlt4`, precalculado al importar) + misma fecha de venta
+  + mismo monto (tolerancia `TOL=0.5`) — se necesitan los 3 criterios juntos porque los 4 dígitos de
+  tarjeta solos no son únicos entre transacciones distintas. El campo `TC` no se usa como parte de la
+  llave: los nombres de operador no coinciden entre ambos orígenes (COBRANZA usa IZIPAY/NIUBIZ/AMEX;
+  Q TC usa NIUBIZ/DINERS NIUBIZ/CMD DINERS/AMEX/VISA MC/ALIMENTACION — sin mapeo 1:1 confiable).
+  Solo cruza contra Q TC (aún no contra el EECC — el `DEPOSITO`/`FECHA DEPOSITO` de Q TC podría
+  conciliarse contra el banco más adelante, como una etapa siguiente).
 
-**Frontend**: nav `conciliacion` → `viewConciliacion` (selector sociedad + rango de fechas, 4
+**Frontend**: nav `conciliacion` → `viewConciliacion` (selector sociedad + rango de fechas, 5
 tarjetas de reporte con badges ✓/⚠ por fila). Admin: tab `🏦 Conciliación Cobranzas` →
 `renderAdminConciliacion` (inputs de ruta por sociedad, guardado on-change vía `PUT /config/:sociedad`).
 
-**Pendiente**: conciliación de tarjetas/transferencias con `Q TC.xlsx` (hoja única `Q TC TODAS`).
-Columnas actuales (14, corregido — la versión anterior traía 3 columnas de más que ya no
-existen: `EMISOR`, `Neto_Parcial`, `Fecha y Hora de Operación`):
-`ESTABLECIMIENTO, TARJETA, FECHA VENTA, VENTA, ESTADO, COMISION MERCHANT, COMISION EMISOR,
-IGV COMISION, DEPOSITO, FECHA DEPOSITO, COMISION TOTAL, TC, AUTORIZACION, MONEDA`.
-- `ESTADO` ∈ {SEA, ABONADO, PROCESADO} — probablemente solo `ABONADO` tiene `DEPOSITO`/
-  `FECHA DEPOSITO` poblados y es la única relevante para conciliar contra el EECC.
-- `TC` = operador/marca: {NIUBIZ, DINERS NIUBIZ, CMD DINERS, AMEX, VISA MC, ALIMENTACION} — mismo
-  campo `TC` que ya se usa en `CobranzaErp` (cobranzas con `MEDIO PAGO = "Tarjeta de Crédito"`),
-  así que el cruce natural es `COBRANZA ERP` (TARJETA + TC + FECHA + VENTA) ↔ `Q TC` (mismos
-  campos) ↔ EECC (`DEPOSITO`/`FECHA DEPOSITO` deberían aparecer como movimiento en el banco).
-- `TARJETA` viene enmascarada (ej. `0484-3527`), coincide en formato con `CobranzaErp.tarjeta`.
-- `MONEDA` casi siempre vacía o `Soles`/`SOLES` (sin acento ni mayúsculas consistentes — normalizar
-  al importar, igual que se hizo con `COBRANZA ERP`).
-- `AUTORIZACION` viene poblada en ~99% de las filas (código de autorización de la operadora).
+**Modelo `TcMovimiento`** (`models/TcMovimiento.js`): import vía `rutaTC` en `ConciliacionConfig`
+(mismo patrón multi-archivo que EECC/Cobranza). Columnas de `Q TC.xlsx` (hoja `Q TC TODAS`, 14
+columnas — la versión anterior traía 3 de más que ya no existen: `EMISOR`, `Neto_Parcial`,
+`Fecha y Hora de Operación`): `ESTABLECIMIENTO, TARJETA, FECHA VENTA, VENTA, ESTADO,
+COMISION MERCHANT, COMISION EMISOR, IGV COMISION, DEPOSITO, FECHA DEPOSITO, COMISION TOTAL, TC,
+AUTORIZACION, MONEDA`.
+- `ESTADO` ∈ {SEA, ABONADO, PROCESADO}.
+- `TARJETA` viene enmascarada (ej. `0484-3527`); `tarjetaUlt4` = últimos 4 caracteres, calculado
+  al importar para conciliar contra `CobranzaErp.tarjeta` (que ya viene como solo 4 dígitos).
+- `MONEDA` casi siempre vacía o `Soles`/`SOLES` — no se usa aún para filtrar (todas las cobranzas
+  con Tarjeta de Crédito verificadas están en Soles).
+
+**Pendiente**: conciliar `Q TC.DEPOSITO`/`FECHA DEPOSITO` contra el EECC (siguiente etapa, análoga
+a check3/check4).

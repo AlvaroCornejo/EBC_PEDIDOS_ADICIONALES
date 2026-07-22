@@ -11411,11 +11411,12 @@ async function viewConciliacion(container) {
       const fechaHasta = document.getElementById('cc-hasta').value;
       const qs = new URLSearchParams({ sociedad, fechaDesde, fechaHasta });
 
-      const [c1, c2, c3, c4] = await Promise.all([
+      const [c1, c2, c3, c4, c5] = await Promise.all([
         GET(`/conciliacion/check1?${qs}`),
         GET(`/conciliacion/check2?${qs}`),
         GET(`/conciliacion/check3?${qs}`),
         GET(`/conciliacion/check4?${qs}`),
+        GET(`/conciliacion/check5?${qs}`),
       ]);
 
       const fmt = v => (v === null || v === undefined) ? '' :
@@ -11589,6 +11590,35 @@ async function viewConciliacion(container) {
       }
       const s4errores = c4.pen.filter(e=>!e.ok).length + c4.usd.filter(e=>!e.ok).length;
 
+      // ── Sección 5: Tarjeta de Crédito (TC) — COBRANZA vs Q TC ──
+      function tablaTC(arr) {
+        if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin cobranzas con tarjeta (IZIPAY/NIUBIZ/AMEX/DINERS) en el rango.</p>';
+        return `<table style="width:auto;border-collapse:collapse">
+          <thead><tr style="background:#f8fafc;color:var(--text-muted)">
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Documento</th>
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
+            <th style="${cwEv}">Tarjeta</th>
+            <th style="${cwEv}">TC (Cobranza)</th>
+            <th style="${cw3};text-align:right">Monto</th>
+            <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Movimiento en Q TC</th>
+            <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
+          </tr></thead>
+          <tbody>${arr.map(e => `
+            <tr style="${!e.ok ? 'background:#fef2f2' : ''}">
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap;font-family:monospace">${esc(e.documento)}</td>
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(e.fecha)}</td>
+              <td style="${cwEv};font-family:monospace">${esc(e.tarjeta)}</td>
+              <td style="${cwEv}">${esc(e.tcOperador)}</td>
+              <td style="${cw3};text-align:right">${fmt(e.monto)}</td>
+              <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);border-left:1px solid var(--border)">
+                ${e.tcMov ? `${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}` : '—'}
+              </td>
+              <td style="padding:4px 4px;text-align:center">${badge(e.ok)}</td>
+            </tr>`).join('')}
+          </tbody></table>`;
+      }
+      const s5errores = c5.resultado.filter(e=>!e.ok).length;
+
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:0;overflow:hidden">
           <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
@@ -11662,6 +11692,14 @@ async function viewConciliacion(container) {
             <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
             <div style="overflow-x:auto">${tablaEventos(c4.usd)}</div>
           </div>
+        </div>
+
+        <div class="card mb-16" style="padding:0;overflow:hidden">
+          <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <strong style="font-size:13px">5️⃣ Tarjeta de Crédito (TC) — COBRANZA vs Q TC</strong>
+            <span style="font-size:11px;color:${s5errores?'#dc2626':'#16a34a'}">${s5errores ? `⚠ ${s5errores} cobranza(s) sin ubicar en Q TC` : '✓ Todo cuadra'}</span>
+          </div>
+          <div style="overflow-x:auto">${tablaTC(c5.resultado)}</div>
         </div>`;
     } catch (e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   };

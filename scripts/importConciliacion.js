@@ -7,6 +7,7 @@ const ConciliacionConfig = require('../models/ConciliacionConfig');
 const EeccMovimiento     = require('../models/EeccMovimiento');
 const CobranzaErp        = require('../models/CobranzaErp');
 const CajaDiaria          = require('../models/CajaDiaria');
+const TcMovimiento        = require('../models/TcMovimiento');
 
 const BATCH = 2000;
 const str = v => (v == null ? '' : String(v).trim());
@@ -206,6 +207,67 @@ async function importCobranza(sociedad, filePaths) {
   if (cajaRowsDedup.length) await insertBatched(CajaDiaria, cajaRowsDedup, 'Caja diaria' + suf);
 }
 
+async function leerTC(filePath) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(filePath);
+  const sh = wb.getWorksheet('Q TC TODAS');
+  if (!sh) return [];
+
+  const col = headerMap(sh);
+  const iEstab  = col('ESTABLECIMIENTO');
+  const iTarj   = col('TARJETA');
+  const iFVenta = col('FECHA_VENTA');
+  const iVenta  = col('VENTA');
+  const iEstado = col('ESTADO');
+  const iComM   = col('COMISION_MERCHANT');
+  const iComE   = col('COMISION_EMISOR');
+  const iIgv    = col('IGV_COMISION');
+  const iDep    = col('DEPOSITO');
+  const iFDep   = col('FECHA_DEPOSITO');
+  const iComT   = col('COMISION_TOTAL');
+  const iTc     = col('TC');
+  const iAutor  = col('AUTORIZACION');
+  const iMon    = col('MONEDA');
+
+  const rows = [];
+  sh.eachRow({ includeEmpty: false }, (row, rowNum) => {
+    if (rowNum === 1) return;
+    const get = i => (i ? row.getCell(i).value : null);
+    const fechaVenta = dt(get(iFVenta));
+    if (!fechaVenta) return;
+    const tarjeta = str(get(iTarj));
+    rows.push({
+      establecimiento:  str(get(iEstab)),
+      tarjeta,
+      tarjetaUlt4:       tarjeta.slice(-4),
+      fechaVenta,
+      venta:            num(get(iVenta)),
+      estado:           str(get(iEstado)),
+      comisionMerchant: num(get(iComM)),
+      comisionEmisor:   num(get(iComE)),
+      igvComision:      num(get(iIgv)),
+      deposito:         num(get(iDep)),
+      fechaDeposito:    dt(get(iFDep)),
+      comisionTotal:    num(get(iComT)),
+      tc:               str(get(iTc)),
+      autorizacion:     str(get(iAutor)),
+      moneda:           str(get(iMon)),
+    });
+  });
+  return rows;
+}
+
+async function importTC(sociedad, filePaths) {
+  const paths = (Array.isArray(filePaths) ? filePaths : [filePaths]).filter(Boolean);
+  if (!paths.length) return;
+
+  let rows = [];
+  for (const p of paths) rows = rows.concat((await leerTC(p)).map(r => ({ sociedad, ...r })));
+
+  await TcMovimiento.deleteMany({ sociedad });
+  if (rows.length) await insertBatched(TcMovimiento, rows, `TC movimientos (${paths.length} archivo${paths.length>1?'s':''})`);
+}
+
 (async () => {
   await mongoose.connect(process.env.MONGODB_URI);
 
@@ -221,6 +283,7 @@ async function importCobranza(sociedad, filePaths) {
     try {
       await importEECC(cfg.sociedad, cfg.rutaEECC);
       await importCobranza(cfg.sociedad, cfg.rutaCobranza);
+      await importTC(cfg.sociedad, cfg.rutaTC);
     } catch (e) {
       console.error(`  ✗ Error en ${cfg.sociedad}: ${e.message}`);
     }
