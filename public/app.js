@@ -11597,6 +11597,7 @@ async function viewConciliacion(container) {
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
             <th style="padding:4px 8px;text-align:left;font-size:11px">Documento</th>
             <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
+            <th style="${cwEv}">Cliente</th>
             <th style="${cwEv}">Tarjeta</th>
             <th style="${cw3};text-align:right">Monto</th>
             <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Movimiento en Q TC</th>
@@ -11606,6 +11607,7 @@ async function viewConciliacion(container) {
             <tr style="${!e.ok ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap;font-family:monospace">${esc(e.documento)}</td>
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(e.fecha)}</td>
+              <td style="${cwEv}">${esc(e.cliente||'—')}</td>
               <td style="${cwEv};font-family:monospace">${esc(e.tarjeta)}</td>
               <td style="${cw3};text-align:right">${fmt(e.monto)}</td>
               <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);border-left:1px solid var(--border)">

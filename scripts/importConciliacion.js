@@ -110,6 +110,7 @@ async function leerCobranza(filePath) {
     const iCanal = col('CANAL');
     const iFDoc  = col('FECHA_DOCUMENTO');
     const iFPed  = col('FECHA_PEDIDO');
+    const iCliente = col('CLIENTE');
     const iFact  = col('FACTURADO');
     const iEstado = col('ESTADO');
 
@@ -136,6 +137,7 @@ async function leerCobranza(filePath) {
         canal:          str(get(iCanal)),
         fechaDocumento: dt(get(iFDoc)),
         fechaPedido:    dt(get(iFPed)),
+        cliente:        str(get(iCliente)),
         facturado:      num(get(iFact)),
         estado:         str(get(iEstado)),
       });

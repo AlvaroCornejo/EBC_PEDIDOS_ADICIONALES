@@ -477,6 +477,7 @@ function matchTC(cobranzas, tcRows) {
     if (candidato) usados.add(candidato);
     return {
       documento: c.documento, fecha: c.fecha, tarjeta: c.tarjeta, tcOperador: c.tc, monto: c.cobranza,
+      cliente: c.cliente,
       tcMov: candidato ? {
         establecimiento: candidato.establecimiento, venta: candidato.venta, estado: candidato.estado,
         deposito: candidato.deposito, fechaDeposito: candidato.fechaDeposito,
@@ -509,6 +510,7 @@ router.get('/check5', async (req, res) => {
 
     const fmt = arr => arr.map(e => ({
       documento: e.documento, fecha: ymd(e.fecha), tarjeta: e.tarjeta, tcOperador: e.tcOperador, monto: e.monto, ok: e.ok,
+      cliente: e.cliente,
       tcMov: e.tcMov ? {
         establecimiento: e.tcMov.establecimiento, venta: e.tcMov.venta, estado: e.tcMov.estado,
         deposito: e.tcMov.deposito, fechaDeposito: e.tcMov.fechaDeposito ? ymd(e.tcMov.fechaDeposito) : null,

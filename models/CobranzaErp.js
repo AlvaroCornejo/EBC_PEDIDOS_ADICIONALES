@@ -17,6 +17,7 @@ const cobranzaErpSchema = new mongoose.Schema({
   canal:          { type: String, default: '' },  // COMERCIAL, EN EL LOCAL, OTROS
   fechaDocumento: { type: Date, default: null },
   fechaPedido:    { type: Date, default: null },
+  cliente:        { type: String, default: '' },
   facturado:      { type: Number, default: 0 },
   estado:         { type: String, default: '' },  // FACTURADO, etc.
 });
