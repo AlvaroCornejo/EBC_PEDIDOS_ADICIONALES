@@ -11622,7 +11622,7 @@ async function viewConciliacion(container) {
               <td style="${cwEv};font-family:monospace">${esc(e.tarjeta)}</td>
               <td style="${cw3};text-align:right">${fmt(e.monto)}</td>
               <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);border-left:1px solid var(--border)">
-                ${e.tcMov ? `${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}` : '—'}
+                ${e.tcMov ? `${e.combinado ? '🔗 ' : ''}${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}${e.combinado ? ' <span title="Movimiento combinado: la suma de varias cobranzas de la misma tarjeta y fecha">(combinado)</span>' : ''}` : '—'}
               </td>
               <td style="padding:4px 4px;text-align:center">${badge(e.ok)}</td>
             </tr>`).join('')}

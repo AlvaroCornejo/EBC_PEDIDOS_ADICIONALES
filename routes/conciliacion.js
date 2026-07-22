@@ -464,9 +464,20 @@ const TC_OPERADORES = ['IZIPAY', 'NIUBIZ', 'AMEX', 'DINERS'];
 // TARJETA (4 digitos en COBRANZA) == ultimos 4 digitos de TARJETA en Q TC, + misma fecha
 // de venta + mismo monto (con tolerancia) — la combinacion evita cruzar dos ventas
 // distintas que por coincidencia compartan los mismos 4 digitos de tarjeta.
+//
+// 2da pasada: un solo movimiento de Q TC puede corresponder a la SUMA de varias cobranzas
+// del mismo dia con la misma tarjeta (el operador liquido varias ventas juntas). Si una
+// cobranza no matchea individualmente, se agrupa con otras de la misma tarjeta+fecha sin
+// match y se busca un movimiento de Q TC cuyo VENTA sea igual a la suma del grupo.
 function matchTC(cobranzas, tcRows) {
   const usados = new Set();
-  return cobranzas.map(c => {
+  const fmtMov = t => ({
+    establecimiento: t.establecimiento, venta: t.venta, estado: t.estado,
+    deposito: t.deposito, fechaDeposito: t.fechaDeposito,
+    comisionTotal: t.comisionTotal, tc: t.tc, autorizacion: t.autorizacion,
+  });
+
+  const resultados = cobranzas.map(c => {
     // Q TC.VENTA incluye la propina (equivale a COBRANZA.COBRANZA = VENTA+TIP), no a
     // COBRANZA_MONEDA (que excluye el TIP) — confirmado con datos reales.
     const target = Math.abs(c.cobranza);
@@ -477,17 +488,37 @@ function matchTC(cobranzas, tcRows) {
       Math.abs(t.venta - target) < TOL
     );
     if (candidato) usados.add(candidato);
-    return {
-      documento: c.documento, fecha: c.fecha, tarjeta: c.tarjeta, tcOperador: c.tc, monto: c.cobranza,
-      cliente: c.cliente,
-      tcMov: candidato ? {
-        establecimiento: candidato.establecimiento, venta: candidato.venta, estado: candidato.estado,
-        deposito: candidato.deposito, fechaDeposito: candidato.fechaDeposito,
-        comisionTotal: candidato.comisionTotal, tc: candidato.tc, autorizacion: candidato.autorizacion,
-      } : null,
-      ok: !!candidato,
-    };
+    return { c, candidato, combinado: false };
   });
+
+  const gruposSinMatch = {};
+  resultados.forEach(r => {
+    if (r.candidato) return;
+    const k = r.c.tarjeta + '|' + ymd(r.c.fecha);
+    (gruposSinMatch[k] = gruposSinMatch[k] || []).push(r);
+  });
+  Object.values(gruposSinMatch).forEach(grupo => {
+    if (grupo.length < 2) return; // nada que combinar
+    const suma = grupo.reduce((s, r) => s + Math.abs(r.c.cobranza), 0);
+    const candidato = tcRows.find(t =>
+      !usados.has(t) &&
+      t.tarjetaUlt4 === grupo[0].c.tarjeta &&
+      ymd(t.fechaVenta) === ymd(grupo[0].c.fecha) &&
+      Math.abs(t.venta - suma) < TOL
+    );
+    if (candidato) {
+      usados.add(candidato);
+      grupo.forEach(r => { r.candidato = candidato; r.combinado = true; });
+    }
+  });
+
+  return resultados.map(({ c, candidato, combinado }) => ({
+    documento: c.documento, fecha: c.fecha, tarjeta: c.tarjeta, tcOperador: c.tc, monto: c.cobranza,
+    cliente: c.cliente,
+    tcMov: candidato ? fmtMov(candidato) : null,
+    combinado,
+    ok: !!candidato,
+  }));
 }
 
 // ─── GET /check5 — Tarjeta de Credito: COBRANZA ERP vs Q TC ──────────────
@@ -512,7 +543,7 @@ router.get('/check5', async (req, res) => {
 
     const fmt = arr => arr.map(e => ({
       documento: e.documento, fecha: ymd(e.fecha), tarjeta: e.tarjeta, tcOperador: e.tcOperador, monto: e.monto, ok: e.ok,
-      cliente: e.cliente,
+      cliente: e.cliente, combinado: e.combinado,
       tcMov: e.tcMov ? {
         establecimiento: e.tcMov.establecimiento, venta: e.tcMov.venta, estado: e.tcMov.estado,
         deposito: e.tcMov.deposito, fechaDeposito: e.tcMov.fechaDeposito ? ymd(e.tcMov.fechaDeposito) : null,
