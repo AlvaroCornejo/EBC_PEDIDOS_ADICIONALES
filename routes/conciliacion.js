@@ -13,6 +13,7 @@ const TOL = 0.5;
 const TOL_DEP_PEN = 10;    // tolerancia para conciliar depositos en soles
 const MAX_LOOKBACK = 20;   // dias maximos hacia atras al buscar un deposito
 const MAX_DIAS_BANCO = 6;  // dias maximos desde el deposito hasta que aparezca en el EECC
+const MAX_DIAS_EVENTO = 15; // cheques/transferencias de eventos: puede aparecer en banco unos dias antes o despues
 
 function canAccess(user) {
   return user.role === 'ADMIN' || !!user.accesoConciliacion;
@@ -340,7 +341,9 @@ router.get('/check2', async (req, res) => {
 // (ej. check4, eventos comerciales) pueda excluir esos movimientos y no reutilizarlos.
 async function calcularCheck3(sociedad, fechaDesde, fechaHasta) {
   const fechaConMargen = new Date(fechaDesde.getTime() - MAX_LOOKBACK * 86400000);
-  const fechaHastaMargen = new Date(fechaHasta.getTime() + MAX_DIAS_BANCO * 86400000);
+  // El margen hacia adelante debe cubrir el mayor de los dos usos de eeccSol/eeccUsd:
+  // check3 (MAX_DIAS_BANCO) y check4 - eventos comerciales (MAX_DIAS_EVENTO, mas amplio).
+  const fechaHastaMargen = new Date(fechaHasta.getTime() + Math.max(MAX_DIAS_BANCO, MAX_DIAS_EVENTO) * 86400000);
 
   const cajaRows = await CajaDiaria.find({
     sociedad, fecha: { $gte: fechaConMargen, $lte: fechaHasta },
@@ -395,12 +398,12 @@ router.get('/check3', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-const MAX_DIAS_EVENTO = 15; // cheques/transferencias de eventos pueden demorar mas en aparecer en banco
-
 // Eventos comerciales (COBRANZA ERP con MEDIO PAGO = "Cheque") no pasan por CAJA: se
 // buscan directamente en el EECC por importe (se asume que dos eventos no comparten
-// exactamente el mismo monto). Excluye "INGRESO EN EFECTIVO" (reservado para caja) y
-// cualquier movimiento ya usado por otra conciliacion (`usados`, compartido con check3).
+// exactamente el mismo monto), dentro de MAX_DIAS_EVENTO días antes O después de la fecha
+// del evento (el pago puede registrarse en el banco unos días antes o después). Excluye
+// "INGRESO EN EFECTIVO" (reservado para caja) y cualquier movimiento ya usado por otra
+// conciliacion (`usados`, compartido con check3).
 function matchEventosComerciales(cobranzas, eeccRows, usados) {
   return cobranzas.map(c => {
     const target = Math.abs(c.cobranzaMoneda);
@@ -409,8 +412,7 @@ function matchEventosComerciales(cobranzas, eeccRows, usados) {
       e.importe > 0 &&
       (e.concepto || '').trim().toUpperCase() !== CONCEPTO_DEPOSITO_EFECTIVO &&
       Math.abs(e.importe - target) < TOL &&
-      e.fechaOperacion >= c.fecha &&
-      (e.fechaOperacion - c.fecha) / 86400000 <= MAX_DIAS_EVENTO
+      Math.abs(e.fechaOperacion - c.fecha) / 86400000 <= MAX_DIAS_EVENTO
     );
     if (candidato) usados.add(candidato);
     return {
