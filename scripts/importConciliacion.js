@@ -32,8 +32,7 @@ async function insertBatched(Model, rows, label) {
   console.log(`  ✓ ${label}: ${inserted} filas`);
 }
 
-async function importEECC(sociedad, filePath) {
-  if (!filePath) return;
+async function leerEECC(filePath) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
 
@@ -60,7 +59,6 @@ async function importEECC(sociedad, filePath) {
       const moneda = monRaw.startsWith('S') ? 'SOL' : monRaw.startsWith('U') || monRaw.startsWith('D') ? 'USD' : null;
       if (!moneda) return;
       rows.push({
-        sociedad,
         banco:          str(get(iBanco)),
         moneda,
         fechaOperacion: fOp,
@@ -73,13 +71,21 @@ async function importEECC(sociedad, filePath) {
       });
     });
   });
-
-  await EeccMovimiento.deleteMany({ sociedad });
-  if (rows.length) await insertBatched(EeccMovimiento, rows, 'EECC movimientos');
+  return rows;
 }
 
-async function importCobranza(sociedad, filePath) {
-  if (!filePath) return;
+async function importEECC(sociedad, filePaths) {
+  const paths = (Array.isArray(filePaths) ? filePaths : [filePaths]).filter(Boolean);
+  if (!paths.length) return;
+
+  let rows = [];
+  for (const p of paths) rows = rows.concat((await leerEECC(p)).map(r => ({ sociedad, ...r })));
+
+  await EeccMovimiento.deleteMany({ sociedad });
+  if (rows.length) await insertBatched(EeccMovimiento, rows, `EECC movimientos (${paths.length} archivo${paths.length>1?'s':''})`);
+}
+
+async function leerCobranza(filePath) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
 
@@ -114,7 +120,6 @@ async function importCobranza(sociedad, filePath) {
       const monRaw = str(get(iMon));
       const moneda = /dolar/i.test(monRaw) ? 'Dolares' : 'Soles';
       erpRows.push({
-        sociedad,
         documento:      str(get(iDoc)),
         fecha,
         medioPago:      str(get(iMedio)),
@@ -159,7 +164,6 @@ async function importCobranza(sociedad, filePath) {
       const fecha = dt(get(iFecha));
       if (!fecha) return;
       cajaRows.push({
-        sociedad,
         fecha,
         cobranzaEfectivo:    num(get(iEf)),
         tipEfectivo:         num(get(iTip)),
@@ -175,10 +179,31 @@ async function importCobranza(sociedad, filePath) {
     });
   }
 
+  return { erpRows, cajaRows };
+}
+
+async function importCobranza(sociedad, filePaths) {
+  const paths = (Array.isArray(filePaths) ? filePaths : [filePaths]).filter(Boolean);
+  if (!paths.length) return;
+
+  let erpRows = [], cajaRows = [];
+  for (const p of paths) {
+    const r = await leerCobranza(p);
+    erpRows  = erpRows.concat(r.erpRows.map(x => ({ sociedad, ...x })));
+    cajaRows = cajaRows.concat(r.cajaRows.map(x => ({ sociedad, ...x })));
+  }
+
+  // CajaDiaria tiene indice unico por {sociedad,fecha}: si varios archivos se solapan en
+  // fechas, se conserva la ultima ocurrencia (archivo mas reciente en la lista) por fecha.
+  const cajaPorFecha = {};
+  cajaRows.forEach(r => { cajaPorFecha[r.fecha.getTime()] = r; });
+  const cajaRowsDedup = Object.values(cajaPorFecha);
+
   await CobranzaErp.deleteMany({ sociedad });
   await CajaDiaria.deleteMany({ sociedad });
-  if (erpRows.length)  await insertBatched(CobranzaErp, erpRows, 'Cobranza ERP');
-  if (cajaRows.length) await insertBatched(CajaDiaria, cajaRows, 'Caja diaria');
+  const suf = ` (${paths.length} archivo${paths.length>1?'s':''})`;
+  if (erpRows.length)       await insertBatched(CobranzaErp, erpRows, 'Cobranza ERP' + suf);
+  if (cajaRowsDedup.length) await insertBatched(CajaDiaria, cajaRowsDedup, 'Caja diaria' + suf);
 }
 
 (async () => {

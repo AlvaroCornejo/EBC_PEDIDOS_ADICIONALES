@@ -44,12 +44,13 @@ router.put('/config/:sociedad', async (req, res) => {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
     const { sociedad } = req.params;
     const { rutaEECC, rutaCobranza, rutaTC } = req.body;
+    const asArray = v => Array.isArray(v) ? v.map(s => String(s).trim()).filter(Boolean) : [];
     const cfg = await ConciliacionConfig.findOneAndUpdate(
       { sociedad },
       { $set: {
-          ...(rutaEECC     !== undefined && { rutaEECC }),
-          ...(rutaCobranza !== undefined && { rutaCobranza }),
-          ...(rutaTC       !== undefined && { rutaTC }),
+          ...(rutaEECC     !== undefined && { rutaEECC: asArray(rutaEECC) }),
+          ...(rutaCobranza !== undefined && { rutaCobranza: asArray(rutaCobranza) }),
+          ...(rutaTC       !== undefined && { rutaTC: asArray(rutaTC) }),
         } },
       { new: true, upsert: true }
     );

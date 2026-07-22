@@ -11745,43 +11745,79 @@ async function renderAdminConciliacion(container) {
   const bySoc = {};
   configs.forEach(c => { bySoc[c.sociedad] = c; });
 
-  container.innerHTML = `
-    <p class="mb-8 text-muted" style="font-size:13px">
-      Define, para cada sociedad, la ruta local de los archivos usados en la conciliación de cobranzas.
-      El EECC de Bancos incluye todas las hojas por banco y moneda; el archivo de Cobranza incluye las
-      hojas "COBRANZA ERP" y "CAJA"; el reporte de TC se usará más adelante para conciliar tarjetas.
-    </p>
-    <div class="card" style="overflow:hidden">
-      <table class="data-table" style="font-size:13px">
-        <thead><tr><th style="width:100px">Sociedad</th><th>Ruta EECC Bancos</th><th>Ruta Cobranza</th><th>Ruta Reporte TC</th></tr></thead>
-        <tbody>
-          ${ALL_SOCS_COMPRA.map(s => {
-            const c = bySoc[s] || {};
-            return `<tr>
-              <td style="font-weight:600">${esc(s)}</td>
-              <td><input type="text" class="form-control acc-eecc" data-soc="${esc(s)}" value="${esc(c.rutaEECC||'')}" placeholder="C:\\...\\Q EECC BANCOS.xlsx"></td>
-              <td><input type="text" class="form-control acc-cobranza" data-soc="${esc(s)}" value="${esc(c.rutaCobranza||'')}" placeholder="C:\\...\\Q COBRANZA.xlsx"></td>
-              <td><input type="text" class="form-control acc-tc" data-soc="${esc(s)}" value="${esc(c.rutaTC||'')}" placeholder="C:\\...\\Q TC.xlsx"></td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
+  const TIPOS = [
+    { key: 'rutaEECC',     label: 'Ruta EECC Bancos', placeholder: 'C:\\...\\Q EECC BANCOS.xlsx' },
+    { key: 'rutaCobranza', label: 'Ruta Cobranza',    placeholder: 'C:\\...\\Q COBRANZA.xlsx' },
+    { key: 'rutaTC',       label: 'Ruta Reporte TC',  placeholder: 'C:\\...\\Q TC.xlsx' },
+  ];
+
+  const rutaInputRow = (soc, tipo, valor) => `
+    <div style="display:flex;gap:4px;margin-bottom:4px;align-items:center" class="cc-ruta-row">
+      <input type="text" class="form-control cc-input" data-soc="${esc(soc)}" data-tipo="${tipo}"
+        value="${esc(valor||'')}" placeholder="${esc(TIPOS.find(t=>t.key===tipo).placeholder)}" style="width:420px">
+      <button type="button" class="btn btn-outline btn-xs cc-del" title="Quitar" style="padding:2px 8px">✕</button>
     </div>`;
 
-  async function guardar(soc, body) {
+  container.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">
+      Define, para cada sociedad, la(s) ruta(s) local(es) de los archivos usados en la conciliación de
+      cobranzas — se puede agregar más de un archivo por tipo (ej. uno por mes). El EECC de Bancos incluye
+      todas las hojas por banco y moneda; el archivo de Cobranza incluye las hojas "COBRANZA ERP" y "CAJA";
+      el reporte de TC se usará más adelante para conciliar tarjetas.
+    </p>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${ALL_SOCS_COMPRA.map(s => {
+        const c = bySoc[s] || {};
+        return `
+        <div class="card" style="padding:14px 16px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:10px">${esc(s)}</div>
+          <div style="display:flex;gap:24px;flex-wrap:wrap">
+            ${TIPOS.map(t => {
+              const valores = (c[t.key] && c[t.key].length) ? c[t.key] : [''];
+              return `
+              <div>
+                <label class="form-label" style="font-size:11px">${t.label}</label>
+                <div class="cc-rutas" data-soc="${esc(s)}" data-tipo="${t.key}">
+                  ${valores.map(v => rutaInputRow(s, t.key, v)).join('')}
+                </div>
+                <button type="button" class="btn btn-outline btn-xs cc-add" data-soc="${esc(s)}" data-tipo="${t.key}">+ Agregar archivo</button>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  async function guardar(soc, tipo) {
+    const grupo = container.querySelector(`.cc-rutas[data-soc="${CSS.escape(soc)}"][data-tipo="${tipo}"]`);
+    const rutas = [...grupo.querySelectorAll('.cc-input')].map(el => el.value.trim()).filter(Boolean);
     try {
-      await PUT(`/conciliacion/config/${encodeURIComponent(soc)}`, body);
+      await PUT(`/conciliacion/config/${encodeURIComponent(soc)}`, { [tipo]: rutas });
       toast(`Configuración de ${soc} actualizada`, 'success');
     } catch (err) { toast(err.message, 'error'); }
   }
-  container.querySelectorAll('.acc-eecc').forEach(el => {
-    el.addEventListener('change', () => guardar(el.dataset.soc, { rutaEECC: el.value.trim() }));
+
+  container.addEventListener('change', e => {
+    if (!e.target.classList.contains('cc-input')) return;
+    guardar(e.target.dataset.soc, e.target.dataset.tipo);
   });
-  container.querySelectorAll('.acc-cobranza').forEach(el => {
-    el.addEventListener('change', () => guardar(el.dataset.soc, { rutaCobranza: el.value.trim() }));
-  });
-  container.querySelectorAll('.acc-tc').forEach(el => {
-    el.addEventListener('change', () => guardar(el.dataset.soc, { rutaTC: el.value.trim() }));
+
+  container.addEventListener('click', e => {
+    const addBtn = e.target.closest('.cc-add');
+    if (addBtn) {
+      const grupo = container.querySelector(`.cc-rutas[data-soc="${CSS.escape(addBtn.dataset.soc)}"][data-tipo="${addBtn.dataset.tipo}"]`);
+      grupo.insertAdjacentHTML('beforeend', rutaInputRow(addBtn.dataset.soc, addBtn.dataset.tipo, ''));
+      return;
+    }
+    const delBtn = e.target.closest('.cc-del');
+    if (delBtn) {
+      const row = delBtn.closest('.cc-ruta-row');
+      const grupo = row.parentElement;
+      const soc = grupo.dataset.soc, tipo = grupo.dataset.tipo;
+      row.remove();
+      if (!grupo.querySelector('.cc-ruta-row')) grupo.insertAdjacentHTML('beforeend', rutaInputRow(soc, tipo, ''));
+      guardar(soc, tipo);
+    }
   });
 }
 
