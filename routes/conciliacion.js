@@ -161,7 +161,8 @@ function buscarEnBanco(target, fecha, eeccRows, excluir) {
 }
 
 // El deposito de CAJA (sumEf+sumTip+sumVuelto) puede llegar al banco como DOS movimientos
-// separados (Efectivo y TIP); se busca cada uno por su lado, siempre en la misma fila por fecha.
+// separados (Efectivo y TIP) — 1ra conciliacion — o como UN solo movimiento combinado
+// por la suma de ambos — 2da conciliacion, si la primera no encuentra ambos componentes.
 function matchEnBanco(depositos, eeccRows) {
   return depositos.map(d => {
     const targetEf  = (d.sumEf || 0) + (d.sumVuelto || 0);
@@ -169,12 +170,21 @@ function matchEnBanco(depositos, eeccRows) {
     const bEf  = buscarEnBanco(targetEf, d.fecha, eeccRows);
     const bTip = buscarEnBanco(targetTip, d.fecha, eeccRows, bEf.movimiento);
     const fmtMov = m => m ? { fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco } : null;
+
+    let combinado = null;
+    if (!(bEf.ok && bTip.ok)) {
+      const targetCombo = targetEf + targetTip;
+      const bCombo = buscarEnBanco(targetCombo, d.fecha, eeccRows);
+      if (bCombo.ok && !bCombo.na) combinado = fmtMov(bCombo.movimiento);
+    }
+
     return {
       ...d,
       targetEf, targetTip,
       bancoEf: fmtMov(bEf.movimiento), okEf: bEf.ok,
       bancoTip: fmtMov(bTip.movimiento), okTip: bTip.ok,
-      okBanco: bEf.ok && bTip.ok,
+      combinado,
+      okBanco: (bEf.ok && bTip.ok) || !!combinado,
     };
   });
 }
@@ -297,6 +307,7 @@ router.get('/check3', async (req, res) => {
       targetEf: d.targetEf, targetTip: d.targetTip,
       bancoEf: fmtMov(d.bancoEf), okEf: d.okEf,
       bancoTip: fmtMov(d.bancoTip), okTip: d.okTip,
+      combinado: fmtMov(d.combinado),
       okBanco: d.okBanco,
     }));
 

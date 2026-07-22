@@ -11529,8 +11529,9 @@ async function viewConciliacion(container) {
             <tr style="${!d.okBanco ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
               <td style="${cw3};text-align:right">${fmt(d.deposito)}</td>
-              ${celdaComponente(d.targetEf, d.bancoEf, d.okEf)}
-              ${celdaComponente(d.targetTip, d.bancoTip, d.okTip)}
+              ${d.combinado
+                ? `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#2563eb">🔗 Depósito único: ${esc(d.combinado.fecha)} · ${fmt(d.combinado.importe)}</td>`
+                : celdaComponente(d.targetEf, d.bancoEf, d.okEf) + celdaComponente(d.targetTip, d.bancoTip, d.okTip)}
               <td style="padding:4px 4px;text-align:center">${badge(d.okBanco)}</td>
             </tr>`).join('')}
           </tbody></table>`;
