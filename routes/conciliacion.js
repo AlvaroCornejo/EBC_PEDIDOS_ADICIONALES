@@ -465,7 +465,9 @@ const TC_OPERADORES = ['IZIPAY', 'NIUBIZ', 'AMEX', 'DINERS'];
 function matchTC(cobranzas, tcRows) {
   const usados = new Set();
   return cobranzas.map(c => {
-    const target = Math.abs(c.cobranzaMoneda);
+    // Q TC.VENTA incluye la propina (equivale a COBRANZA.COBRANZA = VENTA+TIP), no a
+    // COBRANZA_MONEDA (que excluye el TIP) — confirmado con datos reales.
+    const target = Math.abs(c.cobranza);
     const candidato = tcRows.find(t =>
       !usados.has(t) &&
       t.tarjetaUlt4 === c.tarjeta &&
@@ -474,7 +476,7 @@ function matchTC(cobranzas, tcRows) {
     );
     if (candidato) usados.add(candidato);
     return {
-      documento: c.documento, fecha: c.fecha, tarjeta: c.tarjeta, tcOperador: c.tc, monto: c.cobranzaMoneda,
+      documento: c.documento, fecha: c.fecha, tarjeta: c.tarjeta, tcOperador: c.tc, monto: c.cobranza,
       tcMov: candidato ? {
         establecimiento: candidato.establecimiento, venta: candidato.venta, estado: candidato.estado,
         deposito: candidato.deposito, fechaDeposito: candidato.fechaDeposito,
