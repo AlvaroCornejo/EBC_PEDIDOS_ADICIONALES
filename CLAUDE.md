@@ -312,7 +312,18 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
 tarjetas de reporte con badges ✓/⚠ por fila). Admin: tab `🏦 Conciliación Cobranzas` →
 `renderAdminConciliacion` (inputs de ruta por sociedad, guardado on-change vía `PUT /config/:sociedad`).
 
-**Pendiente**: conciliación de tarjetas/transferencias con `Q TC.xlsx` (ESTABLECIMIENTO, TARJETA,
-FECHA VENTA, VENTA, ESTADO, COMISION MERCHANT, COMISION EMISOR, IGV COMISION, DEPOSITO,
-FECHA DEPOSITO, COMISION TOTAL, TC, AUTORIZACION, MONEDA, EMISOR, Neto_Parcial,
-Fecha y Hora de Operación).
+**Pendiente**: conciliación de tarjetas/transferencias con `Q TC.xlsx` (hoja única `Q TC TODAS`).
+Columnas actuales (14, corregido — la versión anterior traía 3 columnas de más que ya no
+existen: `EMISOR`, `Neto_Parcial`, `Fecha y Hora de Operación`):
+`ESTABLECIMIENTO, TARJETA, FECHA VENTA, VENTA, ESTADO, COMISION MERCHANT, COMISION EMISOR,
+IGV COMISION, DEPOSITO, FECHA DEPOSITO, COMISION TOTAL, TC, AUTORIZACION, MONEDA`.
+- `ESTADO` ∈ {SEA, ABONADO, PROCESADO} — probablemente solo `ABONADO` tiene `DEPOSITO`/
+  `FECHA DEPOSITO` poblados y es la única relevante para conciliar contra el EECC.
+- `TC` = operador/marca: {NIUBIZ, DINERS NIUBIZ, CMD DINERS, AMEX, VISA MC, ALIMENTACION} — mismo
+  campo `TC` que ya se usa en `CobranzaErp` (cobranzas con `MEDIO PAGO = "Tarjeta de Crédito"`),
+  así que el cruce natural es `COBRANZA ERP` (TARJETA + TC + FECHA + VENTA) ↔ `Q TC` (mismos
+  campos) ↔ EECC (`DEPOSITO`/`FECHA DEPOSITO` deberían aparecer como movimiento en el banco).
+- `TARJETA` viene enmascarada (ej. `0484-3527`), coincide en formato con `CobranzaErp.tarjeta`.
+- `MONEDA` casi siempre vacía o `Soles`/`SOLES` (sin acento ni mayúsculas consistentes — normalizar
+  al importar, igual que se hizo con `COBRANZA ERP`).
+- `AUTORIZACION` viene poblada en ~99% de las filas (código de autorización de la operadora).
