@@ -386,7 +386,11 @@ router.get('/check3', async (req, res) => {
     fechaHasta.setHours(23, 59, 59, 999);
 
     const { pen, usd } = await calcularCheck3(sociedad, fechaDesde, fechaHasta);
-    res.json({ pen: fmtCheck3(pen), usd: fmtCheck3(usd) });
+    // matchEnBanco usa margenes mas amplios (dias antes/despues) para el matching interno;
+    // aqui se recorta la salida al rango exacto que el usuario seleccionó, para que las filas
+    // "sin CAJA" (extras) tambien respeten el rango y no queden fijas al cambiar las fechas.
+    const enRango = f => f.fecha >= fechaDesde && f.fecha <= fechaHasta;
+    res.json({ pen: fmtCheck3(pen.filter(enRango)), usd: fmtCheck3(usd.filter(enRango)) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
