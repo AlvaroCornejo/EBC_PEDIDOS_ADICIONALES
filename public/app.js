@@ -11525,7 +11525,15 @@ async function viewConciliacion(container) {
             <th colspan="2" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">TIP → Banco</th>
             <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
           </tr></thead>
-          <tbody>${arr.map(d => `
+          <tbody>${arr.map(d => d.bancoSinCaja ? `
+            <tr style="background:#fef3c7">
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
+              <td style="${cw3};text-align:right">—</td>
+              <td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#92400e">
+                ⚠ Ingreso en efectivo en banco sin depósito en CAJA: ${fmt(d.bancoSinCaja.importe)}${d.bancoSinCaja.nroDoc ? ' · Nº'+esc(d.bancoSinCaja.nroDoc) : ''}
+              </td>
+              <td style="padding:4px 4px;text-align:center">⚠</td>
+            </tr>` : `
             <tr style="${!d.okBanco ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
               <td style="${cw3};text-align:right">${fmt(d.deposito)}</td>

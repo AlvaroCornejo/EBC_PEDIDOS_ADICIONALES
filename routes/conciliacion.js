@@ -167,19 +167,25 @@ function buscarEnBanco(target, fecha, eeccRows, excluir) {
 // El deposito de CAJA (sumEf+sumTip+sumVuelto) puede llegar al banco como DOS movimientos
 // separados (Efectivo y TIP) — 1ra conciliacion — o como UN solo movimiento combinado
 // por la suma de ambos — 2da conciliacion, si la primera no encuentra ambos componentes.
+// Ademas, se listan los movimientos "INGRESO EN EFECTIVO" del EECC que no calzaron con
+// ningun deposito de CAJA (posible ingreso bancario sin registrar en caja).
 function matchEnBanco(depositos, eeccRows) {
-  return depositos.map(d => {
+  const usados = new Set();
+  const fmtMov = m => m ? { fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
+
+  const filas = depositos.map(d => {
     const targetEf  = (d.sumEf || 0) + (d.sumVuelto || 0);
     const targetTip = d.sumTip || 0;
     const bEf  = buscarEnBanco(targetEf, d.fecha, eeccRows);
     const bTip = buscarEnBanco(targetTip, d.fecha, eeccRows, bEf.movimiento);
-    const fmtMov = m => m ? { fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
+    if (bEf.movimiento) usados.add(bEf.movimiento);
+    if (bTip.movimiento) usados.add(bTip.movimiento);
 
     let combinado = null;
     if (!(bEf.ok && bTip.ok)) {
       const targetCombo = targetEf + targetTip;
       const bCombo = buscarEnBanco(targetCombo, d.fecha, eeccRows);
-      if (bCombo.ok && !bCombo.na) combinado = fmtMov(bCombo.movimiento);
+      if (bCombo.ok && !bCombo.na) { combinado = fmtMov(bCombo.movimiento); usados.add(bCombo.movimiento); }
     }
 
     return {
@@ -191,6 +197,17 @@ function matchEnBanco(depositos, eeccRows) {
       okBanco: (bEf.ok && bTip.ok) || !!combinado,
     };
   });
+
+  // Movimientos "INGRESO EN EFECTIVO" del EECC que no se usaron en ningun match
+  const sinCaja = eeccRows
+    .filter(e => (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO && !usados.has(e))
+    .map(e => ({
+      fecha: e.fechaOperacion, deposito: null,
+      targetEf: null, targetTip: null, bancoEf: null, okEf: false, bancoTip: null, okTip: false, combinado: null,
+      bancoSinCaja: fmtMov(e), okBanco: false,
+    }));
+
+  return [...filas, ...sinCaja].sort((a, b) => a.fecha - b.fecha);
 }
 
 // ─── GET /check1 — COBRANZA ERP (Efectivo) vs CAJA.COBRANZA_EFECTIVO(_USD), por dia ──
@@ -312,6 +329,7 @@ router.get('/check3', async (req, res) => {
       bancoEf: fmtMov(d.bancoEf), okEf: d.okEf,
       bancoTip: fmtMov(d.bancoTip), okTip: d.okTip,
       combinado: fmtMov(d.combinado),
+      bancoSinCaja: fmtMov(d.bancoSinCaja),
       okBanco: d.okBanco,
     }));
 
