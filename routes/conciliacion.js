@@ -459,11 +459,13 @@ router.get('/check4', async (req, res) => {
 });
 
 const TC_OPERADORES = ['IZIPAY', 'NIUBIZ', 'AMEX', 'DINERS'];
+const MAX_DIAS_TC = 5; // FECHA VENTA de Q TC puede diferir unos dias de FECHA COBRANZA (confirmado con casos reales)
 
 // COBRANZA ERP (Tarjeta de Credito, TC en TC_OPERADORES) vs Q TC: se concilia por
-// TARJETA (4 digitos en COBRANZA) == ultimos 4 digitos de TARJETA en Q TC, + misma fecha
-// de venta + mismo monto (con tolerancia) — la combinacion evita cruzar dos ventas
-// distintas que por coincidencia compartan los mismos 4 digitos de tarjeta.
+// TARJETA (4 digitos en COBRANZA) == ultimos 4 digitos de TARJETA en Q TC, + fecha de venta
+// dentro de +/- MAX_DIAS_TC dias de la fecha de cobranza + mismo monto (con tolerancia) —
+// la combinacion evita cruzar dos ventas distintas que por coincidencia compartan los
+// mismos 4 digitos de tarjeta.
 //
 // 2da pasada: un solo movimiento de Q TC puede corresponder a la SUMA de varias cobranzas
 // del mismo dia con la misma tarjeta (el operador liquido varias ventas juntas). Si una
@@ -484,7 +486,7 @@ function matchTC(cobranzas, tcRows) {
     const candidato = tcRows.find(t =>
       !usados.has(t) &&
       t.tarjetaUlt4 === c.tarjeta &&
-      ymd(t.fechaVenta) === ymd(c.fecha) &&
+      Math.abs(t.fechaVenta - c.fecha) / 86400000 <= MAX_DIAS_TC &&
       Math.abs(t.venta - target) < TOL
     );
     if (candidato) usados.add(candidato);
@@ -503,7 +505,7 @@ function matchTC(cobranzas, tcRows) {
     const candidato = tcRows.find(t =>
       !usados.has(t) &&
       t.tarjetaUlt4 === grupo[0].c.tarjeta &&
-      ymd(t.fechaVenta) === ymd(grupo[0].c.fecha) &&
+      Math.abs(t.fechaVenta - grupo[0].c.fecha) / 86400000 <= MAX_DIAS_TC &&
       Math.abs(t.venta - suma) < TOL
     );
     if (candidato) {
