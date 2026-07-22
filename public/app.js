@@ -11397,6 +11397,10 @@ async function viewConciliacion(container) {
           <label class="form-label">Fecha hasta</label>
           <input type="date" id="cc-hasta" class="form-control" value="${iso(hoy)}">
         </div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding-bottom:8px">
+          <input type="checkbox" id="cc-solo-dif" style="width:15px;height:15px;accent-color:var(--primary)" onchange="ccConsultar()">
+          <span style="font-size:13px">Solo diferencias</span>
+        </label>
         <button class="btn btn-primary" onclick="ccConsultar()" ${!sociedades.length ? 'disabled' : ''}>🔍 Consultar</button>
       </div>
     </div>
@@ -11418,6 +11422,8 @@ async function viewConciliacion(container) {
         GET(`/conciliacion/check4?${qs}`),
         GET(`/conciliacion/check5?${qs}`),
       ]);
+
+      const soloDif = document.getElementById('cc-solo-dif').checked;
 
       const fmt = v => (v === null || v === undefined) ? '' :
         Math.abs(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -11456,7 +11462,9 @@ async function viewConciliacion(container) {
                     title="${g.dias} días contiguos, suma=${g.sum.toFixed(2)}">${g.ok ? '✓' : fmtSigned(g.sum)}</td>`;
       };
 
-      const s1rows = c1.dias.map((d, idx) => `
+      const s1rows = c1.dias.map((d, idx) => {
+        if (soloDif && d.okSol && d.okUsd) return ''; // fila sin diferencia; seguro para el rowspan de Grupo (nunca es continuacion de un bloque activo)
+        return `
         <tr style="${(!d.okSol || !d.okUsd) ? 'background:#fef2f2' : ''}">
           <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
           <td style="${cw};text-align:right">${fmt(d.cajaSol)}</td>
@@ -11470,7 +11478,8 @@ async function viewConciliacion(container) {
           ${tdSigned(d.difUsd)}
           <td style="padding:4px 4px;text-align:center;width:22px">${badge(d.okUsd)}</td>
           ${tdGrupo(gruposUsd[idx])}
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
       const s1errores = c1.dias.filter(d => !d.okSol || !d.okUsd).length;
 
       // ── Sección 2: Depósito vs suma de días ──
@@ -11655,11 +11664,11 @@ async function viewConciliacion(container) {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
             <div style="border-right:1px solid var(--border)">
               <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES (DEPOSITO PEN)</div>
-              ${tablaDep2(c2.pen)}
+              ${tablaDep2(soloDif ? c2.pen.filter(d=>!d.ok) : c2.pen)}
             </div>
             <div>
               <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES (DEPOSITO USD)</div>
-              ${tablaDep2(c2.usd)}
+              ${tablaDep2(soloDif ? c2.usd.filter(d=>!d.ok) : c2.usd)}
             </div>
           </div>
         </div>
@@ -11672,11 +11681,11 @@ async function viewConciliacion(container) {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
             <div style="border-right:1px solid var(--border)">
               <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
-              ${tablaDep3(c3.pen)}
+              ${tablaDep3(soloDif ? c3.pen.filter(d=>!d.okBanco) : c3.pen)}
             </div>
             <div>
               <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
-              ${tablaDep3(c3.usd)}
+              ${tablaDep3(soloDif ? c3.usd.filter(d=>!d.okBanco) : c3.usd)}
             </div>
           </div>
         </div>
@@ -11688,11 +11697,11 @@ async function viewConciliacion(container) {
           </div>
           <div style="border-bottom:1px solid var(--border)">
             <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
-            <div style="overflow-x:auto">${tablaEventos(c4.pen)}</div>
+            <div style="overflow-x:auto">${tablaEventos(soloDif ? c4.pen.filter(e=>!e.ok) : c4.pen)}</div>
           </div>
           <div>
             <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
-            <div style="overflow-x:auto">${tablaEventos(c4.usd)}</div>
+            <div style="overflow-x:auto">${tablaEventos(soloDif ? c4.usd.filter(e=>!e.ok) : c4.usd)}</div>
           </div>
         </div>
 
@@ -11701,7 +11710,7 @@ async function viewConciliacion(container) {
             <strong style="font-size:13px">5️⃣ Tarjeta de Crédito (TC) — COBRANZA vs Q TC</strong>
             <span style="font-size:11px;color:${s5errores?'#dc2626':'#16a34a'}">${s5errores ? `⚠ ${s5errores} cobranza(s) sin ubicar en Q TC` : '✓ Todo cuadra'}</span>
           </div>
-          <div style="overflow-x:auto">${tablaTC(c5.resultado)}</div>
+          <div style="overflow-x:auto">${tablaTC(soloDif ? c5.resultado.filter(e=>!e.ok) : c5.resultado)}</div>
         </div>`;
     } catch (e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   };
