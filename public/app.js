@@ -11609,26 +11609,53 @@ async function viewConciliacion(container) {
             <th style="padding:4px 8px;text-align:left;font-size:11px">Documento</th>
             <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
             <th style="${cwEv}">Cliente</th>
-            <th style="${cwEv}">Tarjeta</th>
+            <th style="${cwEv}">Tarjeta (COBRANZA)</th>
+            <th style="${cwEv}">Tarjeta (Q TC)</th>
             <th style="${cw3};text-align:right">Monto</th>
             <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Movimiento en Q TC</th>
             <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
           </tr></thead>
           <tbody>${arr.map(e => `
-            <tr style="${!e.ok ? 'background:#fef2f2' : ''}">
+            <tr style="${!e.ok ? 'background:#fef2f2' : (e.soloImporteFecha ? 'background:#fef9c3' : '')}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap;font-family:monospace">${esc(e.documento)}</td>
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(e.fecha)}</td>
               <td style="${cwEv}">${esc(e.cliente||'—')}</td>
               <td style="${cwEv};font-family:monospace">${esc(e.tarjeta)}</td>
+              <td style="${cwEv};font-family:monospace;${e.soloImporteFecha ? 'color:#92400e;font-weight:700' : ''}">${e.tcMov ? esc(e.tcMov.tarjetaUlt4||'—') : '—'}</td>
               <td style="${cw3};text-align:right">${fmt(e.monto)}</td>
               <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);border-left:1px solid var(--border)">
-                ${e.tcMov ? `${e.combinado ? '🔗 ' : ''}${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}${e.combinado ? ' <span title="Movimiento combinado: la suma de varias cobranzas de la misma tarjeta y fecha">(combinado)</span>' : ''}` : '—'}
+                ${e.tcMov ? `${e.combinado ? '🔗 ' : ''}${e.soloImporteFecha ? '⚠ ' : ''}${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}${e.combinado ? ' <span title="Movimiento combinado: la suma de varias cobranzas de la misma tarjeta y fecha">(combinado)</span>' : ''}${e.soloImporteFecha ? ' <span title="Conciliado solo por importe y fecha - la tarjeta no coincide, verificar">(tarjeta distinta)</span>' : ''}` : '—'}
               </td>
               <td style="padding:4px 4px;text-align:center">${badge(e.ok)}</td>
             </tr>`).join('')}
           </tbody></table>`;
       }
       const s5errores = c5.resultado.filter(e=>!e.ok).length;
+
+      function tablaTcPendientes(arr) {
+        if (!arr.length) return '';
+        return `<table style="width:auto;border-collapse:collapse">
+          <thead><tr style="background:#fef9c3;color:#92400e">
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Tarjeta</th>
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha Venta</th>
+            <th style="${cw3};text-align:right">Venta</th>
+            <th style="${cwEv}">Estado</th>
+            <th style="padding:4px 6px;text-align:left;font-size:11px">Establecimiento</th>
+            <th style="${cwEv}">TC</th>
+            <th style="${cwEv}">Autorización</th>
+          </tr></thead>
+          <tbody>${arr.map(t => `
+            <tr>
+              <td style="padding:4px 8px;font-size:11px;font-family:monospace">${esc(t.tarjeta)}</td>
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(t.fecha)}</td>
+              <td style="${cw3};text-align:right">${fmt(t.venta)}</td>
+              <td style="${cwEv}">${esc(t.estado)}</td>
+              <td style="padding:4px 6px;font-size:11px">${esc(t.establecimiento)}</td>
+              <td style="${cwEv}">${esc(t.tc)}</td>
+              <td style="${cwEv}">${esc(t.autorizacion)}</td>
+            </tr>`).join('')}
+          </tbody></table>`;
+      }
 
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:0;overflow:hidden">
@@ -11711,6 +11738,11 @@ async function viewConciliacion(container) {
             <span style="font-size:11px;color:${s5errores?'#dc2626':'#16a34a'}">${s5errores ? `⚠ ${s5errores} cobranza(s) sin ubicar en Q TC` : '✓ Todo cuadra'}</span>
           </div>
           <div style="overflow-x:auto">${tablaTC(soloDif ? c5.resultado.filter(e=>!e.ok) : c5.resultado)}</div>
+          ${c5.pendientesTc && c5.pendientesTc.length ? `
+          <div style="padding:10px 16px;background:#fef9c3;border-top:1px solid var(--border);font-size:11px;font-weight:700;color:#92400e">
+            ⚠ ${c5.pendientesTc.length} movimiento(s) de Q TC sin cobranza asociada
+          </div>
+          <div style="overflow-x:auto">${tablaTcPendientes(c5.pendientesTc)}</div>` : ''}
         </div>`;
     } catch (e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   };

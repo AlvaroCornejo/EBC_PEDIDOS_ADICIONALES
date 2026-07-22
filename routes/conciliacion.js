@@ -471,12 +471,17 @@ const MAX_DIAS_TC = 5; // FECHA VENTA de Q TC puede diferir unos dias de FECHA C
 // del mismo dia con la misma tarjeta (el operador liquido varias ventas juntas). Si una
 // cobranza no matchea individualmente, se agrupa con otras de la misma tarjeta+fecha sin
 // match y se busca un movimiento de Q TC cuyo VENTA sea igual a la suma del grupo.
+// 3ra pasada: si aun asi no hay match, se busca SOLO por importe+fecha (sin exigir la
+// misma tarjeta) — cada movimiento de Q TC solo puede conciliar UN registro de COBRANZA
+// (respeta el mismo Set `usados`). Como la tarjeta puede no coincidir, se muestran ambas
+// (la de COBRANZA y la de Q TC) para que se pueda verificar a simple vista.
 function matchTC(cobranzas, tcRows) {
   const usados = new Set();
   const fmtMov = t => ({
     establecimiento: t.establecimiento, venta: t.venta, estado: t.estado,
     deposito: t.deposito, fechaDeposito: t.fechaDeposito,
     comisionTotal: t.comisionTotal, tc: t.tc, autorizacion: t.autorizacion,
+    tarjetaUlt4: t.tarjetaUlt4,
   });
 
   const resultados = cobranzas.map(c => {
@@ -490,7 +495,7 @@ function matchTC(cobranzas, tcRows) {
       Math.abs(t.venta - target) < TOL
     );
     if (candidato) usados.add(candidato);
-    return { c, candidato, combinado: false };
+    return { c, candidato, combinado: false, soloImporteFecha: false };
   });
 
   const gruposSinMatch = {};
@@ -514,13 +519,33 @@ function matchTC(cobranzas, tcRows) {
     }
   });
 
-  return resultados.map(({ c, candidato, combinado }) => ({
-    documento: c.documento, fecha: c.fecha, tarjeta: c.tarjeta, tcOperador: c.tc, monto: c.cobranza,
-    cliente: c.cliente,
-    tcMov: candidato ? fmtMov(candidato) : null,
-    combinado,
-    ok: !!candidato,
-  }));
+  resultados.forEach(r => {
+    if (r.candidato) return;
+    const target = Math.abs(r.c.cobranza);
+    const candidato = tcRows.find(t =>
+      !usados.has(t) &&
+      Math.abs(t.fechaVenta - r.c.fecha) / 86400000 <= MAX_DIAS_TC &&
+      Math.abs(t.venta - target) < TOL
+    );
+    if (candidato) {
+      usados.add(candidato);
+      r.candidato = candidato;
+      r.soloImporteFecha = true;
+    }
+  });
+
+  const pendientesTc = tcRows.filter(t => !usados.has(t));
+
+  return {
+    resultados: resultados.map(({ c, candidato, combinado, soloImporteFecha }) => ({
+      documento: c.documento, fecha: c.fecha, tarjeta: c.tarjeta, tcOperador: c.tc, monto: c.cobranza,
+      cliente: c.cliente,
+      tcMov: candidato ? fmtMov(candidato) : null,
+      combinado, soloImporteFecha,
+      ok: !!candidato,
+    })),
+    pendientesTc,
+  };
 }
 
 // ─── GET /check5 — Tarjeta de Credito: COBRANZA ERP vs Q TC ──────────────
@@ -534,26 +559,43 @@ router.get('/check5', async (req, res) => {
     const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta) : new Date('2100-01-01');
     fechaHasta.setHours(23, 59, 59, 999);
 
+    // Margen para que un TC cerca del borde del rango (dentro de MAX_DIAS_TC) tambien pueda
+    // conciliar con una cobranza dentro del rango.
+    const fechaConMargen = new Date(fechaDesde.getTime() - MAX_DIAS_TC * 86400000);
+    const fechaHastaMargen = new Date(fechaHasta.getTime() + MAX_DIAS_TC * 86400000);
+
     const cobranzas = await CobranzaErp.find({
       sociedad, medioPago: 'Tarjeta de Crédito',
       tc: { $in: TC_OPERADORES.map(o => new RegExp(`^${o}$`, 'i')) },
       fecha: { $gte: fechaDesde, $lte: fechaHasta },
     });
-    const tcRows = await TcMovimiento.find({ sociedad, fechaVenta: { $gte: fechaDesde, $lte: fechaHasta } });
+    const tcRows = await TcMovimiento.find({ sociedad, fechaVenta: { $gte: fechaConMargen, $lte: fechaHastaMargen } });
 
-    const resultado = matchTC(cobranzas, tcRows);
+    const { resultados, pendientesTc } = matchTC(cobranzas, tcRows);
 
-    const fmt = arr => arr.map(e => ({
+    const fmtMovOut = m => m ? {
+      establecimiento: m.establecimiento, venta: m.venta, estado: m.estado,
+      deposito: m.deposito, fechaDeposito: m.fechaDeposito ? ymd(m.fechaDeposito) : null,
+      comisionTotal: m.comisionTotal, tc: m.tc, autorizacion: m.autorizacion, tarjetaUlt4: m.tarjetaUlt4,
+    } : null;
+
+    const resultado = resultados.map(e => ({
       documento: e.documento, fecha: ymd(e.fecha), tarjeta: e.tarjeta, tcOperador: e.tcOperador, monto: e.monto, ok: e.ok,
-      cliente: e.cliente, combinado: e.combinado,
-      tcMov: e.tcMov ? {
-        establecimiento: e.tcMov.establecimiento, venta: e.tcMov.venta, estado: e.tcMov.estado,
-        deposito: e.tcMov.deposito, fechaDeposito: e.tcMov.fechaDeposito ? ymd(e.tcMov.fechaDeposito) : null,
-        comisionTotal: e.tcMov.comisionTotal, tc: e.tcMov.tc, autorizacion: e.tcMov.autorizacion,
-      } : null,
+      cliente: e.cliente, combinado: e.combinado, soloImporteFecha: e.soloImporteFecha,
+      tcMov: fmtMovOut(e.tcMov),
     }));
 
-    res.json({ resultado: fmt(resultado) });
+    // Solo se muestran los pendientes dentro del rango exacto seleccionado (el margen de
+    // consulta era solo para permitir el matching cerca del borde).
+    const pendientes = pendientesTc
+      .filter(t => t.fechaVenta >= fechaDesde && t.fechaVenta <= fechaHasta)
+      .map(t => ({
+        tarjeta: t.tarjetaUlt4, fecha: ymd(t.fechaVenta), venta: t.venta, estado: t.estado,
+        establecimiento: t.establecimiento, tc: t.tc, autorizacion: t.autorizacion,
+        deposito: t.deposito, fechaDeposito: t.fechaDeposito ? ymd(t.fechaDeposito) : null,
+      }));
+
+    res.json({ resultado, pendientesTc: pendientes });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
