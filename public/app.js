@@ -11598,7 +11598,6 @@ async function viewConciliacion(container) {
             <th style="padding:4px 8px;text-align:left;font-size:11px">Documento</th>
             <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
             <th style="${cwEv}">Tarjeta</th>
-            <th style="${cwEv}">TC (Cobranza)</th>
             <th style="${cw3};text-align:right">Monto</th>
             <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Movimiento en Q TC</th>
             <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
@@ -11608,7 +11607,6 @@ async function viewConciliacion(container) {
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap;font-family:monospace">${esc(e.documento)}</td>
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(e.fecha)}</td>
               <td style="${cwEv};font-family:monospace">${esc(e.tarjeta)}</td>
-              <td style="${cwEv}">${esc(e.tcOperador)}</td>
               <td style="${cw3};text-align:right">${fmt(e.monto)}</td>
               <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);border-left:1px solid var(--border)">
                 ${e.tcMov ? `${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}` : '—'}
