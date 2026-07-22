@@ -14,6 +14,11 @@ const cobranzaErpSchema = new mongoose.Schema({
   venta:          { type: Number, default: 0 },
   tip:            { type: Number, default: 0 },
   cobranza:       { type: Number, default: 0 },
+  canal:          { type: String, default: '' },  // COMERCIAL, EN EL LOCAL, OTROS
+  fechaDocumento: { type: Date, default: null },
+  fechaPedido:    { type: Date, default: null },
+  facturado:      { type: Number, default: 0 },
+  estado:         { type: String, default: '' },  // FACTURADO, etc.
 });
 
 cobranzaErpSchema.index({ sociedad: 1, medioPago: 1, moneda: 1, fecha: 1 });

@@ -401,6 +401,8 @@ function matchEventosComerciales(cobranzas, eeccRows, usados) {
     if (candidato) usados.add(candidato);
     return {
       documento: c.documento, fecha: c.fecha, monto: c.cobranzaMoneda,
+      canal: c.canal, fechaDocumento: c.fechaDocumento, fechaPedido: c.fechaPedido,
+      facturado: c.facturado, estado: c.estado,
       banco: candidato ? { fecha: candidato.fechaOperacion, importe: candidato.importe, concepto: candidato.concepto, banco: candidato.banco, nroDoc: candidato.nroDoc } : null,
       ok: !!candidato,
     };
@@ -430,6 +432,9 @@ router.get('/check4', async (req, res) => {
 
     const fmt = arr => arr.map(e => ({
       documento: e.documento, fecha: ymd(e.fecha), monto: e.monto, ok: e.ok,
+      canal: e.canal, fechaDocumento: e.fechaDocumento ? ymd(e.fechaDocumento) : null,
+      fechaPedido: e.fechaPedido ? ymd(e.fechaPedido) : null,
+      facturado: e.facturado, estado: e.estado,
       banco: e.banco ? { fecha: ymd(e.banco.fecha), importe: e.banco.importe, concepto: e.banco.concepto, banco: e.banco.banco, nroDoc: e.banco.nroDoc } : null,
     }));
 

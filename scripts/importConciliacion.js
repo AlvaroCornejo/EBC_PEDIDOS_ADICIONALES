@@ -100,6 +100,11 @@ async function importCobranza(sociedad, filePath) {
     const iVenta = col('VENTA');
     const iTip   = col('TIP');
     const iCobr  = col('COBRANZA');
+    const iCanal = col('CANAL');
+    const iFDoc  = col('FECHA_DOCUMENTO');
+    const iFPed  = col('FECHA_PEDIDO');
+    const iFact  = col('FACTURADO');
+    const iEstado = col('ESTADO');
 
     shErp.eachRow({ includeEmpty: false }, (row, rowNum) => {
       if (rowNum === 1) return;
@@ -122,6 +127,11 @@ async function importCobranza(sociedad, filePath) {
         venta:          num(get(iVenta)),
         tip:            num(get(iTip)),
         cobranza:       num(get(iCobr)),
+        canal:          str(get(iCanal)),
+        fechaDocumento: dt(get(iFDoc)),
+        fechaPedido:    dt(get(iFPed)),
+        facturado:      num(get(iFact)),
+        estado:         str(get(iEstado)),
       });
     });
   }
