@@ -33,7 +33,15 @@ const ymd = d => d.toISOString().slice(0, 10);
 router.get('/config', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const configs = await ConciliacionConfig.find({}).sort({ sociedad: 1 });
+    // .lean() evita que Mongoose intente castear documentos antiguos (rutaEECC/etc. guardados
+    // como String antes de pasar a [String]) al leerlos; se normalizan a mano abajo.
+    const configs = await ConciliacionConfig.find({}).sort({ sociedad: 1 }).lean();
+    const asArray = v => Array.isArray(v) ? v : (v ? [v] : []);
+    configs.forEach(c => {
+      c.rutaEECC = asArray(c.rutaEECC);
+      c.rutaCobranza = asArray(c.rutaCobranza);
+      c.rutaTC = asArray(c.rutaTC);
+    });
     res.json(configs);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
