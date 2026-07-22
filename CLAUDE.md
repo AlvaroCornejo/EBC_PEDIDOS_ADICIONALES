@@ -312,7 +312,10 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
   hoja `Q TC TODAS`). Llave de conciliación: `TARJETA` (4 dígitos en COBRANZA) == últimos 4 dígitos
   de `TARJETA` en Q TC (`TcMovimiento.tarjetaUlt4`, precalculado al importar) + misma fecha de venta
   + mismo monto (tolerancia `TOL=0.5`) — se necesitan los 3 criterios juntos porque los 4 dígitos de
-  tarjeta solos no son únicos entre transacciones distintas. El campo `TC` no se usa como parte de la
+  tarjeta solos no son únicos entre transacciones distintas. **El monto a comparar es
+  `CobranzaErp.cobranza` (VENTA+TIP), no `cobranzaMoneda`** — `Q TC.VENTA` incluye la propina;
+  confirmado con datos reales (usar `cobranzaMoneda` daba 434/4689 matches, `cobranza` da 2616/4689).
+  El campo `TC` no se usa como parte de la
   llave: los nombres de operador no coinciden entre ambos orígenes (COBRANZA usa IZIPAY/NIUBIZ/AMEX;
   Q TC usa NIUBIZ/DINERS NIUBIZ/CMD DINERS/AMEX/VISA MC/ALIMENTACION — sin mapeo 1:1 confiable).
   Solo cruza contra Q TC (aún no contra el EECC — el `DEPOSITO`/`FECHA DEPOSITO` de Q TC podría
