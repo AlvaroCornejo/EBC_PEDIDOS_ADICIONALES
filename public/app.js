@@ -11411,10 +11411,11 @@ async function viewConciliacion(container) {
       const fechaHasta = document.getElementById('cc-hasta').value;
       const qs = new URLSearchParams({ sociedad, fechaDesde, fechaHasta });
 
-      const [c1, c2, c3] = await Promise.all([
+      const [c1, c2, c3, c4] = await Promise.all([
         GET(`/conciliacion/check1?${qs}`),
         GET(`/conciliacion/check2?${qs}`),
         GET(`/conciliacion/check3?${qs}`),
+        GET(`/conciliacion/check4?${qs}`),
       ]);
 
       const fmt = v => (v === null || v === undefined) ? '' :
@@ -11552,6 +11553,31 @@ async function viewConciliacion(container) {
       }
       const s3errores = c3.pen.filter(d=>!d.okBanco).length + c3.usd.filter(d=>!d.okBanco).length;
 
+      // ── Sección 4: Eventos comerciales (Cheque) vs Banco ──
+      function tablaEventos(arr) {
+        if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin eventos (Cheque) en el rango.</p>';
+        return `<table style="width:auto;border-collapse:collapse">
+          <thead><tr style="background:#f8fafc;color:var(--text-muted)">
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Documento</th>
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
+            <th style="${cw3};text-align:right">Monto</th>
+            <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Movimiento en Banco</th>
+            <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
+          </tr></thead>
+          <tbody>${arr.map(e => `
+            <tr style="${!e.ok ? 'background:#fef2f2' : ''}">
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap;font-family:monospace">${esc(e.documento)}</td>
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(e.fecha)}</td>
+              <td style="${cw3};text-align:right">${fmt(e.monto)}</td>
+              <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);border-left:1px solid var(--border)">
+                ${e.banco ? `${esc(e.banco.fecha)} · ${fmt(e.banco.importe)}${e.banco.nroDoc ? ' · Nº'+esc(e.banco.nroDoc) : ''} · <span title="${esc(e.banco.concepto||'')}">${esc((e.banco.concepto||'').slice(0,28))}</span>` : '—'}
+              </td>
+              <td style="padding:4px 4px;text-align:center">${badge(e.ok)}</td>
+            </tr>`).join('')}
+          </tbody></table>`;
+      }
+      const s4errores = c4.pen.filter(e=>!e.ok).length + c4.usd.filter(e=>!e.ok).length;
+
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:0;overflow:hidden">
           <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
@@ -11608,6 +11634,23 @@ async function viewConciliacion(container) {
             <div>
               <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
               ${tablaDep3(c3.usd)}
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-16" style="padding:0;overflow:hidden">
+          <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <strong style="font-size:13px">4️⃣ Eventos Comerciales (Cheque) vs Movimiento Bancario (EECC)</strong>
+            <span style="font-size:11px;color:${s4errores?'#dc2626':'#16a34a'}">${s4errores ? `⚠ ${s4errores} evento(s) sin ubicar en banco` : '✓ Todo cuadra'}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+            <div style="border-right:1px solid var(--border)">
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
+              ${tablaEventos(c4.pen)}
+            </div>
+            <div>
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
+              ${tablaEventos(c4.usd)}
             </div>
           </div>
         </div>`;

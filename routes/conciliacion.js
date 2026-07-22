@@ -324,6 +324,47 @@ router.get('/check2', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Calcula la conciliacion de check3 (deposito CAJA vs EECC) y devuelve, ademas de los
+// resultados, los `Set` de movimientos EECC ya reservados (`usadosSol`/`usadosUsd`) y las
+// listas de movimientos EECC consultadas — para que otra conciliacion en la MISMA request
+// (ej. check4, eventos comerciales) pueda excluir esos movimientos y no reutilizarlos.
+async function calcularCheck3(sociedad, fechaDesde, fechaHasta) {
+  const fechaConMargen = new Date(fechaDesde.getTime() - MAX_LOOKBACK * 86400000);
+  const fechaHastaMargen = new Date(fechaHasta.getTime() + MAX_DIAS_BANCO * 86400000);
+
+  const cajaRows = await CajaDiaria.find({
+    sociedad, fecha: { $gte: fechaConMargen, $lte: fechaHasta },
+  });
+  const eeccSol = await EeccMovimiento.find({ sociedad, moneda: 'SOL', fechaOperacion: { $gte: fechaConMargen, $lte: fechaHastaMargen } });
+  const eeccUsd = await EeccMovimiento.find({ sociedad, moneda: 'USD', fechaOperacion: { $gte: fechaConMargen, $lte: fechaHastaMargen } });
+
+  const depPen = matchDeposits(cajaRows, { efField: 'cobranzaEfectivo', tipField: 'tipEfectivo', vueltoField: 'vueltoSoles', depField: 'depositoPen', tol: TOL_DEP_PEN })
+    .filter(d => d.fecha >= fechaDesde);
+  const depUsd = matchDeposits(cajaRows, { efField: 'cobranzaEfectivoUsd', tipField: 'tipUsd', vueltoField: null, depField: 'depositoUsd' })
+    .filter(d => d.fecha >= fechaDesde);
+
+  const usadosSol = new Set();
+  const usadosUsd = new Set();
+  const pen = matchEnBanco(depPen, eeccSol, usadosSol);
+  const usd = matchEnBanco(depUsd, eeccUsd, usadosUsd);
+
+  return { pen, usd, eeccSol, eeccUsd, usadosSol, usadosUsd };
+}
+
+function fmtCheck3(arr) {
+  const fmtMov = m => m ? { fecha: ymd(m.fecha), importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
+  return arr.map(d => ({
+    fecha: ymd(d.fecha), deposito: d.deposito,
+    targetEf: d.targetEf, targetTip: d.targetTip,
+    bancoEf: fmtMov(d.bancoEf), okEf: d.okEf,
+    bancoTip: fmtMov(d.bancoTip), okTip: d.okTip,
+    combinado: fmtMov(d.combinado),
+    extras: (d.extras || []).map(fmtMov),
+    diferencia: d.diferencia,
+    okBanco: d.okBanco,
+  }));
+}
+
 // ─── GET /check3 — Deposito (CAJA) vs movimiento bancario (EECC) ─────────
 router.get('/check3', async (req, res) => {
   try {
@@ -334,35 +375,65 @@ router.get('/check3', async (req, res) => {
     const fechaDesde = req.query.fechaDesde ? new Date(req.query.fechaDesde) : new Date('2000-01-01');
     const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta) : new Date('2100-01-01');
     fechaHasta.setHours(23, 59, 59, 999);
-    const fechaConMargen = new Date(fechaDesde.getTime() - MAX_LOOKBACK * 86400000);
-    const fechaHastaMargen = new Date(fechaHasta.getTime() + MAX_DIAS_BANCO * 86400000);
 
-    const cajaRows = await CajaDiaria.find({
-      sociedad, fecha: { $gte: fechaConMargen, $lte: fechaHasta },
-    });
-    const eeccSol = await EeccMovimiento.find({ sociedad, moneda: 'SOL', fechaOperacion: { $gte: fechaConMargen, $lte: fechaHastaMargen } });
-    const eeccUsd = await EeccMovimiento.find({ sociedad, moneda: 'USD', fechaOperacion: { $gte: fechaConMargen, $lte: fechaHastaMargen } });
+    const { pen, usd } = await calcularCheck3(sociedad, fechaDesde, fechaHasta);
+    res.json({ pen: fmtCheck3(pen), usd: fmtCheck3(usd) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
-    // Reutiliza el mismo desglose (Efectivo/Tip/Vuelto) que check2 para poder
-    // buscar cada componente por separado en el EECC.
-    const depPen = matchDeposits(cajaRows, { efField: 'cobranzaEfectivo', tipField: 'tipEfectivo', vueltoField: 'vueltoSoles', depField: 'depositoPen', tol: TOL_DEP_PEN })
-      .filter(d => d.fecha >= fechaDesde);
-    const depUsd = matchDeposits(cajaRows, { efField: 'cobranzaEfectivoUsd', tipField: 'tipUsd', vueltoField: null, depField: 'depositoUsd' })
-      .filter(d => d.fecha >= fechaDesde);
+const MAX_DIAS_EVENTO = 15; // cheques/transferencias de eventos pueden demorar mas en aparecer en banco
 
-    const fmtMov = m => m ? { fecha: ymd(m.fecha), importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
-    const fmt = arr => arr.map(d => ({
-      fecha: ymd(d.fecha), deposito: d.deposito,
-      targetEf: d.targetEf, targetTip: d.targetTip,
-      bancoEf: fmtMov(d.bancoEf), okEf: d.okEf,
-      bancoTip: fmtMov(d.bancoTip), okTip: d.okTip,
-      combinado: fmtMov(d.combinado),
-      extras: (d.extras || []).map(fmtMov),
-      diferencia: d.diferencia,
-      okBanco: d.okBanco,
+// Eventos comerciales (COBRANZA ERP con MEDIO PAGO = "Cheque") no pasan por CAJA: se
+// buscan directamente en el EECC por importe (se asume que dos eventos no comparten
+// exactamente el mismo monto). Excluye "INGRESO EN EFECTIVO" (reservado para caja) y
+// cualquier movimiento ya usado por otra conciliacion (`usados`, compartido con check3).
+function matchEventosComerciales(cobranzas, eeccRows, usados) {
+  return cobranzas.map(c => {
+    const target = Math.abs(c.cobranzaMoneda);
+    const candidato = eeccRows.find(e =>
+      !usados.has(e) &&
+      e.importe > 0 &&
+      (e.concepto || '').trim().toUpperCase() !== CONCEPTO_DEPOSITO_EFECTIVO &&
+      Math.abs(e.importe - target) < TOL &&
+      e.fechaOperacion >= c.fecha &&
+      (e.fechaOperacion - c.fecha) / 86400000 <= MAX_DIAS_EVENTO
+    );
+    if (candidato) usados.add(candidato);
+    return {
+      documento: c.documento, fecha: c.fecha, monto: c.cobranzaMoneda,
+      banco: candidato ? { fecha: candidato.fechaOperacion, importe: candidato.importe, concepto: candidato.concepto, banco: candidato.banco, nroDoc: candidato.nroDoc } : null,
+      ok: !!candidato,
+    };
+  });
+}
+
+// ─── GET /check4 — Eventos comerciales (Cheque) vs movimiento bancario (EECC) ──
+router.get('/check4', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const { sociedad } = req.query;
+    if (!sociedad || !checkSociedad(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
+
+    const fechaDesde = req.query.fechaDesde ? new Date(req.query.fechaDesde) : new Date('2000-01-01');
+    const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta) : new Date('2100-01-01');
+    fechaHasta.setHours(23, 59, 59, 999);
+
+    // Recalcula check3 para obtener los mismos Sets de movimientos ya reservados y no
+    // reutilizar en eventos comerciales un movimiento ya asignado a la caja en efectivo.
+    const { eeccSol, eeccUsd, usadosSol, usadosUsd } = await calcularCheck3(sociedad, fechaDesde, fechaHasta);
+
+    const chequeSol = await CobranzaErp.find({ sociedad, medioPago: 'Cheque', moneda: 'Soles', fecha: { $gte: fechaDesde, $lte: fechaHasta } });
+    const chequeUsd = await CobranzaErp.find({ sociedad, medioPago: 'Cheque', moneda: 'Dolares', fecha: { $gte: fechaDesde, $lte: fechaHasta } });
+
+    const pen = matchEventosComerciales(chequeSol, eeccSol, usadosSol);
+    const usd = matchEventosComerciales(chequeUsd, eeccUsd, usadosUsd);
+
+    const fmt = arr => arr.map(e => ({
+      documento: e.documento, fecha: ymd(e.fecha), monto: e.monto, ok: e.ok,
+      banco: e.banco ? { fecha: ymd(e.banco.fecha), importe: e.banco.importe, concepto: e.banco.concepto, banco: e.banco.banco, nroDoc: e.banco.nroDoc } : null,
     }));
 
-    res.json({ pen: fmt(matchEnBanco(depPen, eeccSol)), usd: fmt(matchEnBanco(depUsd, eeccUsd)) });
+    res.json({ pen: fmt(pen), usd: fmt(usd) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
