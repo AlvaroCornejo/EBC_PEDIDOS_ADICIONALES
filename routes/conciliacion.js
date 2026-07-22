@@ -146,13 +146,17 @@ function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField, tol
   return resultados;
 }
 
+const CONCEPTO_DEPOSITO_EFECTIVO = 'INGRESO EN EFECTIVO';
+
 // Busca un monto especifico (importe positivo) en el EECC, desde `fecha` hacia adelante,
-// excluyendo movimientos ya usados (`excluir`) para no reutilizar el mismo movimiento dos veces.
+// solo entre movimientos con concepto "INGRESO EN EFECTIVO", excluyendo movimientos ya
+// usados (`excluir`) para no reutilizar el mismo movimiento dos veces.
 function buscarEnBanco(target, fecha, eeccRows, excluir) {
   if (Math.abs(target) < TOL) return { movimiento: null, ok: true, na: true }; // nada que buscar
   const candidato = eeccRows.find(e =>
     e !== excluir &&
     e.importe > 0 &&
+    (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO &&
     Math.abs(e.importe - target) < TOL &&
     e.fechaOperacion >= fecha &&
     (e.fechaOperacion - fecha) / 86400000 <= MAX_DIAS_BANCO
@@ -169,7 +173,7 @@ function matchEnBanco(depositos, eeccRows) {
     const targetTip = d.sumTip || 0;
     const bEf  = buscarEnBanco(targetEf, d.fecha, eeccRows);
     const bTip = buscarEnBanco(targetTip, d.fecha, eeccRows, bEf.movimiento);
-    const fmtMov = m => m ? { fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco } : null;
+    const fmtMov = m => m ? { fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
 
     let combinado = null;
     if (!(bEf.ok && bTip.ok)) {
@@ -301,7 +305,7 @@ router.get('/check3', async (req, res) => {
     const depUsd = matchDeposits(cajaRows, { efField: 'cobranzaEfectivoUsd', tipField: 'tipUsd', vueltoField: null, depField: 'depositoUsd' })
       .filter(d => d.fecha >= fechaDesde);
 
-    const fmtMov = m => m ? { fecha: ymd(m.fecha), importe: m.importe, concepto: m.concepto, banco: m.banco } : null;
+    const fmtMov = m => m ? { fecha: ymd(m.fecha), importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
     const fmt = arr => arr.map(d => ({
       fecha: ymd(d.fecha), deposito: d.deposito,
       targetEf: d.targetEf, targetTip: d.targetTip,

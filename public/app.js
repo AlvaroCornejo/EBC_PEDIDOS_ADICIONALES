@@ -11513,7 +11513,7 @@ async function viewConciliacion(container) {
         const color = ok ? '' : 'color:#dc2626';
         return `
           <td style="${cw3};text-align:right;${color}">${fmt(target)}</td>
-          <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);white-space:nowrap">${banco ? `${esc(banco.fecha)} · ${fmt(banco.importe)}` : '—'}</td>`;
+          <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);white-space:nowrap">${banco ? `${esc(banco.fecha)} · ${fmt(banco.importe)}${banco.nroDoc ? ' · Nº'+esc(banco.nroDoc) : ''}` : '—'}</td>`;
       }
       function tablaDep3(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin depósitos en el rango.</p>';
@@ -11530,7 +11530,7 @@ async function viewConciliacion(container) {
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
               <td style="${cw3};text-align:right">${fmt(d.deposito)}</td>
               ${d.combinado
-                ? `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#2563eb">🔗 Depósito único: ${esc(d.combinado.fecha)} · ${fmt(d.combinado.importe)}</td>`
+                ? `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#2563eb">🔗 Depósito único: ${esc(d.combinado.fecha)} · ${fmt(d.combinado.importe)}${d.combinado.nroDoc ? ' · Nº'+esc(d.combinado.nroDoc) : ''}</td>`
                 : celdaComponente(d.targetEf, d.bancoEf, d.okEf) + celdaComponente(d.targetTip, d.bancoTip, d.okTip)}
               <td style="padding:4px 4px;text-align:center">${badge(d.okBanco)}</td>
             </tr>`).join('')}
