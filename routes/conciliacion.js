@@ -459,12 +459,16 @@ router.get('/check4', async (req, res) => {
 });
 
 const TC_OPERADORES = ['IZIPAY', 'NIUBIZ', 'AMEX', 'DINERS'];
-const MAX_DIAS_TC = 5; // FECHA VENTA de Q TC puede diferir unos dias de FECHA COBRANZA (confirmado con casos reales)
+// FECHA VENTA de Q TC puede diferir unos dias de FECHA COBRANZA (confirmado con casos reales).
+// La ventana es mas amplia cuando se exige la misma tarjeta (pasadas 1 y 2, mas confiables);
+// el fallback sin tarjeta (pasada 3) usa una ventana mas conservadora para no aumentar falsos positivos.
+const MAX_DIAS_TC_TARJETA = 15;
+const MAX_DIAS_TC_FALLBACK = 5;
 
 // COBRANZA ERP (Tarjeta de Credito, TC en TC_OPERADORES) vs Q TC: se concilia por
 // TARJETA (4 digitos en COBRANZA) == ultimos 4 digitos de TARJETA en Q TC, + fecha de venta
-// dentro de +/- MAX_DIAS_TC dias de la fecha de cobranza + mismo monto (con tolerancia) —
-// la combinacion evita cruzar dos ventas distintas que por coincidencia compartan los
+// dentro de +/- MAX_DIAS_TC_TARJETA dias de la fecha de cobranza + mismo monto (con tolerancia)
+// — la combinacion evita cruzar dos ventas distintas que por coincidencia compartan los
 // mismos 4 digitos de tarjeta.
 //
 // 2da pasada: un solo movimiento de Q TC puede corresponder a la SUMA de varias cobranzas
@@ -491,7 +495,7 @@ function matchTC(cobranzas, tcRows) {
     const candidato = tcRows.find(t =>
       !usados.has(t) &&
       t.tarjetaUlt4 === c.tarjeta &&
-      Math.abs(t.fechaVenta - c.fecha) / 86400000 <= MAX_DIAS_TC &&
+      Math.abs(t.fechaVenta - c.fecha) / 86400000 <= MAX_DIAS_TC_TARJETA &&
       Math.abs(t.venta - target) < TOL
     );
     if (candidato) usados.add(candidato);
@@ -510,7 +514,7 @@ function matchTC(cobranzas, tcRows) {
     const candidato = tcRows.find(t =>
       !usados.has(t) &&
       t.tarjetaUlt4 === grupo[0].c.tarjeta &&
-      Math.abs(t.fechaVenta - grupo[0].c.fecha) / 86400000 <= MAX_DIAS_TC &&
+      Math.abs(t.fechaVenta - grupo[0].c.fecha) / 86400000 <= MAX_DIAS_TC_TARJETA &&
       Math.abs(t.venta - suma) < TOL
     );
     if (candidato) {
@@ -524,7 +528,7 @@ function matchTC(cobranzas, tcRows) {
     const target = Math.abs(r.c.cobranza);
     const candidato = tcRows.find(t =>
       !usados.has(t) &&
-      Math.abs(t.fechaVenta - r.c.fecha) / 86400000 <= MAX_DIAS_TC &&
+      Math.abs(t.fechaVenta - r.c.fecha) / 86400000 <= MAX_DIAS_TC_FALLBACK &&
       Math.abs(t.venta - target) < TOL
     );
     if (candidato) {
@@ -559,10 +563,10 @@ router.get('/check5', async (req, res) => {
     const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta) : new Date('2100-01-01');
     fechaHasta.setHours(23, 59, 59, 999);
 
-    // Margen para que un TC cerca del borde del rango (dentro de MAX_DIAS_TC) tambien pueda
-    // conciliar con una cobranza dentro del rango.
-    const fechaConMargen = new Date(fechaDesde.getTime() - MAX_DIAS_TC * 86400000);
-    const fechaHastaMargen = new Date(fechaHasta.getTime() + MAX_DIAS_TC * 86400000);
+    // Margen para que un TC cerca del borde del rango (dentro de MAX_DIAS_TC_TARJETA) tambien
+    // pueda conciliar con una cobranza dentro del rango.
+    const fechaConMargen = new Date(fechaDesde.getTime() - MAX_DIAS_TC_TARJETA * 86400000);
+    const fechaHastaMargen = new Date(fechaHasta.getTime() + MAX_DIAS_TC_TARJETA * 86400000);
 
     const cobranzas = await CobranzaErp.find({
       sociedad, medioPago: 'Tarjeta de Crédito',
