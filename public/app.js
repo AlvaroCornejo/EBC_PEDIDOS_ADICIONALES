@@ -11401,6 +11401,10 @@ async function viewConciliacion(container) {
           <input type="checkbox" id="cc-solo-dif" style="width:15px;height:15px;accent-color:var(--primary)" onchange="ccConsultar()">
           <span style="font-size:13px">Solo diferencias</span>
         </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding-bottom:8px">
+          <input type="checkbox" id="cc-solo-manual" style="width:15px;height:15px;accent-color:var(--primary)" onchange="ccConsultar()">
+          <span style="font-size:13px">Solo conciliadas manualmente 🖐️</span>
+        </label>
         <button class="btn btn-primary" onclick="ccConsultar()" ${!sociedades.length ? 'disabled' : ''}>🔍 Consultar</button>
       </div>
     </div>
@@ -11424,6 +11428,7 @@ async function viewConciliacion(container) {
       ]);
 
       const soloDif = document.getElementById('cc-solo-dif').checked;
+      const soloManual = document.getElementById('cc-solo-manual').checked;
 
       const fmt = v => (v === null || v === undefined) ? '' :
         Math.abs(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -11752,7 +11757,11 @@ async function viewConciliacion(container) {
             <strong style="font-size:13px">5️⃣ Tarjeta de Crédito (TC) — COBRANZA vs Q TC</strong>
             <span style="font-size:11px;color:${s5errores?'#dc2626':'#16a34a'}">${s5errores ? `⚠ ${s5errores} cobranza(s) sin ubicar en Q TC` : '✓ Todo cuadra'}</span>
           </div>
-          <div style="overflow-x:auto">${tablaTC(soloDif ? c5.resultado.filter(e=>!e.ok) : c5.resultado)}</div>
+          <div style="overflow-x:auto">${tablaTC(
+            c5.resultado
+              .filter(e => !soloDif || !e.ok)
+              .filter(e => !soloManual || e.manual)
+          )}</div>
           ${c5.pendientesTc && c5.pendientesTc.length ? `
           <div style="padding:10px 16px;background:#fef9c3;border-top:1px solid var(--border);font-size:11px;font-weight:700;color:#92400e">
             ⚠ ${c5.pendientesTc.length} movimiento(s) de Q TC sin cobranza asociada
