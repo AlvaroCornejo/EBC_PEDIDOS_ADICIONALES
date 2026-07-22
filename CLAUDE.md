@@ -327,13 +327,22 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
   para una etapa siguiente** (verificar que el fondo entró al banco) — NO se usa para conciliar
   COBRANZA vs TC (se probó usarlo como llave de fecha y da resultados muy pobres: 5/4689 vs
   ~3200/4689 con `FECHA VENTA`).
+  **Ventanas**: `MAX_DIAS_TC_TARJETA=15` para las pasadas 1 y 2 (exigen misma tarjeta, más
+  confiables); `MAX_DIAS_TC_FALLBACK=5` para la pasada 3 (más conservadora al no exigir tarjeta).
   **3ra pasada (solo importe+fecha)**: si una cobranza sigue sin match (ni individual ni
-  combinado), se busca en Q TC SOLO por importe+fecha (±`MAX_DIAS_TC`), sin exigir la misma
-  tarjeta — cada movimiento de Q TC solo puede conciliar UNA cobranza (mismo `Set usados`
-  compartido entre las 3 pasadas). Se marca `soloImporteFecha:true`; el frontend muestra ambas
-  tarjetas (COBRANZA y Q TC) lado a lado en amarillo para verificación visual, ya que no
-  necesariamente coinciden. Los movimientos de Q TC que ni así logran conciliar con ninguna
-  cobranza se listan aparte en `pendientesTc` (tabla debajo de la principal en el frontend).
+  combinado), se busca en Q TC SOLO por importe+fecha, sin exigir la misma tarjeta — cada
+  movimiento de Q TC solo puede conciliar UNA cobranza (mismo `Set usados` compartido entre
+  las 3 pasadas). Se marca `soloImporteFecha:true`; el frontend muestra ambas tarjetas
+  (COBRANZA y Q TC) lado a lado en amarillo para verificación visual, ya que no necesariamente
+  coinciden. Los movimientos de Q TC que ni así logran conciliar con ninguna cobranza se listan
+  aparte en `pendientesTc` (tabla debajo de la principal en el frontend).
+  **Conciliación manual** (`models/ConciliacionManualTC.js`, único por `sociedad+documentoCobranza`):
+  para cobranzas que ninguna pasada automática concilia, el usuario elige a mano un movimiento
+  de `pendientesTc` (dropdown) y lo guarda vía `POST /conciliacion/tc-manual`. Se aplica ANTES
+  de las 3 pasadas automáticas en `matchTC` (recibe un `Map` de overrides), así el TC elegido
+  queda reservado. Solo debe usarse entre registros que ninguna pasada automática logró
+  conciliar (no libera ni reasigna conciliaciones automáticas existentes). Se puede deshacer con
+  `DELETE /conciliacion/tc-manual/:documentoCobranza`. Filas conciliadas así muestran 🖐️.
 
 **Frontend**: nav `conciliacion` → `viewConciliacion` (selector sociedad + rango de fechas, 5
 tarjetas de reporte con badges ✓/⚠ por fila). Admin: tab `🏦 Conciliación Cobranzas` →
