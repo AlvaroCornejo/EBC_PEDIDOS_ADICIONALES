@@ -121,13 +121,16 @@ async function leerCobranza(filePath) {
       if (!fecha) return;
       const monRaw = str(get(iMon));
       const moneda = /dolar/i.test(monRaw) ? 'Dolares' : 'Soles';
+      // TARJETA a veces pierde el cero inicial (celda numerica en Excel, ej. "567" en vez
+      // de "0567"); son siempre los ultimos 4 digitos, se rellena para que calce con Q TC.
+      const tarjRaw = str(get(iTarj));
       erpRows.push({
         documento:      str(get(iDoc)),
         fecha,
         medioPago:      str(get(iMedio)),
         otroMedioPago:  str(get(iOtro)),
         tc:             str(get(iTc)),
-        tarjeta:        str(get(iTarj)),
+        tarjeta:        tarjRaw ? tarjRaw.padStart(4, '0') : '',
         tipoCambio:     num(get(iTCam)),
         cobranzaMoneda: num(get(iCobM)),
         moneda,
