@@ -11561,6 +11561,7 @@ async function viewConciliacion(container) {
         return `<table style="width:auto;border-collapse:collapse">
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
             <th style="padding:4px 8px;text-align:left;font-size:11px">Documento</th>
+            <th style="${cwEv};text-align:left">Cliente</th>
             <th style="${cwEv};text-align:left">Canal</th>
             <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha Cobr.</th>
             <th style="${cwEv};text-align:left">Fecha Doc.</th>
@@ -11574,6 +11575,7 @@ async function viewConciliacion(container) {
           <tbody>${arr.map(e => `
             <tr style="${!e.ok ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap;font-family:monospace">${esc(e.documento)}</td>
+              <td style="${cwEv}">${esc(e.cliente||'—')}</td>
               <td style="${cwEv}">${esc(e.canal||'—')}</td>
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(e.fecha)}</td>
               <td style="${cwEv}">${e.fechaDocumento ? esc(e.fechaDocumento) : '—'}</td>
