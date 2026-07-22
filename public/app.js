@@ -11602,6 +11602,11 @@ async function viewConciliacion(container) {
       const s4errores = c4.pen.filter(e=>!e.ok).length + c4.usd.filter(e=>!e.ok).length;
 
       // ── Sección 5: Tarjeta de Crédito (TC) — COBRANZA vs Q TC ──
+      const pendientesOrdenados = [...(c5.pendientesTc||[])].sort((a,b) => a.fecha.localeCompare(b.fecha));
+      const opcionesPendientes = pendientesOrdenados.map(t =>
+        `<option value="${esc(t.id)}">${esc(t.fecha)} · ${esc(t.tarjeta)} · ${fmt(t.venta)} · ${esc(t.establecimiento)}</option>`
+      ).join('');
+
       function tablaTC(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin cobranzas con tarjeta (IZIPAY/NIUBIZ/AMEX/DINERS) en el rango.</p>';
         return `<table style="width:auto;border-collapse:collapse">
@@ -11624,7 +11629,17 @@ async function viewConciliacion(container) {
               <td style="${cwEv};font-family:monospace;${e.soloImporteFecha ? 'color:#92400e;font-weight:700' : ''}">${e.tcMov ? esc(e.tcMov.tarjetaUlt4||'—') : '—'}</td>
               <td style="${cw3};text-align:right">${fmt(e.monto)}</td>
               <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);border-left:1px solid var(--border)">
-                ${e.tcMov ? `${e.combinado ? '🔗 ' : ''}${e.soloImporteFecha ? '⚠ ' : ''}${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}${e.combinado ? ' <span title="Movimiento combinado: la suma de varias cobranzas de la misma tarjeta y fecha">(combinado)</span>' : ''}${e.soloImporteFecha ? ' <span title="Conciliado solo por importe y fecha - la tarjeta no coincide, verificar">(tarjeta distinta)</span>' : ''}` : '—'}
+                ${e.tcMov
+                  ? `${e.manual ? '🖐️ ' : ''}${e.combinado ? '🔗 ' : ''}${e.soloImporteFecha ? '⚠ ' : ''}${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}${e.manual ? ' <span title="Conciliado manualmente">(manual)</span>' : ''}${e.combinado ? ' <span title="Movimiento combinado: la suma de varias cobranzas de la misma tarjeta y fecha">(combinado)</span>' : ''}${e.soloImporteFecha ? ' <span title="Conciliado solo por importe y fecha - la tarjeta no coincide, verificar">(tarjeta distinta)</span>' : ''}`
+                  : (pendientesOrdenados.length
+                      ? `<div style="display:flex;gap:4px;align-items:center">
+                           <select class="form-control tc-manual-sel" style="font-size:10px;height:24px;padding:0 4px;max-width:260px" data-doc="${esc(e.documento)}">
+                             <option value="">— elegir movimiento Q TC —</option>
+                             ${opcionesPendientes}
+                           </select>
+                           <button type="button" class="btn btn-outline btn-xs tc-manual-btn" data-doc="${esc(e.documento)}" style="padding:2px 8px;font-size:10px">Conciliar</button>
+                         </div>`
+                      : '—')}
               </td>
               <td style="padding:4px 4px;text-align:center">${badge(e.ok)}</td>
             </tr>`).join('')}
@@ -11744,6 +11759,20 @@ async function viewConciliacion(container) {
           </div>
           <div style="overflow-x:auto">${tablaTcPendientes(c5.pendientesTc)}</div>` : ''}
         </div>`;
+
+      wrap.querySelectorAll('.tc-manual-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const doc = btn.dataset.doc;
+          const sel = wrap.querySelector(`.tc-manual-sel[data-doc="${CSS.escape(doc)}"]`);
+          const tcMovimientoId = sel?.value;
+          if (!tcMovimientoId) { toast('Selecciona un movimiento de Q TC', 'warning'); return; }
+          try {
+            await POST('/conciliacion/tc-manual', { sociedad, documentoCobranza: doc, tcMovimientoId });
+            toast('Conciliación manual guardada', 'success');
+            window.ccConsultar();
+          } catch (err) { toast(err.message, 'error'); }
+        });
+      });
     } catch (e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   };
 

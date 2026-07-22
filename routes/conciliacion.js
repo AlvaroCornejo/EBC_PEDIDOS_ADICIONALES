@@ -5,6 +5,7 @@ const EeccMovimiento     = require('../models/EeccMovimiento');
 const CobranzaErp        = require('../models/CobranzaErp');
 const CajaDiaria         = require('../models/CajaDiaria');
 const TcMovimiento       = require('../models/TcMovimiento');
+const ConciliacionManualTC = require('../models/ConciliacionManualTC');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -479,7 +480,11 @@ const MAX_DIAS_TC_FALLBACK = 5;
 // misma tarjeta) — cada movimiento de Q TC solo puede conciliar UN registro de COBRANZA
 // (respeta el mismo Set `usados`). Como la tarjeta puede no coincidir, se muestran ambas
 // (la de COBRANZA y la de Q TC) para que se pueda verificar a simple vista.
-function matchTC(cobranzas, tcRows) {
+// `manuales` es un Map documentoCobranza -> tcMovimientoId (string) con las conciliaciones
+// que el usuario emparejo a mano (siempre entre registros que ninguna pasada automatica logro
+// conciliar). Se aplican ANTES que las pasadas automaticas para que esos movimientos de TC
+// queden reservados y no se les asigne otra cobranza por error.
+function matchTC(cobranzas, tcRows, manuales = new Map()) {
   const usados = new Set();
   const fmtMov = t => ({
     establecimiento: t.establecimiento, venta: t.venta, estado: t.estado,
@@ -489,6 +494,11 @@ function matchTC(cobranzas, tcRows) {
   });
 
   const resultados = cobranzas.map(c => {
+    const tcId = manuales.get(c.documento);
+    if (tcId) {
+      const candidato = tcRows.find(t => !usados.has(t) && String(t._id) === tcId);
+      if (candidato) { usados.add(candidato); return { c, candidato, combinado: false, soloImporteFecha: false, manual: true }; }
+    }
     // Q TC.VENTA incluye la propina (equivale a COBRANZA.COBRANZA = VENTA+TIP), no a
     // COBRANZA_MONEDA (que excluye el TIP) — confirmado con datos reales.
     const target = Math.abs(c.cobranza);
@@ -499,7 +509,7 @@ function matchTC(cobranzas, tcRows) {
       Math.abs(t.venta - target) < TOL
     );
     if (candidato) usados.add(candidato);
-    return { c, candidato, combinado: false, soloImporteFecha: false };
+    return { c, candidato, combinado: false, soloImporteFecha: false, manual: false };
   });
 
   const gruposSinMatch = {};
@@ -541,11 +551,11 @@ function matchTC(cobranzas, tcRows) {
   const pendientesTc = tcRows.filter(t => !usados.has(t));
 
   return {
-    resultados: resultados.map(({ c, candidato, combinado, soloImporteFecha }) => ({
+    resultados: resultados.map(({ c, candidato, combinado, soloImporteFecha, manual }) => ({
       documento: c.documento, fecha: c.fecha, tarjeta: c.tarjeta, tcOperador: c.tc, monto: c.cobranza,
       cliente: c.cliente,
       tcMov: candidato ? fmtMov(candidato) : null,
-      combinado, soloImporteFecha,
+      combinado, soloImporteFecha, manual: !!manual,
       ok: !!candidato,
     })),
     pendientesTc,
@@ -575,7 +585,10 @@ router.get('/check5', async (req, res) => {
     });
     const tcRows = await TcMovimiento.find({ sociedad, fechaVenta: { $gte: fechaConMargen, $lte: fechaHastaMargen } });
 
-    const { resultados, pendientesTc } = matchTC(cobranzas, tcRows);
+    const manualesDocs = await ConciliacionManualTC.find({ sociedad });
+    const manuales = new Map(manualesDocs.map(m => [m.documentoCobranza, String(m.tcMovimientoId)]));
+
+    const { resultados, pendientesTc } = matchTC(cobranzas, tcRows, manuales);
 
     const fmtMovOut = m => m ? {
       establecimiento: m.establecimiento, venta: m.venta, estado: m.estado,
@@ -585,7 +598,7 @@ router.get('/check5', async (req, res) => {
 
     const resultado = resultados.map(e => ({
       documento: e.documento, fecha: ymd(e.fecha), tarjeta: e.tarjeta, tcOperador: e.tcOperador, monto: e.monto, ok: e.ok,
-      cliente: e.cliente, combinado: e.combinado, soloImporteFecha: e.soloImporteFecha,
+      cliente: e.cliente, combinado: e.combinado, soloImporteFecha: e.soloImporteFecha, manual: e.manual,
       tcMov: fmtMovOut(e.tcMov),
     }));
 
@@ -594,12 +607,45 @@ router.get('/check5', async (req, res) => {
     const pendientes = pendientesTc
       .filter(t => t.fechaVenta >= fechaDesde && t.fechaVenta <= fechaHasta)
       .map(t => ({
+        id: String(t._id),
         tarjeta: t.tarjetaUlt4, fecha: ymd(t.fechaVenta), venta: t.venta, estado: t.estado,
         establecimiento: t.establecimiento, tc: t.tc, autorizacion: t.autorizacion,
         deposito: t.deposito, fechaDeposito: t.fechaDeposito ? ymd(t.fechaDeposito) : null,
       }));
 
     res.json({ resultado, pendientesTc: pendientes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── POST /tc-manual — registrar conciliacion manual COBRANZA <-> Q TC ───
+// Solo debe usarse entre registros que ninguna pasada automatica logro conciliar.
+router.post('/tc-manual', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const { sociedad, documentoCobranza, tcMovimientoId } = req.body;
+    if (!sociedad || !checkSociedad(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
+    if (!documentoCobranza || !tcMovimientoId) return res.status(400).json({ error: 'Faltan datos' });
+
+    const tcMov = await TcMovimiento.findOne({ _id: tcMovimientoId, sociedad });
+    if (!tcMov) return res.status(404).json({ error: 'Movimiento de Q TC no encontrado' });
+
+    const registro = await ConciliacionManualTC.findOneAndUpdate(
+      { sociedad, documentoCobranza },
+      { $set: { tcMovimientoId, creadoPor: req.user.username || '', creadoEn: new Date() } },
+      { new: true, upsert: true }
+    );
+    res.json(registro);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── DELETE /tc-manual/:documentoCobranza — deshacer conciliacion manual ──
+router.delete('/tc-manual/:documentoCobranza', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const { sociedad } = req.query;
+    if (!sociedad || !checkSociedad(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
+    await ConciliacionManualTC.deleteOne({ sociedad, documentoCobranza: req.params.documentoCobranza });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
