@@ -309,17 +309,24 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
   la única señal confiable es el monto — por eso depende de que los importes de eventos no se repitan.
 - `GET /check5` — Tarjeta de Crédito: `COBRANZA ERP` con `MEDIO PAGO = "Tarjeta de Crédito"` y
   `TC` ∈ {IZIPAY, NIUBIZ, AMEX, DINERS} (case-insensitive) vs `TcMovimiento` (import de `Q TC.xlsx`,
-  hoja `Q TC TODAS`). Llave de conciliación: `TARJETA` (4 dígitos en COBRANZA) == últimos 4 dígitos
-  de `TARJETA` en Q TC (`TcMovimiento.tarjetaUlt4`, precalculado al importar) + misma fecha de venta
-  + mismo monto (tolerancia `TOL=0.5`) — se necesitan los 3 criterios juntos porque los 4 dígitos de
-  tarjeta solos no son únicos entre transacciones distintas. **El monto a comparar es
+  hoja `Q TC TODAS`). Llave de conciliación: `TARJETA` (4 dígitos en COBRANZA, rellenados con
+  `padStart(4,'0')` al importar — a veces pierde el cero inicial en Excel, ej. "567" en vez de
+  "0567") == últimos 4 dígitos de `TARJETA` en Q TC (`TcMovimiento.tarjetaUlt4`) + `FECHA VENTA`
+  de Q TC dentro de `MAX_DIAS_TC=5` días de `FECHA COBRANZA` (no siempre coinciden exacto, confirmado
+  con casos reales) + mismo monto (tolerancia `TOL=0.5`). **El monto a comparar es
   `CobranzaErp.cobranza` (VENTA+TIP), no `cobranzaMoneda`** — `Q TC.VENTA` incluye la propina;
-  confirmado con datos reales (usar `cobranzaMoneda` daba 434/4689 matches, `cobranza` da 2616/4689).
-  El campo `TC` no se usa como parte de la
-  llave: los nombres de operador no coinciden entre ambos orígenes (COBRANZA usa IZIPAY/NIUBIZ/AMEX;
-  Q TC usa NIUBIZ/DINERS NIUBIZ/CMD DINERS/AMEX/VISA MC/ALIMENTACION — sin mapeo 1:1 confiable).
-  Solo cruza contra Q TC (aún no contra el EECC — el `DEPOSITO`/`FECHA DEPOSITO` de Q TC podría
-  conciliarse contra el banco más adelante, como una etapa siguiente).
+  confirmado con datos reales (usar `cobranzaMoneda` daba 434/4689 matches, `cobranza` da ~3200/4689
+  con la ventana de fechas). El campo `TC` no se usa como parte de la llave: los nombres de operador
+  no coinciden entre ambos orígenes (COBRANZA usa IZIPAY/NIUBIZ/AMEX; Q TC usa NIUBIZ/DINERS
+  NIUBIZ/CMD DINERS/AMEX/VISA MC/ALIMENTACION — sin mapeo 1:1 confiable).
+  **2da pasada (combinados)**: un solo movimiento de Q TC puede ser la suma de varias cobranzas de
+  la misma tarjeta+fecha que el operador liquidó juntas — si una cobranza no matchea individualmente,
+  se agrupa con otras sin match de la misma tarjeta+fecha y se busca un Q TC cuyo `VENTA` sea igual
+  a la suma del grupo (marcado `combinado:true`, mostrado como "🔗 (combinado)" en el frontend).
+  Solo cruza contra Q TC (aún no contra el EECC). **`DEPOSITO`/`FECHA DEPOSITO` de Q TC se reserva
+  para una etapa siguiente** (verificar que el fondo entró al banco) — NO se usa para conciliar
+  COBRANZA vs TC (se probó usarlo como llave de fecha y da resultados muy pobres: 5/4689 vs
+  ~3200/4689 con `FECHA VENTA`).
 
 **Frontend**: nav `conciliacion` → `viewConciliacion` (selector sociedad + rango de fechas, 5
 tarjetas de reporte con badges ✓/⚠ por fila). Admin: tab `🏦 Conciliación Cobranzas` →
