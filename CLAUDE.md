@@ -289,11 +289,26 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
   **consecutivos** hacia atrás — probando primero incluyendo el día del depósito, luego solo desde
   el día anterior (`matchDeposits` en `routes/conciliacion.js`, ventana `MAX_LOOKBACK=20` días,
   tolerancia `TOL=0.5`). Los días ya consumidos por un depósito no se reutilizan en el siguiente.
-- `GET /check3` — busca el monto del depósito (valor absoluto) como movimiento positivo en
-  `EeccMovimiento` de la misma sociedad+moneda, dentro de `MAX_DIAS_BANCO=6` días posteriores al
-  depósito.
+- `GET /check3` — el depósito de CAJA (Efectivo+TIP+Vuelto) puede llegar al banco como DOS
+  movimientos separados (busca cada componente por su lado, `Efectivo = sumEf+sumVuelto`,
+  `TIP = sumTip`) o, si eso falla, como UN solo movimiento combinado por la suma de ambos.
+  Solo considera movimientos EECC con `Concepto = "INGRESO EN EFECTIVO"` (confirmado que existe
+  tal cual en el archivo real). Una sola fila por día: los movimientos con ese concepto que no
+  calzan con ningún depósito se fusionan como `extras` en la fila de esa fecha (o fila propia si
+  no hubo depósito ese día), con columna `Diferencia` = depósito − (encontrado por match + extras).
+  Internamente usa `calcularCheck3()` (compartida con check4) y `matchEnBanco(depositos, eeccRows,
+  usados)` — el `Set usados` se pasa explícitamente para que **un movimiento del EECC solo pueda
+  pertenecer a UNA conciliación**: se consulta y se llena *durante* cada búsqueda (no solo después),
+  y check4 recalcula check3 para heredar el mismo `usadosSol`/`usadosUsd` antes de buscar los suyos.
+- `GET /check4` — Eventos Comerciales: `COBRANZA ERP` con `MEDIO PAGO = "Cheque"` no pasa por CAJA,
+  se busca directamente en el EECC por **importe único** (`cobranzaMoneda`, ya que en la data real
+  TIP siempre es 0 para Cheque), excluyendo `INGRESO EN EFECTIVO` y cualquier movimiento ya usado
+  por check3. Ventana `MAX_DIAS_EVENTO=15` días (más amplia que check3, ya que transferencias/cheques
+  de eventos pueden demorar más en aparecer). No hay un `Concepto` de banco identificable para estos
+  pagos (se revisaron: nombres de empresas, "ABONO INMEDIATO", "TIN00X...", sin patrón común), así que
+  la única señal confiable es el monto — por eso depende de que los importes de eventos no se repitan.
 
-**Frontend**: nav `conciliacion` → `viewConciliacion` (selector sociedad + rango de fechas, 3
+**Frontend**: nav `conciliacion` → `viewConciliacion` (selector sociedad + rango de fechas, 4
 tarjetas de reporte con badges ✓/⚠ por fila). Admin: tab `🏦 Conciliación Cobranzas` →
 `renderAdminConciliacion` (inputs de ruta por sociedad, guardado on-change vía `PUT /config/:sociedad`).
 
