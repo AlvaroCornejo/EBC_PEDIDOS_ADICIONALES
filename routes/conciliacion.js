@@ -166,25 +166,42 @@ const CONCEPTO_DEPOSITO_EFECTIVO = 'INGRESO EN EFECTIVO';
 // se suman todos los candidatos y se compara el total contra el deposito) — esto permite ver el
 // desglose completo y que el usuario excluya a mano un movimiento mal agrupado.
 //
-// INVARIANTE: un movimiento del EECC solo puede formar parte de UN deposito. Se procesan los
-// depositos en orden cronologico y cada uno "reclama" (Set `claimed`) los movimientos que suma,
-// para que un deposito posterior no vuelva a contarlos. `excluidos` (Set de ids en string,
-// persistido en ConciliacionExclusionEECC) saca movimientos de la agrupacion automatica por
-// completo — quedan disponibles solo en la lista de pendientes.
+// INVARIANTE: un movimiento del EECC solo puede formar parte de UN deposito. La asignacion es
+// por "vecino mas cercano": se arman todos los pares (deposito, movimiento) validos dentro de la
+// ventana de cada deposito, se ordenan por cercania de fecha (diferencia en dias, la mas chica
+// primero) y se van reclamando (Set `claimed`) en ese orden. Esto evita que un deposito anterior,
+// cuya ventana de 6 dias tambien alcanza a cubrir la fecha de un movimiento, se quede con
+// movimientos que en realidad ocurrieron el mismo dia (o mas cerca) de un deposito posterior.
+// `excluidos` (Set de ids en string, persistido en ConciliacionExclusionEECC) saca movimientos
+// de la agrupacion automatica por completo — quedan disponibles solo en la lista de pendientes.
 function agruparEnBanco(depositos, eeccRows, claimed = new Set(), excluidos = new Set()) {
   const fmtMov = m => ({ id: String(m._id), fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc });
 
-  const resultado = [...depositos].sort((a, b) => a.fecha - b.fecha).map(d => {
-    const candidatos = eeccRows.filter(e =>
-      !claimed.has(e) &&
-      !excluidos.has(String(e._id)) &&
-      e.importe > 0 &&
-      (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO &&
-      e.fechaOperacion >= d.fecha &&
-      (e.fechaOperacion - d.fecha) / 86400000 <= MAX_DIAS_BANCO
-    );
-    candidatos.forEach(e => claimed.add(e));
-    const movimientos = candidatos.map(fmtMov).sort((a, b) => a.fecha - b.fecha);
+  const deps = [...depositos].sort((a, b) => a.fecha - b.fecha);
+  const candidatosEecc = eeccRows.filter(e =>
+    !excluidos.has(String(e._id)) &&
+    e.importe > 0 &&
+    (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO
+  );
+
+  const pares = [];
+  deps.forEach((d, di) => {
+    candidatosEecc.forEach(e => {
+      const diffDias = (e.fechaOperacion - d.fecha) / 86400000;
+      if (diffDias >= 0 && diffDias <= MAX_DIAS_BANCO) pares.push({ di, e, diffDias });
+    });
+  });
+  pares.sort((a, b) => a.diffDias - b.diffDias || a.e.fechaOperacion - b.e.fechaOperacion);
+
+  const grupos = deps.map(() => []);
+  pares.forEach(({ di, e }) => {
+    if (claimed.has(e)) return;
+    claimed.add(e);
+    grupos[di].push(e);
+  });
+
+  const resultado = deps.map((d, di) => {
+    const movimientos = grupos[di].map(fmtMov).sort((a, b) => a.fecha - b.fecha);
     const bancoTotal = movimientos.reduce((s, m) => s + m.importe, 0);
     return {
       ...d,
@@ -197,8 +214,8 @@ function agruparEnBanco(depositos, eeccRows, claimed = new Set(), excluidos = ne
 
   // Movimientos "INGRESO EN EFECTIVO" del EECC que ningun deposito reclamo (o que se
   // excluyeron a mano) — se listan aparte para revisarlos al final de la seccion.
-  const pendientesEecc = eeccRows
-    .filter(e => !claimed.has(e) && (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO && e.importe > 0)
+  const pendientesEecc = candidatosEecc
+    .filter(e => !claimed.has(e))
     .sort((a, b) => a.fechaOperacion - b.fechaOperacion);
 
   return { resultado, pendientesEecc };
