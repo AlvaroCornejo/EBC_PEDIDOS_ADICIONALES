@@ -11714,7 +11714,16 @@ async function viewConciliacion(container) {
               <td style="${cw3};text-align:right;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
               <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>
             </tr>`).join('')}
-          </tbody></table>`;
+          </tbody>
+          <tfoot><tr style="background:#f8fafc;font-weight:700;border-top:2px solid var(--border)">
+            <td style="padding:4px 8px;font-size:11px">Total</td>
+            ${operadores.map((op,i) => `<td style="${cwOp}${i===0?';border-left:1px solid var(--border)':''}">${fmt(filas.reduce((s,d)=>s+(d.tcPorOperador[i]||0),0))}</td>`).join('')}
+            <td style="${cw3};text-align:right">${fmt(filas.reduce((s,d)=>s+d.tc,0))}</td>
+            ${categorias.map((cat,i) => `<td style="${cwOp}${i===0?';border-left:1px solid var(--border)':''}">${fmt(filas.reduce((s,d)=>s+(d.eeccPorCategoria[i]||0),0))}</td>`).join('')}
+            <td style="${cw3};text-align:right">${fmt(filas.reduce((s,d)=>s+d.eecc,0))}</td>
+            <td style="${cw3};text-align:right">${fmtSigned(filas.reduce((s,d)=>s+d.diferencia,0))}</td>
+            <td></td>
+          </tr></tfoot></table>`;
       }
       const s6errores = c6.pen.filas.filter(d=>!d.ok).length + c6.usd.filas.filter(d=>!d.ok).length;
 
