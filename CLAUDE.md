@@ -289,11 +289,13 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
   **consecutivos** hacia atrás — probando primero incluyendo el día del depósito, luego solo desde
   el día anterior (`matchDeposits` en `routes/conciliacion.js`, ventana `MAX_LOOKBACK=20` días,
   tolerancia `TOL=0.5`). Los días ya consumidos por un depósito no se reutilizan en el siguiente.
-- `GET /check3` — por cada depósito de CAJA se agrupan **TODOS** los movimientos EECC con
+- `GET /check3` — por cada depósito de CAJA se agrupan los movimientos EECC con
   `Concepto = "INGRESO EN EFECTIVO"` (confirmado que existe tal cual en el archivo real) que caen
-  dentro de la ventana `[fecha del depósito, +MAX_DIAS_BANCO=6 días]` (no se busca un monto exacto:
-  se suman todos los candidatos de la ventana y se compara el total contra el depósito). El
-  frontend muestra el desglose completo de movimientos agrupados por depósito, con un botón
+  dentro de la ventana `[fecha del depósito, +MAX_DIAS_BANCO=6 días]`, **día por día**: se toman
+  los candidatos del día más cercano, se suman, y si esa suma ya concilia con el depósito
+  (`±TOL_DIA_BANCO=1`) se detiene ahí — no sigue tomando días más lejanos solo porque caen dentro
+  de la ventana. Solo si el día (o los días) más cercanos no alcanzan a conciliar, sigue sumando
+  el siguiente día disponible. El frontend muestra el desglose completo de movimientos agrupados por depósito, con un botón
   "✕" por movimiento para excluirlo manualmente del grupo si quedó mal agrupado (persistido en
   `ConciliacionExclusionEECC`, único por `sociedad+eeccMovimientoId`, vía `POST/DELETE
   /conciliacion/eecc-excluir`) — un movimiento excluido deja de sumarse en cualquier depósito y

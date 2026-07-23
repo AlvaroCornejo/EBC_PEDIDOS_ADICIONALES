@@ -13,6 +13,7 @@ router.use(authMiddleware);
 
 const TOL = 0.5;
 const TOL_DEP_PEN = 10;    // tolerancia para conciliar depositos en soles
+const TOL_DIA_BANCO = 1;   // tolerancia para dejar de sumar dias en agruparEnBanco (check3)
 const MAX_LOOKBACK = 20;   // dias maximos hacia atras al buscar un deposito
 const MAX_DIAS_BANCO = 6;  // dias maximos desde el deposito hasta que aparezca en el EECC
 const MAX_DIAS_EVENTO = 15; // cheques/transferencias de eventos: puede aparecer en banco unos dias antes o despues
@@ -167,11 +168,14 @@ const CONCEPTO_DEPOSITO_EFECTIVO = 'INGRESO EN EFECTIVO';
 // desglose completo y que el usuario excluya a mano un movimiento mal agrupado.
 //
 // INVARIANTE: un movimiento del EECC solo puede formar parte de UN deposito. La asignacion es
-// por "vecino mas cercano": se arman todos los pares (deposito, movimiento) validos dentro de la
-// ventana de cada deposito, se ordenan por cercania de fecha (diferencia en dias, la mas chica
-// primero) y se van reclamando (Set `claimed`) en ese orden. Esto evita que un deposito anterior,
-// cuya ventana de 6 dias tambien alcanza a cubrir la fecha de un movimiento, se quede con
+// por "dia mas cercano, dia por dia": para cada deposito se agrupan sus candidatos por dia
+// (offset desde la fecha del deposito) dentro de la ventana, y esos grupos-dia se procesan
+// globalmente ordenados por cercania (offset mas chico primero) — asi un deposito anterior,
+// cuya ventana de 6 dias tambien alcanza a cubrir la fecha de un movimiento, no se queda con
 // movimientos que en realidad ocurrieron el mismo dia (o mas cerca) de un deposito posterior.
+// Ademas, apenas la suma acumulada de un deposito concilia (±TOL_DIA_BANCO) con los dias ya
+// tomados, ese deposito deja de tomar dias siguientes — evita que seguir sumando dias mas
+// lejanos, solo porque caen dentro de la ventana, arme un total absurdamente mayor al deposito.
 // `excluidos` (Set de ids en string, persistido en ConciliacionExclusionEECC) saca movimientos
 // de la agrupacion automatica por completo — quedan disponibles solo en la lista de pendientes.
 function agruparEnBanco(depositos, eeccRows, claimed = new Set(), excluidos = new Set()) {
@@ -184,20 +188,32 @@ function agruparEnBanco(depositos, eeccRows, claimed = new Set(), excluidos = ne
     (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO
   );
 
-  const pares = [];
+  // Grupos-dia por deposito: { di, offsetDias, movs }
+  const gruposDia = [];
   deps.forEach((d, di) => {
+    const porOffset = {};
     candidatosEecc.forEach(e => {
-      const diffDias = (e.fechaOperacion - d.fecha) / 86400000;
-      if (diffDias >= 0 && diffDias <= MAX_DIAS_BANCO) pares.push({ di, e, diffDias });
+      const offsetDias = Math.round((e.fechaOperacion - d.fecha) / 86400000);
+      if (offsetDias < 0 || offsetDias > MAX_DIAS_BANCO) return;
+      (porOffset[offsetDias] || (porOffset[offsetDias] = [])).push(e);
+    });
+    Object.keys(porOffset).forEach(offStr => {
+      gruposDia.push({ di, offsetDias: Number(offStr), movs: porOffset[offStr] });
     });
   });
-  pares.sort((a, b) => a.diffDias - b.diffDias || a.e.fechaOperacion - b.e.fechaOperacion);
+  gruposDia.sort((a, b) => a.offsetDias - b.offsetDias);
 
   const grupos = deps.map(() => []);
-  pares.forEach(({ di, e }) => {
-    if (claimed.has(e)) return;
-    claimed.add(e);
-    grupos[di].push(e);
+  const sumas = deps.map(() => 0);
+  const satisfecho = deps.map(() => false);
+  gruposDia.forEach(({ di, movs }) => {
+    if (satisfecho[di]) return; // este deposito ya conciliaba con los dias mas cercanos tomados
+    const disponibles = movs.filter(e => !claimed.has(e));
+    if (!disponibles.length) return;
+    disponibles.forEach(e => claimed.add(e));
+    grupos[di].push(...disponibles);
+    sumas[di] += disponibles.reduce((s, m) => s + m.importe, 0);
+    if (Math.abs(Math.abs(deps[di].deposito) - sumas[di]) < TOL_DIA_BANCO) satisfecho[di] = true;
   });
 
   const resultado = deps.map((d, di) => {
