@@ -11635,7 +11635,7 @@ async function viewConciliacion(container) {
               <td style="${cw3};text-align:right">${fmt(e.monto)}</td>
               <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);border-left:1px solid var(--border)">
                 ${e.tcMov
-                  ? `${e.manual ? '🖐️ ' : ''}${e.combinado ? '🔗 ' : ''}${e.soloImporteFecha ? '⚠ ' : ''}${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}${e.manual ? ' <span title="Conciliado manualmente">(manual)</span>' : ''}${e.combinado ? ' <span title="Movimiento combinado: la suma de varias cobranzas de la misma tarjeta y fecha">(combinado)</span>' : ''}${e.soloImporteFecha ? ' <span title="Conciliado solo por importe y fecha - la tarjeta no coincide, verificar">(tarjeta distinta)</span>' : ''}`
+                  ? `<span>${e.manual ? '🖐️ ' : ''}${e.combinado ? '🔗 ' : ''}${e.soloImporteFecha ? '⚠ ' : ''}${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}${e.manual ? ' <span title="Conciliado manualmente">(manual)</span>' : ''}${e.combinado ? ' <span title="Movimiento combinado: la suma de varias cobranzas de la misma tarjeta y fecha">(combinado)</span>' : ''}${e.soloImporteFecha ? ' <span title="Conciliado solo por importe y fecha - la tarjeta no coincide, verificar">(tarjeta distinta)</span>' : ''}</span>${e.manual ? ` <button type="button" class="btn btn-outline btn-xs tc-manual-del" data-doc="${esc(e.documento)}" title="Quitar conciliación manual" style="padding:1px 6px;font-size:10px;color:#dc2626;border-color:#dc2626">✕</button>` : ''}`
                   : (pendientesOrdenados.length
                       ? `<div style="display:flex;gap:4px;align-items:center">
                            <select class="form-control tc-manual-sel" style="font-size:10px;height:24px;padding:0 4px;max-width:260px" data-doc="${esc(e.documento)}">
@@ -11778,6 +11778,18 @@ async function viewConciliacion(container) {
           try {
             await POST('/conciliacion/tc-manual', { sociedad, documentoCobranza: doc, tcMovimientoId });
             toast('Conciliación manual guardada', 'success');
+            window.ccConsultar();
+          } catch (err) { toast(err.message, 'error'); }
+        });
+      });
+
+      wrap.querySelectorAll('.tc-manual-del').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const doc = btn.dataset.doc;
+          if (!confirm(`¿Quitar la conciliación manual del documento ${doc}?`)) return;
+          try {
+            await DEL(`/conciliacion/tc-manual/${encodeURIComponent(doc)}?sociedad=${encodeURIComponent(sociedad)}`);
+            toast('Conciliación manual eliminada', 'success');
             window.ccConsultar();
           } catch (err) { toast(err.message, 'error'); }
         });
