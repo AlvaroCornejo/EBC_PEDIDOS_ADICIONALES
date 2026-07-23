@@ -11682,23 +11682,41 @@ async function viewConciliacion(container) {
       const s5errores = c5.resultado.filter(e=>!e.ok).length;
 
       // ── Sección 6: Depósitos de operadores de TC — Q TC vs EECC (por día) ──
+      function desgloseDepTC(movs) {
+        if (!movs.length) return `<div style="font-size:10px;color:var(--text-muted)">—</div>`;
+        return movs.map(m => `
+          <div style="font-size:10px;color:var(--text-muted);white-space:nowrap">
+            ${esc(m.tarjeta||'—')}${m.tc ? ' · '+esc(m.tc) : ''} · ${fmt(m.deposito)}${m.autorizacion ? ' · Aut.'+esc(m.autorizacion) : ''}
+          </div>`).join('');
+      }
+      function desgloseDepEecc(movs) {
+        if (!movs.length) return `<div style="font-size:10px;color:var(--text-muted)">—</div>`;
+        return movs.map(m => `
+          <div style="font-size:10px;color:var(--text-muted);white-space:nowrap">
+            ${esc(m.banco||'—')} · ${fmt(m.importe)}${m.nroDoc ? ' · Nº'+esc(m.nroDoc) : ''}
+          </div>`).join('');
+      }
       function tablaDepTC(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
         return `<table style="width:auto;border-collapse:collapse">
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
             <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
-            <th style="${cw3};text-align:right">TC (Depósito)</th>
-            <th style="${cw3};text-align:right">EECC</th>
+            <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Depósitos en TC</th>
+            <th style="${cw3};text-align:right">Total TC</th>
+            <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Movimientos en EECC</th>
+            <th style="${cw3};text-align:right">Total EECC</th>
             <th style="${cw3};text-align:right">Diferencia</th>
             <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
           </tr></thead>
           <tbody>${arr.map(d => `
             <tr style="${!d.ok ? 'background:#fef2f2' : ''}">
-              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
-              <td style="${cw3};text-align:right">${fmt(d.tc)}</td>
-              <td style="${cw3};text-align:right">${fmt(d.eecc)}</td>
-              <td style="${cw3};text-align:right;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
-              <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap;vertical-align:top">${esc(d.fecha)}</td>
+              <td style="padding:4px 6px;vertical-align:top">${desgloseDepTC(d.movimientosTc||[])}</td>
+              <td style="${cw3};text-align:right;vertical-align:top">${fmt(d.tc)}</td>
+              <td style="padding:4px 6px;vertical-align:top">${desgloseDepEecc(d.movimientosEecc||[])}</td>
+              <td style="${cw3};text-align:right;vertical-align:top">${fmt(d.eecc)}</td>
+              <td style="${cw3};text-align:right;vertical-align:top;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
+              <td style="padding:4px 4px;text-align:center;vertical-align:top">${badge(d.ok)}</td>
             </tr>`).join('')}
           </tbody></table>`;
       }

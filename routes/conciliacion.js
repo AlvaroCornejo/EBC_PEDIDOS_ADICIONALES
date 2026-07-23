@@ -693,13 +693,23 @@ router.get('/check6', async (req, res) => {
     // Q TC casi no trae MONEDA poblada (en blanco = Soles por defecto); solo se cuenta como
     // USD cuando dice explicitamente "dolar". Se separa asi para no comparar el total de TC
     // (que es ~100% soles) contra el lado de dolares y marcar error en todos los dias.
-    const tcPorDiaSol = {};
+    // Además del total, se guarda el desglose de movimientos que forman cada suma diaria
+    // (para mostrarlos expandidos en columnas TC / EECC en el frontend).
+    const tcPorDiaSol = {};      // fecha -> total
     const tcPorDiaUsd = {};
+    const tcMovsPorDiaSol = {};  // fecha -> [{ tarjeta, tc, deposito, autorizacion }]
+    const tcMovsPorDiaUsd = {};
     tcRows.forEach(t => {
       const k = ymd(t.fechaDeposito);
       const esUsd = /dolar/i.test(t.moneda || '');
-      const bucket = esUsd ? tcPorDiaUsd : tcPorDiaSol;
+      const bucket    = esUsd ? tcPorDiaUsd     : tcPorDiaSol;
+      const movsBucket = esUsd ? tcMovsPorDiaUsd : tcMovsPorDiaSol;
       bucket[k] = (bucket[k] || 0) + (t.deposito || 0);
+      if (!movsBucket[k]) movsBucket[k] = [];
+      movsBucket[k].push({
+        tarjeta: t.tarjeta || t.tarjetaUlt4 || '', tc: t.tc || '',
+        deposito: t.deposito || 0, autorizacion: t.autorizacion || '',
+      });
     });
 
     const esDepositoTC = e => {
@@ -707,22 +717,34 @@ router.get('/check6', async (req, res) => {
       return e.importe > 0 && CONCEPTO_DEPOSITO_TC.some(s => c.includes(s));
     };
 
-    function compararPorDia(eeccRows, tcPorDia) {
+    function compararPorDia(eeccRows, tcPorDia, tcMovsPorDia) {
       const eeccPorDia = {};
+      const eeccMovsPorDia = {};
       eeccRows.filter(esDepositoTC).forEach(e => {
         const k = ymd(e.fechaOperacion);
         eeccPorDia[k] = (eeccPorDia[k] || 0) + e.importe;
+        if (!eeccMovsPorDia[k]) eeccMovsPorDia[k] = [];
+        eeccMovsPorDia[k].push({
+          fecha: k, importe: e.importe, concepto: e.concepto, banco: e.banco, nroDoc: e.nroDoc,
+        });
       });
       const dias = new Set([...Object.keys(tcPorDia), ...Object.keys(eeccPorDia)]);
       return [...dias].sort().map(fecha => {
         const tc = tcPorDia[fecha] || 0;
         const eecc = eeccPorDia[fecha] || 0;
         const diferencia = tc - eecc;
-        return { fecha, tc, eecc, diferencia, ok: Math.abs(diferencia) < TOL };
+        return {
+          fecha, tc, eecc, diferencia, ok: Math.abs(diferencia) < TOL,
+          movimientosTc: tcMovsPorDia[fecha] || [],
+          movimientosEecc: eeccMovsPorDia[fecha] || [],
+        };
       });
     }
 
-    res.json({ pen: compararPorDia(eeccSol, tcPorDiaSol), usd: compararPorDia(eeccUsd, tcPorDiaUsd) });
+    res.json({
+      pen: compararPorDia(eeccSol, tcPorDiaSol, tcMovsPorDiaSol),
+      usd: compararPorDia(eeccUsd, tcPorDiaUsd, tcMovsPorDiaUsd),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

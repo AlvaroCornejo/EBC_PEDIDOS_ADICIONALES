@@ -379,4 +379,7 @@ AUTORIZACION, MONEDA`.
   "Dolares"), así que el total de TC se separa Soles/Dólares por ese campo (blanco = Soles) para
   no comparar el total contra el lado de dólares y marcar error en todos los días. Se probó
   alinear por desfase de fecha (±2 días) y no mejora el match — las diferencias que salgan son
-  reales, no un problema de desfase.
+  reales, no un problema de desfase. El frontend muestra, además del total por día, el desglose
+  de los movimientos individuales que forman esa suma en dos columnas (`movimientosTc` /
+  `movimientosEecc`, devueltos por `compararPorDia()`), para poder ver a simple vista qué
+  operación de TC o qué movimiento del banco explica una diferencia.
