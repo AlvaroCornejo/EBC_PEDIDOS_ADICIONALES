@@ -11409,7 +11409,7 @@ async function viewConciliacion(container) {
   try { sociedades = await GET('/conciliacion/sociedades'); } catch (e) { /* sin config aun */ }
 
   const hoy = new Date();
-  const hace30 = new Date(hoy.getTime() - 30 * 86400000);
+  const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   const iso = d => d.toISOString().slice(0, 10);
 
   container.innerHTML = `
@@ -11429,7 +11429,7 @@ async function viewConciliacion(container) {
         </div>
         <div>
           <label class="form-label">Fecha desde</label>
-          <input type="date" id="cc-desde" class="form-control" value="${iso(hace30)}">
+          <input type="date" id="cc-desde" class="form-control" value="${iso(inicioMes)}">
         </div>
         <div>
           <label class="form-label">Fecha hasta</label>
