@@ -293,13 +293,15 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
   movimientos separados (busca cada componente por su lado, `Efectivo = sumEf+sumVuelto`,
   `TIP = sumTip`) o, si eso falla, como UN solo movimiento combinado por la suma de ambos.
   Solo considera movimientos EECC con `Concepto = "INGRESO EN EFECTIVO"` (confirmado que existe
-  tal cual en el archivo real). Una sola fila por día: los movimientos con ese concepto que no
-  calzan con ningún depósito se fusionan como `extras` en la fila de esa fecha (o fila propia si
-  no hubo depósito ese día), con columna `Diferencia` = depósito − (encontrado por match + extras).
-  Internamente usa `calcularCheck3()` (compartida con check4) y `matchEnBanco(depositos, eeccRows,
-  usados)` — el `Set usados` se pasa explícitamente para que **un movimiento del EECC solo pueda
-  pertenecer a UNA conciliación**: se consulta y se llena *durante* cada búsqueda (no solo después),
-  y check4 recalcula check3 para heredar el mismo `usadosSol`/`usadosUsd` antes de buscar los suyos.
+  tal cual en el archivo real), columna `Diferencia` = depósito − encontrado por match. Los
+  movimientos con ese concepto que NO calzan con ningún depósito **no se mezclan** con las filas
+  diarias — `matchEnBanco()` los devuelve aparte (`pendientesEecc`), y el frontend los lista en
+  una tabla separada al final de la sección (Soles/Dólares), no fusionados en las filas de
+  depósito. Internamente usa `calcularCheck3()` (compartida con check4) y `matchEnBanco(depositos,
+  eeccRows, usados)` — el `Set usados` se pasa explícitamente para que **un movimiento del EECC
+  solo pueda pertenecer a UNA conciliación**: se consulta y se llena *durante* cada búsqueda (no
+  solo después), y check4 recalcula check3 para heredar el mismo `usadosSol`/`usadosUsd` antes de
+  buscar los suyos.
 - `GET /check4` — Eventos Comerciales: `COBRANZA ERP` con `MEDIO PAGO = "Cheque"` no pasa por CAJA,
   se busca directamente en el EECC por **importe único** (`cobranzaMoneda`, ya que en la data real
   TIP siempre es 0 para Cheque), excluyendo `INGRESO EN EFECTIVO` y cualquier movimiento ya usado
