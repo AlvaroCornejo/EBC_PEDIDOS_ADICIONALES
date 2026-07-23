@@ -7616,8 +7616,6 @@ async function renderPaso5(container) {
             : ''}
           <button class="btn btn-outline btn-sm" onclick="p5CargaMasiva()"
                   title="Ver beneficiarios y asignar correos">👥 Beneficiarios</button>
-          <button class="btn btn-outline btn-sm" onclick="p5VerSinCorreo()"
-                  title="Beneficiarios sin correo en esta programación">⚠️ Sin correo</button>
           <button class="btn btn-primary btn-sm" onclick="p5EnviarCorreo()"
                   title="Enviar notificación de pago por correo">✉️ Enviar correo</button>
           ${S.user.role === 'ADMIN' ? `
@@ -8064,6 +8062,13 @@ async function renderPaso5(container) {
     }).join('');
 
     const html = `
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px">
+        <button class="btn btn-outline btn-sm" id="cm-descargar-btn">📥 Descargar Excel (sin correo)</button>
+        <span style="width:1px;height:20px;background:#e2e8f0"></span>
+        <input type="file" id="cm-upload-file" accept=".xlsx,.xls" style="font-size:12px;max-width:220px">
+        <button class="btn btn-outline btn-sm" id="cm-subir-btn">📤 Subir Excel</button>
+        <span id="cm-upload-status" style="font-size:11px;color:var(--text-muted)"></span>
+      </div>
       <div style="max-height:60vh;overflow-y:auto">
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="background:#f1f5f9;font-size:12px;color:var(--text-muted)">
@@ -8079,6 +8084,48 @@ async function renderPaso5(container) {
       </div>`;
 
     openModal('👥 Beneficiarios — Asignación de correos', html);
+
+    document.getElementById('cm-descargar-btn').addEventListener('click', async () => {
+      try {
+        const resp = await fetch(`${API}/personas/sin-correo-excel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${S.token}` },
+          body: JSON.stringify({ progId: p5Prog._id }),
+        });
+        if (!resp.ok) { const d = await resp.json().catch(()=>({})); throw new Error(d.error || 'Error al descargar'); }
+        const blob = await resp.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = `sin-correo-${comp}.xlsx`; a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) { toast(e.message, 'error'); }
+    });
+
+    document.getElementById('cm-subir-btn').addEventListener('click', async () => {
+      const fileEl = document.getElementById('cm-upload-file');
+      const file   = fileEl?.files[0];
+      const status = document.getElementById('cm-upload-status');
+      if (!file) { toast('Seleccione un archivo primero', 'warning'); return; }
+      if (status) status.textContent = '⏳ Procesando...';
+      try {
+        const fd = new FormData();
+        fd.append('compania', comp);
+        fd.append('archivo', file);
+        const resp = await fetch(`${API}/personas/importar-correos`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${S.token}` },
+          body: fd,
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error);
+        toast(`✅ ${data.count} correo(s) importado(s)`, 'success');
+        closeModal();
+        await window.p5CargaMasiva();
+      } catch (e) {
+        if (status) status.textContent = '';
+        toast(e.message, 'error');
+      }
+    });
 
     document.getElementById('cm-guardar-btn').addEventListener('click', async () => {
       const inputs = document.querySelectorAll('#modal-body input[data-id]');
@@ -8101,88 +8148,6 @@ async function renderPaso5(container) {
       closeModal();
     });
    } catch(e) { console.error('p5CargaMasiva', e); toast('Error al abrir beneficiarios: ' + e.message, 'error'); }
-  };
-
-  // ── Ver beneficiarios sin correo ──────────────────────────────────
-  window.p5VerSinCorreo = async function() {
-    if (!p5Prog) return;
-    const comp   = p5Prog.compania;
-    const benefs = new Set(
-      (p5Prog.obligaciones||[]).filter(o=>o.seleccionado).map(o=>o.pagarA||'').filter(Boolean)
-    );
-    let sinCorreo = [];
-    try {
-      const todos = arr(await GET(`/personas?compania=${encodeURIComponent(comp)}`));
-      sinCorreo = todos.filter(p => benefs.has(p.nombre) && !(p.correos||[]).length);
-      // También incluir beneficiarios que no están aún en Personas
-      const enPersonas = new Set(todos.map(p=>p.nombre));
-      [...benefs].forEach(b => { if (!enPersonas.has(b)) sinCorreo.push({ nombre: b, _id: null }); });
-    } catch(_){}
-
-    if (!sinCorreo.length) {
-      return openModal('✅ Sin correo', '<p style="padding:16px">Todos los beneficiarios de esta programación tienen correo asignado.</p>');
-    }
-
-    const filas = sinCorreo.map(p => `
-      <tr>
-        <td style="padding:6px 10px;font-size:13px">${esc(p.nombre)}</td>
-        <td style="padding:6px 10px">
-          <input class="form-control" style="font-size:12px;height:28px" required
-                 id="sc-correo-${esc(p._id||p.nombre)}"
-                 placeholder="correo@empresa.com (obligatorio)"
-                 data-id="${esc(p._id||'')}" data-nombre="${esc(p.nombre)}">
-        </td>
-      </tr>`).join('');
-
-    const html = `
-      <p style="font-size:13px;color:#dc2626;margin-bottom:12px">
-        Los siguientes beneficiarios <strong>no tienen correo</strong> asignado. Ingrese al menos uno para poder enviarles la notificación.
-      </p>
-      <table style="width:100%;border-collapse:collapse">
-        <thead><tr style="background:#fef2f2;font-size:12px;color:var(--text-muted)">
-          <th style="padding:6px 10px;text-align:left">Beneficiario</th>
-          <th style="padding:6px 10px;text-align:left">Correo *</th>
-        </tr></thead>
-        <tbody>${filas}</tbody>
-      </table>
-      <div style="margin-top:12px;display:flex;gap:8px">
-        <button class="btn btn-primary btn-sm" id="sc-guardar-btn">💾 Guardar correos</button>
-        <button class="btn btn-outline btn-sm" onclick="closeModal()">Cancelar</button>
-      </div>`;
-
-    openModal('⚠️ Beneficiarios sin correo', html);
-
-    document.getElementById('sc-guardar-btn').addEventListener('click', async () => {
-      const inputs = document.querySelectorAll('#modal-body input[data-id]');
-      let ok = 0, err = 0, lastErr = '';
-      for (const inp of inputs) {
-        const correos = inp.value.split(',').map(s=>s.trim()).filter(Boolean);
-        if (!correos.length) continue;
-        const id     = inp.dataset.id;
-        const nombre = inp.dataset.nombre;
-        try {
-          if (id) {
-            await PUT(`/personas/${id}/correo-rapido`, { correos });
-          } else {
-            try {
-              await POST('/personas', { nombre, telefono:'', correos, compania: comp });
-            } catch (e1) {
-              // Si ya existe (carrera con otro proceso o no se detectó antes), buscar y actualizar
-              const existente = arr(await GET(`/personas?compania=${encodeURIComponent(comp)}`))
-                .find(p => p.nombre === nombre);
-              if (existente?._id) {
-                await PUT(`/personas/${existente._id}/correo-rapido`, { correos });
-              } else {
-                throw e1;
-              }
-            }
-          }
-          ok++;
-        } catch(e) { err++; lastErr = e.message || ''; }
-      }
-      toast(`✅ ${ok} correo(s) guardado(s)${err ? ` | ⚠️ ${err} con error${lastErr ? ': ' + lastErr : ''}` : ''}`, err && !ok ? 'error' : 'success');
-      if (ok) closeModal();
-    });
   };
 
   // ── Enviar correo de pago ─────────────────────────────────────────
@@ -8222,7 +8187,7 @@ async function renderPaso5(container) {
             <ul style="font-size:12px;color:#6b7280;margin:0 0 12px 18px;max-height:140px;overflow-y:auto">
               ${sinCorreo.map(b => `<li>${esc(b)}</li>`).join('')}
             </ul>
-            <button class="btn btn-outline btn-sm" onclick="closeModal();p5VerSinCorreo()">📧 Asignar correos ahora</button>
+            <button class="btn btn-outline btn-sm" onclick="closeModal();p5CargaMasiva()">📧 Asignar correos ahora</button>
           ` : ''}
           <div style="margin-top:16px;text-align:right">
             <button class="btn btn-primary btn-sm" onclick="closeModal()">Cerrar</button>

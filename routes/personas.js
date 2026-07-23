@@ -1,11 +1,15 @@
 const express  = require('express');
 const router   = express.Router();
+const multer   = require('multer');
+const ExcelJS  = require('exceljs');
 const auth            = require('../middleware/auth');
 const Persona          = require('../models/Persona');
 const CopiaCorreo      = require('../models/CopiaCorreo');
 const PagoProgramacion = require('../models/PagoProgramacion');
 const EeccMovimiento   = require('../models/EeccMovimiento');
 const { getSmtpConfig, buildTransport } = require('../utils/sendEmail');
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 router.use(auth);
 
@@ -148,6 +152,89 @@ router.put('/copias-correo/:compania', async (req, res) => {
       { upsert: true, new: true }
     );
     res.json(doc);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Excel de beneficiarios sin correo (Paso 5 → "Sin correo") ─────
+// POST /sin-correo-excel
+// body: { progId }
+// Genera un .xlsx con los beneficiarios seleccionados de la programación que no
+// tienen correo asignado, para completarlo offline y volver a subirlo.
+router.post('/sin-correo-excel', async (req, res) => {
+  try {
+    const { progId } = req.body;
+    if (!progId) return res.status(400).json({ error: 'Falta progId' });
+
+    const prog = await PagoProgramacion.findById(progId).lean();
+    if (!prog) return res.status(404).json({ error: 'Programación no encontrada' });
+
+    const benefs = [...new Set(
+      (prog.obligaciones || []).filter(o => o.seleccionado).map(o => o.pagarA || '').filter(Boolean)
+    )];
+    const personas   = await Persona.find({ compania: prog.compania, nombre: { $in: benefs } }).lean();
+    const conCorreo  = new Set(personas.filter(p => (p.correos || []).length).map(p => p.nombre));
+    const sinCorreo  = benefs.filter(b => !conCorreo.has(b)).sort((a, b) => a.localeCompare(b));
+
+    if (!sinCorreo.length) {
+      return res.status(400).json({ error: 'Todos los beneficiarios ya tienen correo asignado' });
+    }
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Sin correo');
+    ws.columns = [
+      { header: 'Beneficiario', key: 'beneficiario', width: 45 },
+      { header: 'Correo',       key: 'correo',       width: 45 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    sinCorreo.forEach(nombre => ws.addRow({ beneficiario: nombre, correo: '' }));
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="sin-correo-${prog.compania}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Importar correos desde Excel (Paso 5 → "Sin correo") ──────────
+// POST /importar-correos  (multipart: archivo, compania)
+// Columnas esperadas: A=Beneficiario, B=Correo (uno o varios separados por coma/punto y coma).
+// Actualiza/crea la Persona por nombre+compania; solo procesa filas con correo no vacío.
+router.post('/importar-correos', upload.single('archivo'), async (req, res) => {
+  try {
+    const { compania } = req.body;
+    if (!compania || !req.file) return res.status(400).json({ error: 'Faltan compania o archivo' });
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(req.file.buffer);
+    const ws = wb.worksheets[0];
+    if (!ws) return res.status(400).json({ error: 'El archivo no tiene hojas' });
+
+    const filas = [];
+    ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
+      if (rowNum === 1) return; // cabecera
+      const nombre    = String(row.getCell(1).value ?? '').trim();
+      const correoRaw = String(row.getCell(2).value ?? '').trim();
+      if (!nombre || !correoRaw) return;
+      const correos = correoRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+      if (correos.length) filas.push({ nombre, correos });
+    });
+
+    if (!filas.length) {
+      return res.status(400).json({ error: 'No se encontraron filas con Beneficiario y Correo' });
+    }
+
+    let ok = 0;
+    for (const f of filas) {
+      const existente = await Persona.findOne({ nombre: f.nombre, compania });
+      if (existente) {
+        existente.correos = f.correos;
+        await existente.save();
+      } else {
+        await Persona.create({ nombre: f.nombre, compania, correos: f.correos });
+      }
+      ok++;
+    }
+    res.json({ ok: true, count: ok });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
