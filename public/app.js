@@ -11683,18 +11683,20 @@ async function viewConciliacion(container) {
 
       // ── Sección 6: Depósitos de operadores de TC — Q TC vs EECC (por día) ──
       function desgloseDepTC(movs) {
-        if (!movs.length) return `<div style="font-size:10px;color:var(--text-muted)">—</div>`;
-        return movs.map(m => `
-          <div style="font-size:10px;color:var(--text-muted);white-space:nowrap">
+        if (!movs.length) return `<span style="font-size:10px;color:var(--text-muted)">—</span>`;
+        return `<div style="display:flex;flex-wrap:wrap;gap:4px">${movs.map(m => `
+          <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;background:var(--bg-secondary);
+                       border:1px solid var(--border);border-radius:4px;padding:2px 6px">
             ${esc(m.tarjeta||'—')}${m.tc ? ' · '+esc(m.tc) : ''} · ${fmt(m.deposito)}${m.autorizacion ? ' · Aut.'+esc(m.autorizacion) : ''}
-          </div>`).join('');
+          </span>`).join('')}</div>`;
       }
       function desgloseDepEecc(movs) {
-        if (!movs.length) return `<div style="font-size:10px;color:var(--text-muted)">—</div>`;
-        return movs.map(m => `
-          <div style="font-size:10px;color:var(--text-muted);white-space:nowrap">
+        if (!movs.length) return `<span style="font-size:10px;color:var(--text-muted)">—</span>`;
+        return `<div style="display:flex;flex-wrap:wrap;gap:4px">${movs.map(m => `
+          <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;background:var(--bg-secondary);
+                       border:1px solid var(--border);border-radius:4px;padding:2px 6px">
             ${esc(m.banco||'—')} · ${fmt(m.importe)}${m.nroDoc ? ' · Nº'+esc(m.nroDoc) : ''}
-          </div>`).join('');
+          </span>`).join('')}</div>`;
       }
       function tablaDepTC(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
@@ -11840,7 +11842,22 @@ async function viewConciliacion(container) {
             <strong style="font-size:13px">5️⃣ Tarjeta de Crédito (TC) — COBRANZA vs Q TC</strong>
             <span style="font-size:11px;color:${s5errores?'#dc2626':'#16a34a'}">${s5errores ? `⚠ ${s5errores} cobranza(s) sin ubicar en Q TC` : '✓ Todo cuadra'}</span>
           </div>
-          <div style="overflow-x:auto">${tablaTC(soloDif ? c5.resultado.filter(e=>!e.ok) : c5.resultado)}</div>
+          ${(() => {
+            const conciliados   = c5.resultado.filter(e=>e.ok);
+            const porConciliar  = c5.resultado.filter(e=>!e.ok);
+            const grupo = (titulo, lista, color, id, abierto) => `
+              <div style="border-bottom:1px solid var(--border)">
+                <div style="padding:8px 16px;background:${color};display:flex;align-items:center;gap:10px;cursor:pointer"
+                     onclick="const el=document.getElementById('${id}');const b=document.getElementById('${id}-btn');const open=el.style.display!=='none';el.style.display=open?'none':'';b.textContent=open?'▸ Ver detalle':'▾ Ocultar detalle';">
+                  <span id="${id}-btn" style="font-size:11px;font-weight:600;color:var(--text-muted)">${abierto?'▾ Ocultar detalle':'▸ Ver detalle'}</span>
+                  <strong style="font-size:12px">${titulo}</strong>
+                  <span style="font-size:11px;color:var(--text-muted)">(${lista.length})</span>
+                </div>
+                <div id="${id}" style="display:${abierto?'':'none'};overflow-x:auto">${tablaTC(lista)}</div>
+              </div>`;
+            return (soloDif ? '' : grupo('✅ Conciliados', conciliados, '#f0fdf4', 'cc-s5-conc', false))
+                 + grupo('⚠ Por conciliar', porConciliar, '#fef2f2', 'cc-s5-pend', true);
+          })()}
           ${c5.pendientesTc && c5.pendientesTc.length ? `
           <div style="padding:10px 16px;background:#fef9c3;border-top:1px solid var(--border);font-size:11px;font-weight:700;color:#92400e">
             ⚠ ${c5.pendientesTc.length} movimiento(s) de Q TC sin cobranza asociada
