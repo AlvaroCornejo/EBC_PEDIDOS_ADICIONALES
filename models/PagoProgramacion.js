@@ -27,6 +27,9 @@ const obligacionSchema = new mongoose.Schema({
   importeBanco:     { type: Number, default: null }, // legacy
   p5Banco:          { type: String, default: '' },  // banco de pago (def = bancoAsignado P3)
   p5Moneda:         { type: String, default: '' },  // moneda de pago  (def = moneda P3)
+  // Fecha/hora real de la operación bancaria: se sugiere con el Estado de Cuenta (EC)
+  // cargado, pero es editable a mano porque el EC casi nunca trae hora.
+  fechaHoraOperacion: { type: Date, default: null },
   pagada:           { type: Boolean, default: false }, // true cuando se registra el pago
 }, { _id: true });
 

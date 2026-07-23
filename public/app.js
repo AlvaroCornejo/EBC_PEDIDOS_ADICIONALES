@@ -7133,6 +7133,36 @@ async function renderPaso5(container) {
   const fmtF  = d => d ? new Date(d).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
   const netoOb = o => o.monto - (o.retencion || 0);
 
+  // Fecha del Estado de Cuenta (EC) cargado para un N° de operación, banco y moneda.
+  // El EC casi siempre trae solo fecha (sin hora real) — se usa como valor inicial
+  // sugerido para el campo editable de fecha/hora de la operación.
+  function p5EcFecha(banco, moneda, opNum) {
+    const opStr = String(opNum || '').trim();
+    if (!opStr) return null;
+    const nroKey = String(parseInt(opStr, 10) || 0);
+    if (nroKey === '0') return null;
+    const ec = p5Estados.find(e => e.banco === banco && e.moneda === moneda);
+    if (!ec) return null;
+    const t = (ec.transacciones || []).find(tt => String(parseInt(tt.nroDoc || '0', 10) || 0) === nroKey);
+    return (t && t.fecha) ? t.fecha : null;
+  }
+
+  // Formatea una fecha para el input <datetime-local> (YYYY-MM-DDTHH:mm), en hora local.
+  function p5ToDtLocal(d) {
+    if (!d) return '';
+    const dt = new Date(d);
+    if (isNaN(dt)) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  }
+
+  // Valor inicial del campo editable: lo guardado manualmente si existe, si no lo
+  // sugerido por el EC (sin hora real, así que queda en 00:00 hasta que se edite).
+  function p5FechaHoraInicial(obRef, banco, moneda, opNum) {
+    if (obRef && obRef.fechaHoraOperacion) return p5ToDtLocal(obRef.fechaHoraOperacion);
+    return p5ToDtLocal(p5EcFecha(banco, moneda, opNum));
+  }
+
   // ── Footer fijo ──────────────────────────────────────────────────
   let p5Footer = document.getElementById('ap5-footer');
   if (!p5Footer) {
@@ -7356,6 +7386,11 @@ async function renderPaso5(container) {
                      style="width:90px;font-size:11px;height:26px" placeholder="N° Op"
                      value="${op}"
                      oninput="p5SetOpBenef('${esc(agrup)}','${esc(benef)}',this.value)">
+              <input type="datetime-local" class="form-control"
+                     style="width:150px;font-size:11px;height:26px;color:#0891b2"
+                     id="p5-fh-${esc(bKey)}"
+                     value="${p5FechaHoraInicial(bObs[0], efBanco, efMon, op)}"
+                     oninput="p5SetFechaHoraBenef('${esc(agrup)}','${esc(benef)}',this.value)">
             </div>
             <!-- Detalle de obligaciones (expandible, con N°op por fila) -->
             <div id="p5agrup-body-${esc(bKey)}" style="display:none;border-top:1px solid #e9d5ff;background:#faf5ff">
@@ -7419,6 +7454,11 @@ async function renderPaso5(container) {
                    style="width:90px;font-size:11px;height:26px" placeholder="N° Op"
                    value="${op}"
                    oninput="p5SetOpAgrup('${esc(agrup)}',this.value)">
+            <input type="datetime-local" class="form-control"
+                   style="width:150px;font-size:11px;height:26px;color:#0891b2"
+                   id="p5-fh-agrup-${esc(agKey)}"
+                   value="${p5FechaHoraInicial(agrupObs[0], efBanco, efMon, op)}"
+                   oninput="p5SetFechaHoraAgrup('${esc(agrup)}',this.value)">
           </div>
           <!-- Nivel 2: beneficiarios expandibles -->
           <div id="p5banco-body-${esc(agKey)}" style="display:none">
@@ -7437,14 +7477,14 @@ async function renderPaso5(container) {
     if (!el || !p5Prog) { if (el) el.innerHTML = ''; return; }
     const obs = (p5Prog.obligaciones || []).filter(o => o.seleccionado);
 
-    // Lookup del EC cargado: banco → moneda → nroDoc(norm) → importe
+    // Lookup del EC cargado: banco → moneda → nroDoc(norm) → { importe, fecha }
     const ecLookup = {};
     p5Estados.forEach(ec => {
       if (!ecLookup[ec.banco]) ecLookup[ec.banco] = {};
       if (!ecLookup[ec.banco][ec.moneda]) ecLookup[ec.banco][ec.moneda] = {};
       (ec.transacciones||[]).forEach(t => {
         const k = String(parseInt(t.nroDoc||'0',10)||0);
-        if (k !== '0') ecLookup[ec.banco][ec.moneda][k] = t.importe;
+        if (k !== '0') ecLookup[ec.banco][ec.moneda][k] = { importe: t.importe, fecha: t.fecha };
       });
     });
 
@@ -7476,7 +7516,9 @@ async function renderPaso5(container) {
     const rows = entries.map(([, d]) => {
       const { opNum } = d;
       const nroKey    = String(parseInt(opNum,10)||0);
-      const ecImporte = ecLookup[d.banco]?.[d.moneda]?.[nroKey] ?? null;
+      const ec        = ecLookup[d.banco]?.[d.moneda]?.[nroKey] ?? null;
+      const ecImporte = ec ? ec.importe : null;
+      const ecFecha   = ec ? ec.fecha : null;
       const dif    = ecImporte != null ? ecImporte + d.totalOblig : null;
       const difOk  = dif != null && Math.abs(dif) < 0.01;
       const rowBg  = d.allPaid ? 'background:#f0fdf4'
@@ -7498,6 +7540,12 @@ async function renderPaso5(container) {
           <td style="padding:6px 10px;text-align:right;font-size:12px;color:${ecImporte!=null?'#dc2626':'#94a3b8'}">
             ${ecImporte != null ? fmtN(ecImporte) : '—'}
           </td>
+          <td style="padding:6px 10px;text-align:center;font-size:12px;white-space:nowrap;color:${ecFecha?'#374151':'#94a3b8'}">${fmtF(ecFecha)}</td>
+          <td style="padding:6px 10px;text-align:center;font-size:12px;white-space:nowrap;color:${ecFecha?'#374151':'#94a3b8'}">${(() => {
+            if (!ecFecha) return '—';
+            const dt = new Date(ecFecha);
+            return (dt.getHours() === 0 && dt.getMinutes() === 0) ? '—' : fmtTime(dt);
+          })()}</td>
           <td style="padding:6px 10px;text-align:right;font-weight:700;font-size:12px;
                      color:${difOk?'#16a34a':dif!=null?'#dc2626':'#94a3b8'}">
             ${dif != null ? (difOk ? '✓' : ((dif>0?'+':'')+fmtN(dif))) : '—'}
@@ -7524,6 +7572,8 @@ async function renderPaso5(container) {
               <th style="padding:6px 10px;text-align:center;white-space:nowrap"># Oblig</th>
               <th style="padding:6px 10px;text-align:right;white-space:nowrap">Total Prog.</th>
               <th style="padding:6px 10px;text-align:right;white-space:nowrap">Importe EC</th>
+              <th style="padding:6px 10px;text-align:center;white-space:nowrap">Fecha EC</th>
+              <th style="padding:6px 10px;text-align:center;white-space:nowrap">Hora EC</th>
               <th style="padding:6px 10px;text-align:right;white-space:nowrap">Diferencia</th>
               <th style="padding:6px 10px;text-align:center;white-space:nowrap">Pago</th>
             </tr>
@@ -7870,13 +7920,24 @@ async function renderPaso5(container) {
   }
   window.p5SetOpBenef = function(agrup, benef, val) {
     if (!p5Prog) return;
+    let banco = '', moneda = '';
     obsBenef(agrup, benef).forEach(ob => {
       ob.operacionBancaria = val;
+      banco  = ob.p5Banco  || ob.bancoAsignado || '';
+      moneda = ob.p5Moneda || (ob.moneda === 'LO' ? 'SOL' : 'USD');
       // Sincronizar input individual si está visible en el DOM
       const inp = document.querySelector(`input[data-obid="${ob._id}"]`);
       if (inp) inp.value = val;
     });
+    const bKey = `${agrup.replace(/\W/g,'_')}__${benef.replace(/\W/g,'_')}`;
+    // Solo autocompleta con el EC si el campo de fecha/hora sigue vacío (no pisar lo editado a mano)
+    const fhInp = document.getElementById(`p5-fh-${bKey}`);
+    if (fhInp && !fhInp.value) fhInp.value = p5ToDtLocal(p5EcFecha(banco, moneda, val));
     p5RefreshECTablas();
+  };
+  window.p5SetFechaHoraBenef = function(agrup, benef, val) {
+    if (!p5Prog) return;
+    obsBenef(agrup, benef).forEach(ob => { ob.fechaHoraOperacion = val ? new Date(val) : null; });
   };
   window.p5SetBancoBenef = function(agrup, benef, val) {
     if (!p5Prog) return;
@@ -7897,12 +7958,23 @@ async function renderPaso5(container) {
   }
   window.p5SetOpAgrup = function(agrup, val) {
     if (!p5Prog) return;
+    let banco = '', moneda = '';
     obsAgrup(agrup).forEach(ob => {
       ob.operacionBancaria = val;
+      banco  = ob.p5Banco  || ob.bancoAsignado || '';
+      moneda = ob.p5Moneda || (ob.moneda === 'LO' ? 'SOL' : 'USD');
       const inp = document.querySelector(`input[data-obid="${ob._id}"]`);
       if (inp) inp.value = val;
     });
+    const agKey = agrup.replace(/\W/g,'_');
+    // Solo autocompleta con el EC si el campo de fecha/hora sigue vacío (no pisar lo editado a mano)
+    const fhInp = document.getElementById(`p5-fh-agrup-${agKey}`);
+    if (fhInp && !fhInp.value) fhInp.value = p5ToDtLocal(p5EcFecha(banco, moneda, val));
     p5RefreshECTablas();
+  };
+  window.p5SetFechaHoraAgrup = function(agrup, val) {
+    if (!p5Prog) return;
+    obsAgrup(agrup).forEach(ob => { ob.fechaHoraOperacion = val ? new Date(val) : null; });
   };
   window.p5SetBancoAgrup = function(agrup, val) {
     if (!p5Prog) return;
@@ -7931,6 +8003,7 @@ async function renderPaso5(container) {
       importeBanco: ob.importeBanco != null ? ob.importeBanco : null,
       p5Banco:  ob.p5Banco  || '',
       p5Moneda: ob.p5Moneda || '',
+      fechaHoraOperacion: ob.fechaHoraOperacion || null,
     }));
   }
 

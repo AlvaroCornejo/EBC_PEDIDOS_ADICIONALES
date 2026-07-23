@@ -13,6 +13,14 @@ router.use(auth);
 const esc  = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const fmtN = v => Number(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtD = d => d ? new Date(d).toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+// Fecha + hora (solo si la hora es distinta de 00:00, ya que muchas fuentes no traen hora real)
+const fmtDH = d => {
+  if (!d) return '—';
+  const dt = new Date(d);
+  const hora = (dt.getHours() === 0 && dt.getMinutes() === 0) ? '' :
+    ' ' + dt.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${fmtD(dt)}${hora}`;
+};
 
 // ── Personas ──────────────────────────────────────────────────────
 
@@ -184,9 +192,12 @@ router.post('/enviar-correo-pago', async (req, res) => {
       return res.status(400).json({ error: 'No hay obligaciones pagadas para los filtros indicados' });
     }
 
-    // Fecha del movimiento bancario (EECC) por N° de operación, para incluir en el correo.
-    // La "sociedad" del EECC corresponde al mismo código que prog.compania.
-    const opsUnicas = [...new Set(obligaciones.map(ob => String(ob.operacionBancaria || '').trim()).filter(Boolean))];
+    // Fecha de la operación bancaria para incluir en el correo: prioriza la fecha/hora que
+    // el usuario verifica/edita a mano en Paso 5 (fechaHoraOperacion); si no la registró,
+    // recae en el movimiento del EECC de Conciliación (mismo código de sociedad que prog.compania).
+    const opsUnicas = [...new Set(
+      obligaciones.filter(ob => !ob.fechaHoraOperacion).map(ob => String(ob.operacionBancaria || '').trim()).filter(Boolean)
+    )];
     const fechaPorOp = {}; // `${moneda}|${nroDoc}` -> fechaOperacion
     if (opsUnicas.length) {
       const movs = await EeccMovimiento.find({ sociedad: prog.compania, nroDoc: { $in: opsUnicas } }).lean();
@@ -196,6 +207,7 @@ router.post('/enviar-correo-pago', async (req, res) => {
       });
     }
     const fechaBancoDe = ob => {
+      if (ob.fechaHoraOperacion) return ob.fechaHoraOperacion;
       const op = String(ob.operacionBancaria || '').trim();
       if (!op) return null;
       return fechaPorOp[`${obMoneda(ob)}|${op}`] || null;
@@ -237,7 +249,7 @@ router.post('/enviar-correo-pago', async (req, res) => {
           <td style="padding:6px 10px;text-align:right;border-bottom:1px solid #e5e7eb">${(ob.retencion||0)>0?fmtN(ob.retencion):'—'}</td>
           <td style="padding:6px 10px;text-align:right;border-bottom:1px solid #e5e7eb;font-weight:700;color:#15803d">${fmtN((ob.monto||0)-(ob.retencion||0))}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${esc(ob.operacionBancaria||'—')}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${fmtD(fechaBancoDe(ob))}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${fmtDH(fechaBancoDe(ob))}</td>
         </tr>`).join('');
 
       const totalNeto = obs.reduce((s,ob) => s + (ob.monto||0) - (ob.retencion||0), 0);
