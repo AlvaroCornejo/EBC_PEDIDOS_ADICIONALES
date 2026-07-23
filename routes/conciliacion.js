@@ -195,7 +195,7 @@ function buscarEnBanco(target, fecha, eeccRows, usados, excluirTambien) {
 function matchEnBanco(depositos, eeccRows, usados = new Set()) {
   const fmtMov = m => m ? { fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
 
-  const filas = depositos.map(d => {
+  const resultado = depositos.map(d => {
     const targetEf  = (d.sumEf || 0) + (d.sumVuelto || 0);
     const targetTip = d.sumTip || 0;
     const bEf  = buscarEnBanco(targetEf, d.fecha, eeccRows, usados);
@@ -210,44 +210,25 @@ function matchEnBanco(depositos, eeccRows, usados = new Set()) {
       if (bCombo.ok && !bCombo.na) { combinado = fmtMov(bCombo.movimiento); usados.add(bCombo.movimiento); }
     }
 
+    const encontradoMatch = combinado ? combinado.importe : (fmtMov(bEf.movimiento)?.importe || 0) + (fmtMov(bTip.movimiento)?.importe || 0);
     return {
       ...d,
       targetEf, targetTip,
       bancoEf: fmtMov(bEf.movimiento), okEf: bEf.ok,
       bancoTip: fmtMov(bTip.movimiento), okTip: bTip.ok,
       combinado,
-      extras: [],
       okBanco: (bEf.ok && bTip.ok) || !!combinado,
+      diferencia: Math.abs(d.deposito) - encontradoMatch,
     };
-  });
+  }).sort((a, b) => a.fecha - b.fecha);
 
-  // Movimientos "INGRESO EN EFECTIVO" del EECC que no se usaron en ningun match
-  const sinCajaMovs = eeccRows.filter(e => (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO && !usados.has(e));
+  // Movimientos "INGRESO EN EFECTIVO" del EECC que no se usaron en ningun match — se listan
+  // aparte (no se fusionan en las filas de deposito) para revisarlos al final de la seccion.
+  const pendientesEecc = eeccRows
+    .filter(e => (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO && !usados.has(e))
+    .sort((a, b) => a.fechaOperacion - b.fechaOperacion);
 
-  // Una sola fila por dia: si ya existe una fila de deposito en esa fecha, los movimientos
-  // sin CAJA se agregan como `extras` en la MISMA fila; si no hay deposito ese dia, se crea
-  // una fila propia (deposito:null) agrupando todos los extras de esa fecha.
-  const filasPorFecha = {};
-  filas.forEach(f => { filasPorFecha[ymd(f.fecha)] = f; });
-  const extrasPorFechaNueva = {};
-  sinCajaMovs.forEach(e => {
-    const k = ymd(e.fechaOperacion);
-    const fila = filasPorFecha[k];
-    if (fila) { fila.extras.push(fmtMov(e)); return; }
-    if (!extrasPorFechaNueva[k]) extrasPorFechaNueva[k] = { fecha: e.fechaOperacion, deposito: null, targetEf: null, targetTip: null, bancoEf: null, okEf: false, bancoTip: null, okTip: false, combinado: null, extras: [], okBanco: false };
-    extrasPorFechaNueva[k].extras.push(fmtMov(e));
-  });
-
-  const resultado = [...filas, ...Object.values(extrasPorFechaNueva)];
-
-  // Diferencia total del dia: deposito CAJA vs lo encontrado en el banco (matches + extras sin CAJA)
-  resultado.forEach(f => {
-    const encontradoMatch = f.combinado ? f.combinado.importe : (f.bancoEf?.importe || 0) + (f.bancoTip?.importe || 0);
-    const encontradoExtras = f.extras.reduce((s, e) => s + e.importe, 0);
-    f.diferencia = (f.deposito !== null ? Math.abs(f.deposito) : 0) - encontradoMatch - encontradoExtras;
-  });
-
-  return resultado.sort((a, b) => a.fecha - b.fecha);
+  return { resultado, pendientesEecc };
 }
 
 // ─── GET /check1 — COBRANZA ERP (Efectivo) vs CAJA.COBRANZA_EFECTIVO(_USD), por dia ──
@@ -362,7 +343,11 @@ async function calcularCheck3(sociedad, fechaDesde, fechaHasta) {
   const pen = matchEnBanco(depPen, eeccSol, usadosSol);
   const usd = matchEnBanco(depUsd, eeccUsd, usadosUsd);
 
-  return { pen, usd, eeccSol, eeccUsd, usadosSol, usadosUsd };
+  return {
+    pen: pen.resultado, usd: usd.resultado,
+    pendientesEeccSol: pen.pendientesEecc, pendientesEeccUsd: usd.pendientesEecc,
+    eeccSol, eeccUsd, usadosSol, usadosUsd,
+  };
 }
 
 function fmtCheck3(arr) {
@@ -373,10 +358,15 @@ function fmtCheck3(arr) {
     bancoEf: fmtMov(d.bancoEf), okEf: d.okEf,
     bancoTip: fmtMov(d.bancoTip), okTip: d.okTip,
     combinado: fmtMov(d.combinado),
-    extras: (d.extras || []).map(fmtMov),
     diferencia: d.diferencia,
     okBanco: d.okBanco,
   }));
+}
+
+function fmtPendientesEecc(arr, fechaDesde, fechaHasta) {
+  return arr
+    .filter(e => e.fechaOperacion >= fechaDesde && e.fechaOperacion <= fechaHasta)
+    .map(e => ({ fecha: ymd(e.fechaOperacion), importe: e.importe, concepto: e.concepto, banco: e.banco, nroDoc: e.nroDoc }));
 }
 
 // ─── GET /check3 — Deposito (CAJA) vs movimiento bancario (EECC) ─────────
@@ -390,12 +380,16 @@ router.get('/check3', async (req, res) => {
     const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta) : new Date('2100-01-01');
     fechaHasta.setHours(23, 59, 59, 999);
 
-    const { pen, usd } = await calcularCheck3(sociedad, fechaDesde, fechaHasta);
+    const { pen, usd, pendientesEeccSol, pendientesEeccUsd } = await calcularCheck3(sociedad, fechaDesde, fechaHasta);
     // matchEnBanco usa margenes mas amplios (dias antes/despues) para el matching interno;
     // aqui se recorta la salida al rango exacto que el usuario seleccionó, para que las filas
-    // "sin CAJA" (extras) tambien respeten el rango y no queden fijas al cambiar las fechas.
+    // tambien respeten el rango y no queden fijas al cambiar las fechas.
     const enRango = f => f.fecha >= fechaDesde && f.fecha <= fechaHasta;
-    res.json({ pen: fmtCheck3(pen.filter(enRango)), usd: fmtCheck3(usd.filter(enRango)) });
+    res.json({
+      pen: fmtCheck3(pen.filter(enRango)), usd: fmtCheck3(usd.filter(enRango)),
+      pendientesEeccPen: fmtPendientesEecc(pendientesEeccSol, fechaDesde, fechaHasta),
+      pendientesEeccUsd: fmtPendientesEecc(pendientesEeccUsd, fechaDesde, fechaHasta),
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

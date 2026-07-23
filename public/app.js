@@ -11519,12 +11519,12 @@ async function viewConciliacion(container) {
       // ── Sección 3: Depósito vs Banco (EECC) — el depósito puede llegar como 2
       // movimientos separados (Efectivo y TIP); se buscan y muestran en la misma línea.
       const cw3 = 'padding:4px 6px;font-size:11px;width:64px';
-      function celdaComponente(target, banco, ok, extraHtml) {
-        if (Math.abs(target || 0) < 1) return `<td colspan="2" style="padding:4px 6px;text-align:center;font-size:10px;color:var(--text-muted)">n/a${extraHtml||''}</td>`;
+      function celdaComponente(target, banco, ok) {
+        if (Math.abs(target || 0) < 1) return `<td colspan="2" style="padding:4px 6px;text-align:center;font-size:10px;color:var(--text-muted)">n/a</td>`;
         const color = ok ? '' : 'color:#dc2626';
         return `
           <td style="${cw3};text-align:right;${color}">${fmt(target)}</td>
-          <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);white-space:nowrap">${banco ? `${esc(banco.fecha)} · ${fmt(banco.importe)}${banco.nroDoc ? ' · Nº'+esc(banco.nroDoc) : ''}` : '—'}${extraHtml||''}</td>`;
+          <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);white-space:nowrap">${banco ? `${esc(banco.fecha)} · ${fmt(banco.importe)}${banco.nroDoc ? ' · Nº'+esc(banco.nroDoc) : ''}` : '—'}</td>`;
       }
       function tablaDep3(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin depósitos en el rango.</p>';
@@ -11538,22 +11538,13 @@ async function viewConciliacion(container) {
             <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
           </tr></thead>
           <tbody>${arr.map(d => {
-            const extrasHtml = d.extras.length
-              ? `<div style="margin-top:2px;color:#92400e;font-size:10px">${d.extras.map(e =>
-                  `⚠ sin CAJA: ${fmt(e.importe)}${e.nroDoc ? ' · Nº'+esc(e.nroDoc) : ''}`).join('<br>')}</div>`
-              : '';
-            let centroHtml;
-            if (d.deposito === null) {
-              centroHtml = `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:10px">${extrasHtml || '—'}</td>`;
-            } else if (d.combinado) {
-              centroHtml = `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#2563eb">🔗 Depósito único: ${esc(d.combinado.fecha)} · ${fmt(d.combinado.importe)}${d.combinado.nroDoc ? ' · Nº'+esc(d.combinado.nroDoc) : ''}${extrasHtml}</td>`;
-            } else {
-              centroHtml = celdaComponente(d.targetEf, d.bancoEf, d.okEf) + celdaComponente(d.targetTip, d.bancoTip, d.okTip, extrasHtml);
-            }
+            const centroHtml = d.combinado
+              ? `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#2563eb">🔗 Depósito único: ${esc(d.combinado.fecha)} · ${fmt(d.combinado.importe)}${d.combinado.nroDoc ? ' · Nº'+esc(d.combinado.nroDoc) : ''}</td>`
+              : celdaComponente(d.targetEf, d.bancoEf, d.okEf) + celdaComponente(d.targetTip, d.bancoTip, d.okTip);
             return `
             <tr style="${!d.okBanco ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap;vertical-align:top">${esc(d.fecha)}</td>
-              <td style="${cw3};text-align:right;vertical-align:top">${d.deposito !== null ? fmt(d.deposito) : '—'}</td>
+              <td style="${cw3};text-align:right;vertical-align:top">${fmt(d.deposito)}</td>
               ${centroHtml}
               <td style="${cw3};text-align:right;vertical-align:top;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
               <td style="padding:4px 4px;text-align:center;vertical-align:top">${badge(d.okBanco)}</td>
@@ -11562,6 +11553,25 @@ async function viewConciliacion(container) {
           </tbody></table>`;
       }
       const s3errores = c3.pen.filter(d=>!d.okBanco).length + c3.usd.filter(d=>!d.okBanco).length;
+
+      function tablaEeccPendientes(arr) {
+        if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos "INGRESO EN EFECTIVO" pendientes.</p>';
+        return `<table style="width:auto;border-collapse:collapse">
+          <thead><tr style="background:#fef9c3;color:#92400e">
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
+            <th style="${cw3};text-align:right">Importe</th>
+            <th style="${cwEv}">Banco</th>
+            <th style="${cwEv}">Nº Doc.</th>
+          </tr></thead>
+          <tbody>${arr.map(e => `
+            <tr>
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(e.fecha)}</td>
+              <td style="${cw3};text-align:right">${fmt(e.importe)}</td>
+              <td style="${cwEv}">${esc(e.banco||'—')}</td>
+              <td style="${cwEv}">${esc(e.nroDoc||'—')}</td>
+            </tr>`).join('')}
+          </tbody></table>`;
+      }
 
       // ── Sección 4: Eventos comerciales (Cheque) vs Banco ──
       const cwEv = 'padding:4px 6px;font-size:11px;white-space:nowrap';
@@ -11715,6 +11725,19 @@ async function viewConciliacion(container) {
             <div>
               <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
               ${tablaDep3(soloDif ? c3.usd.filter(d=>!d.okBanco) : c3.usd)}
+            </div>
+          </div>
+          <div style="padding:10px 16px;background:#fef9c3;border-top:1px solid var(--border);font-size:11px;font-weight:700;color:#92400e">
+            ⚠ Movimientos "INGRESO EN EFECTIVO" sin conciliar
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+            <div style="border-right:1px solid var(--border)">
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
+              <div style="overflow-x:auto">${tablaEeccPendientes(c3.pendientesEeccPen||[])}</div>
+            </div>
+            <div>
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
+              <div style="overflow-x:auto">${tablaEeccPendientes(c3.pendientesEeccUsd||[])}</div>
             </div>
           </div>
         </div>
