@@ -11401,10 +11401,6 @@ async function viewConciliacion(container) {
           <input type="checkbox" id="cc-solo-dif" style="width:15px;height:15px;accent-color:var(--primary)" onchange="ccConsultar()">
           <span style="font-size:13px">Solo diferencias</span>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding-bottom:8px">
-          <input type="checkbox" id="cc-solo-manual" style="width:15px;height:15px;accent-color:var(--primary)" onchange="ccConsultar()">
-          <span style="font-size:13px">Solo conciliadas manualmente 🖐️</span>
-        </label>
         <button class="btn btn-primary" onclick="ccConsultar()" ${!sociedades.length ? 'disabled' : ''}>🔍 Consultar</button>
       </div>
     </div>
@@ -11428,7 +11424,6 @@ async function viewConciliacion(container) {
       ]);
 
       const soloDif = document.getElementById('cc-solo-dif').checked;
-      const soloManual = document.getElementById('cc-solo-manual').checked;
 
       const fmt = v => (v === null || v === undefined) ? '' :
         Math.abs(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -11607,11 +11602,6 @@ async function viewConciliacion(container) {
       const s4errores = c4.pen.filter(e=>!e.ok).length + c4.usd.filter(e=>!e.ok).length;
 
       // ── Sección 5: Tarjeta de Crédito (TC) — COBRANZA vs Q TC ──
-      const pendientesOrdenados = [...(c5.pendientesTc||[])].sort((a,b) => a.fecha.localeCompare(b.fecha));
-      const opcionesPendientes = pendientesOrdenados.map(t =>
-        `<option value="${esc(t.id)}">${esc(t.fecha)} · ${esc(t.tarjeta)} · ${fmt(t.venta)} · ${esc(t.establecimiento)}</option>`
-      ).join('');
-
       function tablaTC(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin cobranzas con tarjeta (IZIPAY/NIUBIZ/AMEX/DINERS) en el rango.</p>';
         return `<table style="width:auto;border-collapse:collapse">
@@ -11636,15 +11626,7 @@ async function viewConciliacion(container) {
               <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);border-left:1px solid var(--border)">
                 ${e.tcMov
                   ? `<span>${e.manual ? '🖐️ ' : ''}${e.combinado ? '🔗 ' : ''}${e.soloImporteFecha ? '⚠ ' : ''}${esc(e.tcMov.estado)} · ${fmt(e.tcMov.venta)} · ${esc(e.tcMov.establecimiento)}${e.tcMov.fechaDeposito ? ` · Dep. ${esc(e.tcMov.fechaDeposito)}: ${fmt(e.tcMov.deposito)}` : ''}${e.manual ? ' <span title="Conciliado manualmente">(manual)</span>' : ''}${e.combinado ? ' <span title="Movimiento combinado: la suma de varias cobranzas de la misma tarjeta y fecha">(combinado)</span>' : ''}${e.soloImporteFecha ? ' <span title="Conciliado solo por importe y fecha - la tarjeta no coincide, verificar">(tarjeta distinta)</span>' : ''}</span>${e.manual ? ` <button type="button" class="btn btn-outline btn-xs tc-manual-del" data-doc="${esc(e.documento)}" title="Quitar conciliación manual" style="padding:1px 6px;font-size:10px;color:#dc2626;border-color:#dc2626">✕</button>` : ''}`
-                  : (pendientesOrdenados.length
-                      ? `<div style="display:flex;gap:4px;align-items:center">
-                           <select class="form-control tc-manual-sel" style="font-size:10px;height:24px;padding:0 4px;max-width:260px" data-doc="${esc(e.documento)}">
-                             <option value="">— elegir movimiento Q TC —</option>
-                             ${opcionesPendientes}
-                           </select>
-                           <button type="button" class="btn btn-outline btn-xs tc-manual-btn" data-doc="${esc(e.documento)}" style="padding:2px 8px;font-size:10px">Conciliar</button>
-                         </div>`
-                      : '—')}
+                  : '—'}
               </td>
               <td style="padding:4px 4px;text-align:center">${badge(e.ok)}</td>
             </tr>`).join('')}
@@ -11757,31 +11739,13 @@ async function viewConciliacion(container) {
             <strong style="font-size:13px">5️⃣ Tarjeta de Crédito (TC) — COBRANZA vs Q TC</strong>
             <span style="font-size:11px;color:${s5errores?'#dc2626':'#16a34a'}">${s5errores ? `⚠ ${s5errores} cobranza(s) sin ubicar en Q TC` : '✓ Todo cuadra'}</span>
           </div>
-          <div style="overflow-x:auto">${tablaTC(
-            c5.resultado
-              .filter(e => !soloDif || !e.ok)
-              .filter(e => !soloManual || e.manual)
-          )}</div>
+          <div style="overflow-x:auto">${tablaTC(soloDif ? c5.resultado.filter(e=>!e.ok) : c5.resultado)}</div>
           ${c5.pendientesTc && c5.pendientesTc.length ? `
           <div style="padding:10px 16px;background:#fef9c3;border-top:1px solid var(--border);font-size:11px;font-weight:700;color:#92400e">
             ⚠ ${c5.pendientesTc.length} movimiento(s) de Q TC sin cobranza asociada
           </div>
           <div style="overflow-x:auto">${tablaTcPendientes(c5.pendientesTc)}</div>` : ''}
         </div>`;
-
-      wrap.querySelectorAll('.tc-manual-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const doc = btn.dataset.doc;
-          const sel = wrap.querySelector(`.tc-manual-sel[data-doc="${CSS.escape(doc)}"]`);
-          const tcMovimientoId = sel?.value;
-          if (!tcMovimientoId) { toast('Selecciona un movimiento de Q TC', 'warning'); return; }
-          try {
-            await POST('/conciliacion/tc-manual', { sociedad, documentoCobranza: doc, tcMovimientoId });
-            toast('Conciliación manual guardada', 'success');
-            window.ccConsultar();
-          } catch (err) { toast(err.message, 'error'); }
-        });
-      });
 
       wrap.querySelectorAll('.tc-manual-del').forEach(btn => {
         btn.addEventListener('click', async () => {
