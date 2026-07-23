@@ -346,9 +346,12 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
   conciliar (no libera ni reasigna conciliaciones automáticas existentes). Se puede deshacer con
   `DELETE /conciliacion/tc-manual/:documentoCobranza`. Filas conciliadas así muestran 🖐️.
 
-**Frontend**: nav `conciliacion` → `viewConciliacion` (selector sociedad + rango de fechas, 5
+**Frontend**: nav `conciliacion` → `viewConciliacion` (selector sociedad + rango de fechas, 6
 tarjetas de reporte con badges ✓/⚠ por fila). Admin: tab `🏦 Conciliación Cobranzas` →
 `renderAdminConciliacion` (inputs de ruta por sociedad, guardado on-change vía `PUT /config/:sociedad`).
+La UI para CREAR conciliaciones manuales de TC (dropdown + checkbox) se quitó a pedido del
+usuario; el botón para eliminar una manual existente y el backend (`ConciliacionManualTC`,
+`POST`/`DELETE /tc-manual`) siguen activos.
 
 **Modelo `TcMovimiento`** (`models/TcMovimiento.js`): import vía `rutaTC` en `ConciliacionConfig`
 (mismo patrón multi-archivo que EECC/Cobranza). Columnas de `Q TC.xlsx` (hoja `Q TC TODAS`, 14
@@ -362,5 +365,14 @@ AUTORIZACION, MONEDA`.
 - `MONEDA` casi siempre vacía o `Soles`/`SOLES` — no se usa aún para filtrar (todas las cobranzas
   con Tarjeta de Crédito verificadas están en Soles).
 
-**Pendiente**: conciliar `Q TC.DEPOSITO`/`FECHA DEPOSITO` contra el EECC (siguiente etapa, análoga
-a check3/check4).
+- `GET /check6` — Depósitos de Operadores de TC: compara, **por día**, el total de
+  `TcMovimiento.deposito` agrupado por `FECHA DEPOSITO` (`ymd(fechaDeposito)`) contra el total de
+  movimientos EECC positivos cuyo `Concepto` contiene alguna de estas subcadenas (confirmado en
+  data real, no hay un concepto único/exacto): `DINERS`, `COMPAÑIA PERU`, `PROCESOS DE ME`,
+  `COMPAÑIA DE SE` (`CONCEPTO_DEPOSITO_TC`). No es matching 1:1 como los checks anteriores, es
+  una **suma diaria** en cada lado — no requiere ni comparte el `Set usados` con check3/check4
+  (concepts disjuntos). `TcMovimiento.moneda` casi nunca viene poblada (data real: 0 filas
+  "Dolares"), así que el total de TC se separa Soles/Dólares por ese campo (blanco = Soles) para
+  no comparar el total contra el lado de dólares y marcar error en todos los días. Se probó
+  alinear por desfase de fecha (±2 días) y no mejora el match — las diferencias que salgan son
+  reales, no un problema de desfase.
