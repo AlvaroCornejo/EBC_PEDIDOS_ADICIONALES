@@ -11682,47 +11682,41 @@ async function viewConciliacion(container) {
       const s5errores = c5.resultado.filter(e=>!e.ok).length;
 
       // ── Sección 6: Depósitos de operadores de TC — Q TC vs EECC (por día) ──
-      function desgloseDepTC(movs) {
-        if (!movs.length) return `<span style="font-size:10px;color:var(--text-muted)">—</span>`;
-        return `<div style="display:flex;flex-wrap:wrap;gap:4px">${movs.map(m => `
-          <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;background:var(--bg-secondary);
-                       border:1px solid var(--border);border-radius:4px;padding:2px 6px">
-            ${esc(m.tarjeta||'—')}${m.tc ? ' · '+esc(m.tc) : ''} · ${fmt(m.deposito)}${m.autorizacion ? ' · Aut.'+esc(m.autorizacion) : ''}
-          </span>`).join('')}</div>`;
-      }
-      function desgloseDepEecc(movs) {
-        if (!movs.length) return `<span style="font-size:10px;color:var(--text-muted)">—</span>`;
-        return `<div style="display:flex;flex-wrap:wrap;gap:4px">${movs.map(m => `
-          <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;background:var(--bg-secondary);
-                       border:1px solid var(--border);border-radius:4px;padding:2px 6px">
-            ${esc(m.banco||'—')} · ${fmt(m.importe)}${m.nroDoc ? ' · Nº'+esc(m.nroDoc) : ''}
-          </span>`).join('')}</div>`;
-      }
-      function tablaDepTC(arr) {
-        if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
+      // Tabla pivote: una fila por día, columnas dinámicas por operador de TC (campo `tc`,
+      // varía por sociedad) y por categoría de EECC (las 4 subcadenas de descripción). Sin
+      // desglose de movimientos individuales, solo totales agrupados por día.
+      function tablaDepTC(data, soloDif) {
+        const { filas: todasFilas, operadores, categorias } = data;
+        const filas = soloDif ? todasFilas.filter(d=>!d.ok) : todasFilas;
+        if (!filas.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
+        const cwOp = 'padding:4px 6px;font-size:11px;width:74px;text-align:right';
         return `<table style="width:auto;border-collapse:collapse">
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
-            <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
-            <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Depósitos en TC</th>
-            <th style="${cw3};text-align:right">Total TC</th>
-            <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Movimientos en EECC</th>
-            <th style="${cw3};text-align:right">Total EECC</th>
-            <th style="${cw3};text-align:right">Diferencia</th>
-            <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
+            <th style="padding:4px 8px;text-align:left;font-size:11px" rowspan="2">Fecha</th>
+            ${operadores.length ? `<th colspan="${operadores.length}" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)">TC por operador</th>` : ''}
+            <th style="${cw3};text-align:right" rowspan="2">Total TC</th>
+            ${categorias.length ? `<th colspan="${categorias.length}" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)">EECC por descripción</th>` : ''}
+            <th style="${cw3};text-align:right" rowspan="2">Total EECC</th>
+            <th style="${cw3};text-align:right" rowspan="2">Diferencia</th>
+            <th style="padding:4px 4px;text-align:center;width:22px" rowspan="2">Estado</th>
+          </tr>
+          <tr style="background:#f8fafc;color:var(--text-muted)">
+            ${operadores.map((op,i) => `<th style="${cwOp}${i===0?';border-left:1px solid var(--border)':''}" title="${esc(op)}">${esc(op)}</th>`).join('')}
+            ${categorias.map((cat,i) => `<th style="${cwOp}${i===0?';border-left:1px solid var(--border)':''}" title="${esc(cat)}">${esc(cat)}</th>`).join('')}
           </tr></thead>
-          <tbody>${arr.map(d => `
+          <tbody>${filas.map(d => `
             <tr style="${!d.ok ? 'background:#fef2f2' : ''}">
-              <td style="padding:4px 8px;font-size:11px;white-space:nowrap;vertical-align:top">${esc(d.fecha)}</td>
-              <td style="padding:4px 6px;vertical-align:top">${desgloseDepTC(d.movimientosTc||[])}</td>
-              <td style="${cw3};text-align:right;vertical-align:top">${fmt(d.tc)}</td>
-              <td style="padding:4px 6px;vertical-align:top">${desgloseDepEecc(d.movimientosEecc||[])}</td>
-              <td style="${cw3};text-align:right;vertical-align:top">${fmt(d.eecc)}</td>
-              <td style="${cw3};text-align:right;vertical-align:top;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
-              <td style="padding:4px 4px;text-align:center;vertical-align:top">${badge(d.ok)}</td>
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
+              ${d.tcPorOperador.map((v,i) => `<td style="${cwOp}${i===0?';border-left:1px solid var(--border)':''};color:${v?'inherit':'var(--text-muted)'}">${v?fmt(v):'—'}</td>`).join('')}
+              <td style="${cw3};text-align:right;font-weight:600">${fmt(d.tc)}</td>
+              ${d.eeccPorCategoria.map((v,i) => `<td style="${cwOp}${i===0?';border-left:1px solid var(--border)':''};color:${v?'inherit':'var(--text-muted)'}">${v?fmt(v):'—'}</td>`).join('')}
+              <td style="${cw3};text-align:right;font-weight:600">${fmt(d.eecc)}</td>
+              <td style="${cw3};text-align:right;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
+              <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>
             </tr>`).join('')}
           </tbody></table>`;
       }
-      const s6errores = c6.pen.filter(d=>!d.ok).length + c6.usd.filter(d=>!d.ok).length;
+      const s6errores = c6.pen.filas.filter(d=>!d.ok).length + c6.usd.filas.filter(d=>!d.ok).length;
 
       function tablaTcPendientes(arr) {
         if (!arr.length) return '';
@@ -11870,15 +11864,13 @@ async function viewConciliacion(container) {
             <strong style="font-size:13px">6️⃣ Depósitos de Operadores de TC — Q TC vs EECC</strong>
             <span style="font-size:11px;color:${s6errores?'#dc2626':'#16a34a'}">${s6errores ? `⚠ ${s6errores} día(s) con diferencia` : '✓ Todo cuadra'}</span>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
-            <div style="border-right:1px solid var(--border)">
-              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
-              <div style="overflow-x:auto">${tablaDepTC(soloDif ? c6.pen.filter(d=>!d.ok) : c6.pen)}</div>
-            </div>
-            <div>
-              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
-              <div style="overflow-x:auto">${tablaDepTC(soloDif ? c6.usd.filter(d=>!d.ok) : c6.usd)}</div>
-            </div>
+          <div style="border-bottom:1px solid var(--border)">
+            <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
+            <div style="overflow-x:auto">${tablaDepTC(c6.pen, soloDif)}</div>
+          </div>
+          <div>
+            <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
+            <div style="overflow-x:auto">${tablaDepTC(c6.usd, soloDif)}</div>
           </div>
         </div>`;
 

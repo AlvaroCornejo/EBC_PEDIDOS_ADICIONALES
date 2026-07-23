@@ -379,7 +379,9 @@ AUTORIZACION, MONEDA`.
   "Dolares"), así que el total de TC se separa Soles/Dólares por ese campo (blanco = Soles) para
   no comparar el total contra el lado de dólares y marcar error en todos los días. Se probó
   alinear por desfase de fecha (±2 días) y no mejora el match — las diferencias que salgan son
-  reales, no un problema de desfase. El frontend muestra, además del total por día, el desglose
-  de los movimientos individuales que forman esa suma en dos columnas (`movimientosTc` /
-  `movimientosEecc`, devueltos por `compararPorDia()`), para poder ver a simple vista qué
-  operación de TC o qué movimiento del banco explica una diferencia.
+  reales, no un problema de desfase. `compararPorDia()` devuelve una **tabla pivote** (no
+  desglose de movimientos individuales): `operadores` (valores distintos del campo `TC` de Q TC
+  en el rango — ej. AMEX, NIUBIZ, VISA MC, varía por sociedad) y `categorias` (las 4 subcadenas
+  de `CONCEPTO_DEPOSITO_TC` presentes en el rango), y cada fila (`filas`) trae `tcPorOperador` /
+  `eeccPorCategoria` como arrays paralelos a esas listas de columnas — el frontend arma columnas
+  dinámicas por operador/categoría a partir de esas listas.

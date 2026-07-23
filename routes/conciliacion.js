@@ -693,57 +693,64 @@ router.get('/check6', async (req, res) => {
     // Q TC casi no trae MONEDA poblada (en blanco = Soles por defecto); solo se cuenta como
     // USD cuando dice explicitamente "dolar". Se separa asi para no comparar el total de TC
     // (que es ~100% soles) contra el lado de dolares y marcar error en todos los dias.
-    // Además del total, se guarda el desglose de movimientos que forman cada suma diaria
-    // (para mostrarlos expandidos en columnas TC / EECC en el frontend).
-    const tcPorDiaSol = {};      // fecha -> total
-    const tcPorDiaUsd = {};
-    const tcMovsPorDiaSol = {};  // fecha -> [{ tarjeta, tc, deposito, autorizacion }]
-    const tcMovsPorDiaUsd = {};
-    tcRows.forEach(t => {
-      const k = ymd(t.fechaDeposito);
-      const esUsd = /dolar/i.test(t.moneda || '');
-      const bucket    = esUsd ? tcPorDiaUsd     : tcPorDiaSol;
-      const movsBucket = esUsd ? tcMovsPorDiaUsd : tcMovsPorDiaSol;
-      bucket[k] = (bucket[k] || 0) + (t.deposito || 0);
-      if (!movsBucket[k]) movsBucket[k] = [];
-      movsBucket[k].push({
-        tarjeta: t.tarjeta || t.tarjetaUlt4 || '', tc: t.tc || '',
-        deposito: t.deposito || 0, autorizacion: t.autorizacion || '',
-      });
-    });
+    const esUsdTc = t => /dolar/i.test(t.moneda || '');
+    const tcRowsSol = tcRows.filter(t => !esUsdTc(t));
+    const tcRowsUsd = tcRows.filter(esUsdTc);
 
-    const esDepositoTC = e => {
-      const c = (e.concepto || '').toUpperCase();
-      return e.importe > 0 && CONCEPTO_DEPOSITO_TC.some(s => c.includes(s));
+    // Tabla pivote por dia: columnas dinamicas por operador de TC (campo `tc`, ej. AMEX,
+    // NIUBIZ, VISA MC — varia por sociedad) y por categoria de EECC (las 4 subcadenas de
+    // CONCEPTO_DEPOSITO_TC). No se muestra el detalle por movimiento, solo totales por dia.
+    const categoriaDe = concepto => {
+      const c = (concepto || '').toUpperCase();
+      return CONCEPTO_DEPOSITO_TC.find(s => c.includes(s)) || null;
     };
 
-    function compararPorDia(eeccRows, tcPorDia, tcMovsPorDia) {
-      const eeccPorDia = {};
-      const eeccMovsPorDia = {};
-      eeccRows.filter(esDepositoTC).forEach(e => {
-        const k = ymd(e.fechaOperacion);
-        eeccPorDia[k] = (eeccPorDia[k] || 0) + e.importe;
-        if (!eeccMovsPorDia[k]) eeccMovsPorDia[k] = [];
-        eeccMovsPorDia[k].push({
-          fecha: k, importe: e.importe, concepto: e.concepto, banco: e.banco, nroDoc: e.nroDoc,
-        });
+    function compararPorDia(eeccRows, tcRowsCcy) {
+      const operadoresSet = new Set();
+      const tcPivot  = {}; // fecha -> operador -> suma
+      const tcPorDia = {}; // fecha -> total
+      tcRowsCcy.forEach(t => {
+        const k  = ymd(t.fechaDeposito);
+        const op = (t.tc || '').trim() || '(sin operador)';
+        operadoresSet.add(op);
+        if (!tcPivot[k]) tcPivot[k] = {};
+        tcPivot[k][op] = (tcPivot[k][op] || 0) + (t.deposito || 0);
+        tcPorDia[k] = (tcPorDia[k] || 0) + (t.deposito || 0);
       });
+
+      const categoriasSet = new Set();
+      const eeccPivot  = {}; // fecha -> categoria -> suma
+      const eeccPorDia = {};
+      eeccRows.forEach(e => {
+        if (!(e.importe > 0)) return;
+        const cat = categoriaDe(e.concepto);
+        if (!cat) return;
+        const k = ymd(e.fechaOperacion);
+        categoriasSet.add(cat);
+        if (!eeccPivot[k]) eeccPivot[k] = {};
+        eeccPivot[k][cat] = (eeccPivot[k][cat] || 0) + e.importe;
+        eeccPorDia[k] = (eeccPorDia[k] || 0) + e.importe;
+      });
+
+      const operadores = [...operadoresSet].sort();
+      const categorias  = [...categoriasSet].sort();
       const dias = new Set([...Object.keys(tcPorDia), ...Object.keys(eeccPorDia)]);
-      return [...dias].sort().map(fecha => {
-        const tc = tcPorDia[fecha] || 0;
+      const filas = [...dias].sort().map(fecha => {
+        const tc   = tcPorDia[fecha] || 0;
         const eecc = eeccPorDia[fecha] || 0;
         const diferencia = tc - eecc;
         return {
           fecha, tc, eecc, diferencia, ok: Math.abs(diferencia) < TOL,
-          movimientosTc: tcMovsPorDia[fecha] || [],
-          movimientosEecc: eeccMovsPorDia[fecha] || [],
+          tcPorOperador:    operadores.map(op  => (tcPivot[fecha]  || {})[op]  || 0),
+          eeccPorCategoria: categorias.map(cat => (eeccPivot[fecha] || {})[cat] || 0),
         };
       });
+      return { filas, operadores, categorias };
     }
 
     res.json({
-      pen: compararPorDia(eeccSol, tcPorDiaSol, tcMovsPorDiaSol),
-      usd: compararPorDia(eeccUsd, tcPorDiaUsd, tcMovsPorDiaUsd),
+      pen: compararPorDia(eeccSol, tcRowsSol),
+      usd: compararPorDia(eeccUsd, tcRowsUsd),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
