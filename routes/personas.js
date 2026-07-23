@@ -4,6 +4,7 @@ const auth            = require('../middleware/auth');
 const Persona          = require('../models/Persona');
 const CopiaCorreo      = require('../models/CopiaCorreo');
 const PagoProgramacion = require('../models/PagoProgramacion');
+const EeccMovimiento   = require('../models/EeccMovimiento');
 const { getSmtpConfig, buildTransport } = require('../utils/sendEmail');
 
 router.use(auth);
@@ -162,6 +163,7 @@ router.post('/enviar-correo-pago', async (req, res) => {
     }
 
     const opStr = operacionBancaria ? String(operacionBancaria).trim() : '';
+    const obMoneda = ob => ob.p5Moneda || (ob.moneda === 'LO' ? 'SOL' : 'USD');
 
     // Filtrar obligaciones pagadas que coincidan con banco/moneda/op (si se especifican)
     const obligaciones = (prog.obligaciones || []).filter(ob => {
@@ -170,8 +172,7 @@ router.post('/enviar-correo-pago', async (req, res) => {
         if ((ob.p5Banco || ob.bancoAsignado || '') !== banco) return false;
       }
       if (moneda) {
-        const obMon = ob.p5Moneda || (ob.moneda === 'LO' ? 'SOL' : 'USD');
-        if (obMon !== moneda) return false;
+        if (obMoneda(ob) !== moneda) return false;
       }
       if (opStr) {
         if (String(ob.operacionBancaria || '').trim() !== opStr) return false;
@@ -182,6 +183,23 @@ router.post('/enviar-correo-pago', async (req, res) => {
     if (!obligaciones.length) {
       return res.status(400).json({ error: 'No hay obligaciones pagadas para los filtros indicados' });
     }
+
+    // Fecha del movimiento bancario (EECC) por N° de operación, para incluir en el correo.
+    // La "sociedad" del EECC corresponde al mismo código que prog.compania.
+    const opsUnicas = [...new Set(obligaciones.map(ob => String(ob.operacionBancaria || '').trim()).filter(Boolean))];
+    const fechaPorOp = {}; // `${moneda}|${nroDoc}` -> fechaOperacion
+    if (opsUnicas.length) {
+      const movs = await EeccMovimiento.find({ sociedad: prog.compania, nroDoc: { $in: opsUnicas } }).lean();
+      movs.forEach(m => {
+        const k = `${m.moneda}|${m.nroDoc}`;
+        if (!fechaPorOp[k]) fechaPorOp[k] = m.fechaOperacion;
+      });
+    }
+    const fechaBancoDe = ob => {
+      const op = String(ob.operacionBancaria || '').trim();
+      if (!op) return null;
+      return fechaPorOp[`${obMoneda(ob)}|${op}`] || null;
+    };
 
     // Agrupar por beneficiario
     const byBenef = {};
@@ -218,6 +236,8 @@ router.post('/enviar-correo-pago', async (req, res) => {
           <td style="padding:6px 10px;text-align:right;border-bottom:1px solid #e5e7eb;font-weight:600">${fmtN(ob.monto||0)}</td>
           <td style="padding:6px 10px;text-align:right;border-bottom:1px solid #e5e7eb">${(ob.retencion||0)>0?fmtN(ob.retencion):'—'}</td>
           <td style="padding:6px 10px;text-align:right;border-bottom:1px solid #e5e7eb;font-weight:700;color:#15803d">${fmtN((ob.monto||0)-(ob.retencion||0))}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${esc(ob.operacionBancaria||'—')}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${fmtD(fechaBancoDe(ob))}</td>
         </tr>`).join('');
 
       const totalNeto = obs.reduce((s,ob) => s + (ob.monto||0) - (ob.retencion||0), 0);
@@ -240,6 +260,8 @@ router.post('/enviar-correo-pago', async (req, res) => {
           <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #cbd5e1">Importe</th>
           <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #cbd5e1">Retención</th>
           <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #cbd5e1;white-space:nowrap">Neto Abonado</th>
+          <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #cbd5e1;white-space:nowrap">N° Operación</th>
+          <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #cbd5e1;white-space:nowrap">F. Pago (Banco)</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -247,6 +269,7 @@ router.post('/enviar-correo-pago', async (req, res) => {
         <tr style="background:#f0fdf4">
           <td colspan="5" style="padding:8px 10px;font-weight:700;text-align:right;font-size:13px">Total Neto:</td>
           <td style="padding:8px 10px;font-weight:700;text-align:right;font-size:15px;color:#15803d">${fmtN(totalNeto)}</td>
+          <td colspan="2" style="padding:8px 10px"></td>
         </tr>
       </tfoot>
     </table>
