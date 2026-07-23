@@ -643,4 +643,65 @@ router.delete('/tc-manual/:documentoCobranza', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Descripciones EECC que corresponden a depositos de operadores de TC (no hay un concepto
+// unico/exacto; se identifican por estas subcadenas dentro del Concepto, confirmado con datos
+// reales: "R204...PROCESOS DE MEDI", "R204...COMPAÑIA DE SERV", "R203...COMPAÑIA PERUANA",
+// "R201...DINERS CLUB PERU").
+const CONCEPTO_DEPOSITO_TC = ['DINERS', 'COMPAÑIA PERU', 'PROCESOS DE ME', 'COMPAÑIA DE SE'];
+
+// ─── GET /check6 — Depositos de operadores de TC: Q TC vs EECC (por dia) ─
+// Q TC: total de DEPOSITO agrupado por FECHA DEPOSITO. EECC: total de movimientos positivos
+// cuyo Concepto contiene alguna de las subcadenas de CONCEPTO_DEPOSITO_TC, agrupado por dia.
+router.get('/check6', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const { sociedad } = req.query;
+    if (!sociedad || !checkSociedad(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
+
+    const fechaDesde = req.query.fechaDesde ? new Date(req.query.fechaDesde) : new Date('2000-01-01');
+    const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta) : new Date('2100-01-01');
+    fechaHasta.setHours(23, 59, 59, 999);
+
+    const tcRows = await TcMovimiento.find({
+      sociedad, fechaDeposito: { $gte: fechaDesde, $lte: fechaHasta },
+    });
+    const eeccSol = await EeccMovimiento.find({ sociedad, moneda: 'SOL', fechaOperacion: { $gte: fechaDesde, $lte: fechaHasta } });
+    const eeccUsd = await EeccMovimiento.find({ sociedad, moneda: 'USD', fechaOperacion: { $gte: fechaDesde, $lte: fechaHasta } });
+
+    // Q TC casi no trae MONEDA poblada (en blanco = Soles por defecto); solo se cuenta como
+    // USD cuando dice explicitamente "dolar". Se separa asi para no comparar el total de TC
+    // (que es ~100% soles) contra el lado de dolares y marcar error en todos los dias.
+    const tcPorDiaSol = {};
+    const tcPorDiaUsd = {};
+    tcRows.forEach(t => {
+      const k = ymd(t.fechaDeposito);
+      const esUsd = /dolar/i.test(t.moneda || '');
+      const bucket = esUsd ? tcPorDiaUsd : tcPorDiaSol;
+      bucket[k] = (bucket[k] || 0) + (t.deposito || 0);
+    });
+
+    const esDepositoTC = e => {
+      const c = (e.concepto || '').toUpperCase();
+      return e.importe > 0 && CONCEPTO_DEPOSITO_TC.some(s => c.includes(s));
+    };
+
+    function compararPorDia(eeccRows, tcPorDia) {
+      const eeccPorDia = {};
+      eeccRows.filter(esDepositoTC).forEach(e => {
+        const k = ymd(e.fechaOperacion);
+        eeccPorDia[k] = (eeccPorDia[k] || 0) + e.importe;
+      });
+      const dias = new Set([...Object.keys(tcPorDia), ...Object.keys(eeccPorDia)]);
+      return [...dias].sort().map(fecha => {
+        const tc = tcPorDia[fecha] || 0;
+        const eecc = eeccPorDia[fecha] || 0;
+        const diferencia = tc - eecc;
+        return { fecha, tc, eecc, diferencia, ok: Math.abs(diferencia) < TOL };
+      });
+    }
+
+    res.json({ pen: compararPorDia(eeccSol, tcPorDiaSol), usd: compararPorDia(eeccUsd, tcPorDiaUsd) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 module.exports = router;

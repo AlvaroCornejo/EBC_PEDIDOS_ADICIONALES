@@ -11415,12 +11415,13 @@ async function viewConciliacion(container) {
       const fechaHasta = document.getElementById('cc-hasta').value;
       const qs = new URLSearchParams({ sociedad, fechaDesde, fechaHasta });
 
-      const [c1, c2, c3, c4, c5] = await Promise.all([
+      const [c1, c2, c3, c4, c5, c6] = await Promise.all([
         GET(`/conciliacion/check1?${qs}`),
         GET(`/conciliacion/check2?${qs}`),
         GET(`/conciliacion/check3?${qs}`),
         GET(`/conciliacion/check4?${qs}`),
         GET(`/conciliacion/check5?${qs}`),
+        GET(`/conciliacion/check6?${qs}`),
       ]);
 
       const soloDif = document.getElementById('cc-solo-dif').checked;
@@ -11644,6 +11645,29 @@ async function viewConciliacion(container) {
       }
       const s5errores = c5.resultado.filter(e=>!e.ok).length;
 
+      // ── Sección 6: Depósitos de operadores de TC — Q TC vs EECC (por día) ──
+      function tablaDepTC(arr) {
+        if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
+        return `<table style="width:auto;border-collapse:collapse">
+          <thead><tr style="background:#f8fafc;color:var(--text-muted)">
+            <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha</th>
+            <th style="${cw3};text-align:right">TC (Depósito)</th>
+            <th style="${cw3};text-align:right">EECC</th>
+            <th style="${cw3};text-align:right">Diferencia</th>
+            <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
+          </tr></thead>
+          <tbody>${arr.map(d => `
+            <tr style="${!d.ok ? 'background:#fef2f2' : ''}">
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
+              <td style="${cw3};text-align:right">${fmt(d.tc)}</td>
+              <td style="${cw3};text-align:right">${fmt(d.eecc)}</td>
+              <td style="${cw3};text-align:right;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
+              <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>
+            </tr>`).join('')}
+          </tbody></table>`;
+      }
+      const s6errores = c6.pen.filter(d=>!d.ok).length + c6.usd.filter(d=>!d.ok).length;
+
       function tablaTcPendientes(arr) {
         if (!arr.length) return '';
         return `<table style="width:auto;border-collapse:collapse">
@@ -11768,6 +11792,23 @@ async function viewConciliacion(container) {
             ⚠ ${c5.pendientesTc.length} movimiento(s) de Q TC sin cobranza asociada
           </div>
           <div style="overflow-x:auto">${tablaTcPendientes(c5.pendientesTc)}</div>` : ''}
+        </div>
+
+        <div class="card mb-16" style="padding:0;overflow:hidden">
+          <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <strong style="font-size:13px">6️⃣ Depósitos de Operadores de TC — Q TC vs EECC</strong>
+            <span style="font-size:11px;color:${s6errores?'#dc2626':'#16a34a'}">${s6errores ? `⚠ ${s6errores} día(s) con diferencia` : '✓ Todo cuadra'}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+            <div style="border-right:1px solid var(--border)">
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
+              <div style="overflow-x:auto">${tablaDepTC(soloDif ? c6.pen.filter(d=>!d.ok) : c6.pen)}</div>
+            </div>
+            <div>
+              <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
+              <div style="overflow-x:auto">${tablaDepTC(soloDif ? c6.usd.filter(d=>!d.ok) : c6.usd)}</div>
+            </div>
+          </div>
         </div>`;
 
       wrap.querySelectorAll('.tc-manual-del').forEach(btn => {
