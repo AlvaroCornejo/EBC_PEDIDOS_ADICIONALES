@@ -13,7 +13,7 @@ function canAccess(user) {
 router.get('/unidades', async (req, res) => {
   try {
     if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
-    const todas = await Eerr.distinct('sede');
+    const todas = (await Eerr.distinct('sede')).filter(s => (s || '').trim());
     const auth = req.user.role === 'ADMIN'
       ? todas
       : (req.user.operations || []).filter(u => todas.includes(u));
@@ -31,16 +31,17 @@ router.get('/resumen', async (req, res) => {
     const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
     const cols = ['anio','mes'].includes(req.query.cols) ? req.query.cols : 'operacion';
 
+    // Sin sedes seleccionadas = sin datos (no "todas por defecto"); $in:[] no matchea nada.
     const sedesReq = req.query.unidades
       ? req.query.unidades.split(',').map(u => u.trim()).filter(Boolean)
       : [];
     const sedes = req.user.role === 'ADMIN'
       ? sedesReq
-      : (req.user.operations || []).filter(u => !sedesReq.length || sedesReq.includes(u));
+      : (req.user.operations || []).filter(u => sedesReq.includes(u));
 
     const match = {
       periodo: { $gte: periodoDesde, $lte: periodoHasta },
-      ...(sedes.length && { sede: { $in: sedes } }),
+      sede: { $in: sedes },
     };
 
     let columnas, datos;
@@ -132,17 +133,18 @@ router.get('/detalle', async (req, res) => {
     const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
     const cols = ['anio','mes'].includes(req.query.cols) ? req.query.cols : 'operacion';
 
+    // Sin sedes seleccionadas = sin datos (no "todas por defecto"); $in:[] no matchea nada.
     const sedesReq = req.query.unidades
       ? req.query.unidades.split(',').map(u => u.trim()).filter(Boolean)
       : [];
     const sedes = req.user.role === 'ADMIN'
       ? sedesReq
-      : (req.user.operations || []).filter(u => !sedesReq.length || sedesReq.includes(u));
+      : (req.user.operations || []).filter(u => sedesReq.includes(u));
 
     const match = {
       grupo: grupoFilter,
       periodo: { $gte: periodoDesde, $lte: periodoHasta },
-      ...(sedes.length && { sede: { $in: sedes } }),
+      sede: { $in: sedes },
     };
 
     let columnas, datos;

@@ -11123,7 +11123,10 @@ async function viewPL(container) {
         return total !== 0;
       });
 
-      const totalCols = allCols.length * 2 + 1 + (multiSede ? 2 : 0);
+      // La columna TOTAL (con su %) solo aplica cuando se consulta por Operación o por Mes;
+      // en la vista por Año no se muestra (sumar años no tiene sentido de negocio).
+      const showTotal = cols !== 'anio';
+      const totalCols = colsData.length * 2 + (showTotal ? 2 : 0) + (multiSede ? 2 : 0);
 
       // Rows that get green+bold highlight
       const keyRows = new Set(['VENTA_NETA','MARGEN','EBITDA','UTIL_OPERATIVA','UTIL_NETA','UTIL_NETA_DI']);
@@ -11173,7 +11176,11 @@ async function viewPL(container) {
         const tot = getTotal(row);
         const totVN = getVentaNeta(totalCol);
         const totColor = tot < 0 ? 'color:#dc2626' : '';
-        rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};font-weight:700;min-width:90px;${bgStyle};${textColor};${totColor}">${fmtN(tot)}</td>`;
+        if (showTotal) {
+          rowCells += `<td style="text-align:right;padding:6px 8px;font-size:${fsize};font-weight:700;min-width:90px;${bgStyle};${textColor};${totColor}">${fmtN(tot)}</td>`;
+          const totPct = fmtPct(tot, totVN);
+          rowCells += `<td style="text-align:right;padding:6px 6px;font-size:${psize};min-width:52px;${bgStyle};${isKey?textColor:'color:var(--text-muted)'}">${totPct}</td>`;
+        }
         if (multiSede) {
           const elim = 0;
           const neto = tot - elim;
@@ -11189,7 +11196,7 @@ async function viewPL(container) {
 
         const exportRow = { concepto: label };
         colsData.forEach(col => { exportRow[fmtCol(col)] = getVal(row, col); });
-        exportRow['TOTAL'] = tot;
+        if (showTotal) exportRow['TOTAL'] = tot;
         if (multiSede) { exportRow['ELIMINACION'] = 0; exportRow['TOTAL NETO'] = tot; }
         exportRows.push(exportRow);
 
@@ -11219,7 +11226,7 @@ async function viewPL(container) {
         rowsHtml += `<tr>
           <td style="padding:6px 8px;font-weight:700;font-size:13px;background:var(--bg-hover)">BALANCE</td>
           ${balCells}
-          <td style="padding:6px 8px;text-align:center;color:#fff;background:${bgTot};font-weight:700" title="${esc(okTot?'Balance cuadra':'Diferencia: '+fmtN(diffTot))}">${okTot ? '✓ OK' : '⚠ ERROR'}</td>
+          ${showTotal ? `<td colspan="2" style="padding:6px 8px;text-align:center;color:#fff;background:${bgTot};font-weight:700" title="${esc(okTot?'Balance cuadra':'Diferencia: '+fmtN(diffTot))}">${okTot ? '✓ OK' : '⚠ ERROR'}</td>` : ''}
           ${extraBalCells}
         </tr>`;
       }
@@ -11237,13 +11244,13 @@ async function viewPL(container) {
         <tr>
           <th style="text-align:left;padding:6px 8px;min-width:220px;max-width:220px;white-space:nowrap">Concepto</th>
           ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 8px;white-space:nowrap;border-left:1px solid var(--border)">${esc(fmtCol(c))}</th>`).join('')}
-          <th style="text-align:center;padding:6px 8px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>
+          ${showTotal ? `<th colspan="2" style="text-align:center;padding:6px 8px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>` : ''}
           ${extraHeaders}
         </tr>
         <tr style="font-size:11px;color:var(--text-muted)">
           <th></th>
           ${colsData.map(() => `<th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th><th style="text-align:right;padding:2px 6px">%</th>`).join('')}
-          <th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th>
+          ${showTotal ? `<th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th><th style="text-align:right;padding:2px 6px">%</th>` : ''}
           ${extraSubHeaders}
         </tr>
       </thead>`;
