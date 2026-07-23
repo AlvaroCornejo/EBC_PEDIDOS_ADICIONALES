@@ -289,18 +289,22 @@ etapa: conciliación de efectivo (tarjetas/transferencias se harán después con
   **consecutivos** hacia atrás — probando primero incluyendo el día del depósito, luego solo desde
   el día anterior (`matchDeposits` en `routes/conciliacion.js`, ventana `MAX_LOOKBACK=20` días,
   tolerancia `TOL=0.5`). Los días ya consumidos por un depósito no se reutilizan en el siguiente.
-- `GET /check3` — el depósito de CAJA (Efectivo+TIP+Vuelto) puede llegar al banco como DOS
-  movimientos separados (busca cada componente por su lado, `Efectivo = sumEf+sumVuelto`,
-  `TIP = sumTip`) o, si eso falla, como UN solo movimiento combinado por la suma de ambos.
-  Solo considera movimientos EECC con `Concepto = "INGRESO EN EFECTIVO"` (confirmado que existe
-  tal cual en el archivo real), columna `Diferencia` = depósito − encontrado por match. Los
-  movimientos con ese concepto que NO calzan con ningún depósito **no se mezclan** con las filas
-  diarias — `matchEnBanco()` los devuelve aparte (`pendientesEecc`), y el frontend los lista en
-  una tabla separada al final de la sección (Soles/Dólares), no fusionados en las filas de
-  depósito. Internamente usa `calcularCheck3()` (compartida con check4) y `matchEnBanco(depositos,
-  eeccRows, usados)` — el `Set usados` se pasa explícitamente para que **un movimiento del EECC
-  solo pueda pertenecer a UNA conciliación**: se consulta y se llena *durante* cada búsqueda (no
-  solo después), y check4 recalcula check3 para heredar el mismo `usadosSol`/`usadosUsd` antes de
+- `GET /check3` — por cada depósito de CAJA se agrupan **TODOS** los movimientos EECC con
+  `Concepto = "INGRESO EN EFECTIVO"` (confirmado que existe tal cual en el archivo real) que caen
+  dentro de la ventana `[fecha del depósito, +MAX_DIAS_BANCO=6 días]` (no se busca un monto exacto:
+  se suman todos los candidatos de la ventana y se compara el total contra el depósito). El
+  frontend muestra el desglose completo de movimientos agrupados por depósito, con un botón
+  "✕" por movimiento para excluirlo manualmente del grupo si quedó mal agrupado (persistido en
+  `ConciliacionExclusionEECC`, único por `sociedad+eeccMovimientoId`, vía `POST/DELETE
+  /conciliacion/eecc-excluir`) — un movimiento excluido deja de sumarse en cualquier depósito y
+  pasa a la lista de pendientes. Los movimientos con ese concepto que ningún depósito reclamó (o
+  que se excluyeron a mano) **no se mezclan** con las filas diarias — `agruparEnBanco()` los
+  devuelve aparte (`pendientesEecc`), y el frontend los lista en una tabla separada al final de la
+  sección (Soles/Dólares), no fusionados en las filas de depósito. Internamente usa
+  `calcularCheck3()` (compartida con check4) y `agruparEnBanco(depositos, eeccRows, claimed,
+  excluidos)` — el `Set claimed` se pasa explícitamente para que **un movimiento del EECC solo
+  pueda pertenecer a UNA conciliación**: se consulta y se llena *durante* cada búsqueda (no solo
+  después), y check4 recalcula check3 para heredar el mismo `usadosSol`/`usadosUsd` antes de
   buscar los suyos.
 - `GET /check4` — Eventos Comerciales: `COBRANZA ERP` con `MEDIO PAGO = "Cheque"` no pasa por CAJA,
   se busca directamente en el EECC por **importe único** (`cobranzaMoneda`, ya que en la data real

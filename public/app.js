@@ -11517,15 +11517,17 @@ async function viewConciliacion(container) {
       }
       const s2errores = c2.pen.filter(d=>!d.ok).length + c2.usd.filter(d=>!d.ok).length;
 
-      // ── Sección 3: Depósito vs Banco (EECC) — el depósito puede llegar como 2
-      // movimientos separados (Efectivo y TIP); se buscan y muestran en la misma línea.
+      // ── Sección 3: Depósito vs Banco (EECC) — se agrupan TODOS los movimientos
+      // "INGRESO EN EFECTIVO" del banco encontrados en la ventana (hasta MAX_DIAS_BANCO
+      // días después) para cada depósito de CAJA, y se muestra el desglose completo.
       const cw3 = 'padding:4px 6px;font-size:11px;width:64px';
-      function celdaComponente(target, banco, ok) {
-        if (Math.abs(target || 0) < 1) return `<td colspan="2" style="padding:4px 6px;text-align:center;font-size:10px;color:var(--text-muted)">n/a</td>`;
-        const color = ok ? '' : 'color:#dc2626';
-        return `
-          <td style="${cw3};text-align:right;${color}">${fmt(target)}</td>
-          <td style="padding:4px 6px;font-size:10px;color:var(--text-muted);white-space:nowrap">${banco ? `${esc(banco.fecha)} · ${fmt(banco.importe)}${banco.nroDoc ? ' · Nº'+esc(banco.nroDoc) : ''}` : '—'}</td>`;
+      function desgloseDep3(d) {
+        if (!d.movimientos.length) return `<div style="font-size:10px;color:var(--text-muted)">Sin movimientos bancarios en la ventana.</div>`;
+        return d.movimientos.map(m => `
+          <div style="font-size:10px;color:var(--text-muted);white-space:nowrap;display:flex;align-items:center;gap:4px">
+            <span>${esc(m.fecha)} · ${fmt(m.importe)}${m.nroDoc ? ' · Nº'+esc(m.nroDoc) : ''}${m.banco ? ' · '+esc(m.banco) : ''}</span>
+            <button class="eecc-excluir-btn" data-id="${esc(m.id)}" title="Quitar este movimiento del grupo" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:10px;padding:0">✕</button>
+          </div>`).join('');
       }
       function tablaDep3(arr) {
         if (!arr.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin depósitos en el rango.</p>';
@@ -11533,24 +11535,20 @@ async function viewConciliacion(container) {
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
             <th style="padding:4px 8px;text-align:left;font-size:11px">Fecha Dep.</th>
             <th style="${cw3};text-align:right">Monto</th>
-            <th colspan="2" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">Efectivo → Banco</th>
-            <th colspan="2" style="padding:4px 6px;text-align:center;font-size:11px;border-left:1px solid var(--border)">TIP → Banco</th>
+            <th style="padding:4px 6px;text-align:left;font-size:11px;border-left:1px solid var(--border)">Movimientos en Banco</th>
+            <th style="${cw3};text-align:right">Total Banco</th>
             <th style="${cw3};text-align:right">Diferencia</th>
             <th style="padding:4px 4px;text-align:center;width:22px">Estado</th>
           </tr></thead>
-          <tbody>${arr.map(d => {
-            const centroHtml = d.combinado
-              ? `<td colspan="4" style="padding:4px 6px;text-align:center;font-size:11px;color:#2563eb">🔗 Depósito único: ${esc(d.combinado.fecha)} · ${fmt(d.combinado.importe)}${d.combinado.nroDoc ? ' · Nº'+esc(d.combinado.nroDoc) : ''}</td>`
-              : celdaComponente(d.targetEf, d.bancoEf, d.okEf) + celdaComponente(d.targetTip, d.bancoTip, d.okTip);
-            return `
+          <tbody>${arr.map(d => `
             <tr style="${!d.okBanco ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap;vertical-align:top">${esc(d.fecha)}</td>
               <td style="${cw3};text-align:right;vertical-align:top">${fmt(d.deposito)}</td>
-              ${centroHtml}
+              <td style="padding:4px 6px;vertical-align:top">${desgloseDep3(d)}</td>
+              <td style="${cw3};text-align:right;vertical-align:top">${fmt(d.bancoTotal)}</td>
               <td style="${cw3};text-align:right;vertical-align:top;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
               <td style="padding:4px 4px;text-align:center;vertical-align:top">${badge(d.okBanco)}</td>
-            </tr>`;
-          }).join('')}
+            </tr>`).join('')}
           </tbody></table>`;
       }
       const s3errores = c3.pen.filter(d=>!d.okBanco).length + c3.usd.filter(d=>!d.okBanco).length;
@@ -11818,6 +11816,18 @@ async function viewConciliacion(container) {
           try {
             await DEL(`/conciliacion/tc-manual/${encodeURIComponent(doc)}?sociedad=${encodeURIComponent(sociedad)}`);
             toast('Conciliación manual eliminada', 'success');
+            window.ccConsultar();
+          } catch (err) { toast(err.message, 'error'); }
+        });
+      });
+
+      wrap.querySelectorAll('.eecc-excluir-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          if (!confirm('¿Quitar este movimiento del grupo? Pasará a la lista de "sin conciliar".')) return;
+          try {
+            await api('POST', '/conciliacion/eecc-excluir', { sociedad, eeccMovimientoId: id });
+            toast('Movimiento excluido', 'success');
             window.ccConsultar();
           } catch (err) { toast(err.message, 'error'); }
         });

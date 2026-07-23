@@ -6,6 +6,7 @@ const CobranzaErp        = require('../models/CobranzaErp');
 const CajaDiaria         = require('../models/CajaDiaria');
 const TcMovimiento       = require('../models/TcMovimiento');
 const ConciliacionManualTC = require('../models/ConciliacionManualTC');
+const ConciliacionExclusionEECC = require('../models/ConciliacionExclusionEECC');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -160,72 +161,44 @@ function matchDeposits(cajaRows, { efField, tipField, vueltoField, depField, tol
 
 const CONCEPTO_DEPOSITO_EFECTIVO = 'INGRESO EN EFECTIVO';
 
-// Busca un monto especifico (importe positivo) en el EECC, desde `fecha` hacia adelante,
-// solo entre movimientos con concepto "INGRESO EN EFECTIVO". Excluye movimientos ya
-// reservados en `usados` (compartido entre TODAS las busquedas de esta conciliacion,
-// para que un mismo movimiento del banco jamas se use en mas de una conciliacion) y,
-// opcionalmente, uno adicional (`excluirTambien`) para no reutilizarlo dentro del mismo
-// deposito (ej. el match de Efectivo no puede volver a usarse para el de TIP).
-function buscarEnBanco(target, fecha, eeccRows, usados, excluirTambien) {
-  if (Math.abs(target) < TOL) return { movimiento: null, ok: true, na: true }; // nada que buscar
-  const candidato = eeccRows.find(e =>
-    !usados.has(e) &&
-    e !== excluirTambien &&
-    e.importe > 0 &&
-    (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO &&
-    Math.abs(e.importe - target) < TOL &&
-    e.fechaOperacion >= fecha &&
-    (e.fechaOperacion - fecha) / 86400000 <= MAX_DIAS_BANCO
-  );
-  return { movimiento: candidato || null, ok: !!candidato, na: false };
-}
-
-// El deposito de CAJA (sumEf+sumTip+sumVuelto) puede llegar al banco como DOS movimientos
-// separados (Efectivo y TIP) — 1ra conciliacion — o como UN solo movimiento combinado
-// por la suma de ambos — 2da conciliacion, si la primera no encuentra ambos componentes.
-// Ademas, se listan los movimientos "INGRESO EN EFECTIVO" del EECC que no calzaron con
-// ningun deposito de CAJA (posible ingreso bancario sin registrar en caja).
+// Para cada deposito de CAJA, se reunen TODOS los movimientos "INGRESO EN EFECTIVO" del EECC
+// dentro de la ventana [fecha del deposito, +MAX_DIAS_BANCO dias] (no se busca un monto exacto:
+// se suman todos los candidatos y se compara el total contra el deposito) — esto permite ver el
+// desglose completo y que el usuario excluya a mano un movimiento mal agrupado.
 //
-// INVARIANTE: un movimiento del EECC solo puede formar parte de UNA conciliacion. El Set
-// `usados` se comparte entre TODAS las busquedas (no solo se llena despues del match, sino
-// que se consulta EN cada busqueda) para que el deposito de un dia no pueda reclamar un
-// movimiento que un deposito anterior ya reservo. Cuando se agregue la conciliacion de
-// tarjetas/transferencias, debe seguir el mismo patron (recibir/actualizar este mismo Set,
-// o uno equivalente) para no reutilizar un movimiento ya conciliado por otra conciliacion.
-function matchEnBanco(depositos, eeccRows, usados = new Set()) {
-  const fmtMov = m => m ? { fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
+// INVARIANTE: un movimiento del EECC solo puede formar parte de UN deposito. Se procesan los
+// depositos en orden cronologico y cada uno "reclama" (Set `claimed`) los movimientos que suma,
+// para que un deposito posterior no vuelva a contarlos. `excluidos` (Set de ids en string,
+// persistido en ConciliacionExclusionEECC) saca movimientos de la agrupacion automatica por
+// completo — quedan disponibles solo en la lista de pendientes.
+function agruparEnBanco(depositos, eeccRows, claimed = new Set(), excluidos = new Set()) {
+  const fmtMov = m => ({ id: String(m._id), fecha: m.fechaOperacion, importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc });
 
-  const resultado = depositos.map(d => {
-    const targetEf  = (d.sumEf || 0) + (d.sumVuelto || 0);
-    const targetTip = d.sumTip || 0;
-    const bEf  = buscarEnBanco(targetEf, d.fecha, eeccRows, usados);
-    if (bEf.movimiento) usados.add(bEf.movimiento);
-    const bTip = buscarEnBanco(targetTip, d.fecha, eeccRows, usados, bEf.movimiento);
-    if (bTip.movimiento) usados.add(bTip.movimiento);
-
-    let combinado = null;
-    if (!(bEf.ok && bTip.ok)) {
-      const targetCombo = targetEf + targetTip;
-      const bCombo = buscarEnBanco(targetCombo, d.fecha, eeccRows, usados);
-      if (bCombo.ok && !bCombo.na) { combinado = fmtMov(bCombo.movimiento); usados.add(bCombo.movimiento); }
-    }
-
-    const encontradoMatch = combinado ? combinado.importe : (fmtMov(bEf.movimiento)?.importe || 0) + (fmtMov(bTip.movimiento)?.importe || 0);
+  const resultado = [...depositos].sort((a, b) => a.fecha - b.fecha).map(d => {
+    const candidatos = eeccRows.filter(e =>
+      !claimed.has(e) &&
+      !excluidos.has(String(e._id)) &&
+      e.importe > 0 &&
+      (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO &&
+      e.fechaOperacion >= d.fecha &&
+      (e.fechaOperacion - d.fecha) / 86400000 <= MAX_DIAS_BANCO
+    );
+    candidatos.forEach(e => claimed.add(e));
+    const movimientos = candidatos.map(fmtMov).sort((a, b) => a.fecha - b.fecha);
+    const bancoTotal = movimientos.reduce((s, m) => s + m.importe, 0);
     return {
       ...d,
-      targetEf, targetTip,
-      bancoEf: fmtMov(bEf.movimiento), okEf: bEf.ok,
-      bancoTip: fmtMov(bTip.movimiento), okTip: bTip.ok,
-      combinado,
-      okBanco: (bEf.ok && bTip.ok) || !!combinado,
-      diferencia: Math.abs(d.deposito) - encontradoMatch,
+      movimientos,
+      bancoTotal,
+      diferencia: Math.abs(d.deposito) - bancoTotal,
+      okBanco: Math.abs(Math.abs(d.deposito) - bancoTotal) < TOL,
     };
-  }).sort((a, b) => a.fecha - b.fecha);
+  });
 
-  // Movimientos "INGRESO EN EFECTIVO" del EECC que no se usaron en ningun match — se listan
-  // aparte (no se fusionan en las filas de deposito) para revisarlos al final de la seccion.
+  // Movimientos "INGRESO EN EFECTIVO" del EECC que ningun deposito reclamo (o que se
+  // excluyeron a mano) — se listan aparte para revisarlos al final de la seccion.
   const pendientesEecc = eeccRows
-    .filter(e => (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO && !usados.has(e))
+    .filter(e => !claimed.has(e) && (e.concepto || '').trim().toUpperCase() === CONCEPTO_DEPOSITO_EFECTIVO && e.importe > 0)
     .sort((a, b) => a.fechaOperacion - b.fechaOperacion);
 
   return { resultado, pendientesEecc };
@@ -338,10 +311,13 @@ async function calcularCheck3(sociedad, fechaDesde, fechaHasta) {
   const depUsd = matchDeposits(cajaRows, { efField: 'cobranzaEfectivoUsd', tipField: 'tipUsd', vueltoField: null, depField: 'depositoUsd' })
     .filter(d => d.fecha >= fechaDesde);
 
+  const exclusiones = await ConciliacionExclusionEECC.find({ sociedad });
+  const excluidos = new Set(exclusiones.map(x => String(x.eeccMovimientoId)));
+
   const usadosSol = new Set();
   const usadosUsd = new Set();
-  const pen = matchEnBanco(depPen, eeccSol, usadosSol);
-  const usd = matchEnBanco(depUsd, eeccUsd, usadosUsd);
+  const pen = agruparEnBanco(depPen, eeccSol, usadosSol, excluidos);
+  const usd = agruparEnBanco(depUsd, eeccUsd, usadosUsd, excluidos);
 
   return {
     pen: pen.resultado, usd: usd.resultado,
@@ -351,13 +327,10 @@ async function calcularCheck3(sociedad, fechaDesde, fechaHasta) {
 }
 
 function fmtCheck3(arr) {
-  const fmtMov = m => m ? { fecha: ymd(m.fecha), importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc } : null;
   return arr.map(d => ({
     fecha: ymd(d.fecha), deposito: d.deposito,
-    targetEf: d.targetEf, targetTip: d.targetTip,
-    bancoEf: fmtMov(d.bancoEf), okEf: d.okEf,
-    bancoTip: fmtMov(d.bancoTip), okTip: d.okTip,
-    combinado: fmtMov(d.combinado),
+    movimientos: d.movimientos.map(m => ({ id: m.id, fecha: ymd(m.fecha), importe: m.importe, concepto: m.concepto, banco: m.banco, nroDoc: m.nroDoc })),
+    bancoTotal: d.bancoTotal,
     diferencia: d.diferencia,
     okBanco: d.okBanco,
   }));
@@ -381,7 +354,7 @@ router.get('/check3', async (req, res) => {
     fechaHasta.setHours(23, 59, 59, 999);
 
     const { pen, usd, pendientesEeccSol, pendientesEeccUsd } = await calcularCheck3(sociedad, fechaDesde, fechaHasta);
-    // matchEnBanco usa margenes mas amplios (dias antes/despues) para el matching interno;
+    // agruparEnBanco usa margenes mas amplios (dias antes/despues) para el matching interno;
     // aqui se recorta la salida al rango exacto que el usuario seleccionó, para que las filas
     // tambien respeten el rango y no queden fijas al cambiar las fechas.
     const enRango = f => f.fecha >= fechaDesde && f.fecha <= fechaHasta;
@@ -639,6 +612,38 @@ router.delete('/tc-manual/:documentoCobranza', async (req, res) => {
     const { sociedad } = req.query;
     if (!sociedad || !checkSociedad(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
     await ConciliacionManualTC.deleteOne({ sociedad, documentoCobranza: req.params.documentoCobranza });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── POST /eecc-excluir — excluir un movimiento del EECC de la agrupacion ──
+// automatica de "Deposito CAJA vs Banco" (check3). Pasa a la lista de sin conciliar.
+router.post('/eecc-excluir', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const { sociedad, eeccMovimientoId } = req.body;
+    if (!sociedad || !checkSociedad(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
+    if (!eeccMovimientoId) return res.status(400).json({ error: 'Faltan datos' });
+
+    const mov = await EeccMovimiento.findOne({ _id: eeccMovimientoId, sociedad });
+    if (!mov) return res.status(404).json({ error: 'Movimiento de EECC no encontrado' });
+
+    const registro = await ConciliacionExclusionEECC.findOneAndUpdate(
+      { sociedad, eeccMovimientoId },
+      { $set: { creadoPor: req.user.username || '', creadoEn: new Date() } },
+      { new: true, upsert: true }
+    );
+    res.json(registro);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── DELETE /eecc-excluir/:id — deshacer la exclusion de un movimiento EECC ──
+router.delete('/eecc-excluir/:id', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const { sociedad } = req.query;
+    if (!sociedad || !checkSociedad(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
+    await ConciliacionExclusionEECC.deleteOne({ sociedad, eeccMovimientoId: req.params.id });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
