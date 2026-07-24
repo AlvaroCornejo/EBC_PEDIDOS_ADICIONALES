@@ -11691,12 +11691,29 @@ async function viewConciliacion(container) {
       // ── Sección 6: Depósitos de operadores de TC — Q TC vs EECC (por día) ──
       // Cada grupo empareja uno o más operadores de TC con una o más categorías de EECC
       // (según qué banco procesa cada marca), mostrando TC / EECC / Diferencia por grupo,
-      // y al final la diferencia total (TC vs EECC de todo el día, todos los grupos).
-      function tablaDepTC(data, soloDif) {
+      // y al final la diferencia total (TC vs EECC de todo el día, todos los grupos). Cada
+      // celda de grupo es desplegable (▸) para ver el desglose de movimientos que la forman.
+      function desgloseGrupoTC(g) {
+        const lado = (titulo, movs, render) => `
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:2px">${titulo}</div>
+            ${movs.length
+              ? `<div style="display:flex;flex-wrap:wrap;gap:4px">${movs.map(render).join('')}</div>`
+              : `<span style="font-size:10px;color:var(--text-muted)">—</span>`}
+          </div>`;
+        const chip = txt => `<span style="font-size:10px;color:var(--text-muted);white-space:nowrap;background:var(--bg-secondary);
+                       border:1px solid var(--border);border-radius:4px;padding:2px 6px">${txt}</span>`;
+        return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 12px">
+          ${lado('DEPÓSITOS EN TC', g.movimientosTc||[], m => chip(`${esc(m.tarjeta||'—')}${m.tc?' · '+esc(m.tc):''} · ${fmt(m.deposito)}${m.autorizacion?' · Aut.'+esc(m.autorizacion):''}`))}
+          ${lado('MOVIMIENTOS EN EECC', g.movimientosEecc||[], m => chip(`${esc(m.banco||'—')} · ${fmt(m.importe)}${m.nroDoc?' · Nº'+esc(m.nroDoc):''}`))}
+        </div>`;
+      }
+      function tablaDepTC(data, soloDif, idPrefix) {
         const { filas: todasFilas, grupos } = data;
         const filas = soloDif ? todasFilas.filter(d=>!d.ok) : todasFilas;
         if (!filas.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
         const cwG = 'padding:4px 6px;font-size:11px;width:76px;text-align:right';
+        const totalCols = 1 + grupos.length * 3 + 2;
         return `<table style="width:auto;border-collapse:collapse">
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
             <th style="padding:4px 8px;text-align:left;font-size:11px" rowspan="2">Fecha</th>
@@ -11710,16 +11727,33 @@ async function viewConciliacion(container) {
               <th style="${cwG}">EECC</th>
               <th style="${cwG}">Dif.</th>`).join('')}
           </tr></thead>
-          <tbody>${filas.map(d => `
+          <tbody>${filas.map(d => {
+            const rowMain = `
             <tr style="${!d.ok ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
-              ${d.grupos.map(g => `
-                <td style="${cwG};border-left:1px solid var(--border);color:${g.tc?'inherit':'var(--text-muted)'}">${g.tc?fmt(g.tc):'—'}</td>
-                <td style="${cwG};color:${g.eecc?'inherit':'var(--text-muted)'}">${g.eecc?fmt(g.eecc):'—'}</td>
-                <td style="${cwG};${Math.abs(g.diferencia)>=1?'color:#dc2626':'color:var(--text-muted)'}">${fmtSigned(g.diferencia)}</td>`).join('')}
-              <td style="${cw3};text-align:right;border-left:1px solid var(--border);font-weight:700;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
+              ${d.grupos.map((g,i) => {
+                const detId = `cc6-det-${idPrefix}-${d.fecha}-${i}`;
+                const tieneDetalle = (g.movimientosTc?.length||0) + (g.movimientosEecc?.length||0) > 0;
+                const toggle = tieneDetalle
+                  ? ` onclick="const el=document.getElementById('${detId}');el.style.display=el.style.display==='none'?'':'none';this.querySelector('.cc6-arr').textContent=el.style.display==='none'?'▸':'▾';" style="cursor:pointer" title="Ver desglose"`
+                  : '';
+                return `
+                <td style="${cwG};border-left:1px solid var(--border);color:${g.tc?'inherit':'var(--text-muted)'}"${toggle}>${tieneDetalle?`<span class="cc6-arr" style="font-size:8px;color:#94a3b8">▸</span> `:''}${g.tc?fmt(g.tc):'—'}</td>
+                <td style="${cwG};color:${g.eecc?'inherit':'var(--text-muted)'}"${toggle}>${g.eecc?fmt(g.eecc):'—'}</td>
+                <td style="${cwG};${g.diferencia<=-1?'color:#dc2626':(Math.abs(g.diferencia)<1?'color:var(--text-muted)':'')}"${toggle}>${fmtSigned(g.diferencia)}</td>`;
+              }).join('')}
+              <td style="${cw3};text-align:right;border-left:1px solid var(--border);font-weight:700;${d.diferencia<=-1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
               <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>
-            </tr>`).join('')}
+            </tr>`;
+            const rowsDetail = d.grupos.map((g,i) => {
+              const tieneDetalle = (g.movimientosTc?.length||0) + (g.movimientosEecc?.length||0) > 0;
+              if (!tieneDetalle) return '';
+              return `<tr id="cc6-det-${idPrefix}-${d.fecha}-${i}" style="display:none;background:var(--bg-page)">
+                <td colspan="${totalCols}" style="padding:0;border-bottom:1px solid var(--border)">${desgloseGrupoTC(g)}</td>
+              </tr>`;
+            }).join('');
+            return rowMain + rowsDetail;
+          }).join('')}
           </tbody>
           <tfoot><tr style="background:#f8fafc;font-weight:700;border-top:2px solid var(--border)">
             <td style="padding:4px 8px;font-size:11px">Total</td>
@@ -11881,11 +11915,11 @@ async function viewConciliacion(container) {
           </div>
           <div style="border-bottom:1px solid var(--border)">
             <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
-            <div style="overflow-x:auto">${tablaDepTC(c6.pen, soloDif)}</div>
+            <div style="overflow-x:auto">${tablaDepTC(c6.pen, soloDif, 'pen')}</div>
           </div>
           <div>
             <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
-            <div style="overflow-x:auto">${tablaDepTC(c6.usd, soloDif)}</div>
+            <div style="overflow-x:auto">${tablaDepTC(c6.usd, soloDif, 'usd')}</div>
           </div>
         </div>`;
 

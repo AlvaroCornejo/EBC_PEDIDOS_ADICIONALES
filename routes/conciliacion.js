@@ -741,13 +741,20 @@ router.get('/check6', async (req, res) => {
         return i === -1 ? OTROS_IDX : i;
       };
 
-      const tcPorDiaGrupo = {};   // fecha -> [suma por grupo]
+      const vacio = () => gruposDef.map(() => ({ suma: 0, movs: [] }));
+
+      const tcPorDiaGrupo = {};   // fecha -> [{ suma, movs }] por grupo
       const tcPorDia = {};        // fecha -> total
       tcRowsCcy.forEach(t => {
         const k  = ymd(t.fechaDeposito);
         const op = (t.tc || '').trim() || '(sin operador)';
-        if (!tcPorDiaGrupo[k]) tcPorDiaGrupo[k] = gruposDef.map(() => 0);
-        tcPorDiaGrupo[k][grupoDeOperador(op)] += (t.deposito || 0);
+        if (!tcPorDiaGrupo[k]) tcPorDiaGrupo[k] = vacio();
+        const g = tcPorDiaGrupo[k][grupoDeOperador(op)];
+        g.suma += (t.deposito || 0);
+        g.movs.push({
+          tarjeta: t.tarjeta || t.tarjetaUlt4 || '', tc: t.tc || '',
+          deposito: t.deposito || 0, autorizacion: t.autorizacion || '',
+        });
         tcPorDia[k] = (tcPorDia[k] || 0) + (t.deposito || 0);
       });
 
@@ -758,14 +765,16 @@ router.get('/check6', async (req, res) => {
         const cat = categoriaDe(e.concepto);
         if (!cat) return;
         const k = ymd(e.fechaOperacion);
-        if (!eeccPorDiaGrupo[k]) eeccPorDiaGrupo[k] = gruposDef.map(() => 0);
-        eeccPorDiaGrupo[k][grupoDeCategoria(cat)] += e.importe;
+        if (!eeccPorDiaGrupo[k]) eeccPorDiaGrupo[k] = vacio();
+        const g = eeccPorDiaGrupo[k][grupoDeCategoria(cat)];
+        g.suma += e.importe;
+        g.movs.push({ fecha: k, importe: e.importe, concepto: e.concepto, banco: e.banco, nroDoc: e.nroDoc });
         eeccPorDia[k] = (eeccPorDia[k] || 0) + e.importe;
       });
 
       // El grupo OTROS solo se muestra si realmente tiene movimientos en el rango.
-      const otrosTieneDatos = Object.values(tcPorDiaGrupo).some(arr => arr[OTROS_IDX])
-        || Object.values(eeccPorDiaGrupo).some(arr => arr[OTROS_IDX]);
+      const otrosTieneDatos = Object.values(tcPorDiaGrupo).some(arr => arr[OTROS_IDX].suma)
+        || Object.values(eeccPorDiaGrupo).some(arr => arr[OTROS_IDX].suma);
       const gruposUsados = otrosTieneDatos ? gruposDef : gruposDef.slice(0, -1);
 
       const dias = new Set([...Object.keys(tcPorDia), ...Object.keys(eeccPorDia)]);
@@ -773,12 +782,13 @@ router.get('/check6', async (req, res) => {
         const tc   = tcPorDia[fecha] || 0;
         const eecc = eeccPorDia[fecha] || 0;
         const diferencia = tc - eecc;
-        const tcArr   = tcPorDiaGrupo[fecha]   || gruposDef.map(() => 0);
-        const eeccArr = eeccPorDiaGrupo[fecha] || gruposDef.map(() => 0);
+        const tcArr   = tcPorDiaGrupo[fecha]   || vacio();
+        const eeccArr = eeccPorDiaGrupo[fecha] || vacio();
         return {
           fecha, tc, eecc, diferencia, ok: Math.abs(diferencia) < TOL,
           grupos: gruposUsados.map((g, i) => ({
-            tc: tcArr[i], eecc: eeccArr[i], diferencia: tcArr[i] - eeccArr[i],
+            tc: tcArr[i].suma, eecc: eeccArr[i].suma, diferencia: tcArr[i].suma - eeccArr[i].suma,
+            movimientosTc: tcArr[i].movs, movimientosEecc: eeccArr[i].movs,
           })),
         };
       });

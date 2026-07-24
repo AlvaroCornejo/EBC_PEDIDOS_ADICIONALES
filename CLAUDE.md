@@ -388,7 +388,10 @@ AUTORIZACION, MONEDA`.
   `ALIMENTACION+CMD DINERS+VISA MC↔PROCESOS DE ME`. Un operador o categoría que no calce con
   ningún grupo cae en un grupo catch-all `OTROS` (que solo se incluye en la respuesta si tiene
   movimientos — evita columnas vacías si otra sociedad usa exactamente estos mismos nombres).
-  Cada fila (`filas`) trae `grupos: [{tc, eecc, diferencia}, ...]` paralelo a la lista de
-  labels devuelta en `grupos` (nivel raíz de la respuesta), más `tc`/`eecc`/`diferencia`
-  totales del día (todos los grupos juntos) — el frontend muestra TC/EECC/Diferencia por grupo
-  y la diferencia total a la derecha de todo.
+  Cada fila (`filas`) trae `grupos: [{tc, eecc, diferencia, movimientosTc, movimientosEecc}, ...]`
+  paralelo a la lista de labels devuelta en `grupos` (nivel raíz de la respuesta), más
+  `tc`/`eecc`/`diferencia` totales del día (todos los grupos juntos) — el frontend muestra
+  TC/EECC/Diferencia por grupo y la diferencia total a la derecha de todo. Las diferencias
+  positivas se muestran en negro, solo las negativas (`≤ -1`) en rojo. Cada celda de grupo con
+  movimientos es desplegable (▸/▾) y muestra el desglose (`movimientosTc`/`movimientosEecc`) en
+  una fila aparte debajo, sin necesidad de re-consultar el backend.
