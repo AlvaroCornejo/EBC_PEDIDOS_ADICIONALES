@@ -768,7 +768,7 @@ router.get('/check6', async (req, res) => {
         if (!eeccPorDiaGrupo[k]) eeccPorDiaGrupo[k] = vacio();
         const g = eeccPorDiaGrupo[k][grupoDeCategoria(cat)];
         g.suma += e.importe;
-        g.movs.push({ fecha: k, importe: e.importe, concepto: e.concepto, banco: e.banco, nroDoc: e.nroDoc });
+        g.movs.push({ fecha: k, importe: e.importe, concepto: e.concepto, banco: e.banco, nroDoc: e.nroDoc, categoria: cat });
         eeccPorDia[k] = (eeccPorDia[k] || 0) + e.importe;
       });
 

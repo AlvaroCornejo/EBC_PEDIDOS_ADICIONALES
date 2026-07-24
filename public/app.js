@@ -11694,18 +11694,38 @@ async function viewConciliacion(container) {
       // y al final la diferencia total (TC vs EECC de todo el día, todos los grupos). Cada
       // celda de grupo es desplegable (▸) para ver el desglose de movimientos que la forman.
       function desgloseGrupoTC(g) {
-        const lado = (titulo, movs, render) => `
-          <div>
-            <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:2px">${titulo}</div>
-            ${movs.length
-              ? `<div style="display:flex;flex-wrap:wrap;gap:4px">${movs.map(render).join('')}</div>`
-              : `<span style="font-size:10px;color:var(--text-muted)">—</span>`}
-          </div>`;
         const chip = txt => `<span style="font-size:10px;color:var(--text-muted);white-space:nowrap;background:var(--bg-secondary);
                        border:1px solid var(--border);border-radius:4px;padding:2px 6px">${txt}</span>`;
+        // Subtotales por sub-etiqueta (operador de TC o categoría de EECC) dentro del grupo,
+        // para responder "cuánto fue ALIMENTACION, cuánto CMD DINERS, etc." cuando el grupo
+        // combina varios operadores/categorías.
+        const lado = (titulo, movs, subLabelOf, chipTxt) => {
+          if (!movs.length) return `<div>
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:2px">${titulo}</div>
+            <span style="font-size:10px;color:var(--text-muted)">—</span>
+          </div>`;
+          const porSub = {};
+          movs.forEach(m => {
+            const sub = subLabelOf(m) || '(sin dato)';
+            if (!porSub[sub]) porSub[sub] = [];
+            porSub[sub].push(m);
+          });
+          const subs = Object.keys(porSub).sort();
+          return `<div>
+            <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:4px">${titulo}</div>
+            ${subs.map(sub => {
+              const subMovs = porSub[sub];
+              const subTotal = subMovs.reduce((s,m) => s + (m.deposito ?? m.importe ?? 0), 0);
+              return `<div style="margin-bottom:6px">
+                <div style="font-size:11px;font-weight:700;color:#1d4ed8">${esc(sub)}: ${fmt(subTotal)} <span style="font-weight:400;color:var(--text-muted)">(${subMovs.length} mov.)</span></div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px">${subMovs.map(m => chip(chipTxt(m))).join('')}</div>
+              </div>`;
+            }).join('')}
+          </div>`;
+        };
         return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 12px">
-          ${lado('DEPÓSITOS EN TC', g.movimientosTc||[], m => chip(`${esc(m.tarjeta||'—')}${m.tc?' · '+esc(m.tc):''} · ${fmt(m.deposito)}${m.autorizacion?' · Aut.'+esc(m.autorizacion):''}`))}
-          ${lado('MOVIMIENTOS EN EECC', g.movimientosEecc||[], m => chip(`${esc(m.banco||'—')} · ${fmt(m.importe)}${m.nroDoc?' · Nº'+esc(m.nroDoc):''}`))}
+          ${lado('DEPÓSITOS EN TC', g.movimientosTc||[], m => m.tc, m => `${esc(m.tarjeta||'—')} · ${fmt(m.deposito)}${m.autorizacion?' · Aut.'+esc(m.autorizacion):''}`)}
+          ${lado('MOVIMIENTOS EN EECC', g.movimientosEecc||[], m => m.categoria, m => `${esc(m.banco||'—')} · ${fmt(m.importe)}${m.nroDoc?' · Nº'+esc(m.nroDoc):''}`)}
         </div>`;
       }
       function tablaDepTC(data, soloDif, idPrefix) {
