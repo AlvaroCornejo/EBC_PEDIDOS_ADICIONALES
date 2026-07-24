@@ -11690,100 +11690,44 @@ async function viewConciliacion(container) {
 
       // ── Sección 6: Depósitos de operadores de TC — Q TC vs EECC (por día) ──
       // Cada grupo empareja uno o más operadores de TC con una o más categorías de EECC
-      // (según qué banco procesa cada marca), mostrando TC / EECC / Diferencia por grupo,
-      // y al final la diferencia total (TC vs EECC de todo el día, todos los grupos). Cada
-      // celda de grupo es desplegable (▸) para ver el desglose de movimientos que la forman.
-      function desgloseGrupoTC(g) {
-        const chip = txt => `<span style="font-size:10px;color:var(--text-muted);white-space:nowrap;background:var(--bg-secondary);
-                       border:1px solid var(--border);border-radius:4px;padding:2px 6px">${txt}</span>`;
-        // Subtotales por sub-etiqueta (operador de TC o categoría de EECC) dentro del grupo,
-        // para responder "cuánto fue ALIMENTACION, cuánto CMD DINERS, etc." cuando el grupo
-        // combina varios operadores/categorías.
-        const lado = (titulo, movs, subLabelOf, chipTxt) => {
-          if (!movs.length) return `<div>
-            <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:2px">${titulo}</div>
-            <span style="font-size:10px;color:var(--text-muted)">—</span>
-          </div>`;
-          const porSub = {};
-          movs.forEach(m => {
-            const sub = subLabelOf(m) || '(sin dato)';
-            if (!porSub[sub]) porSub[sub] = [];
-            porSub[sub].push(m);
-          });
-          const subs = Object.keys(porSub).sort();
-          return `<div>
-            <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:4px">${titulo}</div>
-            ${subs.map(sub => {
-              const subMovs = porSub[sub];
-              const subTotal = subMovs.reduce((s,m) => s + (m.deposito ?? m.importe ?? 0), 0);
-              return `<div style="margin-bottom:6px">
-                <div style="font-size:11px;font-weight:700;color:#1d4ed8">${esc(sub)}: ${fmt(subTotal)} <span style="font-weight:400;color:var(--text-muted)">(${subMovs.length} mov.)</span></div>
-                <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px">${subMovs.map(m => chip(chipTxt(m))).join('')}</div>
-              </div>`;
-            }).join('')}
-          </div>`;
-        };
-        return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 12px">
-          ${lado('DEPÓSITOS EN TC', g.movimientosTc||[], m => m.tc, m => `${esc(m.tarjeta||'—')} · ${fmt(m.deposito)}${m.autorizacion?' · Aut.'+esc(m.autorizacion):''}`)}
-          ${lado('MOVIMIENTOS EN EECC', g.movimientosEecc||[], m => m.categoria, m => `${esc(m.banco||'—')} · ${fmt(m.importe)}${m.nroDoc?' · Nº'+esc(m.nroDoc):''}`)}
-        </div>`;
-      }
-      function tablaDepTC(data, soloDif, idPrefix) {
+      // (según qué banco procesa cada marca): una columna por cada operador de TC, más
+      // una columna EECC (merge de sus categorías) y una de Diferencia por grupo. Sin
+      // desglose de movimientos, solo totales. A la derecha de todo, la Diferencia Total.
+      function tablaDepTC(data, soloDif) {
         const { filas: todasFilas, grupos } = data;
         const filas = soloDif ? todasFilas.filter(d=>!d.ok) : todasFilas;
         if (!filas.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
         const cwG = 'padding:4px 6px;font-size:11px;width:76px;text-align:right';
-        const totalCols = 1 + grupos.length * 3 + 2;
         return `<table style="width:auto;border-collapse:collapse">
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
             <th style="padding:4px 8px;text-align:left;font-size:11px" rowspan="2">Fecha</th>
-            ${grupos.map(g => `<th colspan="3" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)" title="${esc(g)}">${esc(g)}</th>`).join('')}
+            ${grupos.map(g => `<th colspan="${g.operadores.length+2}" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)" title="${esc(g.label)}">${esc(g.label)}</th>`).join('')}
             <th style="${cw3};text-align:right;border-left:1px solid var(--border)" rowspan="2">Diferencia Total</th>
             <th style="padding:4px 4px;text-align:center;width:22px" rowspan="2">Estado</th>
           </tr>
           <tr style="background:#f8fafc;color:var(--text-muted)">
-            ${grupos.map(() => `
-              <th style="${cwG};border-left:1px solid var(--border)">TC</th>
+            ${grupos.map(g => `
+              ${g.operadores.map((op,i) => `<th style="${cwG}${i===0?';border-left:1px solid var(--border)':''}" title="${esc(op)}">${esc(op)}</th>`).join('')}
               <th style="${cwG}">EECC</th>
               <th style="${cwG}">Dif.</th>`).join('')}
           </tr></thead>
-          <tbody>${filas.map(d => {
-            const rowMain = `
+          <tbody>${filas.map(d => `
             <tr style="${!d.ok ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
-              ${d.grupos.map((g,i) => {
-                const detId = `cc6-det-${idPrefix}-${d.fecha}-${i}`;
-                const arrId = `cc6-arr-${idPrefix}-${d.fecha}-${i}`;
-                const tieneDetalle = (g.movimientosTc?.length||0) + (g.movimientosEecc?.length||0) > 0;
-                const onclickAttr = tieneDetalle
-                  ? ` onclick="const el=document.getElementById('${detId}');const arr=document.getElementById('${arrId}');const open=el.style.display!=='none';el.style.display=open?'none':'';if(arr)arr.textContent=open?'▸':'▾';" title="Ver desglose"`
-                  : '';
-                const cursorStyle = tieneDetalle ? ';cursor:pointer' : '';
-                const arrow = tieneDetalle ? `<span id="${arrId}" style="font-size:12px;font-weight:700;color:#2563eb">▸</span> ` : '';
-                return `
-                <td style="${cwG};border-left:1px solid var(--border)${cursorStyle};color:${g.tc?'inherit':'var(--text-muted)'}"${onclickAttr}>${arrow}${g.tc?fmt(g.tc):'—'}</td>
-                <td style="${cwG}${cursorStyle};color:${g.eecc?'inherit':'var(--text-muted)'}"${onclickAttr}>${g.eecc?fmt(g.eecc):'—'}</td>
-                <td style="${cwG}${cursorStyle};${g.diferencia<=-1?'color:#dc2626':(Math.abs(g.diferencia)<1?'color:var(--text-muted)':'')}"${onclickAttr}>${fmtSigned(g.diferencia)}</td>`;
-              }).join('')}
+              ${d.grupos.map(g => `
+                ${g.porOperador.map((v,i) => `<td style="${cwG}${i===0?';border-left:1px solid var(--border)':''};color:${v?'inherit':'var(--text-muted)'}">${v?fmt(v):'—'}</td>`).join('')}
+                <td style="${cwG};color:${g.eecc?'inherit':'var(--text-muted)'}">${g.eecc?fmt(g.eecc):'—'}</td>
+                <td style="${cwG};${g.diferencia<=-1?'color:#dc2626':(Math.abs(g.diferencia)<1?'color:var(--text-muted)':'')}">${fmtSigned(g.diferencia)}</td>`).join('')}
               <td style="${cw3};text-align:right;border-left:1px solid var(--border);font-weight:700;${d.diferencia<=-1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
               <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>
-            </tr>`;
-            const rowsDetail = d.grupos.map((g,i) => {
-              const tieneDetalle = (g.movimientosTc?.length||0) + (g.movimientosEecc?.length||0) > 0;
-              if (!tieneDetalle) return '';
-              return `<tr id="cc6-det-${idPrefix}-${d.fecha}-${i}" style="display:none;background:var(--bg-page)">
-                <td colspan="${totalCols}" style="padding:0;border-bottom:1px solid var(--border)">${desgloseGrupoTC(g)}</td>
-              </tr>`;
-            }).join('');
-            return rowMain + rowsDetail;
-          }).join('')}
+            </tr>`).join('')}
           </tbody>
           <tfoot><tr style="background:#f8fafc;font-weight:700;border-top:2px solid var(--border)">
             <td style="padding:4px 8px;font-size:11px">Total</td>
-            ${grupos.map((g,i) => `
-              <td style="${cwG};border-left:1px solid var(--border)">${fmt(filas.reduce((s,d)=>s+d.grupos[i].tc,0))}</td>
-              <td style="${cwG}">${fmt(filas.reduce((s,d)=>s+d.grupos[i].eecc,0))}</td>
-              <td style="${cwG}">${fmtSigned(filas.reduce((s,d)=>s+d.grupos[i].diferencia,0))}</td>`).join('')}
+            ${grupos.map((g,gi) => `
+              ${g.operadores.map((op,i) => `<td style="${cwG}${i===0?';border-left:1px solid var(--border)':''}">${fmt(filas.reduce((s,d)=>s+d.grupos[gi].porOperador[i],0))}</td>`).join('')}
+              <td style="${cwG}">${fmt(filas.reduce((s,d)=>s+d.grupos[gi].eecc,0))}</td>
+              <td style="${cwG}">${fmtSigned(filas.reduce((s,d)=>s+d.grupos[gi].diferencia,0))}</td>`).join('')}
             <td style="${cw3};text-align:right;border-left:1px solid var(--border)">${fmtSigned(filas.reduce((s,d)=>s+d.diferencia,0))}</td>
             <td></td>
           </tr></tfoot></table>`;
@@ -11938,11 +11882,11 @@ async function viewConciliacion(container) {
           </div>
           <div style="border-bottom:1px solid var(--border)">
             <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">SOLES</div>
-            <div style="overflow-x:auto">${tablaDepTC(c6.pen, soloDif, 'pen')}</div>
+            <div style="overflow-x:auto">${tablaDepTC(c6.pen, soloDif)}</div>
           </div>
           <div>
             <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
-            <div style="overflow-x:auto">${tablaDepTC(c6.usd, soloDif, 'usd')}</div>
+            <div style="overflow-x:auto">${tablaDepTC(c6.usd, soloDif)}</div>
           </div>
         </div>`;
 

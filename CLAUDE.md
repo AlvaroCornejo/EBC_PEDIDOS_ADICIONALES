@@ -387,12 +387,12 @@ AUTORIZACION, MONEDA`.
   `AMEX↔COMPAÑIA DE SE`, `NIUBIZ↔COMPAÑIA PERU+ABONO VISANET`,
   `ALIMENTACION+CMD DINERS+VISA MC↔PROCESOS DE ME`. Un operador o categoría que no calce con
   ningún grupo cae en un grupo catch-all `OTROS` (que solo se incluye en la respuesta si tiene
-  movimientos — evita columnas vacías si otra sociedad usa exactamente estos mismos nombres).
-  Cada fila (`filas`) trae `grupos: [{tc, eecc, diferencia, movimientosTc, movimientosEecc}, ...]`
-  paralelo a la lista de labels devuelta en `grupos` (nivel raíz de la respuesta), más
-  `tc`/`eecc`/`diferencia` totales del día (todos los grupos juntos) — `diferencia = EECC - TC`
-  (no al revés). El frontend muestra TC/EECC/Diferencia por grupo y la diferencia total a la
-  derecha de todo. Las diferencias
-  positivas se muestran en negro, solo las negativas (`≤ -1`) en rojo. Cada celda de grupo con
-  movimientos es desplegable (▸/▾) y muestra el desglose (`movimientosTc`/`movimientosEecc`) en
-  una fila aparte debajo, sin necesidad de re-consultar el backend.
+  datos — evita columnas vacías si otra sociedad usa exactamente estos mismos nombres). Del
+  lado TC cada operador tiene su **propia columna** (`grupo.operadores` nombra las columnas,
+  `filas[].grupos[i].porOperador` trae el total de cada una, en el mismo orden); del lado EECC
+  las categorías de un grupo se siguen sumando juntas en una sola columna `eecc`. No se guarda
+  ni se muestra el detalle por movimiento — solo totales. Cada fila trae también
+  `tc`/`eecc`/`diferencia` (todos los grupos juntos) — `diferencia = EECC - TC` (no al revés).
+  El frontend arma columnas dinámicas por operador dentro de cada grupo, más EECC/Dif. por
+  grupo y la Diferencia Total a la derecha de todo. Las diferencias positivas se muestran en
+  negro, solo las negativas (`≤ -1`) en rojo.

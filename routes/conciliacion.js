@@ -732,67 +732,73 @@ router.get('/check6', async (req, res) => {
     function compararPorDia(eeccRows, tcRowsCcy) {
       const gruposDef = [...GRUPOS_CHECK6, { label: 'OTROS', tc: [], eecc: [] }];
       const OTROS_IDX = gruposDef.length - 1;
-      const grupoDeOperador = op => {
-        const i = GRUPOS_CHECK6.findIndex(g => g.tc.includes(op));
-        return i === -1 ? OTROS_IDX : i;
-      };
       const grupoDeCategoria = cat => {
         const i = GRUPOS_CHECK6.findIndex(g => g.eecc.includes(cat));
         return i === -1 ? OTROS_IDX : i;
       };
 
-      const vacio = () => gruposDef.map(() => ({ suma: 0, movs: [] }));
-
-      const tcPorDiaGrupo = {};   // fecha -> [{ suma, movs }] por grupo
-      const tcPorDia = {};        // fecha -> total
+      // TC: suma por dia y por OPERADOR individual (columna propia por cada uno, sin detalle
+      // de movimientos — solo totales).
+      const tcPorDiaOperador = {}; // fecha -> operador -> suma
+      const tcPorDia = {};         // fecha -> total
       tcRowsCcy.forEach(t => {
         const k  = ymd(t.fechaDeposito);
         const op = (t.tc || '').trim() || '(sin operador)';
-        if (!tcPorDiaGrupo[k]) tcPorDiaGrupo[k] = vacio();
-        const g = tcPorDiaGrupo[k][grupoDeOperador(op)];
-        g.suma += (t.deposito || 0);
-        g.movs.push({
-          tarjeta: t.tarjeta || t.tarjetaUlt4 || '', tc: t.tc || '',
-          deposito: t.deposito || 0, autorizacion: t.autorizacion || '',
-        });
+        if (!tcPorDiaOperador[k]) tcPorDiaOperador[k] = {};
+        tcPorDiaOperador[k][op] = (tcPorDiaOperador[k][op] || 0) + (t.deposito || 0);
         tcPorDia[k] = (tcPorDia[k] || 0) + (t.deposito || 0);
       });
 
-      const eeccPorDiaGrupo = {};
+      // EECC: suma por dia y por GRUPO (las categorias de un grupo se siguen sumando juntas
+      // del lado EECC, ej. COMPAÑIA PERU + ABONO VISANET en un solo total).
+      const eeccPorDiaGrupo = {}; // fecha -> [suma por grupo]
       const eeccPorDia = {};
       eeccRows.forEach(e => {
         if (!(e.importe > 0)) return;
         const cat = categoriaDe(e.concepto);
         if (!cat) return;
         const k = ymd(e.fechaOperacion);
-        if (!eeccPorDiaGrupo[k]) eeccPorDiaGrupo[k] = vacio();
-        const g = eeccPorDiaGrupo[k][grupoDeCategoria(cat)];
-        g.suma += e.importe;
-        g.movs.push({ fecha: k, importe: e.importe, concepto: e.concepto, banco: e.banco, nroDoc: e.nroDoc, categoria: cat });
+        if (!eeccPorDiaGrupo[k]) eeccPorDiaGrupo[k] = gruposDef.map(() => 0);
+        eeccPorDiaGrupo[k][grupoDeCategoria(cat)] += e.importe;
         eeccPorDia[k] = (eeccPorDia[k] || 0) + e.importe;
       });
 
-      // El grupo OTROS solo se muestra si realmente tiene movimientos en el rango.
-      const otrosTieneDatos = Object.values(tcPorDiaGrupo).some(arr => arr[OTROS_IDX].suma)
-        || Object.values(eeccPorDiaGrupo).some(arr => arr[OTROS_IDX].suma);
-      const gruposUsados = otrosTieneDatos ? gruposDef : gruposDef.slice(0, -1);
+      // Operadores conocidos (definidos en GRUPOS_CHECK6) + operadores "OTROS" (cualquier
+      // valor de TC que no este mapeado a ningun grupo, agrupados en una sola columna).
+      const operadoresConocidos = new Set(GRUPOS_CHECK6.flatMap(g => g.tc));
+      const operadoresOtros = new Set();
+      Object.values(tcPorDiaOperador).forEach(porOp => {
+        Object.keys(porOp).forEach(op => { if (!operadoresConocidos.has(op)) operadoresOtros.add(op); });
+      });
+      const otrosOperadores = [...operadoresOtros].sort();
+      const otrosEeccTieneDatos = Object.values(eeccPorDiaGrupo).some(arr => arr[OTROS_IDX]);
+      const incluirOtros = otrosOperadores.length > 0 || otrosEeccTieneDatos;
+      const gruposUsados = incluirOtros ? gruposDef : gruposDef.slice(0, -1);
 
       const dias = new Set([...Object.keys(tcPorDia), ...Object.keys(eeccPorDia)]);
       const filas = [...dias].sort().map(fecha => {
         const tc   = tcPorDia[fecha] || 0;
         const eecc = eeccPorDia[fecha] || 0;
         const diferencia = eecc - tc;
-        const tcArr   = tcPorDiaGrupo[fecha]   || vacio();
-        const eeccArr = eeccPorDiaGrupo[fecha] || vacio();
+        const eeccArr = eeccPorDiaGrupo[fecha] || gruposDef.map(() => 0);
+        const porOpDia = tcPorDiaOperador[fecha] || {};
         return {
           fecha, tc, eecc, diferencia, ok: Math.abs(diferencia) < TOL,
-          grupos: gruposUsados.map((g, i) => ({
-            tc: tcArr[i].suma, eecc: eeccArr[i].suma, diferencia: eeccArr[i].suma - tcArr[i].suma,
-            movimientosTc: tcArr[i].movs, movimientosEecc: eeccArr[i].movs,
-          })),
+          grupos: gruposUsados.map((g, i) => {
+            const operadores = i === OTROS_IDX ? otrosOperadores : g.tc;
+            const porOperador = operadores.map(op => porOpDia[op] || 0);
+            const tcGrupo = porOperador.reduce((s, v) => s + v, 0);
+            return { porOperador, tc: tcGrupo, eecc: eeccArr[i], diferencia: eeccArr[i] - tcGrupo };
+          }),
         };
       });
-      return { filas, grupos: gruposUsados.map(g => g.label) };
+      return {
+        filas,
+        grupos: gruposUsados.map((g, i) => ({
+          label: g.label,
+          operadores: i === OTROS_IDX ? otrosOperadores : g.tc,
+        })),
+      };
     }
 
     res.json({
