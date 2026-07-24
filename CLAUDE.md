@@ -396,3 +396,12 @@ AUTORIZACION, MONEDA`.
   El frontend arma columnas dinámicas por operador dentro de cada grupo, más EECC/Dif. por
   grupo y la Diferencia Total a la derecha de todo. Las diferencias positivas se muestran en
   negro, solo las negativas (`≤ -1`) en rojo.
+
+- `GET /check7` — % Comisión y % IGV cobrados por cada operador de TC, **por mes**: filas =
+  año-mes (según `TcMovimiento.fechaVenta`), columnas = operador (campo `tc`). No es una
+  conciliación (no compara contra otra fuente), es un reporte de tarifas cobradas.
+  `% Comisión = COMISION_TOTAL / VENTA`, `% IGV = IGV_COMISION / COMISION_TOTAL` — ambos
+  agregados sumando `venta`/`comisionTotal`/`igvComision` del mes+operador antes de dividir
+  (no promedio simple de porcentajes por transacción). Devuelve `null` si el denominador es 0
+  (se muestra "—" en vez de dividir por cero). Incluye una columna TOTAL por mes (todos los
+  operadores juntos, mismo cálculo agregado).

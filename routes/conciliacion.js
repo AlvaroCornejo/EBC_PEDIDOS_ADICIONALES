@@ -808,4 +808,69 @@ router.get('/check6', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─── GET /check7 — % Comisión y % IGV de TC, por mes y operador ──────────
+// % Comisión = COMISION_TOTAL / VENTA. % IGV = IGV_COMISION / COMISION_TOTAL.
+// Filas: año-mes (según FECHA VENTA). Columnas: operador de TC (campo `tc`).
+router.get('/check7', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const { sociedad } = req.query;
+    if (!sociedad || !checkSociedad(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
+
+    const fechaDesde = req.query.fechaDesde ? new Date(req.query.fechaDesde) : new Date('2000-01-01');
+    const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta) : new Date('2100-01-01');
+    fechaHasta.setHours(23, 59, 59, 999);
+
+    const tcRows = await TcMovimiento.find({
+      sociedad, fechaVenta: { $gte: fechaDesde, $lte: fechaHasta },
+    });
+
+    const mesDe = f => {
+      const d = new Date(f);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+    const pct = (num, den) => den ? (num / den) * 100 : null;
+
+    const operadoresSet = new Set();
+    const pivot = {}; // mes -> operador -> { venta, comisionTotal, igvComision }
+    tcRows.forEach(t => {
+      if (!t.fechaVenta) return;
+      const mes = mesDe(t.fechaVenta);
+      const op = (t.tc || '').trim() || '(sin operador)';
+      operadoresSet.add(op);
+      if (!pivot[mes]) pivot[mes] = {};
+      if (!pivot[mes][op]) pivot[mes][op] = { venta: 0, comisionTotal: 0, igvComision: 0 };
+      pivot[mes][op].venta += (t.venta || 0);
+      pivot[mes][op].comisionTotal += (t.comisionTotal || 0);
+      pivot[mes][op].igvComision += (t.igvComision || 0);
+    });
+
+    const operadores = [...operadoresSet].sort();
+    const meses = Object.keys(pivot).sort();
+
+    const filas = meses.map(mes => {
+      const porOperador = operadores.map(op => {
+        const d = pivot[mes][op] || { venta: 0, comisionTotal: 0, igvComision: 0 };
+        return {
+          venta: d.venta, comisionTotal: d.comisionTotal, igvComision: d.igvComision,
+          comisionPct: pct(d.comisionTotal, d.venta),
+          igvPct: pct(d.igvComision, d.comisionTotal),
+        };
+      });
+      const totVenta = porOperador.reduce((s, o) => s + o.venta, 0);
+      const totComision = porOperador.reduce((s, o) => s + o.comisionTotal, 0);
+      const totIgv = porOperador.reduce((s, o) => s + o.igvComision, 0);
+      return {
+        mes, porOperador,
+        total: {
+          venta: totVenta, comisionTotal: totComision, igvComision: totIgv,
+          comisionPct: pct(totComision, totVenta), igvPct: pct(totIgv, totComision),
+        },
+      };
+    });
+
+    res.json({ operadores, filas });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 module.exports = router;

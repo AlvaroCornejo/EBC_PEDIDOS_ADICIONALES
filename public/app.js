@@ -11460,13 +11460,14 @@ async function viewConciliacion(container) {
       const fechaHasta = document.getElementById('cc-hasta').value;
       const qs = new URLSearchParams({ sociedad, fechaDesde, fechaHasta });
 
-      const [c1, c2, c3, c4, c5, c6] = await Promise.all([
+      const [c1, c2, c3, c4, c5, c6, c7] = await Promise.all([
         GET(`/conciliacion/check1?${qs}`),
         GET(`/conciliacion/check2?${qs}`),
         GET(`/conciliacion/check3?${qs}`),
         GET(`/conciliacion/check4?${qs}`),
         GET(`/conciliacion/check5?${qs}`),
         GET(`/conciliacion/check6?${qs}`),
+        GET(`/conciliacion/check7?${qs}`),
       ]);
 
       const soloDif = document.getElementById('cc-solo-dif').checked;
@@ -11759,6 +11760,37 @@ async function viewConciliacion(container) {
           </tbody></table>`;
       }
 
+      // ── Sección 7: % Comisión y % IGV de TC — por mes y operador ──────
+      function fmtPct(v) { return v === null || v === undefined ? '—' : `${v.toFixed(2)}%`; }
+      function tablaComisionTC(data) {
+        const { operadores, filas } = data;
+        if (!filas.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
+        const cwG = 'padding:4px 6px;font-size:11px;width:64px;text-align:right';
+        return `<table style="width:auto;border-collapse:collapse">
+          <thead><tr style="background:#f8fafc;color:var(--text-muted)">
+            <th style="padding:4px 8px;text-align:left;font-size:11px" rowspan="2">Mes</th>
+            ${operadores.map(op => `<th colspan="2" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)" title="${esc(op)}">${esc(op)}</th>`).join('')}
+            <th colspan="2" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>
+          </tr>
+          <tr style="background:#f8fafc;color:var(--text-muted)">
+            ${operadores.map(() => `
+              <th style="${cwG};border-left:1px solid var(--border)">% Com.</th>
+              <th style="${cwG}">% IGV</th>`).join('')}
+            <th style="${cwG};border-left:1px solid var(--border)">% Com.</th>
+            <th style="${cwG}">% IGV</th>
+          </tr></thead>
+          <tbody>${filas.map(f => `
+            <tr>
+              <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(f.mes)}</td>
+              ${f.porOperador.map((o,i) => `
+                <td style="${cwG}${i===0?';border-left:1px solid var(--border)':''};color:${o.venta?'inherit':'var(--text-muted)'}" title="Comisión ${fmt(o.comisionTotal)} / Venta ${fmt(o.venta)}">${fmtPct(o.comisionPct)}</td>
+                <td style="${cwG};color:${o.comisionTotal?'inherit':'var(--text-muted)'}" title="IGV ${fmt(o.igvComision)} / Comisión ${fmt(o.comisionTotal)}">${fmtPct(o.igvPct)}</td>`).join('')}
+              <td style="${cwG};border-left:1px solid var(--border);font-weight:700">${fmtPct(f.total.comisionPct)}</td>
+              <td style="${cwG};font-weight:700">${fmtPct(f.total.igvPct)}</td>
+            </tr>`).join('')}
+          </tbody></table>`;
+      }
+
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:0;overflow:hidden">
           <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
@@ -11888,6 +11920,13 @@ async function viewConciliacion(container) {
             <div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-muted)">DÓLARES</div>
             <div style="overflow-x:auto">${tablaDepTC(c6.usd, soloDif)}</div>
           </div>
+        </div>
+
+        <div class="card mb-16" style="padding:0;overflow:hidden">
+          <div style="padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <strong style="font-size:13px">7️⃣ % Comisión y % IGV de TC — por mes y operador</strong>
+          </div>
+          <div style="overflow-x:auto">${tablaComisionTC(c7)}</div>
         </div>`;
 
       wrap.querySelectorAll('.tc-manual-del').forEach(btn => {
