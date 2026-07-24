@@ -11689,46 +11689,45 @@ async function viewConciliacion(container) {
       const s5errores = c5.resultado.filter(e=>!e.ok).length;
 
       // ── Sección 6: Depósitos de operadores de TC — Q TC vs EECC (por día) ──
-      // Tabla pivote: una fila por día, columnas dinámicas por operador de TC (campo `tc`,
-      // varía por sociedad) y por categoría de EECC (las 4 subcadenas de descripción). Sin
-      // desglose de movimientos individuales, solo totales agrupados por día.
+      // Cada grupo empareja uno o más operadores de TC con una o más categorías de EECC
+      // (según qué banco procesa cada marca), mostrando TC / EECC / Diferencia por grupo,
+      // y al final la diferencia total (TC vs EECC de todo el día, todos los grupos).
       function tablaDepTC(data, soloDif) {
-        const { filas: todasFilas, operadores, categorias } = data;
+        const { filas: todasFilas, grupos } = data;
         const filas = soloDif ? todasFilas.filter(d=>!d.ok) : todasFilas;
         if (!filas.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
-        const cwOp = 'padding:4px 6px;font-size:11px;width:74px;text-align:right';
+        const cwG = 'padding:4px 6px;font-size:11px;width:76px;text-align:right';
         return `<table style="width:auto;border-collapse:collapse">
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
             <th style="padding:4px 8px;text-align:left;font-size:11px" rowspan="2">Fecha</th>
-            ${operadores.length ? `<th colspan="${operadores.length}" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)">TC por operador</th>` : ''}
-            <th style="${cw3};text-align:right" rowspan="2">Total TC</th>
-            ${categorias.length ? `<th colspan="${categorias.length}" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)">EECC por descripción</th>` : ''}
-            <th style="${cw3};text-align:right" rowspan="2">Total EECC</th>
-            <th style="${cw3};text-align:right" rowspan="2">Diferencia</th>
+            ${grupos.map(g => `<th colspan="3" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)" title="${esc(g)}">${esc(g)}</th>`).join('')}
+            <th style="${cw3};text-align:right;border-left:1px solid var(--border)" rowspan="2">Diferencia Total</th>
             <th style="padding:4px 4px;text-align:center;width:22px" rowspan="2">Estado</th>
           </tr>
           <tr style="background:#f8fafc;color:var(--text-muted)">
-            ${operadores.map((op,i) => `<th style="${cwOp}${i===0?';border-left:1px solid var(--border)':''}" title="${esc(op)}">${esc(op)}</th>`).join('')}
-            ${categorias.map((cat,i) => `<th style="${cwOp}${i===0?';border-left:1px solid var(--border)':''}" title="${esc(cat)}">${esc(cat)}</th>`).join('')}
+            ${grupos.map(() => `
+              <th style="${cwG};border-left:1px solid var(--border)">TC</th>
+              <th style="${cwG}">EECC</th>
+              <th style="${cwG}">Dif.</th>`).join('')}
           </tr></thead>
           <tbody>${filas.map(d => `
             <tr style="${!d.ok ? 'background:#fef2f2' : ''}">
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
-              ${d.tcPorOperador.map((v,i) => `<td style="${cwOp}${i===0?';border-left:1px solid var(--border)':''};color:${v?'inherit':'var(--text-muted)'}">${v?fmt(v):'—'}</td>`).join('')}
-              <td style="${cw3};text-align:right;font-weight:600">${fmt(d.tc)}</td>
-              ${d.eeccPorCategoria.map((v,i) => `<td style="${cwOp}${i===0?';border-left:1px solid var(--border)':''};color:${v?'inherit':'var(--text-muted)'}">${v?fmt(v):'—'}</td>`).join('')}
-              <td style="${cw3};text-align:right;font-weight:600">${fmt(d.eecc)}</td>
-              <td style="${cw3};text-align:right;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
+              ${d.grupos.map(g => `
+                <td style="${cwG};border-left:1px solid var(--border);color:${g.tc?'inherit':'var(--text-muted)'}">${g.tc?fmt(g.tc):'—'}</td>
+                <td style="${cwG};color:${g.eecc?'inherit':'var(--text-muted)'}">${g.eecc?fmt(g.eecc):'—'}</td>
+                <td style="${cwG};${Math.abs(g.diferencia)>=1?'color:#dc2626':'color:var(--text-muted)'}">${fmtSigned(g.diferencia)}</td>`).join('')}
+              <td style="${cw3};text-align:right;border-left:1px solid var(--border);font-weight:700;${Math.abs(d.diferencia)>=1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
               <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>
             </tr>`).join('')}
           </tbody>
           <tfoot><tr style="background:#f8fafc;font-weight:700;border-top:2px solid var(--border)">
             <td style="padding:4px 8px;font-size:11px">Total</td>
-            ${operadores.map((op,i) => `<td style="${cwOp}${i===0?';border-left:1px solid var(--border)':''}">${fmt(filas.reduce((s,d)=>s+(d.tcPorOperador[i]||0),0))}</td>`).join('')}
-            <td style="${cw3};text-align:right">${fmt(filas.reduce((s,d)=>s+d.tc,0))}</td>
-            ${categorias.map((cat,i) => `<td style="${cwOp}${i===0?';border-left:1px solid var(--border)':''}">${fmt(filas.reduce((s,d)=>s+(d.eeccPorCategoria[i]||0),0))}</td>`).join('')}
-            <td style="${cw3};text-align:right">${fmt(filas.reduce((s,d)=>s+d.eecc,0))}</td>
-            <td style="${cw3};text-align:right">${fmtSigned(filas.reduce((s,d)=>s+d.diferencia,0))}</td>
+            ${grupos.map((g,i) => `
+              <td style="${cwG};border-left:1px solid var(--border)">${fmt(filas.reduce((s,d)=>s+d.grupos[i].tc,0))}</td>
+              <td style="${cwG}">${fmt(filas.reduce((s,d)=>s+d.grupos[i].eecc,0))}</td>
+              <td style="${cwG}">${fmtSigned(filas.reduce((s,d)=>s+d.grupos[i].diferencia,0))}</td>`).join('')}
+            <td style="${cw3};text-align:right;border-left:1px solid var(--border)">${fmtSigned(filas.reduce((s,d)=>s+d.diferencia,0))}</td>
             <td></td>
           </tr></tfoot></table>`;
       }

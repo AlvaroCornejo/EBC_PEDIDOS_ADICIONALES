@@ -375,15 +375,20 @@ AUTORIZACION, MONEDA`.
   `TcMovimiento.deposito` agrupado por `FECHA DEPOSITO` (`ymd(fechaDeposito)`) contra el total de
   movimientos EECC positivos cuyo `Concepto` contiene alguna de estas subcadenas (confirmado en
   data real, no hay un concepto único/exacto): `DINERS`, `COMPAÑIA PERU`, `PROCESOS DE ME`,
-  `COMPAÑIA DE SE` (`CONCEPTO_DEPOSITO_TC`). No es matching 1:1 como los checks anteriores, es
+  `COMPAÑIA DE SE`, `ABONO VISANET` (`CONCEPTO_DEPOSITO_TC`). No es matching 1:1 como los checks anteriores, es
   una **suma diaria** en cada lado — no requiere ni comparte el `Set usados` con check3/check4
   (concepts disjuntos). `TcMovimiento.moneda` casi nunca viene poblada (data real: 0 filas
   "Dolares"), así que el total de TC se separa Soles/Dólares por ese campo (blanco = Soles) para
   no comparar el total contra el lado de dólares y marcar error en todos los días. Se probó
   alinear por desfase de fecha (±2 días) y no mejora el match — las diferencias que salgan son
-  reales, no un problema de desfase. `compararPorDia()` devuelve una **tabla pivote** (no
-  desglose de movimientos individuales): `operadores` (valores distintos del campo `TC` de Q TC
-  en el rango — ej. AMEX, NIUBIZ, VISA MC, varía por sociedad) y `categorias` (las 4 subcadenas
-  de `CONCEPTO_DEPOSITO_TC` presentes en el rango), y cada fila (`filas`) trae `tcPorOperador` /
-  `eeccPorCategoria` como arrays paralelos a esas listas de columnas — el frontend arma columnas
-  dinámicas por operador/categoría a partir de esas listas.
+  reales, no un problema de desfase. `compararPorDia()` agrupa por **grupos fijos**
+  (`GRUPOS_CHECK6`), cada uno emparejando el o los operadores de TC (campo `tc`) que en
+  realidad liquida el mismo banco detrás de una categoría de EECC: `DINERS NIUBIZ↔DINERS`,
+  `AMEX↔COMPAÑIA DE SE`, `NIUBIZ↔COMPAÑIA PERU+ABONO VISANET`,
+  `ALIMENTACION+CMD DINERS+VISA MC↔PROCESOS DE ME`. Un operador o categoría que no calce con
+  ningún grupo cae en un grupo catch-all `OTROS` (que solo se incluye en la respuesta si tiene
+  movimientos — evita columnas vacías si otra sociedad usa exactamente estos mismos nombres).
+  Cada fila (`filas`) trae `grupos: [{tc, eecc, diferencia}, ...]` paralelo a la lista de
+  labels devuelta en `grupos` (nivel raíz de la respuesta), más `tc`/`eecc`/`diferencia`
+  totales del día (todos los grupos juntos) — el frontend muestra TC/EECC/Diferencia por grupo
+  y la diferencia total a la derecha de todo.

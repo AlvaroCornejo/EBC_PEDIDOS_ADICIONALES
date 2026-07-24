@@ -684,8 +684,8 @@ router.delete('/eecc-excluir/:id', async (req, res) => {
 // Descripciones EECC que corresponden a depositos de operadores de TC (no hay un concepto
 // unico/exacto; se identifican por estas subcadenas dentro del Concepto, confirmado con datos
 // reales: "R204...PROCESOS DE MEDI", "R204...COMPAÑIA DE SERV", "R203...COMPAÑIA PERUANA",
-// "R201...DINERS CLUB PERU").
-const CONCEPTO_DEPOSITO_TC = ['DINERS', 'COMPAÑIA PERU', 'PROCESOS DE ME', 'COMPAÑIA DE SE'];
+// "R201...DINERS CLUB PERU", "...ABONO VISANET...").
+const CONCEPTO_DEPOSITO_TC = ['DINERS', 'COMPAÑIA PERU', 'PROCESOS DE ME', 'COMPAÑIA DE SE', 'ABONO VISANET'];
 
 // ─── GET /check6 — Depositos de operadores de TC: Q TC vs EECC (por dia) ─
 // Q TC: total de DEPOSITO agrupado por FECHA DEPOSITO. EECC: total de movimientos positivos
@@ -713,55 +713,76 @@ router.get('/check6', async (req, res) => {
     const tcRowsSol = tcRows.filter(t => !esUsdTc(t));
     const tcRowsUsd = tcRows.filter(esUsdTc);
 
-    // Tabla pivote por dia: columnas dinamicas por operador de TC (campo `tc`, ej. AMEX,
-    // NIUBIZ, VISA MC — varia por sociedad) y por categoria de EECC (las 4 subcadenas de
-    // CONCEPTO_DEPOSITO_TC). No se muestra el detalle por movimiento, solo totales por dia.
     const categoriaDe = concepto => {
       const c = (concepto || '').toUpperCase();
       return CONCEPTO_DEPOSITO_TC.find(s => c.includes(s)) || null;
     };
 
+    // Agrupacion fija: cada operador de TC (campo `tc`) se empareja con la(s) categoria(s)
+    // de EECC que le corresponden segun el operador bancario real detras de cada marca.
+    // Un operador/categoria que no aparezca aqui cae en el grupo "OTROS" (catch-all) para
+    // no perder datos si aparece un valor nuevo o distinto en otra sociedad.
+    const GRUPOS_CHECK6 = [
+      { label: 'DINERS NIUBIZ / DINERS', tc: ['DINERS NIUBIZ'], eecc: ['DINERS'] },
+      { label: 'AMEX / COMPAÑIA DE SE', tc: ['AMEX'], eecc: ['COMPAÑIA DE SE'] },
+      { label: 'NIUBIZ / COMPAÑIA PERU + ABONO VISANET', tc: ['NIUBIZ'], eecc: ['COMPAÑIA PERU', 'ABONO VISANET'] },
+      { label: 'ALIMENTACION + CMD DINERS + VISA MC / PROCESOS DE ME', tc: ['ALIMENTACION', 'CMD DINERS', 'VISA MC'], eecc: ['PROCESOS DE ME'] },
+    ];
+
     function compararPorDia(eeccRows, tcRowsCcy) {
-      const operadoresSet = new Set();
-      const tcPivot  = {}; // fecha -> operador -> suma
-      const tcPorDia = {}; // fecha -> total
+      const gruposDef = [...GRUPOS_CHECK6, { label: 'OTROS', tc: [], eecc: [] }];
+      const OTROS_IDX = gruposDef.length - 1;
+      const grupoDeOperador = op => {
+        const i = GRUPOS_CHECK6.findIndex(g => g.tc.includes(op));
+        return i === -1 ? OTROS_IDX : i;
+      };
+      const grupoDeCategoria = cat => {
+        const i = GRUPOS_CHECK6.findIndex(g => g.eecc.includes(cat));
+        return i === -1 ? OTROS_IDX : i;
+      };
+
+      const tcPorDiaGrupo = {};   // fecha -> [suma por grupo]
+      const tcPorDia = {};        // fecha -> total
       tcRowsCcy.forEach(t => {
         const k  = ymd(t.fechaDeposito);
         const op = (t.tc || '').trim() || '(sin operador)';
-        operadoresSet.add(op);
-        if (!tcPivot[k]) tcPivot[k] = {};
-        tcPivot[k][op] = (tcPivot[k][op] || 0) + (t.deposito || 0);
+        if (!tcPorDiaGrupo[k]) tcPorDiaGrupo[k] = gruposDef.map(() => 0);
+        tcPorDiaGrupo[k][grupoDeOperador(op)] += (t.deposito || 0);
         tcPorDia[k] = (tcPorDia[k] || 0) + (t.deposito || 0);
       });
 
-      const categoriasSet = new Set();
-      const eeccPivot  = {}; // fecha -> categoria -> suma
+      const eeccPorDiaGrupo = {};
       const eeccPorDia = {};
       eeccRows.forEach(e => {
         if (!(e.importe > 0)) return;
         const cat = categoriaDe(e.concepto);
         if (!cat) return;
         const k = ymd(e.fechaOperacion);
-        categoriasSet.add(cat);
-        if (!eeccPivot[k]) eeccPivot[k] = {};
-        eeccPivot[k][cat] = (eeccPivot[k][cat] || 0) + e.importe;
+        if (!eeccPorDiaGrupo[k]) eeccPorDiaGrupo[k] = gruposDef.map(() => 0);
+        eeccPorDiaGrupo[k][grupoDeCategoria(cat)] += e.importe;
         eeccPorDia[k] = (eeccPorDia[k] || 0) + e.importe;
       });
 
-      const operadores = [...operadoresSet].sort();
-      const categorias  = [...categoriasSet].sort();
+      // El grupo OTROS solo se muestra si realmente tiene movimientos en el rango.
+      const otrosTieneDatos = Object.values(tcPorDiaGrupo).some(arr => arr[OTROS_IDX])
+        || Object.values(eeccPorDiaGrupo).some(arr => arr[OTROS_IDX]);
+      const gruposUsados = otrosTieneDatos ? gruposDef : gruposDef.slice(0, -1);
+
       const dias = new Set([...Object.keys(tcPorDia), ...Object.keys(eeccPorDia)]);
       const filas = [...dias].sort().map(fecha => {
         const tc   = tcPorDia[fecha] || 0;
         const eecc = eeccPorDia[fecha] || 0;
         const diferencia = tc - eecc;
+        const tcArr   = tcPorDiaGrupo[fecha]   || gruposDef.map(() => 0);
+        const eeccArr = eeccPorDiaGrupo[fecha] || gruposDef.map(() => 0);
         return {
           fecha, tc, eecc, diferencia, ok: Math.abs(diferencia) < TOL,
-          tcPorOperador:    operadores.map(op  => (tcPivot[fecha]  || {})[op]  || 0),
-          eeccPorCategoria: categorias.map(cat => (eeccPivot[fecha] || {})[cat] || 0),
+          grupos: gruposUsados.map((g, i) => ({
+            tc: tcArr[i], eecc: eeccArr[i], diferencia: tcArr[i] - eeccArr[i],
+          })),
         };
       });
-      return { filas, operadores, categorias };
+      return { filas, grupos: gruposUsados.map(g => g.label) };
     }
 
     res.json({
