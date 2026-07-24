@@ -11769,23 +11769,31 @@ async function viewConciliacion(container) {
         return `<table style="width:auto;border-collapse:collapse">
           <thead><tr style="background:#f8fafc;color:var(--text-muted)">
             <th style="padding:4px 8px;text-align:left;font-size:11px" rowspan="2">Mes</th>
-            ${operadores.map(op => `<th colspan="2" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)" title="${esc(op)}">${esc(op)}</th>`).join('')}
-            <th colspan="2" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>
+            ${operadores.map(op => `<th colspan="4" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border)" title="${esc(op)}">${esc(op)}</th>`).join('')}
+            <th colspan="4" style="padding:2px 6px;text-align:center;font-size:10px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>
           </tr>
           <tr style="background:#f8fafc;color:var(--text-muted)">
             ${operadores.map(() => `
-              <th style="${cwG};border-left:1px solid var(--border)">% Com.</th>
+              <th style="${cwG};border-left:1px solid var(--border)">Venta</th>
+              <th style="${cwG}">Comisión</th>
+              <th style="${cwG}">% Com.</th>
               <th style="${cwG}">% IGV</th>`).join('')}
-            <th style="${cwG};border-left:1px solid var(--border)">% Com.</th>
+            <th style="${cwG};border-left:1px solid var(--border)">Venta</th>
+            <th style="${cwG}">Comisión</th>
+            <th style="${cwG}">% Com.</th>
             <th style="${cwG}">% IGV</th>
           </tr></thead>
           <tbody>${filas.map(f => `
             <tr>
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(f.mes)}</td>
               ${f.porOperador.map((o,i) => `
-                <td style="${cwG}${i===0?';border-left:1px solid var(--border)':''};color:${o.venta?'inherit':'var(--text-muted)'}" title="Comisión ${fmt(o.comisionTotal)} / Venta ${fmt(o.venta)}">${fmtPct(o.comisionPct)}</td>
+                <td style="${cwG}${i===0?';border-left:1px solid var(--border)':''};color:${o.venta?'inherit':'var(--text-muted)'}">${o.venta?fmt(o.venta):'—'}</td>
+                <td style="${cwG};color:${o.comisionTotal?'inherit':'var(--text-muted)'}">${o.comisionTotal?fmt(o.comisionTotal):'—'}</td>
+                <td style="${cwG};color:${o.venta?'inherit':'var(--text-muted)'}" title="Comisión ${fmt(o.comisionTotal)} / Venta ${fmt(o.venta)}">${fmtPct(o.comisionPct)}</td>
                 <td style="${cwG};color:${o.comisionTotal?'inherit':'var(--text-muted)'}" title="IGV ${fmt(o.igvComision)} / Comisión ${fmt(o.comisionTotal)}">${fmtPct(o.igvPct)}</td>`).join('')}
-              <td style="${cwG};border-left:1px solid var(--border);font-weight:700">${fmtPct(f.total.comisionPct)}</td>
+              <td style="${cwG};border-left:1px solid var(--border);font-weight:700">${fmt(f.total.venta)}</td>
+              <td style="${cwG};font-weight:700">${fmt(f.total.comisionTotal)}</td>
+              <td style="${cwG};font-weight:700">${fmtPct(f.total.comisionPct)}</td>
               <td style="${cwG};font-weight:700">${fmtPct(f.total.igvPct)}</td>
             </tr>`).join('')}
           </tbody></table>`;
