@@ -11733,14 +11733,17 @@ async function viewConciliacion(container) {
               <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(d.fecha)}</td>
               ${d.grupos.map((g,i) => {
                 const detId = `cc6-det-${idPrefix}-${d.fecha}-${i}`;
+                const arrId = `cc6-arr-${idPrefix}-${d.fecha}-${i}`;
                 const tieneDetalle = (g.movimientosTc?.length||0) + (g.movimientosEecc?.length||0) > 0;
-                const toggle = tieneDetalle
-                  ? ` onclick="const el=document.getElementById('${detId}');el.style.display=el.style.display==='none'?'':'none';this.querySelector('.cc6-arr').textContent=el.style.display==='none'?'▸':'▾';" style="cursor:pointer" title="Ver desglose"`
+                const onclickAttr = tieneDetalle
+                  ? ` onclick="const el=document.getElementById('${detId}');const arr=document.getElementById('${arrId}');const open=el.style.display!=='none';el.style.display=open?'none':'';if(arr)arr.textContent=open?'▸':'▾';" title="Ver desglose"`
                   : '';
+                const cursorStyle = tieneDetalle ? ';cursor:pointer' : '';
+                const arrow = tieneDetalle ? `<span id="${arrId}" style="font-size:12px;font-weight:700;color:#2563eb">▸</span> ` : '';
                 return `
-                <td style="${cwG};border-left:1px solid var(--border);color:${g.tc?'inherit':'var(--text-muted)'}"${toggle}>${tieneDetalle?`<span class="cc6-arr" style="font-size:8px;color:#94a3b8">▸</span> `:''}${g.tc?fmt(g.tc):'—'}</td>
-                <td style="${cwG};color:${g.eecc?'inherit':'var(--text-muted)'}"${toggle}>${g.eecc?fmt(g.eecc):'—'}</td>
-                <td style="${cwG};${g.diferencia<=-1?'color:#dc2626':(Math.abs(g.diferencia)<1?'color:var(--text-muted)':'')}"${toggle}>${fmtSigned(g.diferencia)}</td>`;
+                <td style="${cwG};border-left:1px solid var(--border)${cursorStyle};color:${g.tc?'inherit':'var(--text-muted)'}"${onclickAttr}>${arrow}${g.tc?fmt(g.tc):'—'}</td>
+                <td style="${cwG}${cursorStyle};color:${g.eecc?'inherit':'var(--text-muted)'}"${onclickAttr}>${g.eecc?fmt(g.eecc):'—'}</td>
+                <td style="${cwG}${cursorStyle};${g.diferencia<=-1?'color:#dc2626':(Math.abs(g.diferencia)<1?'color:var(--text-muted)':'')}"${onclickAttr}>${fmtSigned(g.diferencia)}</td>`;
               }).join('')}
               <td style="${cw3};text-align:right;border-left:1px solid var(--border);font-weight:700;${d.diferencia<=-1?'color:#dc2626':''}">${fmtSigned(d.diferencia)}</td>
               <td style="padding:4px 4px;text-align:center">${badge(d.ok)}</td>

@@ -390,8 +390,9 @@ AUTORIZACION, MONEDA`.
   movimientos — evita columnas vacías si otra sociedad usa exactamente estos mismos nombres).
   Cada fila (`filas`) trae `grupos: [{tc, eecc, diferencia, movimientosTc, movimientosEecc}, ...]`
   paralelo a la lista de labels devuelta en `grupos` (nivel raíz de la respuesta), más
-  `tc`/`eecc`/`diferencia` totales del día (todos los grupos juntos) — el frontend muestra
-  TC/EECC/Diferencia por grupo y la diferencia total a la derecha de todo. Las diferencias
+  `tc`/`eecc`/`diferencia` totales del día (todos los grupos juntos) — `diferencia = EECC - TC`
+  (no al revés). El frontend muestra TC/EECC/Diferencia por grupo y la diferencia total a la
+  derecha de todo. Las diferencias
   positivas se muestran en negro, solo las negativas (`≤ -1`) en rojo. Cada celda de grupo con
   movimientos es desplegable (▸/▾) y muestra el desglose (`movimientosTc`/`movimientosEecc`) en
   una fila aparte debajo, sin necesidad de re-consultar el backend.

@@ -781,13 +781,13 @@ router.get('/check6', async (req, res) => {
       const filas = [...dias].sort().map(fecha => {
         const tc   = tcPorDia[fecha] || 0;
         const eecc = eeccPorDia[fecha] || 0;
-        const diferencia = tc - eecc;
+        const diferencia = eecc - tc;
         const tcArr   = tcPorDiaGrupo[fecha]   || vacio();
         const eeccArr = eeccPorDiaGrupo[fecha] || vacio();
         return {
           fecha, tc, eecc, diferencia, ok: Math.abs(diferencia) < TOL,
           grupos: gruposUsados.map((g, i) => ({
-            tc: tcArr[i].suma, eecc: eeccArr[i].suma, diferencia: tcArr[i].suma - eeccArr[i].suma,
+            tc: tcArr[i].suma, eecc: eeccArr[i].suma, diferencia: eeccArr[i].suma - tcArr[i].suma,
             movimientosTc: tcArr[i].movs, movimientosEecc: eeccArr[i].movs,
           })),
         };
