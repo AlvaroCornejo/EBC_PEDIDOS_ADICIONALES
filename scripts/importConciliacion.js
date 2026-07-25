@@ -8,6 +8,7 @@ const EeccMovimiento     = require('../models/EeccMovimiento');
 const CobranzaErp        = require('../models/CobranzaErp');
 const CajaDiaria          = require('../models/CajaDiaria');
 const TcMovimiento        = require('../models/TcMovimiento');
+const TcEquivalencia      = require('../models/TcEquivalencia');
 
 const BATCH = 2000;
 const str = v => (v == null ? '' : String(v).trim());
@@ -275,6 +276,50 @@ async function importTC(sociedad, filePaths) {
   if (rows.length) await insertBatched(TcMovimiento, rows, `TC movimientos (${paths.length} archivo${paths.length>1?'s':''})`);
 }
 
+// Hoja "PARAMETROS", sección "1. EQUIVALENCIA PARA CONCILIACION DEPOSITO TC": una tabla
+// con columnas TC / EECC (cabecera detectada por texto, no por posición fija) que indica
+// qué operador de TC liquida contra qué categoría de descripción del EECC. Un operador
+// puede tener varias filas (ej. NIUBIZ -> COMPAÑIA PERU y NIUBIZ -> ABONO VISANET).
+async function leerEquivalenciaTC(filePath) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(filePath);
+  const sh = wb.getWorksheet('PARAMETROS');
+  if (!sh) return [];
+
+  const pares = [];
+  let headerRow = null;
+  sh.eachRow({ includeEmpty: false }, (row, rowNum) => {
+    const b = str(row.getCell(2).value).toUpperCase();
+    const c = str(row.getCell(3).value).toUpperCase();
+    if (b === 'TC' && c === 'EECC') { headerRow = rowNum; return; }
+    if (headerRow && rowNum > headerRow) {
+      const tc   = str(row.getCell(2).value);
+      const eecc = str(row.getCell(3).value);
+      if (tc && eecc) pares.push({ tc, eecc });
+    }
+  });
+  return pares;
+}
+
+async function importEquivalenciaTC(sociedad, filePaths) {
+  const paths = (Array.isArray(filePaths) ? filePaths : [filePaths]).filter(Boolean);
+  await TcEquivalencia.deleteMany({ sociedad });
+  if (!paths.length) return;
+
+  let pares = [];
+  for (const p of paths) pares = pares.concat(await leerEquivalenciaTC(p));
+
+  const vistos = new Set();
+  const rows = [];
+  pares.forEach(({ tc, eecc }) => {
+    const k = `${tc}||${eecc}`;
+    if (vistos.has(k)) return;
+    vistos.add(k);
+    rows.push({ sociedad, tc, eecc });
+  });
+  if (rows.length) await insertBatched(TcEquivalencia, rows, `Equivalencia TC (${paths.length} archivo${paths.length>1?'s':''})`);
+}
+
 (async () => {
   await mongoose.connect(process.env.MONGODB_URI);
 
@@ -291,6 +336,7 @@ async function importTC(sociedad, filePaths) {
       await importEECC(cfg.sociedad, cfg.rutaEECC);
       await importCobranza(cfg.sociedad, cfg.rutaCobranza);
       await importTC(cfg.sociedad, cfg.rutaTC);
+      await importEquivalenciaTC(cfg.sociedad, cfg.rutaTC);
     } catch (e) {
       console.error(`  ✗ Error en ${cfg.sociedad}: ${e.message}`);
     }

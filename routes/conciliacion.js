@@ -7,6 +7,7 @@ const CajaDiaria         = require('../models/CajaDiaria');
 const TcMovimiento       = require('../models/TcMovimiento');
 const ConciliacionManualTC = require('../models/ConciliacionManualTC');
 const ConciliacionExclusionEECC = require('../models/ConciliacionExclusionEECC');
+const TcEquivalencia = require('../models/TcEquivalencia');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -684,12 +685,59 @@ router.delete('/eecc-excluir/:id', async (req, res) => {
 // Descripciones EECC que corresponden a depositos de operadores de TC (no hay un concepto
 // unico/exacto; se identifican por estas subcadenas dentro del Concepto, confirmado con datos
 // reales: "R204...PROCESOS DE MEDI", "R204...COMPAÑIA DE SERV", "R203...COMPAÑIA PERUANA",
-// "R201...DINERS CLUB PERU", "...ABONO VISANET...").
-const CONCEPTO_DEPOSITO_TC = ['DINERS', 'COMPAÑIA PERU', 'PROCESOS DE ME', 'COMPAÑIA DE SE', 'ABONO VISANET'];
+// "R201...DINERS CLUB PERU", "...ABONO VISANET..."). Se usa como FALLBACK cuando la sociedad
+// aun no tiene la tabla de equivalencia (TcEquivalencia) importada desde su archivo Q TC.
+const CONCEPTO_DEPOSITO_TC_FALLBACK = ['DINERS', 'COMPAÑIA PERU', 'PROCESOS DE ME', 'COMPAÑIA DE SE', 'ABONO VISANET'];
+
+// Agrupacion FALLBACK (misma logica que antes de existir TcEquivalencia), usada solo si la
+// sociedad no tiene aun la tabla de equivalencia importada desde la hoja PARAMETROS de su
+// archivo Q TC.xlsx.
+const GRUPOS_CHECK6_FALLBACK = [
+  { label: 'DINERS NIUBIZ / DINERS', tc: ['DINERS NIUBIZ'], eecc: ['DINERS'] },
+  { label: 'AMEX / COMPAÑIA DE SE', tc: ['AMEX'], eecc: ['COMPAÑIA DE SE'] },
+  { label: 'NIUBIZ / COMPAÑIA PERU + ABONO VISANET', tc: ['NIUBIZ'], eecc: ['COMPAÑIA PERU', 'ABONO VISANET'] },
+  { label: 'ALIMENTACION + CMD DINERS + VISA MC / PROCESOS DE ME', tc: ['ALIMENTACION', 'CMD DINERS', 'VISA MC'], eecc: ['PROCESOS DE ME'] },
+];
+
+// Construye los grupos de check6 a partir de la tabla de equivalencia real (TcEquivalencia,
+// pares TC<->EECC importados de la hoja PARAMETROS de Q TC.xlsx). Un operador de TC puede
+// mapear a varias categorias EECC y viceversa (ej. NIUBIZ->COMPAÑIA PERU y NIUBIZ->ABONO
+// VISANET, VISA MC->ABONO VISANET) — se arman componentes conexas (union-find) sobre esos
+// pares para que todo lo que este conectado transitivamente termine en el mismo grupo.
+function construirGruposCheck6(equivRows) {
+  if (!equivRows.length) return GRUPOS_CHECK6_FALLBACK;
+
+  const parent = {};
+  const find = x => { while (parent[x] !== x) x = parent[x]; return x; };
+  const nodo = (pref, val) => {
+    const id = `${pref}:${val}`;
+    if (!(id in parent)) parent[id] = id;
+    return id;
+  };
+  const union = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  };
+  equivRows.forEach(({ tc, eecc }) => union(nodo('TC', tc), nodo('EECC', eecc)));
+
+  const grupos = {}; // raiz -> { tc: Set, eecc: Set }
+  Object.keys(parent).forEach(id => {
+    const raiz = find(id);
+    if (!grupos[raiz]) grupos[raiz] = { tc: new Set(), eecc: new Set() };
+    const [pref, val] = [id.slice(0, id.indexOf(':')), id.slice(id.indexOf(':') + 1)];
+    grupos[raiz][pref === 'TC' ? 'tc' : 'eecc'].add(val);
+  });
+
+  return Object.values(grupos).map(g => {
+    const tc = [...g.tc].sort();
+    const eecc = [...g.eecc].sort();
+    return { label: `${tc.join(' + ')} / ${eecc.join(' + ')}`, tc, eecc };
+  }).sort((a, b) => a.label.localeCompare(b.label));
+}
 
 // ─── GET /check6 — Depositos de operadores de TC: Q TC vs EECC (por dia) ─
 // Q TC: total de DEPOSITO agrupado por FECHA DEPOSITO. EECC: total de movimientos positivos
-// cuyo Concepto contiene alguna de las subcadenas de CONCEPTO_DEPOSITO_TC, agrupado por dia.
+// cuyo Concepto contiene alguna de las subcadenas de la categoria EECC de la equivalencia.
 router.get('/check6', async (req, res) => {
   try {
     if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
@@ -706,6 +754,12 @@ router.get('/check6', async (req, res) => {
     const eeccSol = await EeccMovimiento.find({ sociedad, moneda: 'SOL', fechaOperacion: { $gte: fechaDesde, $lte: fechaHasta } });
     const eeccUsd = await EeccMovimiento.find({ sociedad, moneda: 'USD', fechaOperacion: { $gte: fechaDesde, $lte: fechaHasta } });
 
+    const equivRows = await TcEquivalencia.find({ sociedad }).lean();
+    const GRUPOS_CHECK6 = construirGruposCheck6(equivRows);
+    const CONCEPTO_DEPOSITO_TC = equivRows.length
+      ? [...new Set(equivRows.map(r => r.eecc))]
+      : CONCEPTO_DEPOSITO_TC_FALLBACK;
+
     // Q TC casi no trae MONEDA poblada (en blanco = Soles por defecto); solo se cuenta como
     // USD cuando dice explicitamente "dolar". Se separa asi para no comparar el total de TC
     // (que es ~100% soles) contra el lado de dolares y marcar error en todos los dias.
@@ -715,19 +769,8 @@ router.get('/check6', async (req, res) => {
 
     const categoriaDe = concepto => {
       const c = (concepto || '').toUpperCase();
-      return CONCEPTO_DEPOSITO_TC.find(s => c.includes(s)) || null;
+      return CONCEPTO_DEPOSITO_TC.find(s => c.includes(s.toUpperCase())) || null;
     };
-
-    // Agrupacion fija: cada operador de TC (campo `tc`) se empareja con la(s) categoria(s)
-    // de EECC que le corresponden segun el operador bancario real detras de cada marca.
-    // Un operador/categoria que no aparezca aqui cae en el grupo "OTROS" (catch-all) para
-    // no perder datos si aparece un valor nuevo o distinto en otra sociedad.
-    const GRUPOS_CHECK6 = [
-      { label: 'DINERS NIUBIZ / DINERS', tc: ['DINERS NIUBIZ'], eecc: ['DINERS'] },
-      { label: 'AMEX / COMPAÑIA DE SE', tc: ['AMEX'], eecc: ['COMPAÑIA DE SE'] },
-      { label: 'NIUBIZ / COMPAÑIA PERU + ABONO VISANET', tc: ['NIUBIZ'], eecc: ['COMPAÑIA PERU', 'ABONO VISANET'] },
-      { label: 'ALIMENTACION + CMD DINERS + VISA MC / PROCESOS DE ME', tc: ['ALIMENTACION', 'CMD DINERS', 'VISA MC'], eecc: ['PROCESOS DE ME'] },
-    ];
 
     function compararPorDia(eeccRows, tcRowsCcy) {
       const gruposDef = [...GRUPOS_CHECK6, { label: 'OTROS', tc: [], eecc: [] }];
