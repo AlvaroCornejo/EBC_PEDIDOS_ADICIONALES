@@ -11762,6 +11762,11 @@ async function viewConciliacion(container) {
 
       // ── Sección 7: % Comisión y % IGV de TC — por mes y operador ──────
       function fmtPct(v) { return v === null || v === undefined ? '—' : `${v.toFixed(2)}%`; }
+      function pctComChip(v) {
+        if (v === null || v === undefined) return `<span style="color:var(--text-muted)">—</span>`;
+        return `<span style="display:inline-block;min-width:52px;padding:2px 6px;border-radius:4px;
+                     font-size:12px;font-weight:700;color:#1d4ed8;background:#dbeafe">${v.toFixed(2)}%</span>`;
+      }
       function tablaComisionTC(data) {
         const { operadores, filas } = data;
         if (!filas.length) return '<p class="text-muted" style="padding:8px 14px;font-size:12px">Sin movimientos en el rango.</p>';
@@ -11789,11 +11794,11 @@ async function viewConciliacion(container) {
               ${f.porOperador.map((o,i) => `
                 <td style="${cwG}${i===0?';border-left:1px solid var(--border)':''};color:${o.venta?'inherit':'var(--text-muted)'}">${o.venta?fmt(o.venta):'—'}</td>
                 <td style="${cwG};color:${o.comisionTotal?'inherit':'var(--text-muted)'}">${o.comisionTotal?fmt(o.comisionTotal):'—'}</td>
-                <td style="${cwG};color:${o.venta?'inherit':'var(--text-muted)'}" title="Comisión ${fmt(o.comisionTotal)} / Venta ${fmt(o.venta)}">${fmtPct(o.comisionPct)}</td>
+                <td style="${cwG}" title="Comisión ${fmt(o.comisionTotal)} / Venta ${fmt(o.venta)}">${pctComChip(o.comisionPct)}</td>
                 <td style="${cwG};color:${o.comisionTotal?'inherit':'var(--text-muted)'}" title="IGV ${fmt(o.igvComision)} / Comisión ${fmt(o.comisionTotal)}">${fmtPct(o.igvPct)}</td>`).join('')}
               <td style="${cwG};border-left:1px solid var(--border);font-weight:700">${fmt(f.total.venta)}</td>
               <td style="${cwG};font-weight:700">${fmt(f.total.comisionTotal)}</td>
-              <td style="${cwG};font-weight:700">${fmtPct(f.total.comisionPct)}</td>
+              <td style="${cwG}">${pctComChip(f.total.comisionPct)}</td>
               <td style="${cwG};font-weight:700">${fmtPct(f.total.igvPct)}</td>
             </tr>`).join('')}
           </tbody></table>`;

@@ -215,7 +215,9 @@ async function importCobranza(sociedad, filePaths) {
 async function leerTC(filePath) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
-  const sh = wb.getWorksheet('Q TC TODAS');
+  // El nombre de la hoja varia por sociedad ("Q TC TODAS", "TC TODAS", etc.) — se busca
+  // cualquier hoja cuyo nombre contenga "TC TODAS" en vez de exigir un nombre exacto.
+  const sh = wb.worksheets.find(w => (w.name || '').trim().toUpperCase().includes('TC TODAS'));
   if (!sh) return [];
 
   const col = headerMap(sh);
