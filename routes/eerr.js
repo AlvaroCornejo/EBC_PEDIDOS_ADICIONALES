@@ -241,8 +241,79 @@ router.get('/detalle', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /detalle-op — detalle adicional (fuente: EBC EERR COSTO VENTA.xlsx) por NOMBRE OP
-// Query: grupo(s), periodoDesde, periodoHasta, unidades (csv)
+// Agrega CostoVenta por una llave (nombreOp o nombreItem) x columna (sede/año/mes),
+// igual que /detalle pero sobre la colección CostoVenta. El signo se respeta tal cual
+// viene del archivo fuente (no se invierte).
+async function aggCostoVenta(match, cols, keyField, keyLabel) {
+  let columnas, datos;
+
+  if (cols === 'operacion') {
+    const agg = await CostoVenta.aggregate([
+      { $match: match },
+      { $group: { _id: { key: `$${keyField}`, sede: '$sede' }, soles: { $sum: '$soles' } } },
+      { $sort: { '_id.sede': 1 } },
+    ]);
+    const colSet = new Set();
+    agg.forEach(r => colSet.add(r._id.sede));
+    columnas = [...colSet].sort();
+    const map = {};
+    agg.forEach(r => {
+      const k = r._id.key || `(sin ${keyLabel})`;
+      if (!map[k]) map[k] = {};
+      map[k][r._id.sede] = (map[k][r._id.sede] || 0) + r.soles;
+    });
+    datos = Object.entries(map).map(([k, vals]) => ({ [keyLabel]: k, ...vals }));
+
+  } else if (cols === 'anio') {
+    const agg = await CostoVenta.aggregate([
+      { $match: match },
+      { $group: { _id: { key: `$${keyField}`, anio: { $floor: { $divide: ['$periodo', 100] } } }, soles: { $sum: '$soles' } } },
+      { $sort: { '_id.anio': 1 } },
+    ]);
+    const anioSet = new Set();
+    agg.forEach(r => anioSet.add(r._id.anio));
+    columnas = [...anioSet].sort().map(String);
+    const map = {};
+    agg.forEach(r => {
+      const k = r._id.key || `(sin ${keyLabel})`;
+      if (!map[k]) map[k] = {};
+      const c = String(r._id.anio);
+      map[k][c] = (map[k][c] || 0) + r.soles;
+    });
+    datos = Object.entries(map).map(([k, vals]) => ({ [keyLabel]: k, ...vals }));
+
+  } else {
+    // mes
+    const agg = await CostoVenta.aggregate([
+      { $match: match },
+      { $group: { _id: { key: `$${keyField}`, periodo: '$periodo' }, soles: { $sum: '$soles' } } },
+      { $sort: { '_id.periodo': 1 } },
+    ]);
+    const periodoSet = new Set();
+    agg.forEach(r => periodoSet.add(String(r._id.periodo)));
+    columnas = [...periodoSet].sort();
+    const map = {};
+    agg.forEach(r => {
+      const k = r._id.key || `(sin ${keyLabel})`;
+      if (!map[k]) map[k] = {};
+      const c = String(r._id.periodo);
+      map[k][c] = (map[k][c] || 0) + r.soles;
+    });
+    datos = Object.entries(map).map(([k, vals]) => ({ [keyLabel]: k, ...vals }));
+  }
+
+  datos.sort((a, b) => {
+    const ta = columnas.reduce((s, c) => s + Math.abs(a[c] || 0), 0);
+    const tb = columnas.reduce((s, c) => s + Math.abs(b[c] || 0), 0);
+    return tb - ta;
+  });
+
+  return { columnas, datos };
+}
+
+// GET /detalle-op — detalle adicional (fuente: EBC EERR COSTO VENTA.xlsx) por NOMBRE OP,
+// con columnas por sede/año/mes según "cols" (igual que /detalle)
+// Query: grupo(s), periodoDesde, periodoHasta, unidades (csv), cols (operacion|anio|mes)
 router.get('/detalle-op', async (req, res) => {
   try {
     if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
@@ -255,6 +326,7 @@ router.get('/detalle-op', async (req, res) => {
 
     const periodoDesde = parseInt(req.query.periodoDesde) || 0;
     const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
+    const cols = ['anio','mes'].includes(req.query.cols) ? req.query.cols : 'operacion';
 
     const sedesReq = req.query.unidades
       ? req.query.unidades.split(',').map(u => u.trim()).filter(Boolean)
@@ -269,19 +341,14 @@ router.get('/detalle-op', async (req, res) => {
       sede: { $in: sedes },
     };
 
-    const agg = await CostoVenta.aggregate([
-      { $match: match },
-      { $group: { _id: '$nombreOp', soles: { $sum: '$soles' } } },
-      { $sort: { soles: -1 } },
-    ]);
-
-    // Signo invertido para calzar con la convención de EEFF (costo se muestra negativo)
-    res.json(agg.map(r => ({ nombreOp: r._id || '(sin operación)', soles: -(r.soles || 0) })));
+    const { columnas, datos } = await aggCostoVenta(match, cols, 'nombreOp', 'nombreOp');
+    res.json({ columnas, datos });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // GET /detalle-item — detalle adicional (fuente: EBC EERR COSTO VENTA.xlsx) por NOMBRE ITEM
-// dentro de un NOMBRE OP específico. Query: grupo(s), nombreOp, periodoDesde, periodoHasta, unidades (csv)
+// dentro de un NOMBRE OP específico, con columnas por sede/año/mes.
+// Query: grupo(s), nombreOp, periodoDesde, periodoHasta, unidades (csv), cols (operacion|anio|mes)
 router.get('/detalle-item', async (req, res) => {
   try {
     if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
@@ -296,6 +363,7 @@ router.get('/detalle-item', async (req, res) => {
 
     const periodoDesde = parseInt(req.query.periodoDesde) || 0;
     const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
+    const cols = ['anio','mes'].includes(req.query.cols) ? req.query.cols : 'operacion';
 
     const sedesReq = req.query.unidades
       ? req.query.unidades.split(',').map(u => u.trim()).filter(Boolean)
@@ -311,13 +379,8 @@ router.get('/detalle-item', async (req, res) => {
       sede: { $in: sedes },
     };
 
-    const agg = await CostoVenta.aggregate([
-      { $match: match },
-      { $group: { _id: '$nombreItem', soles: { $sum: '$soles' } } },
-      { $sort: { soles: -1 } },
-    ]);
-
-    res.json(agg.map(r => ({ nombreItem: r._id || '(sin ítem)', soles: -(r.soles || 0) })));
+    const { columnas, datos } = await aggCostoVenta(match, cols, 'nombreItem', 'nombreItem');
+    res.json({ columnas, datos });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
