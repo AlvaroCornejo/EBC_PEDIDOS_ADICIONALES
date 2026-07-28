@@ -1,6 +1,7 @@
 const express = require('express');
 const authMiddleware = require('../middleware/auth');
 const Eerr = require('../models/Eerr');
+const CostoVenta = require('../models/CostoVenta');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -237,6 +238,86 @@ router.get('/detalle', async (req, res) => {
     }
 
     res.json({ columnas, datos });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /detalle-op — detalle adicional (fuente: EBC EERR COSTO VENTA.xlsx) por NOMBRE OP
+// Query: grupo(s), periodoDesde, periodoHasta, unidades (csv)
+router.get('/detalle-op', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+
+    const grupoList = req.query.grupos
+      ? req.query.grupos.split(',').map(g => g.trim()).filter(Boolean)
+      : req.query.grupo ? [req.query.grupo] : [];
+    if (!grupoList.length) return res.status(400).json({ error: 'Falta grupo' });
+    const grupoFilter = grupoList.length === 1 ? grupoList[0] : { $in: grupoList };
+
+    const periodoDesde = parseInt(req.query.periodoDesde) || 0;
+    const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
+
+    const sedesReq = req.query.unidades
+      ? req.query.unidades.split(',').map(u => u.trim()).filter(Boolean)
+      : [];
+    const sedes = req.user.role === 'ADMIN'
+      ? sedesReq
+      : (req.user.operations || []).filter(u => sedesReq.includes(u));
+
+    const match = {
+      grupo: grupoFilter,
+      periodo: { $gte: periodoDesde, $lte: periodoHasta },
+      sede: { $in: sedes },
+    };
+
+    const agg = await CostoVenta.aggregate([
+      { $match: match },
+      { $group: { _id: '$nombreOp', soles: { $sum: '$soles' } } },
+      { $sort: { soles: -1 } },
+    ]);
+
+    // Signo invertido para calzar con la convención de EEFF (costo se muestra negativo)
+    res.json(agg.map(r => ({ nombreOp: r._id || '(sin operación)', soles: -(r.soles || 0) })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /detalle-item — detalle adicional (fuente: EBC EERR COSTO VENTA.xlsx) por NOMBRE ITEM
+// dentro de un NOMBRE OP específico. Query: grupo(s), nombreOp, periodoDesde, periodoHasta, unidades (csv)
+router.get('/detalle-item', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+
+    const grupoList = req.query.grupos
+      ? req.query.grupos.split(',').map(g => g.trim()).filter(Boolean)
+      : req.query.grupo ? [req.query.grupo] : [];
+    if (!grupoList.length) return res.status(400).json({ error: 'Falta grupo' });
+    const grupoFilter = grupoList.length === 1 ? grupoList[0] : { $in: grupoList };
+
+    if (!req.query.nombreOp) return res.status(400).json({ error: 'Falta nombreOp' });
+
+    const periodoDesde = parseInt(req.query.periodoDesde) || 0;
+    const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
+
+    const sedesReq = req.query.unidades
+      ? req.query.unidades.split(',').map(u => u.trim()).filter(Boolean)
+      : [];
+    const sedes = req.user.role === 'ADMIN'
+      ? sedesReq
+      : (req.user.operations || []).filter(u => sedesReq.includes(u));
+
+    const match = {
+      grupo: grupoFilter,
+      nombreOp: req.query.nombreOp,
+      periodo: { $gte: periodoDesde, $lte: periodoHasta },
+      sede: { $in: sedes },
+    };
+
+    const agg = await CostoVenta.aggregate([
+      { $match: match },
+      { $group: { _id: '$nombreItem', soles: { $sum: '$soles' } } },
+      { $sort: { soles: -1 } },
+    ]);
+
+    res.json(agg.map(r => ({ nombreItem: r._id || '(sin ítem)', soles: -(r.soles || 0) })));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -11310,23 +11310,96 @@ async function viewPL(container) {
     try {
       const qs = new URLSearchParams({ grupo, periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
       const data = await GET(`/eerr/detalle?${qs}`);
-      if (!data.datos.length) { container.innerHTML = '<div style="padding:6px 8px;color:var(--text-muted);font-size:12px">Sin detalle</div>'; return; }
-      const colsD = data.columnas;
-      container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0">
-        <thead><tr style="background:var(--bg-page)">
-          <th style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px">Proveedor / Persona</th>
-          ${colsD.map(c=>`<th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:80px">${esc(String(c))}</th>`).join('')}
-          <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:80px">TOTAL</th>
+      if (!data.datos.length) {
+        container.innerHTML = '<div style="padding:6px 8px;color:var(--text-muted);font-size:12px">Sin detalle</div>';
+      } else {
+        const colsD = data.columnas;
+        container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0">
+          <thead><tr style="background:var(--bg-page)">
+            <th style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px">Proveedor / Persona</th>
+            ${colsD.map(c=>`<th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:80px">${esc(String(c))}</th>`).join('')}
+            <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:80px">TOTAL</th>
+          </tr></thead>
+          <tbody>${data.datos.slice(0,100).map(r => {
+            const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
+            return `<tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.persona||'(sin proveedor)')}</td>
+              ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${_plFmtN(r[c])}</td>`).join('')}
+              <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(tot)}</td>
+            </tr>`;
+          }).join('')}
+          ${data.datos.length>100?`<tr><td colspan="${colsD.length+2}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
+          </tbody></table>`;
+      }
+    } catch(e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; return; }
+
+    // Detalle adicional (fuente: EBC EERR COSTO VENTA.xlsx), si existe para este grupo
+    const itemWrap = document.createElement('div');
+    container.appendChild(itemWrap);
+    _plRenderItemOps(itemWrap, grupo);
+  }
+
+  // Detalle adicional nivel 1: por NOMBRE OP (fuente EBC EERR COSTO VENTA.xlsx)
+  async function _plRenderItemOps(container, grupo) {
+    const { periodoDesde, periodoHasta, unidades } = window._plContext || {};
+    try {
+      const qs = new URLSearchParams({ grupo, periodoDesde, periodoHasta, unidades: (unidades||[]).join(',') });
+      const data = await GET(`/eerr/detalle-op?${qs}`);
+      if (!data.length) return; // sin detalle adicional para este grupo
+
+      const header = document.createElement('div');
+      header.style.cssText = 'padding:6px 10px 2px 20px;color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase';
+      header.textContent = 'Detalle adicional por operación / ítem';
+      container.appendChild(header);
+
+      const table = document.createElement('table');
+      table.style.cssText = 'width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0';
+      table.innerHTML = `<thead><tr style="background:var(--bg-page)">
+          <th style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:220px">Operación</th>
+          <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:90px">TOTAL</th>
+        </tr></thead><tbody></tbody>`;
+      const tbody = table.querySelector('tbody');
+
+      data.forEach(r => {
+        const row = document.createElement('tr');
+        row.style.cssText = 'border-bottom:1px solid var(--border);cursor:pointer';
+        row.innerHTML = `
+          <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.nombreOp)}</td>
+          <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(r.soles)}</td>`;
+        const detailRow = document.createElement('tr');
+        detailRow.style.display = 'none';
+        detailRow.innerHTML = `<td colspan="2" style="padding:0 0 4px 20px;background:var(--bg-page)"></td>`;
+        row.addEventListener('click', () => {
+          if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
+          detailRow.style.display = '';
+          _plRenderItemNombres(detailRow.querySelector('td'), grupo, r.nombreOp);
+        });
+        tbody.appendChild(row);
+        tbody.appendChild(detailRow);
+      });
+
+      container.appendChild(table);
+    } catch(e) { /* detalle adicional opcional: no bloquear la vista si falla */ }
+  }
+
+  // Detalle adicional nivel 2: por NOMBRE ITEM dentro de un NOMBRE OP
+  async function _plRenderItemNombres(container, grupo, nombreOp) {
+    container.innerHTML = '<div style="padding:6px;color:var(--text-muted);font-size:12px">⏳ Cargando...</div>';
+    const { periodoDesde, periodoHasta, unidades } = window._plContext || {};
+    try {
+      const qs = new URLSearchParams({ grupo, nombreOp, periodoDesde, periodoHasta, unidades: (unidades||[]).join(',') });
+      const data = await GET(`/eerr/detalle-item?${qs}`);
+      if (!data.length) { container.innerHTML = '<div style="padding:3px 10px 3px 20px;color:var(--text-muted);font-size:11px">Sin detalle</div>'; return; }
+      container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0">
+        <thead><tr style="background:var(--bg-card)">
+          <th style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:220px">Ítem</th>
+          <th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:90px">TOTAL</th>
         </tr></thead>
-        <tbody>${data.datos.slice(0,100).map(r => {
-          const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
-          return `<tr style="border-bottom:1px solid var(--border)">
-            <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.persona||'(sin proveedor)')}</td>
-            ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${_plFmtN(r[c])}</td>`).join('')}
-            <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(tot)}</td>
-          </tr>`;
-        }).join('')}
-        ${data.datos.length>100?`<tr><td colspan="${colsD.length+2}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
+        <tbody>${data.slice(0,200).map(r => `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.nombreItem)}</td>
+          <td style="text-align:right;padding:3px 8px">${_plFmtN(r.soles)}</td>
+        </tr>`).join('')}
+        ${data.length>200?`<tr><td colspan="2" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.length-200} más</td></tr>`:''}
         </tbody></table>`;
     } catch(e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   }
