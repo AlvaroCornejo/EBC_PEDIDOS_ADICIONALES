@@ -11190,7 +11190,7 @@ async function viewPL(container) {
         }
 
         rowsHtml += `<tr ${dataOnClick} style="${isDrillable?'cursor:pointer':''}">
-          <td style="padding:6px 8px;font-weight:700;font-size:${fsize};white-space:nowrap;min-width:220px;max-width:280px;${bgStyle};${textColor}">${esc(label)}</td>
+          <td style="padding:6px 8px;font-weight:700;font-size:${fsize};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${bgStyle};${textColor}">${esc(label)}</td>
           ${rowCells}
         </tr>`;
 
@@ -11242,7 +11242,7 @@ async function viewPL(container) {
         : '';
       const headerHtml = `<thead style="position:sticky;top:0;z-index:10;background:var(--bg-card)">
         <tr>
-          <th style="text-align:left;padding:6px 8px;min-width:220px;max-width:220px;white-space:nowrap">Concepto</th>
+          <th style="text-align:left;padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Concepto</th>
           ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 8px;white-space:nowrap;border-left:1px solid var(--border)">${esc(fmtCol(c))}</th>`).join('')}
           ${showTotal ? `<th colspan="2" style="text-align:center;padding:6px 8px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>` : ''}
           ${extraHeaders}
@@ -11257,7 +11257,8 @@ async function viewPL(container) {
 
       wrap.innerHTML = `
         <div style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 340px)">
-          <table style="width:auto;border-collapse:collapse;font-size:13px;table-layout:auto">
+          <table style="width:auto;border-collapse:collapse;font-size:13px;table-layout:fixed">
+            ${_plColgroup({ colsData, showTotal, multiSede })}
             ${headerHtml}
             <tbody>${rowsHtml}</tbody>
           </table>
@@ -11346,14 +11347,20 @@ async function viewPL(container) {
   }
   // Con table-layout:auto, la columna "S/" se ensancha con números largos y la columna "%"
   // queda angosta — el título de la sede (colspan=2) se ve entonces descentrado respecto al
-  // par real de columnas. Se fuerza table-layout:fixed + colgroup con anchos iguales para
-  // que el par S/ | % siempre mida lo mismo y el título quede realmente centrado.
-  function _plDetalleColgroup() {
-    const { colsData = [], showTotal } = window._plContext || {};
-    const cols = ['<col style="width:200px">'];
-    colsData.forEach(() => cols.push('<col style="width:66px"><col style="width:52px">'));
-    if (showTotal) cols.push('<col style="width:66px"><col style="width:52px">');
+  // par real de columnas, y además cada nivel (tabla principal, Proveedor, Operación, Ítem)
+  // es una tabla HTML separada que puede terminar con anchos ligeramente distintos. Se fuerza
+  // table-layout:fixed + colgroup con los MISMOS anchos fijos en las 4 tablas (label 260px,
+  // cada par S/+% 90+52px) para que las columnas queden alineadas verticalmente entre niveles.
+  function _plColgroup({ colsData = [], showTotal, multiSede } = {}) {
+    const cols = ['<col style="width:260px">'];
+    colsData.forEach(() => cols.push('<col style="width:90px"><col style="width:52px">'));
+    if (showTotal) cols.push('<col style="width:90px"><col style="width:52px">');
+    if (multiSede) cols.push('<col style="width:90px"><col style="width:90px">');
     return `<colgroup>${cols.join('')}</colgroup>`;
+  }
+  function _plDetalleColgroup() {
+    const { colsData, showTotal } = window._plContext || {};
+    return _plColgroup({ colsData, showTotal, multiSede: false });
   }
 
   // Render a persona table into a container element (shared by level-1 items and level-2 items)
