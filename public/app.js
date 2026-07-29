@@ -11201,7 +11201,7 @@ async function viewPL(container) {
         exportRows.push(exportRow);
 
         if (isDrillable) {
-          rowsHtml += `<tr id="${drillId}" style="display:none"><td colspan="${totalCols}" style="padding:0 8px 8px 16px;background:var(--bg-page)"></td></tr>`;
+          rowsHtml += `<tr id="${drillId}" style="display:none"><td colspan="${totalCols}" style="padding:0 8px 8px 0;background:var(--bg-page)"></td></tr>`;
         }
       });
 
@@ -11433,7 +11433,7 @@ async function viewPL(container) {
           ${_plDetalleRowCells(r)}`;
         const detailRow = document.createElement('tr');
         detailRow.style.display = 'none';
-        detailRow.innerHTML = `<td colspan="${_plDetalleColspan()}" style="padding:0 0 4px 20px;background:var(--bg-page)"></td>`;
+        detailRow.innerHTML = `<td colspan="${_plDetalleColspan()}" style="padding:0 0 4px 0;background:var(--bg-page)"></td>`;
         row.addEventListener('click', () => {
           if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
           detailRow.style.display = '';
@@ -11556,7 +11556,7 @@ async function viewPL(container) {
       personaRow.id = drillId2;
       personaRow.setAttribute('data-drill-parent', rowId);
       personaRow.style.display = 'none';
-      personaRow.innerHTML = `<td colspan="${colSpan}" style="padding:0 0 4px 32px;background:var(--bg-page)"></td>`;
+      personaRow.innerHTML = `<td colspan="${colSpan}" style="padding:0 0 4px 0;background:var(--bg-page)"></td>`;
 
       insertAfter.after(itemRow);
       itemRow.after(personaRow);
