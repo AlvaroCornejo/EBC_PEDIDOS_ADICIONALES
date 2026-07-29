@@ -11352,7 +11352,7 @@ async function viewPL(container) {
   // table-layout:fixed + colgroup con los MISMOS anchos fijos en las 4 tablas (label 260px,
   // cada par S/+% 90+52px) para que las columnas queden alineadas verticalmente entre niveles.
   function _plColgroup({ colsData = [], showTotal, multiSede } = {}) {
-    const cols = ['<col style="width:260px">'];
+    const cols = ['<col style="width:340px">'];
     colsData.forEach(() => cols.push('<col style="width:90px"><col style="width:52px">'));
     if (showTotal) cols.push('<col style="width:90px"><col style="width:52px">');
     if (multiSede) cols.push('<col style="width:90px"><col style="width:90px">');
