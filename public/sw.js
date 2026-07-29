@@ -1,4 +1,4 @@
-const CACHE = 'pedidos-v3';
+const CACHE = 'pedidos-v4';
 const STATIC = ['/', '/app.js', '/styles.css', '/manifest.json', '/icon.svg'];
 
 // Instalar: cachear recursos estáticos
