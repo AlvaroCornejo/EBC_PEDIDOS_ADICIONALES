@@ -11318,7 +11318,7 @@ async function viewPL(container) {
   // cuando la vista principal también lo muestra (no en año).
   function _plDetalleHeaderCells() {
     const { colsData = [], fmtCol, showTotal } = window._plContext || {};
-    const cwD = 'text-align:right;padding:3px 6px;color:var(--text-muted);min-width:56px';
+    const cwD = 'text-align:right;padding:3px 6px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis';
     let h1 = colsData.map(c => `<th colspan="2" style="text-align:center;padding:3px 8px;color:var(--text-muted);border-left:1px solid var(--border);white-space:nowrap">${esc(String(fmtCol ? fmtCol(c) : c))}</th>`).join('');
     let h2 = colsData.map(() => `<th style="${cwD};border-left:1px solid var(--border)">S/</th><th style="${cwD}">%</th>`).join('');
     if (showTotal) {
@@ -11329,7 +11329,7 @@ async function viewPL(container) {
   }
   function _plDetalleRowCells(r) {
     const { colsData = [], ventaNetaPorCol = {}, ventaNetaTotalVal, showTotal } = window._plContext || {};
-    const cwD = 'text-align:right;padding:3px 6px;min-width:56px';
+    const cwD = 'text-align:right;padding:3px 6px;overflow:hidden;text-overflow:ellipsis';
     let cells = colsData.map(c => {
       const v = r[c] || 0;
       return `<td style="${cwD};border-left:1px solid var(--border)">${_plFmtN(v)}</td><td style="${cwD};color:var(--text-muted);font-size:11px">${_plFmtPct(v, ventaNetaPorCol[c])}</td>`;
@@ -11344,6 +11344,17 @@ async function viewPL(container) {
     const { colsData = [], showTotal } = window._plContext || {};
     return 1 + colsData.length * 2 + (showTotal ? 2 : 0);
   }
+  // Con table-layout:auto, la columna "S/" se ensancha con números largos y la columna "%"
+  // queda angosta — el título de la sede (colspan=2) se ve entonces descentrado respecto al
+  // par real de columnas. Se fuerza table-layout:fixed + colgroup con anchos iguales para
+  // que el par S/ | % siempre mida lo mismo y el título quede realmente centrado.
+  function _plDetalleColgroup() {
+    const { colsData = [], showTotal } = window._plContext || {};
+    const cols = ['<col style="width:200px">'];
+    colsData.forEach(() => cols.push('<col style="width:66px"><col style="width:52px">'));
+    if (showTotal) cols.push('<col style="width:66px"><col style="width:52px">');
+    return `<colgroup>${cols.join('')}</colgroup>`;
+  }
 
   // Render a persona table into a container element (shared by level-1 items and level-2 items)
   async function _plRenderPersonas(container, grupo) {
@@ -11356,10 +11367,11 @@ async function viewPL(container) {
         container.innerHTML = '<div style="padding:6px 8px;color:var(--text-muted);font-size:12px">Sin detalle</div>';
       } else {
         const { h1, h2 } = _plDetalleHeaderCells();
-        container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0">
+        container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0;table-layout:fixed">
+          ${_plDetalleColgroup()}
           <thead>
             <tr style="background:var(--bg-page)">
-              <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px;vertical-align:bottom">Proveedor / Persona</th>
+              <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Proveedor / Persona</th>
               ${h1}
             </tr>
             <tr style="background:var(--bg-page)">${h2}</tr>
@@ -11396,10 +11408,10 @@ async function viewPL(container) {
 
       const { h1, h2 } = _plDetalleHeaderCells();
       const table = document.createElement('table');
-      table.style.cssText = 'width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0';
-      table.innerHTML = `<thead>
+      table.style.cssText = 'width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0;table-layout:fixed';
+      table.innerHTML = `${_plDetalleColgroup()}<thead>
           <tr style="background:var(--bg-page)">
-            <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px;vertical-align:bottom">Operación</th>
+            <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Operación</th>
             ${h1}
           </tr>
           <tr style="background:var(--bg-page)">${h2}</tr>
@@ -11437,10 +11449,11 @@ async function viewPL(container) {
       const data = await GET(`/eerr/detalle-item?${qs}`);
       if (!data.datos.length) { container.innerHTML = '<div style="padding:3px 10px 3px 20px;color:var(--text-muted);font-size:11px">Sin detalle</div>'; return; }
       const { h1, h2 } = _plDetalleHeaderCells();
-      container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0">
+      container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0;table-layout:fixed">
+        ${_plDetalleColgroup()}
         <thead>
           <tr style="background:var(--bg-card)">
-            <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px;vertical-align:bottom">Ítem</th>
+            <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Ítem</th>
             ${h1}
           </tr>
           <tr style="background:var(--bg-card)">${h2}</tr>
