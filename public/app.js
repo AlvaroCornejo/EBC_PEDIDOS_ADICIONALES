@@ -11257,7 +11257,7 @@ async function viewPL(container) {
 
       wrap.innerHTML = `
         <div style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 340px)">
-          <table style="width:auto;border-collapse:collapse;font-size:13px;table-layout:fixed">
+          <table style="width:${_plTableWidth({ colsData, showTotal, multiSede })}px;border-collapse:collapse;font-size:13px;table-layout:fixed">
             ${_plColgroup({ colsData, showTotal, multiSede })}
             ${headerHtml}
             <tbody>${rowsHtml}</tbody>
@@ -11360,9 +11360,21 @@ async function viewPL(container) {
     if (multiSede) cols.push('<col style="width:90px"><col style="width:90px">');
     return `<colgroup>${cols.join('')}</colgroup>`;
   }
+  // Ancho TOTAL de la tabla en px (suma exacta de columnas). Con table-layout:fixed, si la
+  // tabla se deja en width:auto el navegador trata los anchos declarados como PROPORCIONES
+  // de un ancho auto-calculado (que varía según cuántas columnas totales tenga cada tabla),
+  // no como píxeles absolutos — por eso el mismo colgroup rendía distinto en cada nivel.
+  // Fijar el width real de la tabla obliga a respetar los px declarados tal cual.
+  function _plTableWidth({ colsData = [], showTotal, multiSede } = {}) {
+    return 340 + colsData.length * (90 + 52) + (showTotal ? 90 + 52 : 0) + (multiSede ? 90 + 90 : 0);
+  }
   function _plDetalleColgroup() {
     const { colsData, showTotal } = window._plContext || {};
     return _plColgroup({ colsData, showTotal, multiSede: false });
+  }
+  function _plDetalleTableWidth() {
+    const { colsData, showTotal } = window._plContext || {};
+    return _plTableWidth({ colsData, showTotal, multiSede: false });
   }
 
   // Render a persona table into a container element (shared by level-1 items and level-2 items)
@@ -11376,7 +11388,7 @@ async function viewPL(container) {
         container.innerHTML = '<div style="padding:6px 8px;color:var(--text-muted);font-size:12px">Sin detalle</div>';
       } else {
         const { h1, h2 } = _plDetalleHeaderCells();
-        container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0;table-layout:fixed">
+        container.innerHTML = `<table style="width:${_plDetalleTableWidth()}px;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0;table-layout:fixed">
           ${_plDetalleColgroup()}
           <thead>
             <tr style="background:var(--bg-page)">
@@ -11417,7 +11429,7 @@ async function viewPL(container) {
 
       const { h1, h2 } = _plDetalleHeaderCells();
       const table = document.createElement('table');
-      table.style.cssText = 'width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0;table-layout:fixed';
+      table.style.cssText = `width:${_plDetalleTableWidth()}px;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0;table-layout:fixed`;
       table.innerHTML = `${_plDetalleColgroup()}<thead>
           <tr style="background:var(--bg-page)">
             <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Operación</th>
@@ -11465,7 +11477,7 @@ async function viewPL(container) {
         return ta - tb;
       });
       const { h1, h2 } = _plDetalleHeaderCells();
-      container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0;table-layout:fixed">
+      container.innerHTML = `<table style="width:${_plDetalleTableWidth()}px;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0;table-layout:fixed">
         ${_plDetalleColgroup()}
         <thead>
           <tr style="background:var(--bg-card)">
