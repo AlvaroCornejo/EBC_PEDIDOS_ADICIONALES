@@ -11455,6 +11455,13 @@ async function viewPL(container) {
       const qs = new URLSearchParams({ grupo, nombreOp, periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
       const data = await GET(`/eerr/detalle-item?${qs}`);
       if (!data.datos.length) { container.innerHTML = '<div style="padding:3px 10px 3px 20px;color:var(--text-muted);font-size:11px">Sin detalle</div>'; return; }
+      // Detalle por ítem: de menor a mayor (por el total con signo, no por magnitud absoluta)
+      const colsD = data.columnas || [];
+      data.datos.sort((a, b) => {
+        const ta = colsD.reduce((s,c) => s + (a[c]||0), 0);
+        const tb = colsD.reduce((s,c) => s + (b[c]||0), 0);
+        return ta - tb;
+      });
       const { h1, h2 } = _plDetalleHeaderCells();
       container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0;table-layout:fixed">
         ${_plDetalleColgroup()}
