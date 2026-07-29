@@ -34,6 +34,21 @@ async function insertBatched(Model, rows, label) {
   console.log(`  ✓ ${label}: ${inserted} filas`);
 }
 
+// Algunas hojas (ej. bancos IBK) traen una hoja por banco+moneda ("IBK SOL") sin columnas
+// BANCO/MONEDA propias — se infieren del nombre de la hoja: tokens separados por espacio o
+// guion bajo; SOL/SOLES/PEN -> SOL, DOL/DOLAR/DOLARES/USD -> USD, el resto forma el banco.
+function inferirBancoMonedaDeHoja(nombreHoja) {
+  const tokens = String(nombreHoja || '').toUpperCase().split(/[\s_]+/).filter(Boolean);
+  let moneda = null;
+  const bancoTokens = [];
+  tokens.forEach(t => {
+    if (['SOL', 'SOLES', 'PEN'].includes(t)) moneda = 'SOL';
+    else if (['DOL', 'DOLAR', 'DOLARES', 'USD'].includes(t)) moneda = 'USD';
+    else bancoTokens.push(t);
+  });
+  return { banco: bancoTokens.join(' '), moneda };
+}
+
 async function leerEECC(filePath) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
@@ -50,18 +65,19 @@ async function leerEECC(filePath) {
     const iOf    = col('OFICINA');
     const iBanco = col('BANCO');
     const iMon   = col('MONEDA');
-    if (!iFOp || !iImp || !iMon) return; // hoja sin la estructura esperada
+    if (!iFOp || !iImp) return; // hoja sin la estructura minima esperada
+
+    const { banco: bancoHoja, moneda: monedaHoja } = inferirBancoMonedaDeHoja(sh.name);
 
     sh.eachRow({ includeEmpty: false }, (row, rowNum) => {
       if (rowNum === 1) return;
       const get = i => (i ? row.getCell(i).value : null);
       const fOp = dt(get(iFOp));
       const monRaw = str(get(iMon)).toUpperCase();
-      if (!fOp || !monRaw) return;
-      const moneda = monRaw.startsWith('S') ? 'SOL' : monRaw.startsWith('U') || monRaw.startsWith('D') ? 'USD' : null;
-      if (!moneda) return;
+      const moneda = monRaw.startsWith('S') ? 'SOL' : monRaw.startsWith('U') || monRaw.startsWith('D') ? 'USD' : monedaHoja;
+      if (!fOp || !moneda) return;
       rows.push({
-        banco:          str(get(iBanco)),
+        banco:          str(get(iBanco)) || bancoHoja,
         moneda,
         fechaOperacion: fOp,
         fechaValor:     dt(get(iFVal)) || fOp,

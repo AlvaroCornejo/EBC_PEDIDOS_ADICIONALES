@@ -11263,8 +11263,16 @@ async function viewPL(container) {
           </table>
         </div>`;
 
-      // Store context for drill-down (lookup needed for level-2 item expansion)
-      window._plContext = { periodoDesde, periodoHasta, cols, unidades, lookup, colsData, multiSede, exportRows };
+      // Store context for drill-down (lookup needed for level-2 item expansion). Se incluye
+      // ventaNetaPorCol/ventaNetaTotalVal (para el % de cada línea de detalle) y showTotal/
+      // fmtCol para que las tablas de detalle calcen exactamente con las columnas de la
+      // cabecera principal (mismo set de columnas, mismo formato, misma regla de TOTAL).
+      const ventaNetaPorCol = {};
+      colsData.forEach(c => { ventaNetaPorCol[c] = getVentaNeta(c); });
+      window._plContext = {
+        periodoDesde, periodoHasta, cols, unidades, lookup, colsData, multiSede, exportRows,
+        ventaNetaPorCol, ventaNetaTotalVal: getVentaNeta(totalCol), showTotal, fmtCol,
+      };
 
       const exportBtn = document.getElementById('pl-export-btn');
       if (exportBtn) exportBtn.style.display = '';
@@ -11302,6 +11310,40 @@ async function viewPL(container) {
     const s = abs >= 1000 ? abs.toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:0}) : abs.toFixed(0);
     return v < 0 ? `(${s})` : s;
   };
+  const _plFmtPct = (v, base) => (!base ? '' : ((v/base)*100).toFixed(1)+'%');
+
+  // Cabecera/celdas/colspan compartidos por las 3 tablas de detalle del PL (Proveedor,
+  // Operación, Ítem), para que calcen exactamente con las columnas de la cabecera principal:
+  // mismas columnas (sede/año/mes), mismo formato (fmtCol), % por columna, y TOTAL solo
+  // cuando la vista principal también lo muestra (no en año).
+  function _plDetalleHeaderCells() {
+    const { colsData = [], fmtCol, showTotal } = window._plContext || {};
+    const cwD = 'text-align:right;padding:3px 6px;color:var(--text-muted);min-width:56px';
+    let h1 = colsData.map(c => `<th colspan="2" style="text-align:center;padding:3px 8px;color:var(--text-muted);border-left:1px solid var(--border);white-space:nowrap">${esc(String(fmtCol ? fmtCol(c) : c))}</th>`).join('');
+    let h2 = colsData.map(() => `<th style="${cwD};border-left:1px solid var(--border)">S/</th><th style="${cwD}">%</th>`).join('');
+    if (showTotal) {
+      h1 += `<th colspan="2" style="text-align:center;padding:3px 8px;color:var(--text-muted);font-weight:700;border-left:1px solid var(--border)">TOTAL</th>`;
+      h2 += `<th style="${cwD};border-left:1px solid var(--border)">S/</th><th style="${cwD}">%</th>`;
+    }
+    return { h1, h2 };
+  }
+  function _plDetalleRowCells(r) {
+    const { colsData = [], ventaNetaPorCol = {}, ventaNetaTotalVal, showTotal } = window._plContext || {};
+    const cwD = 'text-align:right;padding:3px 6px;min-width:56px';
+    let cells = colsData.map(c => {
+      const v = r[c] || 0;
+      return `<td style="${cwD};border-left:1px solid var(--border)">${_plFmtN(v)}</td><td style="${cwD};color:var(--text-muted);font-size:11px">${_plFmtPct(v, ventaNetaPorCol[c])}</td>`;
+    }).join('');
+    if (showTotal) {
+      const tot = colsData.reduce((s,c)=>s+(r[c]||0),0);
+      cells += `<td style="${cwD};border-left:1px solid var(--border);font-weight:600">${_plFmtN(tot)}</td><td style="${cwD};font-weight:600;color:var(--text-muted);font-size:11px">${_plFmtPct(tot, ventaNetaTotalVal)}</td>`;
+    }
+    return cells;
+  }
+  function _plDetalleColspan() {
+    const { colsData = [], showTotal } = window._plContext || {};
+    return 1 + colsData.length * 2 + (showTotal ? 2 : 0);
+  }
 
   // Render a persona table into a container element (shared by level-1 items and level-2 items)
   async function _plRenderPersonas(container, grupo) {
@@ -11313,22 +11355,21 @@ async function viewPL(container) {
       if (!data.datos.length) {
         container.innerHTML = '<div style="padding:6px 8px;color:var(--text-muted);font-size:12px">Sin detalle</div>';
       } else {
-        const colsD = data.columnas;
+        const { h1, h2 } = _plDetalleHeaderCells();
         container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0">
-          <thead><tr style="background:var(--bg-page)">
-            <th style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px">Proveedor / Persona</th>
-            ${colsD.map(c=>`<th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:80px">${esc(String(c))}</th>`).join('')}
-            <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:80px">TOTAL</th>
-          </tr></thead>
-          <tbody>${data.datos.slice(0,100).map(r => {
-            const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
-            return `<tr style="border-bottom:1px solid var(--border)">
+          <thead>
+            <tr style="background:var(--bg-page)">
+              <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px;vertical-align:bottom">Proveedor / Persona</th>
+              ${h1}
+            </tr>
+            <tr style="background:var(--bg-page)">${h2}</tr>
+          </thead>
+          <tbody>${data.datos.slice(0,100).map(r => `
+            <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.persona||'(sin proveedor)')}</td>
-              ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${_plFmtN(r[c])}</td>`).join('')}
-              <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(tot)}</td>
-            </tr>`;
-          }).join('')}
-          ${data.datos.length>100?`<tr><td colspan="${colsD.length+2}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
+              ${_plDetalleRowCells(r)}
+            </tr>`).join('')}
+          ${data.datos.length>100?`<tr><td colspan="${_plDetalleColspan()}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
           </tbody></table>`;
       }
     } catch(e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; return; }
@@ -11347,33 +11388,33 @@ async function viewPL(container) {
       const qs = new URLSearchParams({ grupo, periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
       const data = await GET(`/eerr/detalle-op?${qs}`);
       if (!data.datos.length) return; // sin detalle adicional para este grupo
-      const colsD = data.columnas;
 
       const header = document.createElement('div');
       header.style.cssText = 'padding:6px 10px 2px 20px;color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase';
       header.textContent = 'Detalle adicional por operación / ítem';
       container.appendChild(header);
 
+      const { h1, h2 } = _plDetalleHeaderCells();
       const table = document.createElement('table');
       table.style.cssText = 'width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0';
-      table.innerHTML = `<thead><tr style="background:var(--bg-page)">
-          <th style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px">Operación</th>
-          ${colsD.map(c=>`<th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:80px">${esc(String(c))}</th>`).join('')}
-          <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:80px">TOTAL</th>
-        </tr></thead><tbody></tbody>`;
+      table.innerHTML = `<thead>
+          <tr style="background:var(--bg-page)">
+            <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px;vertical-align:bottom">Operación</th>
+            ${h1}
+          </tr>
+          <tr style="background:var(--bg-page)">${h2}</tr>
+        </thead><tbody></tbody>`;
       const tbody = table.querySelector('tbody');
 
       data.datos.forEach(r => {
-        const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
         const row = document.createElement('tr');
         row.style.cssText = 'border-bottom:1px solid var(--border);cursor:pointer';
         row.innerHTML = `
           <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.nombreOp)}</td>
-          ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${_plFmtN(r[c])}</td>`).join('')}
-          <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(tot)}</td>`;
+          ${_plDetalleRowCells(r)}`;
         const detailRow = document.createElement('tr');
         detailRow.style.display = 'none';
-        detailRow.innerHTML = `<td colspan="${colsD.length+2}" style="padding:0 0 4px 20px;background:var(--bg-page)"></td>`;
+        detailRow.innerHTML = `<td colspan="${_plDetalleColspan()}" style="padding:0 0 4px 20px;background:var(--bg-page)"></td>`;
         row.addEventListener('click', () => {
           if (detailRow.style.display !== 'none') { detailRow.style.display = 'none'; return; }
           detailRow.style.display = '';
@@ -11395,22 +11436,21 @@ async function viewPL(container) {
       const qs = new URLSearchParams({ grupo, nombreOp, periodoDesde, periodoHasta, cols, unidades: (unidades||[]).join(',') });
       const data = await GET(`/eerr/detalle-item?${qs}`);
       if (!data.datos.length) { container.innerHTML = '<div style="padding:3px 10px 3px 20px;color:var(--text-muted);font-size:11px">Sin detalle</div>'; return; }
-      const colsD = data.columnas;
+      const { h1, h2 } = _plDetalleHeaderCells();
       container.innerHTML = `<table style="width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0">
-        <thead><tr style="background:var(--bg-card)">
-          <th style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px">Ítem</th>
-          ${colsD.map(c=>`<th style="text-align:right;padding:3px 8px;color:var(--text-muted);min-width:80px">${esc(String(c))}</th>`).join('')}
-          <th style="text-align:right;padding:3px 8px;color:var(--text-muted);font-weight:700;min-width:80px">TOTAL</th>
-        </tr></thead>
-        <tbody>${data.datos.slice(0,200).map(r => {
-          const tot = colsD.reduce((s,c)=>s+(r[c]||0),0);
-          return `<tr style="border-bottom:1px solid var(--border)">
+        <thead>
+          <tr style="background:var(--bg-card)">
+            <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;min-width:200px;vertical-align:bottom">Ítem</th>
+            ${h1}
+          </tr>
+          <tr style="background:var(--bg-card)">${h2}</tr>
+        </thead>
+        <tbody>${data.datos.slice(0,200).map(r => `
+          <tr style="border-bottom:1px solid var(--border)">
             <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.nombreItem)}</td>
-            ${colsD.map(c=>`<td style="text-align:right;padding:3px 8px">${_plFmtN(r[c])}</td>`).join('')}
-            <td style="text-align:right;padding:3px 8px;font-weight:600">${_plFmtN(tot)}</td>
-          </tr>`;
-        }).join('')}
-        ${data.datos.length>200?`<tr><td colspan="${colsD.length+2}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-200} más</td></tr>`:''}
+            ${_plDetalleRowCells(r)}
+          </tr>`).join('')}
+        ${data.datos.length>200?`<tr><td colspan="${_plDetalleColspan()}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-200} más</td></tr>`:''}
         </tbody></table>`;
     } catch(e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   }
@@ -11438,7 +11478,7 @@ async function viewPL(container) {
       return;
     }
 
-    const { lookup, colsData, multiSede: ms } = window._plContext || {};
+    const { lookup, colsData, multiSede: ms, ventaNetaPorCol = {}, ventaNetaTotalVal, showTotal } = window._plContext || {};
     const grupos = gruposStr.split(',').map(g => g.trim()).filter(Boolean);
     const cd = colsData || [];
 
@@ -11451,7 +11491,7 @@ async function viewPL(container) {
     }
 
     // Subtotal → inject real <tr> rows into parent <tbody> for perfect column alignment
-    const colSpan = 1 + cd.length * 2 + 1 + (ms ? 2 : 0);
+    const colSpan = 1 + cd.length * 2 + (showTotal ? 2 : 0) + (ms ? 2 : 0);
     const border = 'border-bottom:1px solid var(--border)';
     let insertAfter = detailRow;
 
@@ -11463,9 +11503,13 @@ async function viewPL(container) {
       const valCells = cd.map(col => {
         const v = lookup?.[grupo]?.[col] || 0;
         return `<td style="text-align:right;padding:5px 8px;font-size:12px;min-width:90px;${border}">${_plFmtN(v)}</td>
-                <td style="min-width:52px;${border}"></td>`;
+                <td style="text-align:right;padding:5px 6px;font-size:11px;color:var(--text-muted);min-width:52px;${border}">${_plFmtPct(v, ventaNetaPorCol[col])}</td>`;
       }).join('');
       const tot = cd.reduce((s,c)=>s+(lookup?.[grupo]?.[c]||0),0);
+      const totCells = showTotal
+        ? `<td style="text-align:right;padding:5px 8px;font-size:12px;font-weight:600;min-width:90px;${border}">${_plFmtN(tot)}</td>
+           <td style="text-align:right;padding:5px 6px;font-size:11px;font-weight:600;color:var(--text-muted);min-width:52px;${border}">${_plFmtPct(tot, ventaNetaTotalVal)}</td>`
+        : '';
       const extraCells = ms
         ? `<td style="min-width:90px;${border}"></td><td style="min-width:90px;${border}"></td>`
         : '';
@@ -11476,7 +11520,7 @@ async function viewPL(container) {
       itemRow.innerHTML = `
         <td style="padding:5px 8px 5px 32px;white-space:nowrap;font-size:12px;min-width:220px;${border}">${esc(grupo)}</td>
         ${valCells}
-        <td style="text-align:right;padding:5px 8px;font-size:12px;font-weight:600;min-width:90px;${border}">${_plFmtN(tot)}</td>
+        ${totCells}
         ${extraCells}
       `;
       itemRow.addEventListener('click', () => plDrilldownPersona(drillId2, grupo, itemRow));

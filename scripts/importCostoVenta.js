@@ -34,9 +34,11 @@ const num = v => (v == null || v === '' || isNaN(Number(v))) ? 0 : Number(v);
   const iPeriodo     = col('PERIODO');
   const iCantidad    = col('CANTIDAD');
   const iNombreOp    = col('NOMBRE_OP');
+  const iNombreTrans = col('NOMBRE_TRANSACCION');
   const iGrupoEerr   = col('GRUPO_EERR');
   const iSoles       = col('SOLES');
   const iNombreItem  = col('NOMBRE_ITEM');
+  const iGrupoCompra = col('GRUPO_COMPRA');
   const iGrupo       = col('GRUPO');
   const iSede        = col('SEDE');
 
@@ -47,17 +49,19 @@ const num = v => (v == null || v === '' || isNaN(Number(v))) ? 0 : Number(v);
     const periodo = num(get(iPeriodo));
     if (!periodo) return;
     rows.push({
-      almacen:     str(get(iAlmacen)),
-      item:        str(get(iItem)),
-      transaccion: str(get(iTransaccion)),
+      almacen:           str(get(iAlmacen)),
+      item:              str(get(iItem)),
+      transaccion:       str(get(iTransaccion)),
       periodo,
-      cantidad:    num(get(iCantidad)),
-      nombreOp:    str(get(iNombreOp)),
-      grupoEerr:   str(get(iGrupoEerr)),
-      soles:       num(get(iSoles)),
-      nombreItem:  str(get(iNombreItem)),
-      grupo:       str(get(iGrupo)),
-      sede:        str(get(iSede)),
+      cantidad:          num(get(iCantidad)),
+      nombreOp:          str(get(iNombreOp)),
+      nombreTransaccion: str(get(iNombreTrans)),
+      grupoEerr:         str(get(iGrupoEerr)),
+      soles:             num(get(iSoles)),
+      nombreItem:        str(get(iNombreItem)),
+      grupoCompra:       str(get(iGrupoCompra)),
+      grupo:             str(get(iGrupo)),
+      sede:              str(get(iSede)),
     });
   });
 
