@@ -11190,7 +11190,7 @@ async function viewPL(container) {
         }
 
         rowsHtml += `<tr ${dataOnClick} style="${isDrillable?'cursor:pointer':''}">
-          <td style="padding:6px 8px;font-weight:700;font-size:${fsize};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${bgStyle};${textColor}">${esc(label)}</td>
+          <td style="width:340px;padding:6px 8px;font-weight:700;font-size:${fsize};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${bgStyle};${textColor}">${esc(label)}</td>
           ${rowCells}
         </tr>`;
 
@@ -11242,7 +11242,7 @@ async function viewPL(container) {
         : '';
       const headerHtml = `<thead style="position:sticky;top:0;z-index:10;background:var(--bg-card)">
         <tr>
-          <th style="text-align:left;padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Concepto</th>
+          <th style="width:340px;text-align:left;padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Concepto</th>
           ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 8px;white-space:nowrap;border-left:1px solid var(--border)">${esc(fmtCol(c))}</th>`).join('')}
           ${showTotal ? `<th colspan="2" style="text-align:center;padding:6px 8px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>` : ''}
           ${extraHeaders}
@@ -11319,25 +11319,27 @@ async function viewPL(container) {
   // cuando la vista principal también lo muestra (no en año).
   function _plDetalleHeaderCells() {
     const { colsData = [], fmtCol, showTotal } = window._plContext || {};
-    const cwD = 'text-align:right;padding:3px 6px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis';
+    const cwV = 'width:90px;text-align:right;padding:3px 6px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis';
+    const cwP = 'width:52px;text-align:right;padding:3px 6px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis';
     let h1 = colsData.map(c => `<th colspan="2" style="text-align:center;padding:3px 8px;color:var(--text-muted);border-left:1px solid var(--border);white-space:nowrap">${esc(String(fmtCol ? fmtCol(c) : c))}</th>`).join('');
-    let h2 = colsData.map(() => `<th style="${cwD};border-left:1px solid var(--border)">S/</th><th style="${cwD}">%</th>`).join('');
+    let h2 = colsData.map(() => `<th style="${cwV};border-left:1px solid var(--border)">S/</th><th style="${cwP}">%</th>`).join('');
     if (showTotal) {
       h1 += `<th colspan="2" style="text-align:center;padding:3px 8px;color:var(--text-muted);font-weight:700;border-left:1px solid var(--border)">TOTAL</th>`;
-      h2 += `<th style="${cwD};border-left:1px solid var(--border)">S/</th><th style="${cwD}">%</th>`;
+      h2 += `<th style="${cwV};border-left:1px solid var(--border)">S/</th><th style="${cwP}">%</th>`;
     }
     return { h1, h2 };
   }
   function _plDetalleRowCells(r) {
     const { colsData = [], ventaNetaPorCol = {}, ventaNetaTotalVal, showTotal } = window._plContext || {};
-    const cwD = 'text-align:right;padding:3px 6px;overflow:hidden;text-overflow:ellipsis';
+    const cwV = 'width:90px;text-align:right;padding:3px 6px;overflow:hidden;text-overflow:ellipsis';
+    const cwP = 'width:52px;text-align:right;padding:3px 6px;overflow:hidden;text-overflow:ellipsis';
     let cells = colsData.map(c => {
       const v = r[c] || 0;
-      return `<td style="${cwD};border-left:1px solid var(--border)">${_plFmtN(v)}</td><td style="${cwD};color:var(--text-muted);font-size:11px">${_plFmtPct(v, ventaNetaPorCol[c])}</td>`;
+      return `<td style="${cwV};border-left:1px solid var(--border)">${_plFmtN(v)}</td><td style="${cwP};color:var(--text-muted);font-size:11px">${_plFmtPct(v, ventaNetaPorCol[c])}</td>`;
     }).join('');
     if (showTotal) {
       const tot = colsData.reduce((s,c)=>s+(r[c]||0),0);
-      cells += `<td style="${cwD};border-left:1px solid var(--border);font-weight:600">${_plFmtN(tot)}</td><td style="${cwD};font-weight:600;color:var(--text-muted);font-size:11px">${_plFmtPct(tot, ventaNetaTotalVal)}</td>`;
+      cells += `<td style="${cwV};border-left:1px solid var(--border);font-weight:600">${_plFmtN(tot)}</td><td style="${cwP};font-weight:600;color:var(--text-muted);font-size:11px">${_plFmtPct(tot, ventaNetaTotalVal)}</td>`;
     }
     return cells;
   }
@@ -11378,14 +11380,14 @@ async function viewPL(container) {
           ${_plDetalleColgroup()}
           <thead>
             <tr style="background:var(--bg-page)">
-              <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Proveedor / Persona</th>
+              <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Proveedor / Persona</th>
               ${h1}
             </tr>
             <tr style="background:var(--bg-page)">${h2}</tr>
           </thead>
           <tbody>${data.datos.slice(0,100).map(r => `
             <tr style="border-bottom:1px solid var(--border)">
-              <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.persona||'(sin proveedor)')}</td>
+              <td style="width:340px;padding:3px 10px 3px 20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.persona||'(sin proveedor)')}</td>
               ${_plDetalleRowCells(r)}
             </tr>`).join('')}
           ${data.datos.length>100?`<tr><td colspan="${_plDetalleColspan()}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
@@ -11418,7 +11420,7 @@ async function viewPL(container) {
       table.style.cssText = 'width:auto;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0;table-layout:fixed';
       table.innerHTML = `${_plDetalleColgroup()}<thead>
           <tr style="background:var(--bg-page)">
-            <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Operación</th>
+            <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Operación</th>
             ${h1}
           </tr>
           <tr style="background:var(--bg-page)">${h2}</tr>
@@ -11429,7 +11431,7 @@ async function viewPL(container) {
         const row = document.createElement('tr');
         row.style.cssText = 'border-bottom:1px solid var(--border);cursor:pointer';
         row.innerHTML = `
-          <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.nombreOp)}</td>
+          <td style="width:340px;padding:3px 10px 3px 20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.nombreOp)}</td>
           ${_plDetalleRowCells(r)}`;
         const detailRow = document.createElement('tr');
         detailRow.style.display = 'none';
@@ -11467,14 +11469,14 @@ async function viewPL(container) {
         ${_plDetalleColgroup()}
         <thead>
           <tr style="background:var(--bg-card)">
-            <th rowspan="2" style="text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Ítem</th>
+            <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Ítem</th>
             ${h1}
           </tr>
           <tr style="background:var(--bg-card)">${h2}</tr>
         </thead>
         <tbody>${data.datos.slice(0,200).map(r => `
           <tr style="border-bottom:1px solid var(--border)">
-            <td style="padding:3px 10px 3px 20px;white-space:nowrap">${esc(r.nombreItem)}</td>
+            <td style="width:340px;padding:3px 10px 3px 20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.nombreItem)}</td>
             ${_plDetalleRowCells(r)}
           </tr>`).join('')}
         ${data.datos.length>200?`<tr><td colspan="${_plDetalleColspan()}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-200} más</td></tr>`:''}
@@ -11545,7 +11547,7 @@ async function viewPL(container) {
       itemRow.setAttribute('data-drill-parent', rowId);
       itemRow.style.cursor = 'pointer';
       itemRow.innerHTML = `
-        <td style="padding:5px 8px 5px 32px;white-space:nowrap;font-size:12px;min-width:220px;${border}">${esc(grupo)}</td>
+        <td style="width:340px;padding:5px 8px 5px 32px;white-space:nowrap;font-size:12px;overflow:hidden;text-overflow:ellipsis;${border}">${esc(grupo)}</td>
         ${valCells}
         ${totCells}
         ${extraCells}
