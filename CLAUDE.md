@@ -17,14 +17,32 @@
 - Servidor donde corre: CORPSERV-PRUEBA (acceso por RDP)
 - Tiene su propio `CLAUDE.md` con detalle de ese proyecto
 
-## Operaciones disponibles (ALL_OPS) — orden exacto
+## Sociedades y Operaciones
 
-```javascript
-['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28', 'MUVON', 'GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP']
-// Fila 1 (admin form): AASI, CORPQ, CDLAO, PLANTA, CORPFK, CDL28, MUVON
-// Fila 2 (admin form): GBGOL, GBADC, GBSRQ, GBCFR, GBCRP, GBPLANTA, GBCORP
-// GBCFR2 eliminado
-```
+Ya **no** son listas fijas en código — viven en las colecciones `Sociedad`
+(`models/Sociedad.js`, `{codigo, nombre}`) y `Operacion` (`models/Operacion.js`,
+`{codigo, nombre, sociedadCodigo}`, cada operación pertenece a una sociedad). Se
+administran desde **Admin → Sociedades y Operaciones** (`routes/sociedades.js`,
+`GET/POST/PUT/DELETE /api/sociedades[...]`).
+
+El frontend (`public/app.js`) hace `GET /api/sociedades` al iniciar sesión
+(`loadSociedades()`, llamado desde `showApp()`) y puebla `ALL_OPS`/`ALL_SOCS_COMPRA`
+(ahora `let`, no `const`) con lo que venga de la base — cualquier sociedad u operación
+nueva se agrega desde esa pantalla de Admin, sin tocar código.
+
+Mapeo sociedad → operación cargado en el seed inicial
+(`scripts/seedSociedadesOperaciones.js`, correr una sola vez tras el primer deploy):
+- **GB**: GBGOL, GBADC, GBSRQ, GBCFR, GBCRP, GBPLANTA, GBCORP
+- **ERSAC**: (sin operaciones propias)
+- **MUVON**: MUVON
+- **QUIASMO**: AASI, CORPQ
+- **FACTORIAL K**: CDLAO, CORPFK, PLANTA
+- **FRQ1**: CDL28
+
+En **Admin → Usuarios**, ya no se marcan "Operaciones Autorizadas" y "Operaciones
+Destino para Transferencias" por separado: se elige la(s) **Sociedad(es)** del usuario
+y `operations`/`transferenciaDestinos` se derivan automáticamente como la unión de
+todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`).
 
 ## Roles de usuario
 
@@ -42,7 +60,7 @@
 - `puedeVerComparativo`: boolean — acceso a Comparativo OC / Ingresos al Almacén
 - `puedeVerVentas`: boolean — acceso a Venta & TIP por Operación
 - `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
-- `sociedadesCompra`: array — sociedades para ver Precios de Compra (ERSAC, FRQ1, GB)
+- `sociedadesCompra`: array — sociedades para ver Precios de Compra (códigos del catálogo `Sociedad`, ver sección "Sociedades y Operaciones")
 - `operations`: array — operaciones asignadas al usuario
 - `rolCaja`: '' | REGISTRO | CONSULTA — acceso a Cierre de Caja (ver Sesión 5)
 - `accesoOficina` / `accesoDepositos`: boolean — acceso a Envío a Oficina / Depósito Bancario

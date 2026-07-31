@@ -4,11 +4,14 @@ const authMiddleware = require('../middleware/auth');
 const Movimiento = require('../models/Movimiento');
 const Item = require('../models/Item');
 const ItemVenta = require('../models/ItemVenta');
+const Operacion = require('../models/Operacion');
 
 const router = express.Router();
 router.use(authMiddleware);
 
-const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'CORP', 'DOSIMETRIA', 'PREP', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
+// Antes una lista fija, ya desactualizada (incluía CORP/DOSIMETRIA/PREP/GBCFR2, que no
+// existen como operaciones reales) — ahora se consulta el catálogo real.
+const allOps = () => Operacion.distinct('codigo');
 
 const FLUJOS = ['BAJA', 'CONSUMO', 'TRANSFERENCIA', '86'];
 const ACCESO_FIELD = { BAJA: 'accesoBajas', CONSUMO: 'accesoConsumos', TRANSFERENCIA: 'accesoTransferencias', '86': 'acceso86' };
@@ -32,8 +35,8 @@ function rolPara(user, flujo) {
 }
 
 // Operaciones a las que el usuario puede transferir
-function destinosPermitidos(user) {
-  return user.role === 'ADMIN' ? ALL_OPS : (user.transferenciaDestinos || []);
+async function destinosPermitidos(user) {
+  return user.role === 'ADMIN' ? await allOps() : (user.transferenciaDestinos || []);
 }
 
 // Catálogo de items: el flujo 86 usa ItemVenta (EBC ITEMS_VENTA), el resto usa Item (ADICIONALES)
@@ -47,13 +50,15 @@ async function buscarNombreItem(flujo, operacion, item) {
 }
 
 // ── GET /api/movimientos/operaciones?flujo= ─────────────────────────────────
-router.get('/operaciones', (req, res) => {
-  const { flujo } = req.query;
-  if (!checkAccess(req, res, flujo)) return;
-  const operaciones = req.user.role === 'ADMIN' ? ALL_OPS : (req.user.operations || []);
-  const result = { operaciones };
-  if (flujo === 'TRANSFERENCIA') result.destinos = req.user.role === 'ADMIN' ? ALL_OPS : (req.user.transferenciaDestinos || []);
-  res.json(result);
+router.get('/operaciones', async (req, res) => {
+  try {
+    const { flujo } = req.query;
+    if (!checkAccess(req, res, flujo)) return;
+    const operaciones = req.user.role === 'ADMIN' ? await allOps() : (req.user.operations || []);
+    const result = { operaciones };
+    if (flujo === 'TRANSFERENCIA') result.destinos = await destinosPermitidos(req.user);
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── GET /api/movimientos?flujo=&operacion=&estado=&desde=&hasta= ────────────
@@ -117,7 +122,7 @@ router.post('/', async (req, res) => {
     if (flujo === 'TRANSFERENCIA') {
       if (!operacionDestino) return res.status(400).json({ error: 'Operación destino requerida' });
       if (operacionDestino === operacion) return res.status(400).json({ error: 'La operación destino debe ser distinta de la origen' });
-      if (!destinosPermitidos(req.user).includes(operacionDestino)) return res.status(400).json({ error: 'Operación destino inválida' });
+      if (!(await destinosPermitidos(req.user)).includes(operacionDestino)) return res.status(400).json({ error: 'Operación destino inválida' });
       doc.operacionDestino = operacionDestino;
     }
 
@@ -167,7 +172,7 @@ router.put('/:id', async (req, res) => {
 
     if (registro.flujo === 'TRANSFERENCIA' && operacionDestino !== undefined) {
       if (operacionDestino === registro.operacion) return res.status(400).json({ error: 'La operación destino debe ser distinta de la origen' });
-      if (!destinosPermitidos(req.user).includes(operacionDestino)) return res.status(400).json({ error: 'Operación destino inválida' });
+      if (!(await destinosPermitidos(req.user)).includes(operacionDestino)) return res.status(400).json({ error: 'Operación destino inválida' });
       registro.operacionDestino = operacionDestino;
     }
 

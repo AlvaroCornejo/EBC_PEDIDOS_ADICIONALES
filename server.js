@@ -64,6 +64,7 @@ app.use('/api/obligaciones-ebc', require('./routes/obligacionesEBC'));
 app.use('/api/proyeccion',      require('./routes/proyeccion'));
 app.use('/api/eerr',            require('./routes/eerr'));
 app.use('/api/conciliacion',    require('./routes/conciliacion'));
+app.use('/api/sociedades',      require('./routes/sociedades'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

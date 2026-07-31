@@ -13,10 +13,13 @@ const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULT
 const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pagos']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
-const ALL_OPS = ['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28', 'MUVON', 'GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP'];
-const ALL_OPS_ROW1 = ['AASI', 'CORPQ', 'CDLAO', 'PLANTA', 'CORPFK', 'CDL28', 'MUVON'];
-const ALL_OPS_ROW2 = ['GBGOL', 'GBADC', 'GBSRQ', 'GBCFR', 'GBCRP', 'GBPLANTA', 'GBCORP'];
-const ALL_SOCS_COMPRA = ['ERSAC', 'FRQ1', 'GB', 'MUVON', 'QUIASMO', 'FACTORIAL K'];
+// Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
+// iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
+// y Operaciones. Se dejan como `let` (no `const`) para poder poblarlas tras el fetch; los
+// ~20 lugares que las usan solo las leen en tiempo de render (después del login), nunca en
+// carga de módulo, así que no hace falta tocarlos.
+let ALL_OPS = [];
+let ALL_SOCS_COMPRA = [];
 
 // ─── State ───────────────────────────────────────────────────────
 let S = {
@@ -10348,6 +10351,132 @@ async function renderAdminEBCCompanias(container) {
   reload();
 }
 
+// ─── Admin: Sociedades y Operaciones ───────────────────────────────
+// CRUD del catálogo que reemplaza las antiguas listas fijas ALL_OPS/ALL_SOCS_COMPRA
+// (ver models/Sociedad.js, models/Operacion.js, routes/sociedades.js).
+async function renderAdminSociedades(container) {
+  let _admSocExpandida = null; // codigo de la sociedad con su lista de operaciones abierta
+
+  async function reload() {
+    container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+    let sociedades = [];
+    try { sociedades = await GET('/sociedades'); } catch (e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; return; }
+    render(sociedades);
+  }
+
+  function render(sociedades) {
+    container.innerHTML = `
+      <div style="max-width:640px;padding:16px">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+          Cada Operación pertenece a una Sociedad. Esto define las Sociedades y Operaciones
+          disponibles en toda la app (Usuarios, PL, Pagos, Conciliación, etc.).
+        </p>
+        <div class="card" style="padding:16px;margin-bottom:20px">
+          <label style="font-weight:600;font-size:13px;display:block;margin-bottom:8px">Agregar sociedad</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="text" id="soc-new-codigo" placeholder="Código (ej. GB)" style="width:140px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <input type="text" id="soc-new-nombre" placeholder="Nombre" style="flex:1;min-width:140px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <button class="btn btn-primary btn-sm" id="soc-add-btn">➕ Agregar</button>
+          </div>
+        </div>
+        <div class="card" style="overflow:hidden">
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Código</th><th>Nombre</th><th>Operaciones</th><th style="width:90px"></th></tr></thead>
+            <tbody>
+              ${sociedades.length === 0
+                ? `<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px">Sin sociedades configuradas</td></tr>`
+                : sociedades.map(s => `
+                  <tr>
+                    <td><code>${esc(s.codigo)}</code></td>
+                    <td>${esc(s.nombre)}</td>
+                    <td>${(s.operaciones||[]).length}</td>
+                    <td style="white-space:nowrap">
+                      <button class="btn btn-outline btn-sm soc-toggle-btn" data-codigo="${esc(s.codigo)}" title="Ver operaciones" style="padding:2px 8px">${_admSocExpandida===s.codigo?'▾':'▸'}</button>
+                      <button class="btn btn-outline btn-sm" style="color:var(--danger);padding:2px 8px" onclick="admSocEliminar('${s._id}','${esc(s.codigo)}')">🗑️</button>
+                    </td>
+                  </tr>
+                  ${_admSocExpandida === s.codigo ? `
+                  <tr><td colspan="4" style="background:var(--bg-page);padding:12px 16px">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                      <input type="text" id="op-new-codigo" placeholder="Código (ej. GBADC)" style="width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                      <input type="text" id="op-new-nombre" placeholder="Nombre" style="flex:1;min-width:140px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+                      <button class="btn btn-primary btn-sm" id="op-add-btn" data-sociedad-id="${s._id}">➕ Agregar operación</button>
+                    </div>
+                    ${(s.operaciones||[]).length ? `
+                    <table style="width:100%;font-size:12px;border-collapse:collapse">
+                      <thead><tr style="color:var(--text-muted)"><th style="text-align:left;padding:4px 8px">Código</th><th style="text-align:left;padding:4px 8px">Nombre</th><th style="width:40px"></th></tr></thead>
+                      <tbody>
+                        ${s.operaciones.map(o => `<tr>
+                          <td style="padding:4px 8px"><code>${esc(o.codigo)}</code></td>
+                          <td style="padding:4px 8px">${esc(o.nombre)}</td>
+                          <td style="padding:4px 8px;text-align:center"><button class="btn btn-outline btn-sm" style="color:var(--danger);padding:1px 6px" onclick="admOpEliminar('${o._id}','${esc(o.codigo)}')">🗑️</button></td>
+                        </tr>`).join('')}
+                      </tbody>
+                    </table>` : `<p class="text-muted" style="font-size:12px">Sin operaciones en esta sociedad.</p>`}
+                  </td></tr>` : ''}
+                `).join('')
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    document.getElementById('soc-add-btn').addEventListener('click', async () => {
+      const codigo = document.getElementById('soc-new-codigo').value.trim();
+      const nombre = document.getElementById('soc-new-nombre').value.trim();
+      if (!codigo || !nombre) { toast('Completa ambos campos', 'error'); return; }
+      try {
+        await POST('/sociedades', { codigo, nombre });
+        toast('Sociedad agregada', 'success');
+        await loadSociedades();
+        reload();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+
+    container.querySelectorAll('.soc-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _admSocExpandida = _admSocExpandida === btn.dataset.codigo ? null : btn.dataset.codigo;
+        render(sociedades);
+      });
+    });
+
+    const opAddBtn = document.getElementById('op-add-btn');
+    if (opAddBtn) opAddBtn.addEventListener('click', async () => {
+      const codigo = document.getElementById('op-new-codigo').value.trim();
+      const nombre = document.getElementById('op-new-nombre').value.trim();
+      if (!codigo || !nombre) { toast('Completa ambos campos', 'error'); return; }
+      try {
+        await POST(`/sociedades/${opAddBtn.dataset.sociedadId}/operaciones`, { codigo, nombre });
+        toast('Operación agregada', 'success');
+        await loadSociedades();
+        reload();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  window.admSocEliminar = async (id, codigo) => {
+    if (!confirm(`¿Eliminar la sociedad ${codigo}?`)) return;
+    try {
+      await DEL(`/sociedades/${id}`);
+      toast('Eliminada', 'success');
+      await loadSociedades();
+      reload();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  window.admOpEliminar = async (id, codigo) => {
+    if (!confirm(`¿Eliminar la operación ${codigo}?`)) return;
+    try {
+      await DEL(`/sociedades/operaciones/${id}`);
+      toast('Eliminada', 'success');
+      await loadSociedades();
+      reload();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  reload();
+}
+
 // ─── Admin: Tiendas Proyección ────────────────────────────────────
 async function renderAdminProyTiendas(container) {
   let _admProyCompania = ALL_SOCS_COMPRA[0] || '';
@@ -10879,9 +11008,14 @@ async function viewPL(container) {
               <input type="checkbox" name="pl-unidad" value="${esc(u)}" ${lista.includes(u)?'checked':''}
                 style="width:13px;height:13px;accent-color:var(--primary)">
               ${esc(u)}</label>`;
-    const row1 = ALL_OPS_ROW1.filter(u => lista.includes(u));
-    const row2 = ALL_OPS_ROW2.filter(u => lista.includes(u));
-    const extra = lista.filter(u => !ALL_OPS_ROW1.includes(u) && !ALL_OPS_ROW2.includes(u));
+    // Una fila de checkboxes por sociedad real (antes era una partición manual en 2 filas)
+    const cubiertas = new Set();
+    const filas = (S.sociedades||[]).map(soc => {
+      const ops = (soc.operaciones||[]).map(o => o.codigo).filter(u => lista.includes(u));
+      ops.forEach(u => cubiertas.add(u));
+      return ops;
+    }).filter(ops => ops.length);
+    const extra = lista.filter(u => !cubiertas.has(u));
     return `<div style="margin-top:12px" id="pl-ops-wrap">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
           <label class="form-label" style="margin-bottom:0">Sedes</label>
@@ -10889,8 +11023,7 @@ async function viewPL(container) {
             style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-page);color:var(--text-muted);cursor:pointer">Borrar selección</button>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px">
-          ${row1.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${row1.map(mkChk).join('')}</div>` : ''}
-          ${row2.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${row2.map(mkChk).join('')}</div>` : ''}
+          ${filas.map(fila => `<div style="display:flex;gap:8px;flex-wrap:wrap">${fila.map(mkChk).join('')}</div>`).join('')}
           ${extra.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${extra.map(mkChk).join('')}</div>` : ''}
         </div>
       </div>`;
@@ -12163,6 +12296,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="ebc-companias">🏢 Mapeo Empresas EBC</button>
         <button class="tab-btn" data-tab="proy-tiendas">🏪 Tiendas Proy.</button>
         <button class="tab-btn" data-tab="conciliacion">🏦 Conciliación Cobranzas</button>
+        <button class="tab-btn" data-tab="sociedades">🏢 Sociedades y Operaciones</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -12179,6 +12313,7 @@ async function viewAdmin(container) {
       <div id="tab-ebc-companias" class="tab-panel"></div>
       <div id="tab-proy-tiendas" class="tab-panel"></div>
       <div id="tab-conciliacion" class="tab-panel"></div>
+      <div id="tab-sociedades" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -12205,6 +12340,7 @@ async function viewAdmin(container) {
   renderAdminEBCCompanias(document.getElementById('tab-ebc-companias'));
   renderAdminProyTiendas(document.getElementById('tab-proy-tiendas'));
   renderAdminConciliacion(document.getElementById('tab-conciliacion'));
+  renderAdminSociedades(document.getElementById('tab-sociedades'));
 }
 
 // ─── Admin: Conciliación de Cobranzas — rutas de archivos por sociedad ──
@@ -13528,39 +13664,27 @@ function showUserModal(user, onSave) {
           ${CAJA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCaja||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group" id="um-socs-pago-section"><label>Sociedades Autorizadas</label>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:4px">
-          ${ALL_SOCS_COMPRA.map(s => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-            <input type="checkbox" name="um-soc-pago" value="${s}"
-              ${((user?.sociedadesPago||[]).includes(s)||(user?.sociedadesCompra||[]).includes(s))?'checked':''}
-              style="width:15px;height:15px;accent-color:var(--primary)">
-            ${s}
-          </label>`).join('')}
+      <div class="form-group" id="um-socs-section"><label>Sociedades</label>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+          ${(S.sociedades||[]).map(soc => {
+            const codigos = (soc.operaciones||[]).map(o => o.codigo);
+            const checked = (user?.sociedadesPago||[]).includes(soc.codigo)
+              || (user?.sociedadesCompra||[]).includes(soc.codigo)
+              || codigos.some(c => (user?.operations||[]).includes(c));
+            return `<label style="display:flex;flex-direction:column;gap:2px;font-weight:normal;cursor:pointer;border:1px solid var(--border);border-radius:6px;padding:6px 10px">
+              <span style="display:flex;align-items:center;gap:6px">
+                <input type="checkbox" name="um-soc" value="${esc(soc.codigo)}" ${checked?'checked':''}
+                  style="width:15px;height:15px;accent-color:var(--primary)">
+                <strong>${esc(soc.codigo)}</strong>
+              </span>
+              ${codigos.length ? `<span style="font-size:11px;color:var(--text-muted);margin-left:21px">${codigos.map(esc).join(', ')}</span>` : ''}
+            </label>`;
+          }).join('')}
         </div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
-          Define qué sociedades puede ver este usuario en Gestión de Pagos, Flujo de Caja y Precios de Compra.
-        </div>
-      </div>
-      <div class="form-group" id="um-ops-section"><label>Operaciones Autorizadas</label>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
-          ${[ALL_OPS_ROW1, ALL_OPS_ROW2].map(row => `
-          <div style="display:flex;gap:16px;flex-wrap:wrap">
-            ${row.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-              <input type="checkbox" name="um-op" value="${op}" ${(user?.operations||[]).includes(op)?'checked':''}>
-              ${op}
-            </label>`).join('')}
-          </div>`).join('')}
-        </div>
-      </div>
-      <div class="form-group" id="um-transf-dest-section"><label>Operaciones Destino para Transferencias</label>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
-          ${[ALL_OPS_ROW1, ALL_OPS_ROW2].map(row => `
-          <div style="display:flex;gap:16px;flex-wrap:wrap">
-            ${row.map(op => `<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-              <input type="checkbox" name="um-transf-dest" value="${op}" ${(user?.transferenciaDestinos||[]).includes(op)?'checked':''}>
-              ${op}
-            </label>`).join('')}
-          </div>`).join('')}
+          Al marcar una sociedad, el usuario queda con acceso a Gestión de Pagos, Flujo de Caja
+          y (si tiene el permiso) Precios de Compra / Conciliación para esa sociedad, y con
+          Operaciones Autorizadas + Destinos de Transferencia sobre TODAS sus operaciones.
         </div>
       </div>
       <div id="um-permisos-extra" class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
@@ -13658,10 +13782,8 @@ function showUserModal(user, onSave) {
   function syncRoleUI() {
     const role    = document.getElementById('um-role').value;
     const isAdmin = role === ROLES.ADMIN;
-    document.getElementById('um-ops-section').style.display        = isAdmin ? 'none' : 'block';
-    document.getElementById('um-transf-dest-section').style.display = isAdmin ? 'none' : 'block';
-    document.getElementById('um-socs-pago-section').style.display  = isAdmin ? 'none' : 'block';
-    document.getElementById('um-permisos-extra').style.display     = isAdmin ? 'none' : 'block';
+    document.getElementById('um-socs-section').style.display   = isAdmin ? 'none' : 'block';
+    document.getElementById('um-permisos-extra').style.display = isAdmin ? 'none' : 'block';
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
@@ -13672,9 +13794,15 @@ function showUserModal(user, onSave) {
     const role = document.getElementById('um-role').value;
     const isAdmin = role === ROLES.ADMIN;
     // Lista unificada de sociedades para Pagos, Flujo de Caja y (si tiene el permiso) Precios de Compra
-    const sociedadesPago   = isAdmin ? [] : [...document.querySelectorAll('input[name="um-soc-pago"]:checked')].map(cb => cb.value);
+    const sociedadesPago   = isAdmin ? [] : [...document.querySelectorAll('input[name="um-soc"]:checked')].map(cb => cb.value);
     const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? sociedadesPago : [];
     const sociedadesConciliacion = (!isAdmin && document.getElementById('um-conciliacion')?.checked) ? sociedadesPago : [];
+    // Operaciones y destinos de transferencia se derivan de las sociedades marcadas: la
+    // union de todas las operaciones que pertenecen a esas sociedades (ya no son checklists
+    // sueltos — ver plan "Migrar Sociedades/Operaciones").
+    const operacionesDerivadas = isAdmin ? [] : (S.sociedades||[])
+      .filter(soc => sociedadesPago.includes(soc.codigo))
+      .flatMap(soc => (soc.operaciones||[]).map(o => o.codigo));
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
@@ -13685,8 +13813,8 @@ function showUserModal(user, onSave) {
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,
       rolObligaciones:  isAdmin ? '' : (document.getElementById('um-obligaciones')?.checked ? 'autorizador' : ''),
-      operations: [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value),
-      transferenciaDestinos: isAdmin ? [] : [...document.querySelectorAll('input[name="um-transf-dest"]:checked')].map(cb => cb.value),
+      operations: operacionesDerivadas,
+      transferenciaDestinos: operacionesDerivadas,
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
       puedeVerComparativo: !isAdmin && (document.getElementById('um-comparativo')?.checked ?? false),
       puedeVerVentas:      !isAdmin && (document.getElementById('um-ventas')?.checked      ?? false),
@@ -14792,7 +14920,17 @@ function exportarVistaExcel(containerId, nombreArchivo) {
 }
 
 // ─── App Init ─────────────────────────────────────────────────────
-function showApp() {
+// Carga el catálogo de Sociedades/Operaciones (una vez por sesión) y puebla los arrays
+// ALL_OPS/ALL_SOCS_COMPRA que el resto de la app sigue leyendo por nombre.
+async function loadSociedades() {
+  try {
+    S.sociedades = await GET('/sociedades');
+  } catch (e) { S.sociedades = []; }
+  ALL_OPS = S.sociedades.flatMap(s => (s.operaciones||[]).map(o => o.codigo));
+  ALL_SOCS_COMPRA = S.sociedades.map(s => s.codigo);
+}
+
+async function showApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('main-app').classList.remove('hidden');
   document.getElementById('sb-user').textContent = S.user.username;
@@ -14801,6 +14939,7 @@ function showApp() {
   if (_installPrompt) document.getElementById('install-btn').classList.remove('hidden');
   // Botón Comentarios en sidebar footer: visible para todos los roles
   document.getElementById('sb-comentarios-btn').style.display = '';
+  await loadSociedades();
   renderNav();
   // Navigate to default view
   const role = S.user.role;

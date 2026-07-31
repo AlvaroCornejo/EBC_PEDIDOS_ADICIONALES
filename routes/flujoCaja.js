@@ -569,9 +569,10 @@ async function parseXlsxEECC(buffer, banco) {
   const ws = wb.worksheets[0];
   const trxs = [];
   ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-    // El archivo BBVA trae 9 filas de cabecera/datos de la cuenta antes de la tabla de
-    // movimientos (que empieza en la fila 11); los demas bancos solo tienen 1 fila de header.
-    if (banco === 'BBVA' ? rowNumber <= 10 : rowNumber === 1) return;
+    // El archivo BBVA trae filas de datos de la cuenta (1-10) mas la fila de cabecera de
+    // columnas (11) antes de la tabla real de movimientos, que empieza en la fila 12; los
+    // demas bancos solo tienen 1 fila de header.
+    if (banco === 'BBVA' ? rowNumber <= 11 : rowNumber === 1) return;
     const v = row.values;
     try {
       if (banco === 'BBVA') {

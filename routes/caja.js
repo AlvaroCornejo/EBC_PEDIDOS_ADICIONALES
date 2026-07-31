@@ -5,11 +5,14 @@ const CajaConfig = require('../models/CajaConfig');
 const CierreCaja = require('../models/CierreCaja');
 const EnvioOficina = require('../models/EnvioOficina');
 const DepositoBancario = require('../models/DepositoBancario');
+const Operacion = require('../models/Operacion');
 
 const router = express.Router();
 router.use(authMiddleware);
 
-const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
+// Antes una lista fija (quedó desactualizada: incluía "GBCFR2" ya eliminado, le faltaban
+// CORPQ/CORPFK/MUVON/GBCORP) — ahora se consulta el catálogo real (models/Operacion.js).
+const allOps = () => Operacion.distinct('codigo');
 const COMBOS = [['VENTA', 'PEN'], ['VENTA', 'USD'], ['PROPINA', 'PEN'], ['PROPINA', 'USD']];
 const comboKey = (tipo, moneda) => (tipo === 'VENTA' ? 'venta' : 'propina') + moneda;
 
@@ -56,9 +59,9 @@ function sanitizeCobranzas(c = {}) {
 router.get('/config', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo administradores' });
-    const configs = await CajaConfig.find().lean();
+    const [configs, ops] = await Promise.all([CajaConfig.find().lean(), allOps()]);
     const byOp = {}; configs.forEach(c => { byOp[c.operacion] = c; });
-    res.json(ALL_OPS.map(op => byOp[op] || { operacion: op, tipoNegocio: 'MOSTRADOR', tieneOficina: false, turnos: ['Único'] }));
+    res.json(ops.map(op => byOp[op] || { operacion: op, tipoNegocio: 'MOSTRADOR', tieneOficina: false, turnos: ['Único'] }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -66,7 +69,7 @@ router.put('/config/:operacion', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo administradores' });
     const { operacion } = req.params;
-    if (!ALL_OPS.includes(operacion)) return res.status(400).json({ error: 'Operación inválida' });
+    if (!(await allOps()).includes(operacion)) return res.status(400).json({ error: 'Operación inválida' });
     const { tipoNegocio, tieneOficina, turnos } = req.body;
     if (tipoNegocio !== undefined && !['RESTAURANTE', 'MOSTRADOR'].includes(tipoNegocio)) {
       return res.status(400).json({ error: 'Tipo de negocio inválido' });
@@ -88,7 +91,7 @@ router.put('/config/:operacion', async (req, res) => {
 router.get('/operaciones', async (req, res) => {
   try {
     if (!checkAcceso(req, res, 'cualquiera')) return;
-    const ops = req.user.role === 'ADMIN' ? ALL_OPS : (req.user.operations || []);
+    const ops = req.user.role === 'ADMIN' ? await allOps() : (req.user.operations || []);
     const configs = await CajaConfig.find({ operacion: { $in: ops } }).lean();
     const byOp = {}; configs.forEach(c => { byOp[c.operacion] = c; });
     res.json(ops.map(op => byOp[op] || { operacion: op, tipoNegocio: 'MOSTRADOR', tieneOficina: false, turnos: ['Único'] }));

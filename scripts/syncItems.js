@@ -17,15 +17,19 @@ const fs = require('fs');
 
 const Item = require('../models/Item');
 const ItemVenta = require('../models/ItemVenta');
+const Operacion = require('../models/Operacion');
 const { readItems, findFile, loadWB } = require('../routes/datos');
 
-const ALL_OPS = ['AASI', 'CDLAO', 'CDL28', 'PLANTA', 'GBADC', 'GBCFR', 'GBCFR2', 'GBCRP', 'GBGOL', 'GBSRQ', 'GBPLANTA'];
 const ITEMS_VENTA_FILE = path.join(__dirname, '../data/EBC ITEMS_VENTA.xlsx');
 
 async function main() {
   console.log('Conectando a MongoDB...');
   await mongoose.connect(process.env.MONGODB_URI);
   console.log('Conectado.\n');
+
+  // Antes una lista fija (quedó desactualizada: incluía "GBCFR2" ya eliminado, le faltaban
+  // CORPQ/CORPFK/MUVON/GBCORP) — ahora se consulta el catálogo real (models/Operacion.js).
+  const ALL_OPS = await Operacion.distinct('codigo');
 
   for (const operacion of ALL_OPS) {
     process.stdout.write(`${operacion}...`);
