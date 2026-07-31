@@ -13671,20 +13671,28 @@ function showUserModal(user, onSave) {
             const checked = (user?.sociedadesPago||[]).includes(soc.codigo)
               || (user?.sociedadesCompra||[]).includes(soc.codigo)
               || codigos.some(c => (user?.operations||[]).includes(c));
-            return `<label style="display:flex;flex-direction:column;gap:2px;font-weight:normal;cursor:pointer;border:1px solid var(--border);border-radius:6px;padding:6px 10px">
-              <span style="display:flex;align-items:center;gap:6px">
-                <input type="checkbox" name="um-soc" value="${esc(soc.codigo)}" ${checked?'checked':''}
+            return `<div style="border:1px solid var(--border);border-radius:6px;padding:6px 10px">
+              <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+                <input type="checkbox" name="um-soc" value="${esc(soc.codigo)}" class="um-soc-chk" data-soc="${esc(soc.codigo)}" ${checked?'checked':''}
                   style="width:15px;height:15px;accent-color:var(--primary)">
                 <strong>${esc(soc.codigo)}</strong>
-              </span>
-              ${codigos.length ? `<span style="font-size:11px;color:var(--text-muted);margin-left:21px">${codigos.map(esc).join(', ')}</span>` : ''}
-            </label>`;
+              </label>
+              ${codigos.length ? `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-left:21px;margin-top:4px">
+                ${codigos.map(c => `<label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);font-weight:normal;cursor:pointer">
+                  <input type="checkbox" name="um-op" value="${esc(c)}" class="um-op-chk" data-soc="${esc(soc.codigo)}"
+                    ${(user?.operations||[]).includes(c)?'checked':''} style="width:13px;height:13px;accent-color:var(--primary)">
+                  ${esc(c)}
+                </label>`).join('')}
+              </div>` : ''}
+            </div>`;
           }).join('')}
         </div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
-          Al marcar una sociedad, el usuario queda con acceso a Gestión de Pagos, Flujo de Caja
-          y (si tiene el permiso) Precios de Compra / Conciliación para esa sociedad, y con
-          Operaciones Autorizadas + Destinos de Transferencia sobre TODAS sus operaciones.
+          Marcar una sociedad da acceso a Gestión de Pagos, Flujo de Caja y (si tiene el permiso)
+          Precios de Compra / Conciliación para esa sociedad, y marca por defecto todas sus
+          operaciones — pero cada operación se puede agregar o quitar individualmente, esté
+          o no marcada la sociedad. Las operaciones marcadas son también los destinos
+          permitidos para Transferencias.
         </div>
       </div>
       <div id="um-permisos-extra" class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
@@ -13788,6 +13796,14 @@ function showUserModal(user, onSave) {
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
 
+  // Marcar/desmarcar una sociedad marca/desmarca por defecto todas sus operaciones, pero
+  // cada operación se puede seguir ajustando individualmente después (no queda bloqueada).
+  document.querySelectorAll('.um-soc-chk').forEach(chk => {
+    chk.addEventListener('change', () => {
+      document.querySelectorAll(`.um-op-chk[data-soc="${chk.dataset.soc}"]`).forEach(op => { op.checked = chk.checked; });
+    });
+  });
+
   document.getElementById('um-save').addEventListener('click', async () => {
     const errEl = document.getElementById('um-error');
     errEl.classList.add('hidden');
@@ -13797,12 +13813,10 @@ function showUserModal(user, onSave) {
     const sociedadesPago   = isAdmin ? [] : [...document.querySelectorAll('input[name="um-soc"]:checked')].map(cb => cb.value);
     const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? sociedadesPago : [];
     const sociedadesConciliacion = (!isAdmin && document.getElementById('um-conciliacion')?.checked) ? sociedadesPago : [];
-    // Operaciones y destinos de transferencia se derivan de las sociedades marcadas: la
-    // union de todas las operaciones que pertenecen a esas sociedades (ya no son checklists
-    // sueltos — ver plan "Migrar Sociedades/Operaciones").
-    const operacionesDerivadas = isAdmin ? [] : (S.sociedades||[])
-      .filter(soc => sociedadesPago.includes(soc.codigo))
-      .flatMap(soc => (soc.operaciones||[]).map(o => o.codigo));
+    // Operaciones marcadas individualmente (por defecto siguen a la sociedad al marcarla/
+    // desmarcarla, pero se pueden agregar/quitar una por una, esté o no marcada la sociedad).
+    // Los destinos de transferencia son el mismo conjunto.
+    const operacionesDerivadas = isAdmin ? [] : [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value);
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
