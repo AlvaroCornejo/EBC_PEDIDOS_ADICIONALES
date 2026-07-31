@@ -13668,9 +13668,11 @@ function showUserModal(user, onSave) {
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
           ${(S.sociedades||[]).map(soc => {
             const codigos = (soc.operaciones||[]).map(o => o.codigo);
+            // El check de la sociedad depende solo de sociedadesPago/sociedadesCompra, NO de
+            // si el usuario tiene alguna operación suya marcada individualmente (eso ahora es
+            // independiente — un usuario puede tener una operación sin tener la sociedad).
             const checked = (user?.sociedadesPago||[]).includes(soc.codigo)
-              || (user?.sociedadesCompra||[]).includes(soc.codigo)
-              || codigos.some(c => (user?.operations||[]).includes(c));
+              || (user?.sociedadesCompra||[]).includes(soc.codigo);
             return `<div style="border:1px solid var(--border);border-radius:6px;padding:6px 10px">
               <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
                 <input type="checkbox" name="um-soc" value="${esc(soc.codigo)}" class="um-soc-chk" data-soc="${esc(soc.codigo)}" ${checked?'checked':''}
