@@ -11004,29 +11004,45 @@ async function viewPL(container) {
 
   const renderOpsSection = (lista) => {
     if (!lista.length) return `<div style="margin-top:12px;color:var(--text-muted);font-size:13px">${isAdmin ? '⚠️ Base de datos EERR vacía — ejecutar <code>node scripts/importEerr.js</code> en el servidor' : ''}</div>`;
-    const mkChk = u => `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg-card)">
-              <input type="checkbox" name="pl-unidad" value="${esc(u)}" ${lista.includes(u)?'checked':''}
+    const mkChk = (u, socCodigo) => `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg-card)">
+              <input type="checkbox" name="pl-unidad" value="${esc(u)}" ${socCodigo?`data-soc="${esc(socCodigo)}"`:''} ${lista.includes(u)?'checked':''}
                 style="width:13px;height:13px;accent-color:var(--primary)">
               ${esc(u)}</label>`;
-    // Una fila de checkboxes por sociedad real (antes era una partición manual en 2 filas)
+    // Una fila por sociedad real: checkbox de la sociedad a la izquierda, sus operaciones a la derecha
     const cubiertas = new Set();
     const filas = (S.sociedades||[]).map(soc => {
       const ops = (soc.operaciones||[]).map(o => o.codigo).filter(u => lista.includes(u));
       ops.forEach(u => cubiertas.add(u));
-      return ops;
-    }).filter(ops => ops.length);
+      return { codigo: soc.codigo, ops };
+    }).filter(f => f.ops.length);
     const extra = lista.filter(u => !cubiertas.has(u));
     return `<div style="margin-top:12px" id="pl-ops-wrap">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
           <label class="form-label" style="margin-bottom:0">Sedes</label>
-          <button type="button" onclick="document.querySelectorAll('input[name=\\'pl-unidad\\']').forEach(c=>c.checked=false)"
+          <button type="button" onclick="document.querySelectorAll('input[name=\\'pl-unidad\\']').forEach(c=>c.checked=false);document.querySelectorAll('.pl-soc-chk').forEach(c=>c.checked=false)"
             style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-page);color:var(--text-muted);cursor:pointer">Borrar selección</button>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px">
-          ${filas.map(fila => `<div style="display:flex;gap:8px;flex-wrap:wrap">${fila.map(mkChk).join('')}</div>`).join('')}
+          ${filas.map(f => `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:6px;padding:6px 10px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;white-space:nowrap">
+              <input type="checkbox" class="pl-soc-chk" data-soc="${esc(f.codigo)}" ${f.ops.every(u=>lista.includes(u))?'checked':''}
+                style="width:15px;height:15px;accent-color:var(--primary)">
+              <strong>${esc(f.codigo)}</strong>
+            </label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">${f.ops.map(u => mkChk(u, f.codigo)).join('')}</div>
+          </div>`).join('')}
           ${extra.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${extra.map(mkChk).join('')}</div>` : ''}
         </div>
       </div>`;
+  };
+
+  const wirePlSocCheckboxes = () => {
+    document.querySelectorAll('.pl-soc-chk').forEach(chk => {
+      chk.addEventListener('change', () => {
+        document.querySelectorAll(`input[name="pl-unidad"][data-soc="${chk.dataset.soc}"]`)
+          .forEach(op => { op.checked = chk.checked; });
+      });
+    });
   };
 
   container.innerHTML = `
@@ -11077,6 +11093,7 @@ async function viewPL(container) {
       ${renderOpsSection(unidadesDisp)}
     </div>
     <div id="pl-resultado"></div>`;
+  wirePlSocCheckboxes();
 
   // Admin: si BD estaba vacía al cargar, hacer un segundo intento después de renderizar
   // (por si el import acaba de terminar en background)
@@ -11089,6 +11106,7 @@ async function viewPL(container) {
           const wrap = document.querySelector('.card.mb-16');
           if (existing) existing.outerHTML = renderOpsSection(lista);
           else if (wrap) wrap.insertAdjacentHTML('beforeend', renderOpsSection(lista));
+          wirePlSocCheckboxes();
         }
       } catch {}
     }, 3000);
