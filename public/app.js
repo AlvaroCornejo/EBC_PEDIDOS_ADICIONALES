@@ -4040,10 +4040,13 @@ async function viewPagos(container) {
   const puedeP4 = ['autorizador','admin'].includes(rolP);
   const puedeP5 = ['pagador','admin'].includes(rolP);
 
-  // Tab inicial: primer paso al que tiene acceso
-  const pasoInicial = puedeP1 ? 'p1' : puedeP2 ? 'p2' : puedeP3 ? 'p3' : puedeP4 ? 'p4' : 'p5';
+  // Tab inicial: primer paso al que tiene acceso de edición (si no tiene ninguno, Paso 1)
+  const pasoInicial = puedeP1 ? 'p1' : puedeP2 ? 'p2' : puedeP3 ? 'p3' : puedeP4 ? 'p4' : puedeP5 ? 'p5' : 'p1';
 
-  const tabAttr = (puede) => puede ? '' : 'disabled style="opacity:.4;cursor:not-allowed"';
+  // Todos los pasos son visibles para cualquiera con acceso a Gestión de Pagos —
+  // la edición/acciones de cada paso ya están restringidas por rol y por estado
+  // (solo lectura una vez aprobado en el nivel siguiente) dentro de cada render.
+  const tabAttr = () => '';
 
   container.innerHTML = `
     <div class="page-header">
