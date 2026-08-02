@@ -5114,26 +5114,24 @@ async function renderPaso2(container) {
     await ap2CargarLista();
   });
 
-  // ── Cargar lista de programaciones (pendientes + aprobadas [+ borrador para admin]) ──
+  // ── Cargar lista de programaciones (todos los niveles — la edición se restringe aparte) ──
   async function ap2CargarLista() {
     const comp = document.getElementById('ap2-compania').value;
     const el   = document.getElementById('ap2-lista');
     if (!comp) { el.innerHTML = ''; return; }
     const esAdmin = (S.user.role === 'ADMIN' || rolP === 'admin');
-    let data;
-    const [pend, apro] = await Promise.all([
-      GET(`/pagos/programaciones?compania=${comp}&estado=pendiente`),
-      GET(`/pagos/programaciones?compania=${comp}&estado=aprobado`),
-    ]);
-    data = [...pend, ...apro];
+    const data = await GET(`/pagos/programaciones?compania=${comp}`);
     if (!data.length) {
-      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones pendientes de aprobación en <strong>${esc(comp)}</strong>.</p>`;
+      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones en <strong>${esc(comp)}</strong>.</p>`;
       return;
     }
     const BADGES = {
-      borrador:  `<span style="font-size:10px;background:#f1f5f9;color:#64748b;border-radius:3px;padding:1px 4px;margin-left:4px">📝 Borrador</span>`,
-      pendiente: `<span style="font-size:10px;background:#fef9c3;color:#854d0e;border-radius:3px;padding:1px 4px;margin-left:4px">⏳ Pendiente</span>`,
-      aprobado:  `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">✅ Aprobada</span>`,
+      borrador:   `<span style="font-size:10px;background:#f1f5f9;color:#64748b;border-radius:3px;padding:1px 4px;margin-left:4px">📝 Borrador</span>`,
+      pendiente:  `<span style="font-size:10px;background:#fef9c3;color:#854d0e;border-radius:3px;padding:1px 4px;margin-left:4px">⏳ Pendiente</span>`,
+      aprobado:   `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">✅ Aprobada</span>`,
+      preparado:  `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px;margin-left:4px">🏦 Preparada</span>`,
+      autorizado: `<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">🔑 Autorizada</span>`,
+      pagado:     `<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">✅ Pagada</span>`,
     };
     el.innerHTML = `
       <div class="card" style="padding:12px">
@@ -5422,14 +5420,15 @@ async function renderPaso2(container) {
             : ''}
           ${['borrador','pendiente'].includes(ap2Prog.estado) ? `
             <button class="btn btn-outline btn-sm" onclick="ap2AplicarEBC()">📋 Aplicar EBC</button>` : ''}
-          <button class="btn btn-outline btn-sm" onclick="ap2Guardar()">💾 Guardar</button>
-          ${puedeAprobar && ap2Prog.estado !== 'aprobado' ? `
+          ${['borrador','pendiente','aprobado','preparado'].includes(ap2Prog.estado) ? `
+            <button class="btn btn-outline btn-sm" onclick="ap2Guardar()">💾 Guardar</button>` : ''}
+          ${puedeAprobar && ['borrador','pendiente'].includes(ap2Prog.estado) ? `
             <button class="btn btn-primary btn-sm" onclick="ap2Aprobar()"
                     style="background:#16a34a;border-color:#16a34a">✅ Aprobar</button>` : ''}
           ${puedeAprobar && ap2Prog.estado === 'aprobado' ? `
             <button class="btn btn-sm" onclick="ap2Desaprobar()"
                     style="border:1px solid #f59e0b;color:#b45309;background:#fffbeb">↩️ Desaprobar</button>` : ''}
-          ${(ap2Prog.estado !== 'aprobado' || S.user.role === 'ADMIN') ? `
+          ${(['borrador','pendiente'].includes(ap2Prog.estado) || S.user.role === 'ADMIN') ? `
             <button class="btn btn-sm" onclick="ap2Eliminar()"
                     style="border:1px solid #dc2626;color:#dc2626;background:#fff">🗑️ Eliminar</button>` : ''}
         </div>` : ''}`;
@@ -5682,19 +5681,19 @@ async function renderPaso3(container) {
     const comp = document.getElementById('p3-compania').value;
     const el   = document.getElementById('p3-lista');
     if (!comp) { el.innerHTML = ''; return; }
-    // Paso 3 ve aprobado (confirmado en Paso 2) + preparado (ya procesado aquí)
-    const [apro, prep] = await Promise.all([
-      GET(`/pagos/programaciones?compania=${comp}&estado=aprobado`),
-      GET(`/pagos/programaciones?compania=${comp}&estado=preparado`),
-    ]);
-    const data = [...apro, ...prep];
+    // Ve todos los niveles — la edición (preparar) se restringe aparte por rol y estado
+    const data = await GET(`/pagos/programaciones?compania=${comp}`);
     if (!data.length) {
-      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones aprobadas para preparar en <strong>${esc(comp)}</strong>.</p>`;
+      el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones en <strong>${esc(comp)}</strong>.</p>`;
       return;
     }
     const BADGES = {
-      aprobado:  `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">✅ Aprobada</span>`,
-      preparado: `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px;margin-left:4px">🏦 Preparada</span>`,
+      borrador:   `<span style="font-size:10px;background:#f1f5f9;color:#64748b;border-radius:3px;padding:1px 4px;margin-left:4px">📝 Borrador</span>`,
+      pendiente:  `<span style="font-size:10px;background:#fef9c3;color:#854d0e;border-radius:3px;padding:1px 4px;margin-left:4px">⏳ Pendiente</span>`,
+      aprobado:   `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">✅ Aprobada</span>`,
+      preparado:  `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px;margin-left:4px">🏦 Preparada</span>`,
+      autorizado: `<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">🔑 Autorizada</span>`,
+      pagado:     `<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px;margin-left:4px">✅ Pagada</span>`,
     };
     el.innerHTML = `
       <div class="card" style="padding:12px">
@@ -6319,8 +6318,9 @@ async function renderPaso3(container) {
           ${p3Prog.estado === 'preparado'
             ? `<span style="font-size:11px;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 8px;font-weight:600">🏦 Preparada</span>`
             : ''}
-          <button class="btn btn-outline btn-sm" onclick="p3Guardar()">💾 Guardar</button>
-          ${puedePagar && p3Prog.estado !== 'preparado' ? `
+          ${['aprobado','preparado'].includes(p3Prog.estado) ? `
+            <button class="btn btn-outline btn-sm" onclick="p3Guardar()">💾 Guardar</button>` : ''}
+          ${puedePagar && p3Prog.estado === 'aprobado' ? `
             <button class="btn btn-primary btn-sm" onclick="p3Preparar()"
                     style="background:#1d4ed8;border-color:#1d4ed8">🏦 Enviar a Autorización</button>` : ''}
         </div>` : ''}`;
@@ -6886,7 +6886,8 @@ async function renderPaso4(container) {
           ${p4Prog.estado === 'autorizado'
             ? `<span style="font-size:11px;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Autorizada</span>`
             : ''}
-          <button class="btn btn-outline btn-sm" onclick="p4Guardar()">💾 Guardar</button>
+          ${['aprobado','preparado'].includes(p4Prog.estado) ? `
+            <button class="btn btn-outline btn-sm" onclick="p4Guardar()">💾 Guardar</button>` : ''}
           ${puedeAut && p4Prog.estado === 'preparado' ? `
             <button class="btn btn-primary btn-sm" onclick="p4Autorizar()"
                     style="background:#15803d;border-color:#15803d">✅ Autorizar</button>` : ''}
@@ -6899,18 +6900,18 @@ async function renderPaso4(container) {
     const el   = document.getElementById('p4-lista');
     if (!comp) { el.innerHTML = ''; return; }
     const BADGES = {
-      preparado: `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px">🏦 Preparada</span>`,
-      autorizado:`<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px">🔑 Autorizada</span>`,
+      borrador:   `<span style="font-size:10px;background:#f1f5f9;color:#64748b;border-radius:3px;padding:1px 4px">📝 Borrador</span>`,
+      pendiente:  `<span style="font-size:10px;background:#fef9c3;color:#854d0e;border-radius:3px;padding:1px 4px">⏳ Pendiente</span>`,
+      aprobado:   `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px">✅ Aprobada</span>`,
+      preparado:  `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px">🏦 Preparada</span>`,
+      autorizado: `<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px">🔑 Autorizada</span>`,
+      pagado:     `<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px">✅ Pagada</span>`,
     };
     try {
-      // Paso 4 ve preparado (confirmado en Paso 3) + autorizado (ya procesado aquí)
-      const [prep, auth] = await Promise.all([
-        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=preparado`),
-        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=autorizado`),
-      ]);
-      const data = [...prep, ...auth];
+      // Ve todos los niveles — la edición (autorizar) se restringe aparte por rol y estado
+      const data = await GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}`);
       if (!data.length) {
-        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones preparadas para <strong>${esc(comp)}</strong>.</p>`;
+        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones en <strong>${esc(comp)}</strong>.</p>`;
         return;
       }
       el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -7615,7 +7616,8 @@ async function renderPaso5(container) {
           ${p5Prog.estado === 'pagado'
             ? `<span style="font-size:11px;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 8px;font-weight:600">✅ Pagada</span>`
             : ''}
-          <button class="btn btn-outline btn-sm" onclick="p5Guardar()">💾 Grabar</button>
+          ${['autorizado','pagado'].includes(p5Prog.estado) ? `
+            <button class="btn btn-outline btn-sm" onclick="p5Guardar()">💾 Grabar</button>` : ''}
           ${(puedePagar && p5Prog.estado === 'autorizado')
             ? `<button class="btn btn-success btn-sm" onclick="p5Pagar()" style="background:#15803d;color:#fff;border:none"
                        title="Registrar el pago de todas las obligaciones seleccionadas de esta programación">💳 Pagar</button>`
@@ -7638,17 +7640,18 @@ async function renderPaso5(container) {
     const el   = document.getElementById('p5-lista');
     if (!comp) { el.innerHTML = ''; return; }
     const BADGES = {
+      borrador:   `<span style="font-size:10px;background:#f1f5f9;color:#64748b;border-radius:3px;padding:1px 4px">📝 Borrador</span>`,
+      pendiente:  `<span style="font-size:10px;background:#fef9c3;color:#854d0e;border-radius:3px;padding:1px 4px">⏳ Pendiente</span>`,
+      aprobado:   `<span style="font-size:10px;background:#bbf7d0;color:#15803d;border-radius:3px;padding:1px 4px">✅ Aprobada</span>`,
+      preparado:  `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px">🏦 Preparada</span>`,
       autorizado: `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 4px">🔑 Autorizada</span>`,
       pagado:     `<span style="font-size:10px;background:#dcfce7;color:#15803d;border-radius:3px;padding:1px 4px">✅ Pagada</span>`,
     };
     try {
-      const [auth, paid] = await Promise.all([
-        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=autorizado`),
-        GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}&estado=pagado`),
-      ]);
-      const data = [...auth, ...paid];
+      // Ve todos los niveles — la edición (registrar pago) se restringe aparte por rol y estado
+      const data = await GET(`/pagos/programaciones?compania=${encodeURIComponent(comp)}`);
       if (!data.length) {
-        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones autorizadas para <strong>${esc(comp)}</strong>.</p>`;
+        el.innerHTML = `<p style="color:var(--text-muted);font-size:13px">No hay programaciones en <strong>${esc(comp)}</strong>.</p>`;
         return;
       }
       el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap">
