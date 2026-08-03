@@ -12,7 +12,7 @@ function buildPayload(user) {
     id: user.id, username: user.username, role: user.role, operations: user.operations,
     puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo,
     puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas,
-    itemsRol: user.itemsRol || '', rolPago: user.rolPago || '',
+    rolPago: user.rolPago || '',
     sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [],
     rolBCT: user.rolBCT || '', rol86: user.rol86 || '',
     accesoBajas: !!user.accesoBajas, accesoConsumos: !!user.accesoConsumos,
