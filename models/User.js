@@ -31,6 +31,8 @@ const userSchema = new mongoose.Schema({
   operacionesEERR:      { type: [String], default: [] },
   accesoConciliacion:   { type: Boolean, default: false },
   sociedadesConciliacion: { type: [String], default: [] },
+  rolMaestroItems:      { type: String, default: '' },
+  sociedadesMaestros:   { type: [String], default: [] },
 });
 
 module.exports = mongoose.model('User', userSchema);

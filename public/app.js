@@ -11,6 +11,7 @@ const BCT_ROLES   = [['','— Sin acceso —'],['SOLICITUD','Solicitud'],['REGIS
 const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pagos']];
+const MAESTRO_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador de cuentas'],['registrador','Registrador ERP'],['admin','Administrador']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 // Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
 // iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
@@ -260,6 +261,7 @@ const NAV_ITEMS = [
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT], extraPerm: 'puedeVerComparativo' },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
+  { id: 'maestro-items',  label: 'Maestro de Ítems', icon: '🗂️', roles: [ROLES.ADMIN], extraPerm: 'rolMaestroItems' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
@@ -326,7 +328,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -2938,6 +2940,540 @@ async function viewBajas(container) {
   }
 
   await buscarBajas();
+}
+
+// ─── View: Maestro de Ítems ────────────────────────────────────────
+async function viewMaestroItems(container) {
+  const rol     = S.user.rolMaestroItems || (S.user.role === 'ADMIN' ? 'admin' : '');
+  const esAdmin = S.user.role === 'ADMIN' || rol === 'admin';
+  const canSol  = ['solicitante', 'admin'].includes(rol) || S.user.role === 'ADMIN';
+  const canVal  = ['validador', 'admin'].includes(rol)   || S.user.role === 'ADMIN';
+  const canReg  = ['registrador', 'admin'].includes(rol) || S.user.role === 'ADMIN';
+  const misSociedades = esAdmin ? ALL_SOCS_COMPRA : (S.user.sociedadesMaestros || []);
+  let sociedadActual = misSociedades[0] || '';
+
+  const TABS = [
+    { id: 'catalogo',    label: '📋 Catálogo',       always: true },
+    { id: 'solicitudes', label: '📝 Mis Solicitudes', roles: ['solicitante', 'admin'] },
+    { id: 'validacion',  label: '✅ Validación',      roles: ['validador', 'admin'] },
+    { id: 'registro',    label: '🏷️ Registro ERP',   roles: ['registrador', 'admin'] },
+  ].filter(t => t.always || (t.roles && t.roles.includes(rol)));
+
+  const defaultTab = rol === 'validador' ? 'validacion'
+                    : rol === 'registrador' ? 'registro'
+                    : rol === 'solicitante' ? 'solicitudes' : 'catalogo';
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">🗂️ Maestro de Ítems</div>
+    </div>
+    <div class="page-body">
+      <div class="tabs mb-0">
+        ${TABS.map(t => `<button class="tab-btn${t.id === defaultTab ? ' active' : ''}" data-mtab="${t.id}">${t.label}</button>`).join('')}
+      </div>
+      <div id="mi-tab-content" class="mt-16"></div>
+    </div>`;
+
+  if (!misSociedades.length && !esAdmin) {
+    document.getElementById('mi-tab-content').innerHTML =
+      '<div class="empty-state"><p>No tienes sociedades asignadas para el Maestro de Ítems.</p></div>';
+    return;
+  }
+
+  let refsCache = null;
+  async function getRefs() {
+    if (!refsCache) refsCache = await GET('/maestro-items/refs');
+    return refsCache;
+  }
+
+  const fmtEstado = e => ({
+    borrador:   '<span class="badge" style="background:#94a3b8">Borrador</span>',
+    pendiente:  '<span class="badge" style="background:#f59e0b">Pendiente</span>',
+    aprobado:   '<span class="badge" style="background:#22c55e">Aprobado</span>',
+    rechazado:  '<span class="badge" style="background:#ef4444">Rechazado</span>',
+    completado: '<span class="badge" style="background:#3b82f6">Completado</span>',
+  }[e] || e);
+  const fmtF = d => d ? new Date(d).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+
+  // ── Autocomplete de cuenta contable ─────────────────────────────
+  function cuentaField(id, label) {
+    return `
+      <div style="position:relative;flex:1;min-width:200px">
+        <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">${label}</label>
+        <input type="text" id="mi-f-${id}" class="form-control" placeholder="Buscar código o nombre..." autocomplete="off" style="font-size:13px">
+        <input type="hidden" id="mi-fh-${id}">
+        <div id="mi-fd-${id}" style="display:none;position:absolute;z-index:20;background:#fff;border:1px solid var(--border);border-radius:6px;max-height:220px;overflow-y:auto;width:100%;box-shadow:0 4px 12px rgba(0,0,0,.12)"></div>
+      </div>`;
+  }
+  function wireCuentaField(id, initialCuenta, initialNombre) {
+    const inp = document.getElementById(`mi-f-${id}`);
+    const hidden = document.getElementById(`mi-fh-${id}`);
+    const drop = document.getElementById(`mi-fd-${id}`);
+    if (initialCuenta) {
+      inp.value = `${initialCuenta} - ${initialNombre || ''}`;
+      hidden.value = initialCuenta;
+      if (!initialNombre) {
+        GET(`/maestro-items/cuentas?q=${encodeURIComponent(initialCuenta)}`).then(rows => {
+          const match = rows.find(r => String(r.cuenta) === String(initialCuenta));
+          if (match && hidden.value === String(initialCuenta)) inp.value = `${match.cuenta} - ${match.nombre}`;
+        }).catch(() => {});
+      }
+    }
+    inp.addEventListener('input', () => {
+      hidden.value = '';
+      clearTimeout(inp._t);
+      inp._t = setTimeout(async () => {
+        const q = inp.value.trim();
+        if (q.length < 2) { drop.style.display = 'none'; return; }
+        const rows = await GET(`/maestro-items/cuentas?q=${encodeURIComponent(q)}`);
+        drop.innerHTML = rows.length
+          ? rows.map(r => `<div class="mi-cuenta-opt" data-cuenta="${r.cuenta}" data-nombre="${esc(r.nombre)}" style="padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f1f5f9">${r.cuenta} — ${esc(r.nombre)}</div>`).join('')
+          : '<div style="padding:6px 10px;color:var(--text-muted);font-size:12px">Sin resultados</div>';
+        drop.style.display = 'block';
+        drop.querySelectorAll('.mi-cuenta-opt').forEach(opt => {
+          opt.addEventListener('mousedown', (ev) => {
+            ev.preventDefault();
+            inp.value = `${opt.dataset.cuenta} - ${opt.dataset.nombre}`;
+            hidden.value = opt.dataset.cuenta;
+            drop.style.display = 'none';
+          });
+        });
+      }, 300);
+    });
+    inp.addEventListener('blur', () => setTimeout(() => { drop.style.display = 'none'; }, 150));
+  }
+  const cuentaVal = id => document.getElementById(`mi-fh-${id}`)?.value || '';
+
+  // ── Cascada línea → familia → sub-familia dentro de un form ─────
+  async function wireCascada(prefix, refs, base) {
+    const selLinea = document.getElementById(`${prefix}-linea`);
+    const selFam   = document.getElementById(`${prefix}-familia`);
+    const selSub   = document.getElementById(`${prefix}-subfamilia`);
+    selLinea.innerHTML = '<option value="">—</option>' + refs.lineas.map(l => `<option value="${esc(l.codigo)}">${esc(l.codigo)} - ${esc(l.nombre)}</option>`).join('');
+    if (base?.linea) {
+      selLinea.value = base.linea;
+      const fams = await GET(`/maestro-items/refs/familias?linea=${encodeURIComponent(base.linea)}`);
+      selFam.innerHTML = '<option value="">—</option>' + fams.map(f => `<option value="${esc(f.familia)}">${esc(f.familia)} - ${esc(f.nombre)}</option>`).join('');
+      if (base.familia) {
+        selFam.value = base.familia;
+        const subs = await GET(`/maestro-items/refs/sub-familias?linea=${encodeURIComponent(base.linea)}&familia=${encodeURIComponent(base.familia)}`);
+        selSub.innerHTML = '<option value="">—</option>' + subs.map(s => `<option value="${esc(s.subFamilia)}">${esc(s.subFamilia)} - ${esc(s.nombre)}</option>`).join('');
+        if (base.subFamilia) selSub.value = base.subFamilia;
+      }
+    }
+    selLinea.addEventListener('change', async () => {
+      const fams = selLinea.value ? await GET(`/maestro-items/refs/familias?linea=${encodeURIComponent(selLinea.value)}`) : [];
+      selFam.innerHTML = '<option value="">—</option>' + fams.map(f => `<option value="${esc(f.familia)}">${esc(f.familia)} - ${esc(f.nombre)}</option>`).join('');
+      selSub.innerHTML = '<option value="">—</option>';
+    });
+    selFam.addEventListener('change', async () => {
+      const subs = (selLinea.value && selFam.value) ? await GET(`/maestro-items/refs/sub-familias?linea=${encodeURIComponent(selLinea.value)}&familia=${encodeURIComponent(selFam.value)}`) : [];
+      selSub.innerHTML = '<option value="">—</option>' + subs.map(s => `<option value="${esc(s.subFamilia)}">${esc(s.subFamilia)} - ${esc(s.nombre)}</option>`).join('');
+    });
+  }
+
+  // ── Formulario de solicitud (nuevo / copia) ─────────────────────
+  async function abrirFormSolicitud(base, editId) {
+    const refs = await getRefs();
+    const body = `
+      <form id="mi-form">
+        <div class="form-group"><label>Sociedad</label>
+          <select id="mi-f-soc" class="form-control">
+            ${misSociedades.map(s => `<option value="${esc(s)}" ${s === sociedadActual ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Nombre</label>
+          <input type="text" id="mi-f-nombre" class="form-control" value="${esc(base?.nombre || '')}"></div>
+        <div class="form-group"><label>Tipo de ítem</label>
+          <select id="mi-f-tipo" class="form-control">
+            <option value="">—</option>
+            ${refs.tiposItem.map(t => `<option value="${esc(t.codigo)}" ${base?.tipoItem === t.codigo ? 'selected' : ''}>${esc(t.codigo)} - ${esc(t.nombre)}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="form-group" style="flex:1;min-width:160px"><label>Línea</label><select id="mi-f-linea" class="form-control"></select></div>
+          <div class="form-group" style="flex:1;min-width:160px"><label>Familia</label><select id="mi-f-familia" class="form-control"><option value="">—</option></select></div>
+          <div class="form-group" style="flex:1;min-width:160px"><label>Sub-familia</label><select id="mi-f-subfamilia" class="form-control"><option value="">—</option></select></div>
+        </div>
+        <div class="form-group"><label>Unidad de medida</label>
+          <select id="mi-f-um" class="form-control">
+            <option value="">—</option>
+            ${refs.ums.map(u => `<option value="${esc(u.codigo)}" ${base?.um === u.codigo ? 'selected' : ''}>${esc(u.codigo)} - ${esc(u.nombre)}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          ${cuentaField('cuenta-inventario', 'Cuenta de Inventario')}
+          ${cuentaField('cuenta-gasto', 'Cuenta de Gasto')}
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+          ${cuentaField('cuenta-costoventa', 'Cuenta de Costo de Venta')}
+          ${cuentaField('cuenta-venta', 'Cuenta de Venta')}
+        </div>
+        <div id="mi-f-error" class="msg-error hidden" style="margin-top:10px"></div>
+      </form>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" id="mi-f-borrador">💾 Guardar borrador</button>
+        <button class="btn btn-primary" id="mi-f-enviar">📤 Enviar a validación</button>
+      </div>`;
+    const titulo = editId ? 'Editar solicitud' : (base ? `Nuevo ítem — copiado de #${base.item}` : 'Nuevo ítem');
+    openModal(titulo, body, null, { wide: true });
+
+    await wireCascada('mi-f', refs, base);
+    wireCuentaField('cuenta-inventario', base?.cuentaInventario, '');
+    wireCuentaField('cuenta-gasto', base?.cuentaGasto, '');
+    wireCuentaField('cuenta-costoventa', base?.cuentaCostoVenta, '');
+    wireCuentaField('cuenta-venta', base?.cuentaVenta, '');
+    if (editId) { document.getElementById('mi-f-soc').value = base.sociedad; document.getElementById('mi-f-soc').disabled = true; }
+
+    const leerCampos = () => ({
+      nombre:     document.getElementById('mi-f-nombre').value.trim(),
+      tipoItem:   document.getElementById('mi-f-tipo').value,
+      linea:      document.getElementById('mi-f-linea').value,
+      familia:    document.getElementById('mi-f-familia').value,
+      subFamilia: document.getElementById('mi-f-subfamilia').value,
+      um:         document.getElementById('mi-f-um').value,
+      cuentaInventario: cuentaVal('cuenta-inventario') || null,
+      cuentaGasto:      cuentaVal('cuenta-gasto') || null,
+      cuentaCostoVenta: cuentaVal('cuenta-costoventa') || null,
+      cuentaVenta:      cuentaVal('cuenta-venta') || null,
+    });
+    const leerForm = () => ({
+      sociedad:   document.getElementById('mi-f-soc').value,
+      origenItem: base?.item || null,
+      ...leerCampos(),
+    });
+
+    document.getElementById('mi-f-borrador').addEventListener('click', async () => {
+      const errEl = document.getElementById('mi-f-error'); errEl.classList.add('hidden');
+      const data = editId ? leerCampos() : leerForm();
+      if (!data.nombre) { errEl.textContent = 'Falta el nombre'; errEl.classList.remove('hidden'); return; }
+      try {
+        if (editId) await PUT(`/maestro-items/solicitudes/${editId}`, data);
+        else        await POST('/maestro-items/solicitudes', data);
+        closeModal();
+        toast('Solicitud guardada como borrador', 'success');
+        renderTab('solicitudes');
+      } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
+    });
+    document.getElementById('mi-f-enviar').addEventListener('click', async () => {
+      const errEl = document.getElementById('mi-f-error'); errEl.classList.add('hidden');
+      const data = editId ? leerCampos() : leerForm();
+      if (!data.nombre) { errEl.textContent = 'Falta el nombre'; errEl.classList.remove('hidden'); return; }
+      try {
+        const id = editId || (await POST('/maestro-items/solicitudes', data))._id;
+        if (editId) await PUT(`/maestro-items/solicitudes/${editId}`, data);
+        await POST(`/maestro-items/solicitudes/${id}/enviar`);
+        closeModal();
+        toast('Solicitud enviada a validación', 'success');
+        renderTab('solicitudes');
+      } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
+    });
+  }
+
+  function abrirBuscadorCopia() {
+    const body = `
+      <div class="form-group">
+        <label>Buscar ítem para copiar (código o nombre)</label>
+        <input type="text" id="mi-copia-q" class="form-control" placeholder="Escribe para buscar..." autocomplete="off">
+      </div>
+      <div id="mi-copia-result" style="max-height:320px;overflow-y:auto"></div>`;
+    openModal('Copiar ítem existente', body);
+    const inp = document.getElementById('mi-copia-q');
+    const res = document.getElementById('mi-copia-result');
+    inp.addEventListener('input', () => {
+      clearTimeout(inp._t);
+      inp._t = setTimeout(async () => {
+        const q = inp.value.trim();
+        if (q.length < 2) { res.innerHTML = ''; return; }
+        const rows = await GET(`/maestro-items/items-buscar?q=${encodeURIComponent(q)}`);
+        res.innerHTML = rows.length
+          ? rows.map(it => `<div class="mi-copia-opt" data-item="${it.item}" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px">
+              <strong>${it.item}</strong> — ${esc(it.nombre)}
+            </div>`).join('')
+          : '<p class="text-muted" style="font-size:12px;padding:8px">Sin resultados</p>';
+        res.querySelectorAll('.mi-copia-opt').forEach(opt => {
+          opt.addEventListener('click', async () => {
+            const item = await GET(`/maestro-items/items/${opt.dataset.item}`);
+            closeModal();
+            abrirFormSolicitud(item);
+          });
+        });
+      }, 320);
+    });
+  }
+
+  window.miNuevoItem = (modo) => {
+    if (modo === 'copia') abrirBuscadorCopia();
+    else abrirFormSolicitud(null);
+  };
+  window.miCopiarItem = async (item) => {
+    const it = await GET(`/maestro-items/items/${item}`);
+    abrirFormSolicitud(it);
+  };
+
+  // ── Tab: Catálogo ────────────────────────────────────────────────
+  async function renderCatalogo(el) {
+    const refs = await getRefs();
+    el.innerHTML = `
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+            <select id="mi-c-soc" class="form-control" style="width:160px">
+              ${misSociedades.map(s => `<option value="${esc(s)}" ${s === sociedadActual ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+            </select>
+          </div>
+          <div style="flex:1;min-width:180px">
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Código / Nombre</label>
+            <input id="mi-c-q" class="form-control" placeholder="Buscar..." style="font-size:13px">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Línea</label>
+            <select id="mi-c-linea" class="form-control" style="width:170px;font-size:13px">
+              <option value="">Todas</option>
+              ${refs.lineas.map(l => `<option value="${esc(l.codigo)}">${esc(l.codigo)} - ${esc(l.nombre)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Familia</label>
+            <select id="mi-c-familia" class="form-control" style="width:170px;font-size:13px"><option value="">Todas</option></select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sub-familia</label>
+            <select id="mi-c-subfamilia" class="form-control" style="width:170px;font-size:13px"><option value="">Todas</option></select>
+          </div>
+          <div style="align-self:flex-end;padding-bottom:2px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" id="mi-c-noasig" style="width:14px;height:14px;accent-color:var(--primary)">
+              Mostrar solo NO asignados a esta sociedad
+            </label>
+          </div>
+          <button class="btn btn-outline btn-sm" id="mi-c-limpiar">✕ Limpiar</button>
+        </div>
+      </div>
+      ${canSol ? `<div class="mb-16" style="display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" onclick="miNuevoItem('blanco')">➕ Nuevo ítem (en blanco)</button>
+        <button class="btn btn-outline btn-sm" onclick="miNuevoItem('copia')">📄 Copiar ítem existente</button>
+      </div>` : ''}
+      <div id="mi-c-result"></div>`;
+
+    const socSel = document.getElementById('mi-c-soc');
+    socSel.addEventListener('change', () => { sociedadActual = socSel.value; buscar(1); });
+    document.getElementById('mi-c-q').addEventListener('input', () => { clearTimeout(window._miCT); window._miCT = setTimeout(() => buscar(1), 380); });
+    document.getElementById('mi-c-noasig').addEventListener('change', () => buscar(1));
+    document.getElementById('mi-c-linea').addEventListener('change', async (e) => {
+      const fams = e.target.value ? await GET(`/maestro-items/refs/familias?linea=${encodeURIComponent(e.target.value)}`) : [];
+      document.getElementById('mi-c-familia').innerHTML = '<option value="">Todas</option>' + fams.map(f => `<option value="${esc(f.familia)}">${esc(f.familia)} - ${esc(f.nombre)}</option>`).join('');
+      document.getElementById('mi-c-subfamilia').innerHTML = '<option value="">Todas</option>';
+      buscar(1);
+    });
+    document.getElementById('mi-c-familia').addEventListener('change', async (e) => {
+      const linea = document.getElementById('mi-c-linea').value;
+      const subs = (linea && e.target.value) ? await GET(`/maestro-items/refs/sub-familias?linea=${encodeURIComponent(linea)}&familia=${encodeURIComponent(e.target.value)}`) : [];
+      document.getElementById('mi-c-subfamilia').innerHTML = '<option value="">Todas</option>' + subs.map(s => `<option value="${esc(s.subFamilia)}">${esc(s.subFamilia)} - ${esc(s.nombre)}</option>`).join('');
+      buscar(1);
+    });
+    document.getElementById('mi-c-subfamilia').addEventListener('change', () => buscar(1));
+    document.getElementById('mi-c-limpiar').addEventListener('click', () => {
+      document.getElementById('mi-c-q').value = '';
+      document.getElementById('mi-c-linea').value = '';
+      document.getElementById('mi-c-familia').innerHTML = '<option value="">Todas</option>';
+      document.getElementById('mi-c-subfamilia').innerHTML = '<option value="">Todas</option>';
+      document.getElementById('mi-c-noasig').checked = false;
+      buscar(1);
+    });
+
+    async function buscar(page) {
+      const res = document.getElementById('mi-c-result');
+      const soc = document.getElementById('mi-c-soc').value;
+      if (!soc) { res.innerHTML = '<p class="text-muted">Selecciona una sociedad.</p>'; return; }
+      const params = new URLSearchParams({ sociedad: soc, page });
+      const q = document.getElementById('mi-c-q').value.trim(); if (q) params.set('q', q);
+      const linea = document.getElementById('mi-c-linea').value; if (linea) params.set('linea', linea);
+      const familia = document.getElementById('mi-c-familia').value; if (familia) params.set('familia', familia);
+      const sub = document.getElementById('mi-c-subfamilia').value; if (sub) params.set('subFamilia', sub);
+      params.set('asignados', document.getElementById('mi-c-noasig').checked ? 'false' : 'true');
+      res.innerHTML = '<div class="text-muted text-center py-24">⏳ Buscando...</div>';
+      try {
+        const data = await GET(`/maestro-items/items?${params}`);
+        pintar(res, data, page);
+      } catch (e) { res.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+    }
+
+    function pintar(res, data, page) {
+      if (!data.items.length) { res.innerHTML = '<div class="empty-state"><p>Sin ítems para los filtros seleccionados</p></div>'; return; }
+      res.innerHTML = `
+        <div class="table-wrap" style="overflow-x:auto">
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Código</th><th>Nombre</th><th>Tipo</th><th>Línea</th><th>Familia</th><th>Sub-familia</th><th>UM</th><th></th></tr></thead>
+            <tbody>
+              ${data.items.map(it => `<tr>
+                <td><code>${it.item}</code></td>
+                <td>${esc(it.nombre)}</td>
+                <td>${esc(it.tipoItem)}</td>
+                <td>${esc(it.linea)}</td>
+                <td>${esc(it.familia)}</td>
+                <td>${esc(it.subFamilia)}</td>
+                <td>${esc(it.um)}</td>
+                <td>${canSol ? `<button class="btn btn-outline btn-sm" onclick="miCopiarItem(${it.item})">📄 Copiar</button>` : ''}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--text-muted)">
+          <span>${data.total} ítems — página ${data.page} de ${data.pages || 1}</span>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" id="mi-c-prev" ${page <= 1 ? 'disabled' : ''}>‹ Anterior</button>
+            <button class="btn btn-outline btn-sm" id="mi-c-next" ${page >= data.pages ? 'disabled' : ''}>Siguiente ›</button>
+          </div>
+        </div>`;
+      document.getElementById('mi-c-prev')?.addEventListener('click', () => buscar(page - 1));
+      document.getElementById('mi-c-next')?.addEventListener('click', () => buscar(page + 1));
+    }
+
+    buscar(1);
+  }
+
+  // ── Tab: Mis Solicitudes ─────────────────────────────────────────
+  async function renderSolicitudes(el) {
+    const sols = await GET('/maestro-items/solicitudes');
+    const propias = sols.filter(s => s.creadoPor === S.user.username || S.user.role === 'ADMIN');
+    if (!propias.length) { el.innerHTML = '<div class="empty-state"><p>Sin solicitudes todavía.</p></div>'; return; }
+    el.innerHTML = `
+      <div class="table-wrap" style="overflow-x:auto">
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th>Sociedad</th><th>Nombre</th><th>Estado</th><th>Creado</th><th>Ítem asignado</th><th></th></tr></thead>
+          <tbody>
+            ${propias.map(s => `<tr>
+              <td>${esc(s.sociedad)}</td>
+              <td>${esc(s.nombre) || '<em class="text-muted">(sin nombre)</em>'}</td>
+              <td>${fmtEstado(s.estado)}</td>
+              <td>${fmtF(s.creadoEn)}</td>
+              <td>${s.itemAsignado ?? '—'}</td>
+              <td style="white-space:nowrap">
+                ${['borrador', 'pendiente', 'rechazado'].includes(s.estado) ? `
+                  <button class="btn btn-outline btn-sm" onclick="miEditarSolicitud('${s._id}')">✏️ Editar</button>
+                  <button class="btn btn-outline btn-sm" style="color:var(--danger)" onclick="miEliminarSolicitud('${s._id}')">🗑️</button>` : ''}
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  window.miEditarSolicitud = async (id) => {
+    const sol = await GET(`/maestro-items/solicitudes/${id}`);
+    await abrirFormSolicitud(sol, id);
+  };
+  window.miEliminarSolicitud = async (id) => {
+    if (!confirm('¿Eliminar esta solicitud?')) return;
+    try { await DEL(`/maestro-items/solicitudes/${id}`); toast('Eliminada', 'success'); renderTab('solicitudes'); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+
+  // ── Tab: Validación ──────────────────────────────────────────────
+  async function renderValidacion(el) {
+    const sols = (await GET('/maestro-items/solicitudes')).filter(s => s.estado === 'pendiente');
+    if (!sols.length) { el.innerHTML = '<div class="empty-state"><p>Sin solicitudes pendientes de validación.</p></div>'; return; }
+    el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">
+      ${sols.map(s => `
+        <div class="card" style="padding:14px" id="mi-val-${s._id}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+            <div>
+              <strong>${esc(s.nombre)}</strong> <span style="color:var(--text-muted);font-size:12px">— ${esc(s.sociedad)} · Tipo ${esc(s.tipoItem)} · Línea ${esc(s.linea)}/${esc(s.familia)}/${esc(s.subFamilia)} · UM ${esc(s.um)}</span>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Solicitado por ${esc(s.creadoPor)} el ${fmtF(s.creadoEn)}${s.origenItem ? ` · copiado de #${s.origenItem}` : ''}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+            ${cuentaField(`val-inv-${s._id}`, 'Cuenta de Inventario')}
+            ${cuentaField(`val-gas-${s._id}`, 'Cuenta de Gasto')}
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+            ${cuentaField(`val-cv-${s._id}`, 'Cuenta de Costo de Venta')}
+            ${cuentaField(`val-vt-${s._id}`, 'Cuenta de Venta')}
+          </div>
+          <textarea id="mi-val-com-${s._id}" class="form-control" placeholder="Comentario (opcional)" style="margin-top:10px;font-size:13px" rows="2"></textarea>
+          <div id="mi-val-err-${s._id}" class="msg-error hidden" style="margin-top:8px"></div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn-primary btn-sm" onclick="miValidar('${s._id}','aprobar')">✅ Aprobar</button>
+            <button class="btn btn-sm" style="border:1px solid #dc2626;color:#dc2626;background:#fff" onclick="miValidar('${s._id}','rechazar')">✕ Rechazar</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+
+    sols.forEach(s => {
+      wireCuentaField(`val-inv-${s._id}`, s.cuentaInventario, '');
+      wireCuentaField(`val-gas-${s._id}`, s.cuentaGasto, '');
+      wireCuentaField(`val-cv-${s._id}`, s.cuentaCostoVenta, '');
+      wireCuentaField(`val-vt-${s._id}`, s.cuentaVenta, '');
+    });
+  }
+
+  window.miValidar = async (id, accion) => {
+    const errEl = document.getElementById(`mi-val-err-${id}`);
+    errEl?.classList.add('hidden');
+    try {
+      await PUT(`/maestro-items/solicitudes/${id}/validar`, {
+        accion,
+        comentarioValidador: document.getElementById(`mi-val-com-${id}`)?.value || '',
+        cuentaInventario: cuentaVal(`val-inv-${id}`) || null,
+        cuentaGasto:      cuentaVal(`val-gas-${id}`) || null,
+        cuentaCostoVenta: cuentaVal(`val-cv-${id}`) || null,
+        cuentaVenta:      cuentaVal(`val-vt-${id}`) || null,
+      });
+      toast(accion === 'aprobar' ? 'Solicitud aprobada' : 'Solicitud rechazada', 'success');
+      renderTab('validacion');
+    } catch (e) { if (errEl) { errEl.textContent = e.message; errEl.classList.remove('hidden'); } else toast(e.message, 'error'); }
+  };
+
+  // ── Tab: Registro ERP ────────────────────────────────────────────
+  async function renderRegistro(el) {
+    const [sols, sig] = await Promise.all([
+      GET('/maestro-items/solicitudes').then(r => r.filter(s => s.estado === 'aprobado')),
+      GET('/maestro-items/siguiente-item'),
+    ]);
+    if (!sols.length) { el.innerHTML = '<div class="empty-state"><p>Sin solicitudes aprobadas por registrar.</p></div>'; return; }
+    el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">
+      ${sols.map(s => `
+        <div class="card" style="padding:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div>
+            <strong>${esc(s.nombre)}</strong> <span style="color:var(--text-muted);font-size:12px">— ${esc(s.sociedad)} · aprobado por ${esc(s.validadoPor)} el ${fmtF(s.validadoEn)}</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="number" id="mi-reg-cod-${s._id}" class="form-control" style="width:120px" value="${sig.siguiente}">
+            <button class="btn btn-primary btn-sm" onclick="miRegistrar('${s._id}')">🏷️ Registrar</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  window.miRegistrar = async (id) => {
+    const cod = document.getElementById(`mi-reg-cod-${id}`).value;
+    try {
+      await PUT(`/maestro-items/solicitudes/${id}/registrar`, { itemAsignado: cod });
+      toast(`Ítem ${cod} registrado`, 'success');
+      renderTab('registro');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+
+  // ── Tabs ──────────────────────────────────────────────────────────
+  async function renderTab(tab) {
+    const el = document.getElementById('mi-tab-content');
+    el.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    if (tab === 'catalogo')    await renderCatalogo(el);
+    if (tab === 'solicitudes') await renderSolicitudes(el);
+    if (tab === 'validacion')  await renderValidacion(el);
+    if (tab === 'registro')    await renderRegistro(el);
+  }
+  container.querySelectorAll('.tab-btn[data-mtab]').forEach(b => {
+    b.addEventListener('click', () => {
+      container.querySelectorAll('.tab-btn[data-mtab]').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      renderTab(b.dataset.mtab);
+    });
+  });
+  await renderTab(defaultTab);
 }
 
 // ─── View: Gestión de Pagos ───────────────────────────────────────
@@ -12579,6 +13115,11 @@ function showUserModal(user, onSave) {
           ${PAGO_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolPago||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Rol para Maestro de Ítems</label>
+        <select id="um-maestro-items-role">
+          ${MAESTRO_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolMaestroItems||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-group"><label>Rol para Bajas / Consumos / Transferencias</label>
         <select id="um-rol-bct">
           ${BCT_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolBCT||'')=== k?'selected':''}>${v}</option>`).join('')}
@@ -12707,6 +13248,11 @@ function showUserModal(user, onSave) {
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🏦 <strong>Conciliación de Cobranzas</strong></span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-maestros" ${(user?.sociedadesMaestros||[]).length>0?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🗂️ <strong>Maestro de Ítems (por sociedad)</strong></span>
+          </label>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -12745,6 +13291,7 @@ function showUserModal(user, onSave) {
     const sociedadesPago   = isAdmin ? [] : [...document.querySelectorAll('input[name="um-soc"]:checked')].map(cb => cb.value);
     const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? sociedadesPago : [];
     const sociedadesConciliacion = (!isAdmin && document.getElementById('um-conciliacion')?.checked) ? sociedadesPago : [];
+    const sociedadesMaestros     = (!isAdmin && document.getElementById('um-maestros')?.checked) ? sociedadesPago : [];
     // Operaciones marcadas individualmente (por defecto siguen a la sociedad al marcarla/
     // desmarcarla, pero se pueden agregar/quitar una por una, esté o no marcada la sociedad).
     // Los destinos de transferencia son el mismo conjunto.
@@ -12754,6 +13301,7 @@ function showUserModal(user, onSave) {
       email: document.getElementById('um-email').value.trim(),
       role,
       rolPago:      document.getElementById('um-pago-role').value,
+      rolMaestroItems: document.getElementById('um-maestro-items-role').value,
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,
@@ -12775,6 +13323,7 @@ function showUserModal(user, onSave) {
       sociedadesCompra,
       sociedadesPago,
       sociedadesConciliacion,
+      sociedadesMaestros,
     };
     const pwd = document.getElementById('um-password').value;
     if (pwd) data.password = pwd;

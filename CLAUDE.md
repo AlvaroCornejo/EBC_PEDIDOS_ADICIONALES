@@ -91,6 +91,8 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | ComparativoOC | `scripts/importComparativoOC.js` | COMPARATIVO OC INGRESOS.xlsx | diario |
 | VentasTip | `scripts/importVentasTip.js` | EBC VENTAS TIP RESUMEN.xlsx | diario |
 | KardexBajaVenta | `scripts/importBajas.js` | data/*ADICIONALES.xlsx | diario |
+| MaestroLinea/Familia/SubFamilia/TipoItem/UM/Item/ItemSociedad | `scripts/importMaestroTablas.js` | EBC TABLAS PARA ITEMS.xlsx | manual (al actualizar el Excel) |
+| MaestroCuenta | `scripts/importPlanContable.js` | EBC PLAN CONTABLE.xlsx | manual (al actualizar el Excel) |
 
 - Sync manual de items desde consola del navegador (admin logueado), si se necesita fuera del horario del bat:
 ```javascript

@@ -22,6 +22,7 @@ function buildPayload(user) {
     rolObligaciones: user.rolObligaciones || '', companiasEBC: user.companiasEBC || [],
     accesoEERR: !!user.accesoEERR, operacionesEERR: user.operacionesEERR || [],
     accesoConciliacion: !!user.accesoConciliacion, sociedadesConciliacion: user.sociedadesConciliacion || [],
+    rolMaestroItems: user.rolMaestroItems || '', sociedadesMaestros: user.sociedadesMaestros || [],
   };
 }
 

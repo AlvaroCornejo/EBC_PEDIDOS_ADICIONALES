@@ -30,11 +30,11 @@ router.get('/', adminOnly, async (req, res) => {
 
 router.post('/', adminOnly, async (req, res) => {
   try {
-    const { username, email, password, role, operations, puedeVerKardex, puedeVerComparativo, puedeVerVentas, puedeVerBajas, rolPago, sociedadesPago, sociedadesCompra, rolBCT, rol86, accesoBajas, accesoConsumos, accesoTransferencias, acceso86, transferenciaDestinos, rolCaja, accesoOficina, accesoDepositos, rolObligaciones, companiasEBC, accesoEERR, operacionesEERR, accesoConciliacion, sociedadesConciliacion } = req.body;
+    const { username, email, password, role, operations, puedeVerKardex, puedeVerComparativo, puedeVerVentas, puedeVerBajas, rolPago, sociedadesPago, sociedadesCompra, rolBCT, rol86, accesoBajas, accesoConsumos, accesoTransferencias, acceso86, transferenciaDestinos, rolCaja, accesoOficina, accesoDepositos, rolObligaciones, companiasEBC, accesoEERR, operacionesEERR, accesoConciliacion, sociedadesConciliacion, rolMaestroItems, sociedadesMaestros } = req.body;
     const exists = await User.findOne({ username });
     if (exists) return res.status(400).json({ error: 'El usuario ya existe' });
     const { ops, socs } = await codigosValidos();
-    const user = new User({ id: uuidv4(), username, email: email || '', password: await bcrypt.hash(password, 10), role, operations: filtrarCodigos(operations, ops), puedeVerKardex: !!puedeVerKardex, puedeVerComparativo: !!puedeVerComparativo, puedeVerVentas: !!puedeVerVentas, puedeVerBajas: !!puedeVerBajas, rolPago: rolPago || '', sociedadesPago: filtrarCodigos(sociedadesPago, socs), sociedadesCompra: filtrarCodigos(sociedadesCompra, socs), rolBCT: rolBCT || '', rol86: rol86 || '', accesoBajas: !!accesoBajas, accesoConsumos: !!accesoConsumos, accesoTransferencias: !!accesoTransferencias, acceso86: !!acceso86, transferenciaDestinos: filtrarCodigos(transferenciaDestinos, ops), rolCaja: rolCaja || '', accesoOficina: !!accesoOficina, accesoDepositos: !!accesoDepositos, rolObligaciones: rolObligaciones || '', companiasEBC: Array.isArray(companiasEBC) ? companiasEBC : [], accesoEERR: !!accesoEERR, operacionesEERR: Array.isArray(operacionesEERR) ? operacionesEERR : [], accesoConciliacion: !!accesoConciliacion, sociedadesConciliacion: filtrarCodigos(sociedadesConciliacion, socs) });
+    const user = new User({ id: uuidv4(), username, email: email || '', password: await bcrypt.hash(password, 10), role, operations: filtrarCodigos(operations, ops), puedeVerKardex: !!puedeVerKardex, puedeVerComparativo: !!puedeVerComparativo, puedeVerVentas: !!puedeVerVentas, puedeVerBajas: !!puedeVerBajas, rolPago: rolPago || '', sociedadesPago: filtrarCodigos(sociedadesPago, socs), sociedadesCompra: filtrarCodigos(sociedadesCompra, socs), rolBCT: rolBCT || '', rol86: rol86 || '', accesoBajas: !!accesoBajas, accesoConsumos: !!accesoConsumos, accesoTransferencias: !!accesoTransferencias, acceso86: !!acceso86, transferenciaDestinos: filtrarCodigos(transferenciaDestinos, ops), rolCaja: rolCaja || '', accesoOficina: !!accesoOficina, accesoDepositos: !!accesoDepositos, rolObligaciones: rolObligaciones || '', companiasEBC: Array.isArray(companiasEBC) ? companiasEBC : [], accesoEERR: !!accesoEERR, operacionesEERR: Array.isArray(operacionesEERR) ? operacionesEERR : [], accesoConciliacion: !!accesoConciliacion, sociedadesConciliacion: filtrarCodigos(sociedadesConciliacion, socs), rolMaestroItems: rolMaestroItems || '', sociedadesMaestros: filtrarCodigos(sociedadesMaestros, socs) });
     await user.save();
     res.json(strip(user));
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -42,7 +42,7 @@ router.post('/', adminOnly, async (req, res) => {
 
 router.put('/:id', adminOnly, async (req, res) => {
   try {
-    const { username, email, password, role, operations, puedeVerKardex, puedeVerComparativo, puedeVerVentas, puedeVerBajas, rolPago, sociedadesPago, sociedadesCompra, rolBCT, rol86, accesoBajas, accesoConsumos, accesoTransferencias, acceso86, transferenciaDestinos, rolCaja, accesoOficina, accesoDepositos, rolObligaciones, companiasEBC, accesoEERR, operacionesEERR, accesoConciliacion, sociedadesConciliacion } = req.body;
+    const { username, email, password, role, operations, puedeVerKardex, puedeVerComparativo, puedeVerVentas, puedeVerBajas, rolPago, sociedadesPago, sociedadesCompra, rolBCT, rol86, accesoBajas, accesoConsumos, accesoTransferencias, acceso86, transferenciaDestinos, rolCaja, accesoOficina, accesoDepositos, rolObligaciones, companiasEBC, accesoEERR, operacionesEERR, accesoConciliacion, sociedadesConciliacion, rolMaestroItems, sociedadesMaestros } = req.body;
     const { ops, socs } = await codigosValidos();
     const update = {
       ...(username !== undefined && { username }),
@@ -73,6 +73,8 @@ router.put('/:id', adminOnly, async (req, res) => {
       ...(operacionesEERR !== undefined && { operacionesEERR: Array.isArray(operacionesEERR) ? operacionesEERR : [] }),
       ...(accesoConciliacion !== undefined && { accesoConciliacion: !!accesoConciliacion }),
       ...(sociedadesConciliacion !== undefined && { sociedadesConciliacion: filtrarCodigos(sociedadesConciliacion, socs) }),
+      ...(rolMaestroItems !== undefined && { rolMaestroItems: rolMaestroItems || '' }),
+      ...(sociedadesMaestros !== undefined && { sociedadesMaestros: filtrarCodigos(sociedadesMaestros, socs) }),
     };
     const user = await User.findOneAndUpdate({ id: req.params.id }, update, { new: true });
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
