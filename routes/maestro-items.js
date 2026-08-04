@@ -39,6 +39,35 @@ function checkSocAccess(user, sociedad) {
 const escRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const CAMPOS_CUENTA = ['cuentaInventario', 'cuentaGasto', 'cuentaCostoVenta', 'cuentaVenta'];
 
+// Agrega tipoItemNombre/lineaNombre/familiaNombre/subFamiliaNombre a una lista de ítems
+// (o de solicitudes, que tienen los mismos campos de código) sin un $lookup por fila.
+async function resolverNombres(items) {
+  const tipos = new Set(), lineas = new Set(), fams = new Set(), subs = new Set();
+  items.forEach(it => {
+    if (it.tipoItem)   tipos.add(it.tipoItem);
+    if (it.linea)      lineas.add(it.linea);
+    if (it.linea && it.familia) fams.add(`${it.linea}|${it.familia}`);
+    if (it.linea && it.familia && it.subFamilia) subs.add(`${it.linea}|${it.familia}|${it.subFamilia}`);
+  });
+  const [tiposDocs, lineasDocs, famDocs, subDocs] = await Promise.all([
+    tipos.size  ? MaestroTipoItem.find({ codigo: { $in: [...tipos] } }).lean() : [],
+    lineas.size ? MaestroLinea.find({ codigo: { $in: [...lineas] } }).lean() : [],
+    fams.size   ? MaestroFamilia.find({ $or: [...fams].map(k => { const [linea, familia] = k.split('|'); return { linea, familia }; }) }).lean() : [],
+    subs.size   ? MaestroSubFamilia.find({ $or: [...subs].map(k => { const [linea, familia, subFamilia] = k.split('|'); return { linea, familia, subFamilia }; }) }).lean() : [],
+  ]);
+  const tipoMap = Object.fromEntries(tiposDocs.map(d => [d.codigo, d.nombre]));
+  const lineaMap = Object.fromEntries(lineasDocs.map(d => [d.codigo, d.nombre]));
+  const famMap = Object.fromEntries(famDocs.map(d => [`${d.linea}|${d.familia}`, d.nombre]));
+  const subMap = Object.fromEntries(subDocs.map(d => [`${d.linea}|${d.familia}|${d.subFamilia}`, d.nombre]));
+  return items.map(it => ({
+    ...it,
+    tipoItemNombre: tipoMap[it.tipoItem] || '',
+    lineaNombre:    lineaMap[it.linea] || '',
+    familiaNombre:  famMap[`${it.linea}|${it.familia}`] || '',
+    subFamiliaNombre: subMap[`${it.linea}|${it.familia}|${it.subFamilia}`] || '',
+  }));
+}
+
 // ── Referencias ──────────────────────────────────────────────────────────────
 router.get('/refs', async (req, res) => {
   try {
@@ -93,15 +122,16 @@ router.get('/siguiente-item', async (req, res) => {
 });
 
 // ── Catálogo ──────────────────────────────────────────────────────────────────
-// GET /items?sociedad=&q=&linea=&familia=&subFamilia=&asignados=true|false&page=
+// GET /items?sociedad=&q=&tipoItem=&linea=&familia=&subFamilia=&asignados=true|false&page=
 router.get('/items', async (req, res) => {
   try {
-    const { sociedad, q, linea, familia, subFamilia, asignados = 'true', page = 1 } = req.query;
+    const { sociedad, q, tipoItem, linea, familia, subFamilia, asignados = 'true', page = 1 } = req.query;
     if (!sociedad) return res.status(400).json({ error: 'Sociedad requerida' });
     if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
     const PER = 50;
 
     const and = [];
+    if (tipoItem)   and.push({ tipoItem });
     if (linea)      and.push({ linea });
     if (familia)    and.push({ familia });
     if (subFamilia) and.push({ subFamilia });
@@ -125,7 +155,7 @@ router.get('/items', async (req, res) => {
       MaestroItem.countDocuments(match),
       MaestroItem.find(match).sort({ nombre: 1 }).skip((+page - 1) * PER).limit(PER).lean(),
     ]);
-    res.json({ items, total, page: +page, pages: Math.ceil(total / PER) });
+    res.json({ items: await resolverNombres(items), total, page: +page, pages: Math.ceil(total / PER) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

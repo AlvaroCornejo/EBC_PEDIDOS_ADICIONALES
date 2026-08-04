@@ -3229,6 +3229,13 @@ async function viewMaestroItems(container) {
             <input id="mi-c-q" class="form-control" placeholder="Buscar..." style="font-size:13px">
           </div>
           <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo</label>
+            <select id="mi-c-tipo" class="form-control" style="width:170px;font-size:13px">
+              <option value="">Todos</option>
+              ${refs.tiposItem.map(t => `<option value="${esc(t.codigo)}">${esc(t.codigo)} - ${esc(t.nombre)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Línea</label>
             <select id="mi-c-linea" class="form-control" style="width:170px;font-size:13px">
               <option value="">Todas</option>
@@ -3262,6 +3269,7 @@ async function viewMaestroItems(container) {
     socSel.addEventListener('change', () => { sociedadActual = socSel.value; buscar(1); });
     document.getElementById('mi-c-q').addEventListener('input', () => { clearTimeout(window._miCT); window._miCT = setTimeout(() => buscar(1), 380); });
     document.getElementById('mi-c-noasig').addEventListener('change', () => buscar(1));
+    document.getElementById('mi-c-tipo').addEventListener('change', () => buscar(1));
     document.getElementById('mi-c-linea').addEventListener('change', async (e) => {
       const fams = e.target.value ? await GET(`/maestro-items/refs/familias?linea=${encodeURIComponent(e.target.value)}`) : [];
       document.getElementById('mi-c-familia').innerHTML = '<option value="">Todas</option>' + fams.map(f => `<option value="${esc(f.familia)}">${esc(f.familia)} - ${esc(f.nombre)}</option>`).join('');
@@ -3277,6 +3285,7 @@ async function viewMaestroItems(container) {
     document.getElementById('mi-c-subfamilia').addEventListener('change', () => buscar(1));
     document.getElementById('mi-c-limpiar').addEventListener('click', () => {
       document.getElementById('mi-c-q').value = '';
+      document.getElementById('mi-c-tipo').value = '';
       document.getElementById('mi-c-linea').value = '';
       document.getElementById('mi-c-familia').innerHTML = '<option value="">Todas</option>';
       document.getElementById('mi-c-subfamilia').innerHTML = '<option value="">Todas</option>';
@@ -3290,6 +3299,7 @@ async function viewMaestroItems(container) {
       if (!soc) { res.innerHTML = '<p class="text-muted">Selecciona una sociedad.</p>'; return; }
       const params = new URLSearchParams({ sociedad: soc, page });
       const q = document.getElementById('mi-c-q').value.trim(); if (q) params.set('q', q);
+      const tipo = document.getElementById('mi-c-tipo').value; if (tipo) params.set('tipoItem', tipo);
       const linea = document.getElementById('mi-c-linea').value; if (linea) params.set('linea', linea);
       const familia = document.getElementById('mi-c-familia').value; if (familia) params.set('familia', familia);
       const sub = document.getElementById('mi-c-subfamilia').value; if (sub) params.set('subFamilia', sub);
@@ -3319,10 +3329,10 @@ async function viewMaestroItems(container) {
               ${data.items.map(it => `<tr>
                 <td><code>${it.item}</code></td>
                 <td>${esc(it.nombre)}</td>
-                <td>${esc(it.tipoItem)}</td>
-                <td>${esc(it.linea)}</td>
-                <td>${esc(it.familia)}</td>
-                <td>${esc(it.subFamilia)}</td>
+                <td>${esc(it.tipoItemNombre || it.tipoItem)}</td>
+                <td>${esc(it.lineaNombre || it.linea)}</td>
+                <td>${esc(it.familiaNombre || it.familia)}</td>
+                <td>${esc(it.subFamiliaNombre || it.subFamilia)}</td>
                 <td>${esc(it.um)}</td>
                 <td>${canSol ? `<button class="btn btn-outline btn-sm" onclick="miCopiarItem(${it.item})">📄 Copiar</button>` : ''}</td>
               </tr>`).join('')}
