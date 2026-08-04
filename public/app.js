@@ -3494,6 +3494,480 @@ async function viewMaestroItems(container) {
   await renderTab(defaultTab);
 }
 
+// ─── Gestión de Pagos: Adelantos pendientes de rendición ──────────
+let _pgAdelantosCache  = {};   // compania -> resumen por proveedor
+let _pgAdelantosActual = {};   // resumen de la última compañía consultada (para el modal de detalle)
+
+async function pgAdelantosResumen(compania) {
+  if (!compania) return {};
+  if (!_pgAdelantosCache[compania]) {
+    _pgAdelantosCache[compania] = await GET(`/pagos/adelantos/resumen?compania=${encodeURIComponent(compania)}`);
+  }
+  _pgAdelantosActual = _pgAdelantosCache[compania];
+  return _pgAdelantosCache[compania];
+}
+
+function pgFmtMonto(v) {
+  return Number(v || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Badge con el total de adelantos sin rendir del proveedor (S/ y n° de documentos)
+function pgAdelantoBadgeHtml(pagarA) {
+  const info = (_pgAdelantosActual || {})[(pagarA || '').trim().toUpperCase()];
+  if (!info || !info.numDocs) return '';
+  const usd = info.totalUsd ? ` <span style="color:#2563eb">+US$ ${pgFmtMonto(info.totalUsd)}</span>` : '';
+  return ` <span class="badge" data-pa="${esc(pagarA)}" style="background:#fef3c7;color:#92400e;cursor:pointer;font-size:10px;white-space:nowrap"
+            onclick="event.stopPropagation();pgVerAdelantos(this.dataset.pa)"
+            title="Click para ver detalle de adelantos sin rendir">⚠ S/ ${pgFmtMonto(info.totalSol)} · ${info.numDocs} doc${info.numDocs > 1 ? 's' : ''}${usd}</span>`;
+}
+
+// Resalte de fila para proveedores con adelantos sin rendir
+function pgAdelantoRowStyle(pagarA) {
+  const info = (_pgAdelantosActual || {})[(pagarA || '').trim().toUpperCase()];
+  return info && info.numDocs ? 'box-shadow:inset 3px 0 0 #f59e0b;' : '';
+}
+
+// Modal de detalle de adelantos sin rendir de un proveedor
+window.pgVerAdelantos = (pagarA) => {
+  const info = (_pgAdelantosActual || {})[(pagarA || '').trim().toUpperCase()];
+  if (!info) return;
+  const fmtF = d => d ? new Date(d).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+  const rows = info.items.map(it => `
+    <tr>
+      <td>${esc(it.numeroAdelanto)}</td>
+      <td>${fmtF(it.fechaDocumento)}</td>
+      <td class="text-right">${pgFmtMonto(it.montoTotal)}</td>
+      <td class="text-right">${pgFmtMonto(it.saldoAdelanto)}</td>
+      <td>${esc(it.moneda)}</td>
+      <td>${esc(it.estado)}</td>
+    </tr>`).join('');
+  openModal(`Adelantos sin rendir — ${esc(pagarA)}`, `
+    <div style="overflow-x:auto">
+      <table class="data-table" style="font-size:12px">
+        <thead><tr><th>N° Adelanto</th><th>Fecha</th><th class="text-right">Monto Total</th><th class="text-right">Saldo</th><th>Mon.</th><th>Estado</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`);
+};
+
+// Modal con la relación completa de adelantos de la sociedad
+window.pgVerRelacionAdelantos = async (compania, progId) => {
+  if (!compania) { toast('Selecciona una sociedad', 'error'); return; }
+  try {
+    const rows = await GET(`/pagos/adelantos?compania=${encodeURIComponent(compania)}${progId ? `&progId=${progId}` : ''}`);
+    if (!rows.length) { toast('Sin adelantos cargados para ' + compania, 'error'); return; }
+    const trs = rows.map(r => `
+      <tr style="${!r.tieneObligacion ? 'background:#fee2e2' : ''}">
+        <td>${esc(r.proveedor)}</td>
+        <td class="text-right">${pgFmtMonto(r.totalSol)}</td>
+        <td class="text-right">${pgFmtMonto(r.totalUsd)}</td>
+        <td class="text-center">${r.numDocs}</td>
+        <td>${!r.tieneObligacion ? '<span class="badge" style="background:#fee2e2;color:#dc2626">Sin obligación por pagar</span>' : ''}</td>
+      </tr>`).join('');
+    openModal(`Relación de Adelantos — ${esc(compania)}`, `
+      <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Proveedor</th><th class="text-right">Total S/</th><th class="text-right">Total US$</th><th class="text-center">N° Docs</th><th>Obligación</th></tr></thead>
+          <tbody>${trs}</tbody>
+        </table>
+      </div>`);
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+// ─── Desglose de Recetas de Planta ───────────────────────────────
+window.verDesgloseReceta = async function(item, cantidad) {
+  const fmtN = v => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  openModal('🏭 Genera Adicional',
+    `<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span></div>`,
+    null, { wide: true });
+
+  try {
+    const data = await GET(`/recetas/desglose?item=${encodeURIComponent(item)}&cantidad=${encodeURIComponent(cantidad)}`);
+
+    if (data.sinReceta) {
+      document.getElementById('modal-body').innerHTML =
+        `<p class="text-muted" style="padding:16px">Sin receta registrada para el ítem <strong>${esc(String(item))}</strong>.</p>`;
+      return;
+    }
+
+    function renderArbol(nodo, nivel) {
+      nivel = nivel || 0;
+      const isFinal = nodo.insumoFinal;
+      const icon = isFinal ? '🔹' : '⚙️';
+      let html = `<div style="margin-left:${nivel * 20}px;margin-bottom:5px${nivel > 0 ? ';border-left:2px solid #e5e7eb;padding-left:10px' : ''}">
+        <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
+          <span>${icon}</span>
+          <span style="font-weight:${nivel === 0 ? 700 : 500};font-size:${nivel === 0 ? '14px' : '13px'}">${esc(nodo.descripcion || String(nodo.item))}</span>
+          <span style="font-family:monospace;font-size:11px;color:#6b7280">${nodo.item}</span>
+          <span style="font-size:12px;color:#374151">× <strong>${fmtN(nodo.cantPedida)}</strong>${nodo.unidad ? ' ' + esc(nodo.unidad) : ''}</span>
+          ${!isFinal ? `<span style="font-size:11px;color:#9ca3af">(batch ${nodo.batch} → ${nodo.batchesNecesarios} corrida${nodo.batchesNecesarios !== 1 ? 's' : ''} → produce ${fmtN(nodo.cantidadProducida)})</span>` : ''}
+        </div>`;
+      for (const sub of (nodo.subProductos || [])) html += renderArbol(sub, nivel + 1);
+      for (const ins of (nodo.insumosDirectos || [])) {
+        html += renderArbol({ item: ins.item, descripcion: ins.descripcion, unidad: ins.unidad, cantPedida: ins.cantidad, insumoFinal: true }, nivel + 1);
+      }
+      html += '</div>';
+      return html;
+    }
+
+    const resumenRows = data.resumen.map(r => `<tr>
+      <td style="font-family:monospace;font-size:12px">${esc(String(r.item))}</td>
+      <td style="font-size:13px">${esc(r.descripcion)}</td>
+      <td style="font-size:12px">${esc(r.unidad || '')}</td>
+      <td style="font-size:12px;color:#6b7280">${esc(r.areaDescarga || '')}</td>
+      <td style="text-align:right;font-weight:600">${fmtN(r.cantidad)}</td>
+    </tr>`).join('');
+
+    const arbol = data.arbol;
+    _dglsResumen = data.resumen; // para generarSolicitudDesdeDesglose
+    document.getElementById('modal-body').innerHTML = `
+      <div style="margin-bottom:10px;font-size:13px">
+        <strong>${esc(arbol.descripcion || String(item))}</strong>
+        &nbsp;—&nbsp;cantidad solicitada: <strong>${fmtN(cantidad)}</strong>
+      </div>
+      <div style="display:flex;gap:0;border-bottom:2px solid #e5e7eb;margin-bottom:12px">
+        <button id="dgls-tab-arbol" onclick="document.getElementById('dgls-arbol').style.display='block';document.getElementById('dgls-resumen').style.display='none';document.getElementById('dgls-tab-arbol').style.borderBottom='2px solid #7c3aed';document.getElementById('dgls-tab-arbol').style.color='#7c3aed';document.getElementById('dgls-tab-res').style.borderBottom='none';document.getElementById('dgls-tab-res').style.color='#374151'"
+          style="border:none;background:none;cursor:pointer;font-size:13px;padding:6px 14px;border-bottom:2px solid #7c3aed;color:#7c3aed;margin-bottom:-2px">🌳 Árbol</button>
+        <button id="dgls-tab-res" onclick="document.getElementById('dgls-arbol').style.display='none';document.getElementById('dgls-resumen').style.display='block';document.getElementById('dgls-tab-res').style.borderBottom='2px solid #7c3aed';document.getElementById('dgls-tab-res').style.color='#7c3aed';document.getElementById('dgls-tab-arbol').style.borderBottom='none';document.getElementById('dgls-tab-arbol').style.color='#374151'"
+          style="border:none;background:none;cursor:pointer;font-size:13px;padding:6px 14px;border-bottom:none;color:#374151;margin-bottom:-2px">📋 Resumen de insumos</button>
+      </div>
+      <div id="dgls-arbol" style="overflow:auto;max-height:420px;padding:10px;background:#f9fafb;border-radius:6px">
+        ${renderArbol(arbol)}
+      </div>
+      <div id="dgls-resumen" style="display:none;overflow:auto;max-height:360px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:#f3f4f6;position:sticky;top:0">
+            <th style="text-align:left;padding:6px 8px">Código</th>
+            <th style="text-align:left;padding:6px 8px">Descripción</th>
+            <th style="text-align:left;padding:6px 8px">Unidad</th>
+            <th style="text-align:left;padding:6px 8px">Área Descarga</th>
+            <th style="text-align:right;padding:6px 8px">Cantidad</th>
+          </tr></thead>
+          <tbody>${resumenRows}</tbody>
+        </table>
+      </div>
+      <div style="margin-top:14px;text-align:right">
+        <button onclick="generarSolicitudDesdeDesglose()" style="background:#059669;color:#fff;border:none;border-radius:6px;padding:8px 18px;font-size:13px;cursor:pointer;font-weight:600">📋 Generar Solicitud de Adicionales</button>
+      </div>`;
+  } catch (err) {
+    document.getElementById('modal-body').innerHTML = `<p style="color:#dc2626;padding:16px">Error al cargar receta: ${esc(err.message)}</p>`;
+  }
+};
+
+// ─── Solicitud de Adicionales desde Desglose ─────────────────────
+let _dglsResumen   = [];  // insumos finales del desglose activo
+let _dglsLineas    = [];  // filas del formulario de solicitud (consolidadas por ítem)
+let _dglsCatalog   = {};  // item -> {saldo, costoUnitario, grupoCompra, nombre}
+let _dglsPedidoMap = {};  // id -> pedido (para toggle de pendientes)
+let _dglsContribs  = {};  // pedidoId -> [{item, cantidad}] para poder restar al desmarcar
+
+const _dglsFmtN = v => v == null ? '' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function _dglsRenderTable() {
+  const tbody = document.getElementById('dgls-sol-tbody');
+  if (!tbody) return;
+  const grandTotal = _dglsLineas.reduce((s, l) => s + (l.cantidadSolicitada||0)*(l.costoUnitario||0), 0);
+  const totalEl = document.getElementById('dgls-pedido-total');
+  if (totalEl) totalEl.textContent = 'S/ ' + _dglsFmtN(grandTotal);
+  tbody.innerHTML = _dglsLineas.map((l, i) => {
+    const costoTotal = (l.cantidadSolicitada || 0) * (l.costoUnitario || 0);
+    const esNuevo = l.fuente === 'nuevo';
+    const itemCell = esNuevo
+      ? `<div style="position:relative">
+           <input type="text" id="dgls-search-${i}" class="form-control" style="font-size:12px;padding:2px 6px"
+                  value="${esc(l._searchText || '')}" placeholder="Buscar ítem..." autocomplete="off"
+                  oninput="_dglsItemSearch(${i},this)">
+           <div id="dgls-drop-${i}" style="display:none;position:fixed;z-index:2000;background:#fff;border:1px solid #d1d5db;border-radius:6px;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:280px"></div>
+         </div>`
+      : `<div style="font-size:11px;color:#6b7280;font-family:monospace;font-weight:600;line-height:1.2">${esc(String(l.item))}</div>
+         <div style="font-weight:600;font-size:12px;line-height:1.3">${esc(l.descripcion)}</div>`;
+    const C = 'padding:4px 5px;font-size:12px;text-align:center';
+    return `<tr>
+      <td style="padding:4px 5px;min-width:220px">${itemCell}</td>
+      <td style="${C};color:#6b7280">${_dglsFmtN(l.saldo)}</td>
+      <td style="${C};color:#6b7280">${_dglsFmtN(l.cantDesglose)}</td>
+      <td style="padding:4px 5px;text-align:center">
+        <input type="number" class="form-control" style="width:80px;text-align:center;font-size:12px;padding:2px 4px" value="${l.cantidadSolicitada ?? l.cantDesglose ?? 0}" step="any" oninput="_dglsSetField(${i},'cantidadSolicitada',+this.value||0)">
+      </td>
+      <td style="${C};color:#374151">${_dglsFmtN(l.costoUnitario || 0)}</td>
+      <td id="dsl-ct-${i}" style="${C};font-weight:600">${_dglsFmtN(costoTotal)}</td>
+      <td style="padding:4px 5px">
+        <input type="text" class="form-control" style="width:120px;font-size:12px;padding:2px 4px" value="${esc(l.comentarios || '')}" oninput="_dglsSetField(${i},'comentarios',this.value)">
+      </td>
+      <td style="padding:4px 5px;text-align:center">
+        <button onclick="_dglsRemoveLinea(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:15px;line-height:1">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+window._dglsSetField = function(i, field, val) {
+  _dglsLineas[i][field] = val;
+  if (['cantidadSolicitada', 'cantDesglose', 'costoUnitario'].includes(field)) {
+    const l = _dglsLineas[i];
+    const cEl = document.getElementById(`dsl-ct-${i}`);
+    if (cEl) cEl.textContent = _dglsFmtN((l.cantidadSolicitada || 0) * (l.costoUnitario || 0));
+    const grandTotal = _dglsLineas.reduce((s, l) => s + (l.cantidadSolicitada||0)*(l.costoUnitario||0), 0);
+    const totalEl = document.getElementById('dgls-pedido-total');
+    if (totalEl) totalEl.textContent = 'S/ ' + _dglsFmtN(grandTotal);
+  }
+};
+
+window._dglsRemoveLinea = function(i) {
+  _dglsLineas.splice(i, 1);
+  _dglsRenderTable();
+};
+
+window._dglsSetZero = function(i) {
+  _dglsLineas[i].ajuste = -(_dglsLineas[i].cantDesglose || 0);
+  _dglsRenderTable();
+};
+
+window._dglsItemSearch = function(i, inp) {
+  const q = (inp.value || '').trim().toLowerCase();
+  const drop = document.getElementById(`dgls-drop-${i}`);
+  if (!drop) return;
+  if (!q) { drop.style.display = 'none'; return; }
+  const enTabla = new Set(_dglsLineas.filter((l, idx) => idx !== i).map(l => String(l.item)));
+  const matches = Object.values(_dglsCatalog)
+    .filter(it => !enTabla.has(String(it.item)) && (String(it.item || '').includes(q) || (it.nombre || '').toLowerCase().includes(q)))
+    .slice(0, 20);
+  if (!matches.length) { drop.style.display = 'none'; return; }
+  const rect = inp.getBoundingClientRect();
+  drop.style.left  = `${rect.left}px`;
+  drop.style.top   = `${rect.bottom + 2}px`;
+  drop.style.width = `${Math.max(rect.width, 280)}px`;
+  drop.style.display = 'block';
+  drop.innerHTML = matches.map(it =>
+    `<div onmousedown="_dglsSelectItem(${i},${it.item})"
+          style="padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f3f4f6"
+          onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''">
+       <span style="font-family:monospace;color:#6b7280;font-size:11px">${esc(String(it.item))}</span>&nbsp;${esc(it.nombre || '')}
+     </div>`
+  ).join('');
+};
+
+window._dglsSelectItem = function(i, itemCode) {
+  const it = _dglsCatalog[itemCode];
+  if (!it) return;
+  const yaExiste = _dglsLineas.some((l, idx) => idx !== i && l.item === it.item);
+  if (yaExiste) {
+    toast(`El ítem ${it.item} ya está en la tabla`, 'error');
+    const drop = document.getElementById(`dgls-drop-${i}`);
+    if (drop) drop.style.display = 'none';
+    return;
+  }
+  _dglsLineas[i].item          = it.item;
+  _dglsLineas[i].descripcion   = it.nombre || '';
+  _dglsLineas[i].saldo         = it.saldo || 0;
+  _dglsLineas[i].costoUnitario = it.costoUnitario || 0;
+  _dglsLineas[i].grupoCompra   = it.grupoCompra || '';
+  _dglsLineas[i]._searchText   = `${it.item} — ${it.nombre || ''}`;
+  _dglsRenderTable();
+};
+
+window._dglsAddLinea = function() {
+  _dglsLineas.push({ item: 0, descripcion: '', saldo: 0, cantDesglose: 0, cantidadSolicitada: 0, costoUnitario: 0, comentarios: '', gestion: 'PLANTA', grupoCompra: '', fuente: 'nuevo' });
+  _dglsRenderTable();
+  // scroll to bottom of table
+  const tbody = document.getElementById('dgls-sol-tbody');
+  if (tbody) tbody.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+
+window._dglsTogglePedido = async function(pedidoId, checked) {
+  const pedido = _dglsPedidoMap[pedidoId];
+  if (!pedido) return;
+
+  if (!checked) {
+    // Restar contribuciones de este pedido y eliminar filas que queden en 0
+    (_dglsContribs[pedidoId] || []).forEach(({ item, cantidad }) => {
+      const idx = _dglsLineas.findIndex(x => x.item === item && x.fuente !== 'nuevo');
+      if (idx < 0) return;
+      _dglsLineas[idx].cantDesglose -= cantidad;
+      if (_dglsLineas[idx].cantDesglose <= 0) {
+        _dglsLineas.splice(idx, 1);
+      } else {
+        _dglsLineas[idx].cantidadSolicitada = _dglsLineas[idx].cantDesglose;
+      }
+    });
+    delete _dglsContribs[pedidoId];
+    _dglsRenderTable();
+    return;
+  }
+
+  const chk = document.querySelector(`input[onchange*="${pedidoId}"]`);
+  if (chk) chk.disabled = true;
+
+  const contribs = [];
+  const plLines = (pedido.lineas || []).filter(l => (l.gestion || 'COMPRAS') === 'PLANTA');
+
+  for (const l of plLines) {
+    try {
+      const data = await GET(`/recetas/desglose?item=${encodeURIComponent(l.item)}&cantidad=${encodeURIComponent(l.cantidadSolicitada || 1)}`);
+      const insumos = data.sinReceta
+        ? [{ item: l.item, descripcion: l.itemNombre || String(l.item), cantidad: l.cantidadSolicitada || 0, areaDescarga: '' }]
+        : data.resumen;
+
+      for (const r of insumos) {
+        contribs.push({ item: r.item, cantidad: r.cantidad });
+        const idx = _dglsLineas.findIndex(x => x.item === r.item && x.fuente !== 'nuevo');
+        if (idx >= 0) {
+          _dglsLineas[idx].cantDesglose += r.cantidad;
+          _dglsLineas[idx].cantidadSolicitada = _dglsLineas[idx].cantDesglose;
+        } else {
+          _dglsLineas.push({
+            item:               r.item,
+            descripcion:        r.descripcion || (_dglsCatalog[r.item]?.nombre || ''),
+            saldo:              _dglsCatalog[r.item]?.saldo || 0,
+            cantDesglose:       r.cantidad,
+            cantidadSolicitada: r.cantidad,
+            costoUnitario:      _dglsCatalog[r.item]?.costoUnitario || 0,
+            comentarios:        '',
+            gestion:            'PLANTA',
+            grupoCompra:        r.areaDescarga || _dglsCatalog[r.item]?.grupoCompra || '',
+            fuente:             'pedido',
+          });
+        }
+      }
+    } catch (err) {
+      toast(`Error al expandir ítem ${l.item}: ${err.message}`, 'error');
+    }
+  }
+
+  _dglsContribs[pedidoId] = contribs;
+  if (chk) chk.disabled = false;
+  _dglsRenderTable();
+};
+
+window.generarSolicitudDesdeDesglose = async function() {
+  const userOps = S.user.role === 'ADMIN' ? ALL_OPS : (S.user.operations || []);
+  const targetOp = userOps.find(op => op.includes('PLANTA'));
+  if (!targetOp) { toast('No tienes asignada ninguna operación con PLANTA', 'error'); return; }
+
+  openModal(`📋 Solicitud de Adicionales — ${targetOp}`,
+    `<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span></div>`,
+    null, { fullwide: true });
+
+  try {
+    const [allPedidos, catalogItems] = await Promise.all([
+      GET('/pedidos').catch(() => []),
+      GET(`/datos/items?operacion=${encodeURIComponent(targetOp)}`).catch(() => []),
+    ]);
+
+    _dglsCatalog = {};
+    catalogItems.forEach(it => { _dglsCatalog[it.item] = it; });
+
+    // Pedidos con líneas PLANTA pendientes de atención (no de la propia operación destino)
+    const pendingPedidos = allPedidos.filter(p =>
+      ['SOLICITADO', 'APROBADO'].includes(p.estado) &&
+      p.operacion !== targetOp &&
+      (p.lineas || []).some(l => (l.gestion || 'COMPRAS') === 'PLANTA')
+    );
+    _dglsPedidoMap = {};
+    pendingPedidos.forEach(p => { _dglsPedidoMap[p.id] = p; });
+
+    // La tabla empieza vacía; se llena con los pedidos seleccionados o líneas manuales
+    _dglsLineas = [];
+
+    // Render modal
+    const leftCol = pendingPedidos.length ? `
+      <div style="width:270px;flex-shrink:0;display:flex;flex-direction:column">
+        <div style="font-weight:600;font-size:11px;color:#374151;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Solicitudes pendientes</div>
+        <div style="border:1px solid #e5e7eb;border-radius:6px;overflow-y:auto;flex:1">
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead><tr style="background:#f3f4f6;position:sticky;top:0">
+              <th style="padding:5px 6px;width:28px"></th>
+              <th style="padding:5px 6px;text-align:center">Op.</th>
+              <th style="padding:5px 6px;text-align:center">Fecha</th>
+              <th style="padding:5px 6px;text-align:center">Estado</th>
+              <th style="padding:5px 6px;text-align:center">Lín.</th>
+            </tr></thead>
+            <tbody>
+              ${pendingPedidos.map(p => {
+                const plCount = (p.lineas || []).filter(l => (l.gestion || 'COMPRAS') === 'PLANTA').length;
+                return `<tr>
+                  <td style="padding:5px 6px;text-align:center">
+                    <input type="checkbox" onchange="_dglsTogglePedido('${p.id}',this.checked)" style="cursor:pointer">
+                  </td>
+                  <td style="padding:5px 6px;font-weight:600;text-align:center">${esc(p.operacion)}</td>
+                  <td style="padding:5px 6px;text-align:center">${fmtDate(p.fechaPedido)}</td>
+                  <td style="padding:5px 6px;text-align:center"><span class="badge badge-${(p.estado||'').toLowerCase()}">${p.estado}</span></td>
+                  <td style="padding:5px 6px;text-align:center;font-weight:600">${plCount}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>` : '';
+
+    document.getElementById('modal-body').innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;color:#374151">
+        <div>Op: <strong style="color:#059669">${esc(targetOp)}</strong> &nbsp;·&nbsp; Fecha: <strong>${new Date().toISOString().split('T')[0]}</strong></div>
+        <div style="font-size:13px">Total pedido:&nbsp;<strong id="dgls-pedido-total" style="color:#059669;font-size:15px">S/ 0.00</strong></div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:stretch;min-height:360px">
+        ${leftCol}
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="font-weight:600;font-size:11px;color:#374151;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Líneas del adicional</div>
+          <div style="border:1px solid #e5e7eb;border-radius:6px;overflow:auto;flex:1">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead><tr style="background:#f3f4f6;position:sticky;top:0">
+                <th style="padding:5px 4px;text-align:left;min-width:220px">Ítem</th>
+                <th style="padding:5px 4px;text-align:center;min-width:70px">Saldo</th>
+                <th style="padding:5px 4px;text-align:center;min-width:80px">Cant. Calc.</th>
+                <th style="padding:5px 4px;text-align:center;min-width:90px">Cant. Solicitada</th>
+                <th style="padding:5px 4px;text-align:center;min-width:76px">Costo U.</th>
+                <th style="padding:5px 4px;text-align:center;min-width:86px">Costo Total</th>
+                <th style="padding:5px 4px;text-align:left;min-width:130px">Comentarios</th>
+                <th style="width:28px"></th>
+              </tr></thead>
+              <tbody id="dgls-sol-tbody"></tbody>
+            </table>
+          </div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+            <button onclick="_dglsAddLinea()" style="border:1px dashed #9ca3af;background:none;color:#6b7280;cursor:pointer;padding:5px 14px;border-radius:4px;font-size:12px">+ Agregar ítem</button>
+            <div style="display:flex;gap:10px">
+              <button onclick="closeModal()" class="btn btn-outline btn-sm">Cancelar</button>
+              <button id="dgls-enviar-btn" onclick="_dglsEnviarSolicitud('${esc(targetOp)}')" class="btn btn-primary btn-sm">📤 Enviar solicitud</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    _dglsRenderTable();
+  } catch (err) {
+    document.getElementById('modal-body').innerHTML = `<p style="color:#dc2626;padding:16px">Error: ${esc(err.message)}</p>`;
+  }
+};
+
+window._dglsEnviarSolicitud = async function(targetOp) {
+  const lineas = _dglsLineas.filter(l => (l.cantidadSolicitada || 0) > 0 && l.item);
+  if (!lineas.length) { toast('No hay líneas con cantidad > 0', 'error'); return; }
+  const btn = document.getElementById('dgls-enviar-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    await POST('/pedidos', {
+      operacion:   targetOp,
+      fechaPedido: new Date().toISOString().split('T')[0],
+      lineas: lineas.map(l => ({
+        item:               l.item,
+        itemNombre:         l.descripcion,
+        grupoCompra:        l.grupoCompra || '',
+        gestion:            'PLANTA',
+        cantidadSolicitada: l.cantidadSolicitada || 0,
+        costoUnitario:      l.costoUnitario || 0,
+        comentarios:        l.comentarios || '',
+        saldo:              l.saldo || 0,
+      })),
+    });
+    closeModal();
+    toast('Solicitud enviada correctamente', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '📤 Enviar solicitud'; }
+  }
+};
+
 // ─── View: Gestión de Pagos ───────────────────────────────────────
 async function viewPagos(container) {
   const rolP = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
