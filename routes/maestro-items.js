@@ -10,7 +10,11 @@ const MaestroCuenta        = require('../models/MaestroCuenta');
 const MaestroItem          = require('../models/MaestroItem');
 const MaestroItemSociedad  = require('../models/MaestroItemSociedad');
 const MaestroItemSolicitud = require('../models/MaestroItemSolicitud');
+const User                 = require('../models/User');
+const { sendPush }  = require('../utils/sendPush');
+const { sendEmail } = require('../utils/sendEmail');
 
+const APP_URL = process.env.APP_URL || '';
 const router = express.Router();
 router.use(auth);
 
@@ -38,6 +42,60 @@ function checkSocAccess(user, sociedad) {
 
 const escRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const CAMPOS_CUENTA = ['cuentaInventario', 'cuentaGasto', 'cuentaCostoVenta', 'cuentaVenta'];
+const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// ── Notificaciones (push + email), mismo patrón que routes/pedidos.js ──────────
+
+/** IDs de usuario con rolMaestroItems === rol (o 'admin') autorizados a esa sociedad, + todos los ADMIN */
+async function idsPorRolMaestro(rol, sociedad) {
+  const users = await User.find({
+    $or: [
+      { role: 'ADMIN' },
+      { rolMaestroItems: { $in: [rol, 'admin'] }, sociedadesMaestros: sociedad },
+    ],
+  }, { id: 1 }).lean();
+  return [...new Set(users.map(u => u.id))];
+}
+
+/** ID de usuario a partir de su username (creadoPor/validadoPor/etc. guardan username, no id) */
+async function idPorUsername(username) {
+  const u = await User.findOne({ username }, { id: 1 }).lean();
+  return u?.id || null;
+}
+
+const MAESTRO_EMAIL_COLOR = { pendiente: '#f59e0b', aprobado: '#16a34a', rechazado: '#dc2626', completado: '#4361ee' };
+function emailHtmlMaestro({ tipo, label, titulo, mensaje, linkUrl = '/#maestro-items', linkLabel = 'Ir al Maestro de Ítems' }) {
+  const color  = MAESTRO_EMAIL_COLOR[tipo] || '#4361ee';
+  const ctaUrl = APP_URL ? `${APP_URL}${linkUrl}` : linkUrl;
+  return `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 0">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%">
+        <tr><td style="background:#1a1f3a;border-radius:10px 10px 0 0;padding:20px 28px;text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#fff;letter-spacing:1px">🗂️ Maestro de Ítems</div>
+        </td></tr>
+        <tr><td style="background:${color};padding:14px 28px;text-align:center">
+          <div style="font-size:16px;font-weight:700;color:#fff;letter-spacing:.5px">${esc(label)}</div>
+        </td></tr>
+        <tr><td style="background:#fff;padding:28px 28px 20px">
+          <p style="margin:0 0 14px;font-size:15px;color:#111827;font-weight:600">${esc(titulo)}</p>
+          <p style="margin:0;font-size:14px;color:#374151;line-height:1.6">${mensaje}</p>
+        </td></tr>
+        <tr><td style="background:#fff;padding:0 28px 28px;text-align:center">
+          <a href="${esc(ctaUrl)}" style="display:inline-block;padding:12px 32px;background:${color};color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:700;letter-spacing:.3px">${esc(linkLabel)} →</a>
+        </td></tr>
+        <tr><td style="background:#f8faff;border-top:1px solid #e5e7eb;border-radius:0 0 10px 10px;padding:16px 28px;text-align:center">
+          <p style="margin:0;font-size:11px;color:#9ca3af">Correo automático del Maestro de Ítems. Por favor no responda directamente a este mensaje.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
 
 // Agrega tipoItemNombre/lineaNombre/familiaNombre/subFamiliaNombre a una lista de ítems
 // (o de solicitudes, que tienen los mismos campos de código) sin un $lookup por fila.
@@ -253,6 +311,25 @@ router.post('/solicitudes/:id/enviar', async (req, res) => {
     sol.validadoPor = undefined; sol.validadoEn = undefined; sol.comentarioValidador = undefined;
     await sol.save();
     res.json(sol);
+
+    // Notificar a los validadores de la sociedad (push + email)
+    idsPorRolMaestro('validador', sol.sociedad).then(ids => {
+      if (!ids.length) return;
+      sendPush({ userId: { $in: ids } }, {
+        title: '📝 Solicitud de ítem pendiente',
+        body: `${sol.sociedad} — ${sol.nombre} (por ${req.user.username})`,
+        url: '/#maestro-items',
+      });
+      sendEmail({ userId: { $in: ids } }, {
+        subject: `📝 Solicitud de ítem pendiente de validación — ${sol.sociedad}`,
+        body: emailHtmlMaestro({
+          tipo: 'pendiente', label: '📝 SOLICITUD PENDIENTE',
+          titulo: `Nueva solicitud de ítem — ${sol.sociedad}`,
+          mensaje: `<strong>${esc(req.user.username)}</strong> solicitó el ítem <strong>${esc(sol.nombre)}</strong> para la sociedad <strong>${esc(sol.sociedad)}</strong>. Por favor revisa y valida las cuentas contables asociadas.`,
+          linkLabel: 'Ir a Validación',
+        }),
+      });
+    }).catch(err => console.error('[maestro-items] notif enviar:', err.message));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -305,6 +382,50 @@ router.put('/solicitudes/:id/validar', async (req, res) => {
     sol.comentarioValidador = comentarioValidador || '';
     await sol.save();
     res.json(sol);
+
+    // Notificar al solicitante (aprobada o rechazada) y, si se aprobó, a los registradores
+    (async () => {
+      const solicitanteId = await idPorUsername(sol.creadoPor);
+      if (accion === 'aprobar') {
+        if (solicitanteId) {
+          sendPush({ userId: solicitanteId },
+            { title: '✅ Solicitud de ítem aprobada', body: `${sol.sociedad} — ${sol.nombre}`, url: '/#maestro-items' });
+          sendEmail({ userId: solicitanteId }, {
+            subject: `✅ Solicitud de ítem aprobada — ${sol.sociedad}`,
+            body: emailHtmlMaestro({
+              tipo: 'aprobado', label: '✅ SOLICITUD APROBADA',
+              titulo: `Tu solicitud de ítem "${sol.nombre}" fue aprobada`,
+              mensaje: `Las cuentas contables de tu solicitud para la sociedad <strong>${esc(sol.sociedad)}</strong> fueron validadas por <strong>${esc(req.user.username)}</strong>. Queda pendiente el registro en el ERP.`,
+            }),
+          });
+        }
+        const idsReg = await idsPorRolMaestro('registrador', sol.sociedad);
+        if (idsReg.length) {
+          sendPush({ userId: { $in: idsReg } }, {
+            title: '🏷️ Ítem listo para registrar', body: `${sol.sociedad} — ${sol.nombre}`, url: '/#maestro-items' });
+          sendEmail({ userId: { $in: idsReg } }, {
+            subject: `🏷️ Ítem aprobado, listo para registrar en el ERP — ${sol.sociedad}`,
+            body: emailHtmlMaestro({
+              tipo: 'aprobado', label: '🏷️ LISTO PARA REGISTRAR',
+              titulo: `Ítem "${sol.nombre}" aprobado — requiere registro en el ERP`,
+              mensaje: `La solicitud de ítem de <strong>${esc(sol.creadoPor)}</strong> para la sociedad <strong>${esc(sol.sociedad)}</strong> ya fue validada. Por favor asigna el código ERP y regístralo.`,
+              linkLabel: 'Ir a Registro ERP',
+            }),
+          });
+        }
+      } else if (solicitanteId) {
+        sendPush({ userId: solicitanteId },
+          { title: '❌ Solicitud de ítem rechazada', body: `${sol.sociedad} — ${sol.nombre}`, url: '/#maestro-items' });
+        sendEmail({ userId: solicitanteId }, {
+          subject: `❌ Solicitud de ítem rechazada — ${sol.sociedad}`,
+          body: emailHtmlMaestro({
+            tipo: 'rechazado', label: '❌ SOLICITUD RECHAZADA',
+            titulo: `Tu solicitud de ítem "${sol.nombre}" fue rechazada`,
+            mensaje: `${esc(req.user.username)} rechazó tu solicitud para la sociedad <strong>${esc(sol.sociedad)}</strong>.${sol.comentarioValidador ? ` Comentario: <em>${esc(sol.comentarioValidador)}</em>` : ''} Podés editarla y volver a enviarla.`,
+          }),
+        });
+      }
+    })().catch(err => console.error('[maestro-items] notif validar:', err.message));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -339,6 +460,21 @@ router.put('/solicitudes/:id/registrar', async (req, res) => {
     sol.registradoEn  = new Date();
     await sol.save();
     res.json(sol);
+
+    // Notificar al solicitante que su ítem ya quedó registrado en el ERP
+    idPorUsername(sol.creadoPor).then(solicitanteId => {
+      if (!solicitanteId) return;
+      sendPush({ userId: solicitanteId },
+        { title: '🏷️ Ítem registrado en el ERP', body: `${sol.sociedad} — ${sol.nombre} (código ${itemCod})`, url: '/#maestro-items' });
+      sendEmail({ userId: solicitanteId }, {
+        subject: `🏷️ Ítem registrado en el ERP — ${sol.sociedad}`,
+        body: emailHtmlMaestro({
+          tipo: 'completado', label: '🏷️ ÍTEM REGISTRADO',
+          titulo: `Tu ítem "${sol.nombre}" ya está registrado en el ERP`,
+          mensaje: `${esc(req.user.username)} registró tu ítem para la sociedad <strong>${esc(sol.sociedad)}</strong> con el código <strong>${itemCod}</strong>. Ya está disponible en el catálogo.`,
+        }),
+      });
+    }).catch(err => console.error('[maestro-items] notif registrar:', err.message));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
