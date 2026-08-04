@@ -2,7 +2,11 @@ const mongoose = require('mongoose');
 
 const maestroItemSolicitudSchema = new mongoose.Schema({
   sociedad:   { type: String, required: true },
-  origenItem: { type: Number, default: null }, // item copiado, si aplica
+  // 'nuevo': crear un ítem (en blanco o copiando otro como plantilla) y registrarlo con
+  // código ERP nuevo. 'asignacion': un ítem YA registrado que se pide asignar a esta
+  // sociedad — no se crea nada nuevo, solo se vincula MaestroItem existente + sociedad.
+  tipo:       { type: String, default: 'nuevo', enum: ['nuevo', 'asignacion'] },
+  origenItem: { type: Number, default: null }, // item copiado o, si tipo=asignacion, el ítem a asignar
 
   nombre:     { type: String, default: '' },
   tipoItem:   { type: String, default: '' },

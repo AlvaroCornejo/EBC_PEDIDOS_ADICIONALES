@@ -3212,6 +3212,33 @@ async function viewMaestroItems(container) {
     abrirFormSolicitud(it);
   };
 
+  window.miSolicitarAsignacion = (item, nombre) => {
+    const soc = document.getElementById('mi-c-soc').value;
+    const body = `
+      <p style="font-size:14px;color:#374151;margin:0 0 16px">
+        Vas a solicitar que el ítem <strong>#${item} — ${esc(nombre)}</strong> se asigne a la sociedad
+        <strong>${esc(soc)}</strong>. No hace falta completar datos: el ítem ya está registrado, solo
+        se pide la vinculación.
+      </p>
+      <div id="mi-asig-error" class="msg-error hidden"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="mi-asig-enviar">📤 Enviar solicitud</button>
+      </div>`;
+    openModal(`Solicitar asignación — #${item}`, body);
+    document.getElementById('mi-asig-enviar').addEventListener('click', async () => {
+      const errEl = document.getElementById('mi-asig-error');
+      errEl.classList.add('hidden');
+      try {
+        const sol = await POST('/maestro-items/solicitudes', { sociedad: soc, tipo: 'asignacion', origenItem: item });
+        await POST(`/maestro-items/solicitudes/${sol._id}/enviar`);
+        closeModal();
+        toast('Solicitud de asignación enviada a validación', 'success');
+        renderTab('solicitudes');
+      } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
+    });
+  };
+
   // ── Tab: Catálogo ────────────────────────────────────────────────
   async function renderCatalogo(el) {
     const refs = await getRefs();
@@ -3321,6 +3348,7 @@ async function viewMaestroItems(container) {
         res.innerHTML = `<div class="empty-state"><p>${msg}</p></div>`;
         return;
       }
+      const noAsig = document.getElementById('mi-c-noasig').checked;
       res.innerHTML = `
         <div class="table-wrap" style="overflow-x:auto">
           <table class="data-table" style="font-size:13px">
@@ -3334,7 +3362,10 @@ async function viewMaestroItems(container) {
                 <td>${esc(it.familiaNombre || it.familia)}</td>
                 <td>${esc(it.subFamiliaNombre || it.subFamilia)}</td>
                 <td>${esc(it.um)}</td>
-                <td>${canSol ? `<button class="btn btn-outline btn-sm" onclick="miCopiarItem(${it.item})">📄 Copiar</button>` : ''}</td>
+                <td style="white-space:nowrap">
+                  ${canSol ? `<button class="btn btn-outline btn-sm" onclick="miCopiarItem(${it.item})">📄 Copiar</button>` : ''}
+                  ${canSol && noAsig ? `<button class="btn btn-primary btn-sm" onclick="miSolicitarAsignacion(${it.item},'${esc(it.nombre)}')">➕ Solicitar asignación</button>` : ''}
+                </td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -3365,13 +3396,13 @@ async function viewMaestroItems(container) {
           <tbody>
             ${propias.map(s => `<tr>
               <td>${esc(s.sociedad)}</td>
-              <td>${esc(s.nombre) || '<em class="text-muted">(sin nombre)</em>'}</td>
+              <td>${esc(s.nombre) || '<em class="text-muted">(sin nombre)</em>'}${s.tipo === 'asignacion' ? ` <span class="badge" style="background:#e0e7ff;color:#4338ca">Asignación #${s.origenItem}</span>` : ''}</td>
               <td>${fmtEstado(s.estado)}</td>
               <td>${fmtF(s.creadoEn)}</td>
               <td>${s.itemAsignado ?? '—'}</td>
               <td style="white-space:nowrap">
                 ${['borrador', 'pendiente', 'rechazado'].includes(s.estado) ? `
-                  <button class="btn btn-outline btn-sm" onclick="miEditarSolicitud('${s._id}')">✏️ Editar</button>
+                  ${s.tipo !== 'asignacion' ? `<button class="btn btn-outline btn-sm" onclick="miEditarSolicitud('${s._id}')">✏️ Editar</button>` : ''}
                   <button class="btn btn-outline btn-sm" style="color:var(--danger)" onclick="miEliminarSolicitud('${s._id}')">🗑️</button>` : ''}
               </td>
             </tr>`).join('')}
@@ -3399,10 +3430,16 @@ async function viewMaestroItems(container) {
         <div class="card" style="padding:14px" id="mi-val-${s._id}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
             <div>
-              <strong>${esc(s.nombre)}</strong> <span style="color:var(--text-muted);font-size:12px">— ${esc(s.sociedad)} · Tipo ${esc(s.tipoItem)} · Línea ${esc(s.linea)}/${esc(s.familia)}/${esc(s.subFamilia)} · UM ${esc(s.um)}</span>
-              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Solicitado por ${esc(s.creadoPor)} el ${fmtF(s.creadoEn)}${s.origenItem ? ` · copiado de #${s.origenItem}` : ''}</div>
+              <strong>${esc(s.nombre)}</strong>
+              ${s.tipo === 'asignacion' ? `<span class="badge" style="background:#e0e7ff;color:#4338ca;margin-left:6px">Asignación de ítem existente #${s.origenItem}</span>` : ''}
+              <span style="color:var(--text-muted);font-size:12px">— ${esc(s.sociedad)} · Tipo ${esc(s.tipoItem)} · Línea ${esc(s.linea)}/${esc(s.familia)}/${esc(s.subFamilia)} · UM ${esc(s.um)}</span>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Solicitado por ${esc(s.creadoPor)} el ${fmtF(s.creadoEn)}${s.tipo !== 'asignacion' && s.origenItem ? ` · copiado de #${s.origenItem}` : ''}</div>
             </div>
           </div>
+          ${s.tipo === 'asignacion' ? `
+          <p style="font-size:13px;color:var(--text-muted);margin:12px 0 0">
+            El ítem #${s.origenItem} ya está registrado — esta solicitud solo pide vincularlo a <strong>${esc(s.sociedad)}</strong>, no requiere revisar cuentas contables.
+          </p>` : `
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
             ${cuentaField(`val-inv-${s._id}`, 'Cuenta de Inventario')}
             ${cuentaField(`val-gas-${s._id}`, 'Cuenta de Gasto')}
@@ -3410,7 +3447,7 @@ async function viewMaestroItems(container) {
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
             ${cuentaField(`val-cv-${s._id}`, 'Cuenta de Costo de Venta')}
             ${cuentaField(`val-vt-${s._id}`, 'Cuenta de Venta')}
-          </div>
+          </div>`}
           <textarea id="mi-val-com-${s._id}" class="form-control" placeholder="Comentario (opcional)" style="margin-top:10px;font-size:13px" rows="2"></textarea>
           <div id="mi-val-err-${s._id}" class="msg-error hidden" style="margin-top:8px"></div>
           <div style="display:flex;gap:8px;margin-top:10px">
@@ -3420,7 +3457,7 @@ async function viewMaestroItems(container) {
         </div>`).join('')}
     </div>`;
 
-    sols.forEach(s => {
+    sols.filter(s => s.tipo !== 'asignacion').forEach(s => {
       wireCuentaField(`val-inv-${s._id}`, s.cuentaInventario, '');
       wireCuentaField(`val-gas-${s._id}`, s.cuentaGasto, '');
       wireCuentaField(`val-cv-${s._id}`, s.cuentaCostoVenta, '');
@@ -3452,25 +3489,46 @@ async function viewMaestroItems(container) {
       GET('/maestro-items/siguiente-item'),
     ]);
     if (!sols.length) { el.innerHTML = '<div class="empty-state"><p>Sin solicitudes aprobadas por registrar.</p></div>'; return; }
+    const detalleCampo = (label, val) => val ? `<div><span style="color:var(--text-muted)">${label}:</span> <strong>${esc(val)}</strong></div>` : '';
     el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">
       ${sols.map(s => `
-        <div class="card" style="padding:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-          <div>
-            <strong>${esc(s.nombre)}</strong> <span style="color:var(--text-muted);font-size:12px">— ${esc(s.sociedad)} · aprobado por ${esc(s.validadoPor)} el ${fmtF(s.validadoEn)}</span>
+        <div class="card" style="padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+            <div>
+              <strong>${esc(s.nombre)}</strong>
+              ${s.tipo === 'asignacion' ? `<span class="badge" style="background:#e0e7ff;color:#4338ca;margin-left:6px">Asignación #${s.origenItem}</span>` : ''}
+              <span style="color:var(--text-muted);font-size:12px">— ${esc(s.sociedad)} · aprobado por ${esc(s.validadoPor)} el ${fmtF(s.validadoEn)}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              ${s.tipo === 'asignacion'
+                ? `<span class="form-control" style="width:120px;background:var(--bg-page);color:var(--text-muted)">#${s.origenItem}</span>
+                   <button class="btn btn-primary btn-sm" onclick="miRegistrar('${s._id}')">🔗 Confirmar asignación</button>`
+                : `<input type="number" id="mi-reg-cod-${s._id}" class="form-control" style="width:130px" placeholder="Sugerido: ${sig.siguiente}">
+                   <button class="btn btn-primary btn-sm" onclick="miRegistrar('${s._id}')">🏷️ Registrar</button>`}
+            </div>
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input type="number" id="mi-reg-cod-${s._id}" class="form-control" style="width:120px" value="${sig.siguiente}">
-            <button class="btn btn-primary btn-sm" onclick="miRegistrar('${s._id}')">🏷️ Registrar</button>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:4px 16px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px">
+            ${detalleCampo('Tipo', s.tipoItemNombre || s.tipoItem)}
+            ${detalleCampo('Línea', s.lineaNombre || s.linea)}
+            ${detalleCampo('Familia', s.familiaNombre || s.familia)}
+            ${detalleCampo('Sub-familia', s.subFamiliaNombre || s.subFamilia)}
+            ${detalleCampo('UM', s.um)}
+            ${detalleCampo('Cuenta Inventario', s.cuentaInventario ? `${s.cuentaInventario} — ${s.cuentaInventarioNombre}` : '')}
+            ${detalleCampo('Cuenta Gasto', s.cuentaGasto ? `${s.cuentaGasto} — ${s.cuentaGastoNombre}` : '')}
+            ${detalleCampo('Cuenta Costo Venta', s.cuentaCostoVenta ? `${s.cuentaCostoVenta} — ${s.cuentaCostoVentaNombre}` : '')}
+            ${detalleCampo('Cuenta Venta', s.cuentaVenta ? `${s.cuentaVenta} — ${s.cuentaVentaNombre}` : '')}
           </div>
         </div>`).join('')}
     </div>`;
   }
 
   window.miRegistrar = async (id) => {
-    const cod = document.getElementById(`mi-reg-cod-${id}`).value;
+    const codEl = document.getElementById(`mi-reg-cod-${id}`);
+    if (codEl && !codEl.value.trim()) { toast('Ingresa el código generado por el ERP', 'error'); codEl.focus(); return; }
+    const cod = codEl ? codEl.value.trim() : undefined;
     try {
-      await PUT(`/maestro-items/solicitudes/${id}/registrar`, { itemAsignado: cod });
-      toast(`Ítem ${cod} registrado`, 'success');
+      await PUT(`/maestro-items/solicitudes/${id}/registrar`, cod !== undefined ? { itemAsignado: cod } : {});
+      toast(cod !== undefined ? `Ítem ${cod} registrado` : 'Asignación confirmada', 'success');
       renderTab('registro');
     } catch (e) { toast(e.message, 'error'); }
   };

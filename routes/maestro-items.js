@@ -100,29 +100,36 @@ function emailHtmlMaestro({ tipo, label, titulo, mensaje, linkUrl = '/#maestro-i
 // Agrega tipoItemNombre/lineaNombre/familiaNombre/subFamiliaNombre a una lista de ítems
 // (o de solicitudes, que tienen los mismos campos de código) sin un $lookup por fila.
 async function resolverNombres(items) {
-  const tipos = new Set(), lineas = new Set(), fams = new Set(), subs = new Set();
+  const tipos = new Set(), lineas = new Set(), fams = new Set(), subs = new Set(), cuentas = new Set();
   items.forEach(it => {
     if (it.tipoItem)   tipos.add(it.tipoItem);
     if (it.linea)      lineas.add(it.linea);
     if (it.linea && it.familia) fams.add(`${it.linea}|${it.familia}`);
     if (it.linea && it.familia && it.subFamilia) subs.add(`${it.linea}|${it.familia}|${it.subFamilia}`);
+    CAMPOS_CUENTA.forEach(c => { if (it[c]) cuentas.add(Number(it[c])); });
   });
-  const [tiposDocs, lineasDocs, famDocs, subDocs] = await Promise.all([
-    tipos.size  ? MaestroTipoItem.find({ codigo: { $in: [...tipos] } }).lean() : [],
-    lineas.size ? MaestroLinea.find({ codigo: { $in: [...lineas] } }).lean() : [],
-    fams.size   ? MaestroFamilia.find({ $or: [...fams].map(k => { const [linea, familia] = k.split('|'); return { linea, familia }; }) }).lean() : [],
-    subs.size   ? MaestroSubFamilia.find({ $or: [...subs].map(k => { const [linea, familia, subFamilia] = k.split('|'); return { linea, familia, subFamilia }; }) }).lean() : [],
+  const [tiposDocs, lineasDocs, famDocs, subDocs, cuentaDocs] = await Promise.all([
+    tipos.size   ? MaestroTipoItem.find({ codigo: { $in: [...tipos] } }).lean() : [],
+    lineas.size  ? MaestroLinea.find({ codigo: { $in: [...lineas] } }).lean() : [],
+    fams.size    ? MaestroFamilia.find({ $or: [...fams].map(k => { const [linea, familia] = k.split('|'); return { linea, familia }; }) }).lean() : [],
+    subs.size    ? MaestroSubFamilia.find({ $or: [...subs].map(k => { const [linea, familia, subFamilia] = k.split('|'); return { linea, familia, subFamilia }; }) }).lean() : [],
+    cuentas.size ? MaestroCuenta.find({ cuenta: { $in: [...cuentas] } }).lean() : [],
   ]);
   const tipoMap = Object.fromEntries(tiposDocs.map(d => [d.codigo, d.nombre]));
   const lineaMap = Object.fromEntries(lineasDocs.map(d => [d.codigo, d.nombre]));
   const famMap = Object.fromEntries(famDocs.map(d => [`${d.linea}|${d.familia}`, d.nombre]));
   const subMap = Object.fromEntries(subDocs.map(d => [`${d.linea}|${d.familia}|${d.subFamilia}`, d.nombre]));
+  const cuentaMap = Object.fromEntries(cuentaDocs.map(d => [d.cuenta, d.nombre]));
   return items.map(it => ({
     ...it,
     tipoItemNombre: tipoMap[it.tipoItem] || '',
     lineaNombre:    lineaMap[it.linea] || '',
     familiaNombre:  famMap[`${it.linea}|${it.familia}`] || '',
     subFamiliaNombre: subMap[`${it.linea}|${it.familia}|${it.subFamilia}`] || '',
+    cuentaInventarioNombre: cuentaMap[Number(it.cuentaInventario)] || '',
+    cuentaGastoNombre:      cuentaMap[Number(it.cuentaGasto)] || '',
+    cuentaCostoVentaNombre: cuentaMap[Number(it.cuentaCostoVenta)] || '',
+    cuentaVentaNombre:      cuentaMap[Number(it.cuentaVenta)] || '',
   }));
 }
 
@@ -252,19 +259,38 @@ router.get('/solicitudes', async (req, res) => {
       filter.creadoPor = u.username;
     }
     const sols = await MaestroItemSolicitud.find(filter).sort({ creadoEn: -1 }).lean();
-    res.json(sols);
+    res.json(await resolverNombres(sols));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/solicitudes', async (req, res) => {
   if (!canSolicitar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
   try {
-    const { sociedad, origenItem, nombre, tipoItem, linea, familia, subFamilia, um,
+    const { sociedad, tipo, origenItem, nombre, tipoItem, linea, familia, subFamilia, um,
             cuentaInventario, cuentaGasto, cuentaCostoVenta, cuentaVenta } = req.body;
     if (!sociedad) return res.status(400).json({ error: 'Selecciona la sociedad' });
     if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
+
+    if (tipo === 'asignacion') {
+      const itemCod = Number(origenItem);
+      if (!itemCod) return res.status(400).json({ error: 'Ítem requerido' });
+      const item = await MaestroItem.findOne({ item: itemCod }).lean();
+      if (!item) return res.status(404).json({ error: 'Ítem no encontrado' });
+      const yaAsignado = await MaestroItemSociedad.exists({ item: itemCod, sociedadCodigo: sociedad });
+      if (yaAsignado) return res.status(400).json({ error: `El ítem ${itemCod} ya está asignado a ${sociedad}` });
+      const sol = await MaestroItemSolicitud.create({
+        sociedad, tipo: 'asignacion', origenItem: itemCod,
+        nombre: item.nombre, tipoItem: item.tipoItem, linea: item.linea, familia: item.familia,
+        subFamilia: item.subFamilia, um: item.um,
+        cuentaInventario: item.cuentaInventario, cuentaGasto: item.cuentaGasto,
+        cuentaCostoVenta: item.cuentaCostoVenta, cuentaVenta: item.cuentaVenta,
+        creadoPor: req.user.username,
+      });
+      return res.json(sol);
+    }
+
     const sol = await MaestroItemSolicitud.create({
-      sociedad, origenItem: origenItem || null,
+      sociedad, tipo: 'nuevo', origenItem: origenItem || null,
       nombre: nombre || '', tipoItem: tipoItem || '', linea: linea || '', familia: familia || '', subFamilia: subFamilia || '', um: um || '',
       cuentaInventario: cuentaInventario || null, cuentaGasto: cuentaGasto || null,
       cuentaCostoVenta: cuentaCostoVenta || null, cuentaVenta: cuentaVenta || null,
@@ -367,7 +393,9 @@ router.put('/solicitudes/:id/validar', async (req, res) => {
     const { accion, comentarioValidador } = req.body;
     if (!['aprobar', 'rechazar'].includes(accion)) return res.status(400).json({ error: 'Acción inválida' });
 
-    if (accion === 'aprobar') {
+    // Una asignación de ítem ya registrado no re-valida cuentas (el ítem ya las tiene,
+    // o nunca las tuvo porque es histórico — no corresponde exigirlas recién ahora).
+    if (accion === 'aprobar' && sol.tipo !== 'asignacion') {
       for (const campo of CAMPOS_CUENTA) {
         if (req.body[campo] !== undefined) sol[campo] = req.body[campo] || null;
         if (!sol[campo]) return res.status(400).json({ error: `Falta la cuenta: ${campo}` });
@@ -395,7 +423,9 @@ router.put('/solicitudes/:id/validar', async (req, res) => {
             body: emailHtmlMaestro({
               tipo: 'aprobado', label: '✅ SOLICITUD APROBADA',
               titulo: `Tu solicitud de ítem "${sol.nombre}" fue aprobada`,
-              mensaje: `Las cuentas contables de tu solicitud para la sociedad <strong>${esc(sol.sociedad)}</strong> fueron validadas por <strong>${esc(req.user.username)}</strong>. Queda pendiente el registro en el ERP.`,
+              mensaje: sol.tipo === 'asignacion'
+                ? `Tu solicitud para vincular el ítem <strong>#${sol.origenItem}</strong> a la sociedad <strong>${esc(sol.sociedad)}</strong> fue aprobada por <strong>${esc(req.user.username)}</strong>. Queda pendiente confirmar la vinculación.`
+                : `Las cuentas contables de tu solicitud para la sociedad <strong>${esc(sol.sociedad)}</strong> fueron validadas por <strong>${esc(req.user.username)}</strong>. Queda pendiente el registro en el ERP.`,
             }),
           });
         }
@@ -407,8 +437,10 @@ router.put('/solicitudes/:id/validar', async (req, res) => {
             subject: `🏷️ Ítem aprobado, listo para registrar en el ERP — ${sol.sociedad}`,
             body: emailHtmlMaestro({
               tipo: 'aprobado', label: '🏷️ LISTO PARA REGISTRAR',
-              titulo: `Ítem "${sol.nombre}" aprobado — requiere registro en el ERP`,
-              mensaje: `La solicitud de ítem de <strong>${esc(sol.creadoPor)}</strong> para la sociedad <strong>${esc(sol.sociedad)}</strong> ya fue validada. Por favor asigna el código ERP y regístralo.`,
+              titulo: `Ítem "${sol.nombre}" aprobado — requiere ${sol.tipo === 'asignacion' ? 'confirmar la vinculación' : 'registro en el ERP'}`,
+              mensaje: sol.tipo === 'asignacion'
+                ? `La solicitud de <strong>${esc(sol.creadoPor)}</strong> para vincular el ítem <strong>#${sol.origenItem}</strong> a la sociedad <strong>${esc(sol.sociedad)}</strong> ya fue validada. Por favor confirma la vinculación.`
+                : `La solicitud de ítem de <strong>${esc(sol.creadoPor)}</strong> para la sociedad <strong>${esc(sol.sociedad)}</strong> ya fue validada. Por favor asigna el código ERP y regístralo.`,
               linkLabel: 'Ir a Registro ERP',
             }),
           });
@@ -437,17 +469,26 @@ router.put('/solicitudes/:id/registrar', async (req, res) => {
     if (!sol || sol.estado !== 'aprobado') return res.status(400).json({ error: 'No disponible' });
     if (!checkSocAccess(req.user, sol.sociedad)) return res.status(403).json({ error: 'Sociedad no autorizada' });
 
-    const itemCod = Number(req.body.itemAsignado);
-    if (!itemCod) return res.status(400).json({ error: 'Código de ítem requerido' });
-    const yaExiste = await MaestroItem.exists({ item: itemCod });
-    if (yaExiste) return res.status(400).json({ error: `El ítem ${itemCod} ya existe` });
+    let itemCod;
+    if (sol.tipo === 'asignacion') {
+      // El ítem ya existe — solo se vincula a la sociedad, no se crea nada.
+      itemCod = sol.origenItem;
+      if (!itemCod) return res.status(400).json({ error: 'Solicitud de asignación sin ítem de origen' });
+      const yaAsignado = await MaestroItemSociedad.exists({ item: itemCod, sociedadCodigo: sol.sociedad });
+      if (yaAsignado) return res.status(400).json({ error: `El ítem ${itemCod} ya está asignado a ${sol.sociedad}` });
+    } else {
+      itemCod = Number(req.body.itemAsignado);
+      if (!itemCod) return res.status(400).json({ error: 'Código de ítem requerido' });
+      const yaExiste = await MaestroItem.exists({ item: itemCod });
+      if (yaExiste) return res.status(400).json({ error: `El ítem ${itemCod} ya existe` });
 
-    await MaestroItem.create({
-      item: itemCod, nombre: sol.nombre, tipoItem: sol.tipoItem, linea: sol.linea,
-      familia: sol.familia, subFamilia: sol.subFamilia, um: sol.um,
-      cuentaInventario: sol.cuentaInventario, cuentaGasto: sol.cuentaGasto,
-      cuentaCostoVenta: sol.cuentaCostoVenta, cuentaVenta: sol.cuentaVenta,
-    });
+      await MaestroItem.create({
+        item: itemCod, nombre: sol.nombre, tipoItem: sol.tipoItem, linea: sol.linea,
+        familia: sol.familia, subFamilia: sol.subFamilia, um: sol.um,
+        cuentaInventario: sol.cuentaInventario, cuentaGasto: sol.cuentaGasto,
+        cuentaCostoVenta: sol.cuentaCostoVenta, cuentaVenta: sol.cuentaVenta,
+      });
+    }
     await MaestroItemSociedad.updateOne(
       { item: itemCod, sociedadCodigo: sol.sociedad },
       { $setOnInsert: { item: itemCod, sociedadCodigo: sol.sociedad } },
@@ -464,14 +505,19 @@ router.put('/solicitudes/:id/registrar', async (req, res) => {
     // Notificar al solicitante que su ítem ya quedó registrado en el ERP
     idPorUsername(sol.creadoPor).then(solicitanteId => {
       if (!solicitanteId) return;
-      sendPush({ userId: solicitanteId },
-        { title: '🏷️ Ítem registrado en el ERP', body: `${sol.sociedad} — ${sol.nombre} (código ${itemCod})`, url: '/#maestro-items' });
+      const esAsig = sol.tipo === 'asignacion';
+      sendPush({ userId: solicitanteId }, {
+        title: esAsig ? '🔗 Ítem asignado a la sociedad' : '🏷️ Ítem registrado en el ERP',
+        body: `${sol.sociedad} — ${sol.nombre} (${itemCod})`, url: '/#maestro-items',
+      });
       sendEmail({ userId: solicitanteId }, {
-        subject: `🏷️ Ítem registrado en el ERP — ${sol.sociedad}`,
+        subject: `${esAsig ? '🔗 Ítem asignado' : '🏷️ Ítem registrado en el ERP'} — ${sol.sociedad}`,
         body: emailHtmlMaestro({
-          tipo: 'completado', label: '🏷️ ÍTEM REGISTRADO',
-          titulo: `Tu ítem "${sol.nombre}" ya está registrado en el ERP`,
-          mensaje: `${esc(req.user.username)} registró tu ítem para la sociedad <strong>${esc(sol.sociedad)}</strong> con el código <strong>${itemCod}</strong>. Ya está disponible en el catálogo.`,
+          tipo: 'completado', label: esAsig ? '🔗 ÍTEM ASIGNADO' : '🏷️ ÍTEM REGISTRADO',
+          titulo: esAsig ? `El ítem #${itemCod} ya está asignado a ${sol.sociedad}` : `Tu ítem "${sol.nombre}" ya está registrado en el ERP`,
+          mensaje: esAsig
+            ? `${esc(req.user.username)} confirmó la vinculación del ítem <strong>#${itemCod}</strong> a la sociedad <strong>${esc(sol.sociedad)}</strong>. Ya está disponible en el catálogo de esa sociedad.`
+            : `${esc(req.user.username)} registró tu ítem para la sociedad <strong>${esc(sol.sociedad)}</strong> con el código <strong>${itemCod}</strong>. Ya está disponible en el catálogo.`,
         }),
       });
     }).catch(err => console.error('[maestro-items] notif registrar:', err.message));
