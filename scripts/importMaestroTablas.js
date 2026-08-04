@@ -36,6 +36,10 @@ const mapSociedad = s => SOCIEDAD_MAP[s] || s;
 const cellVal = c => (c && typeof c === 'object' ? c.result ?? c.text ?? '' : c);
 const str = v => String(cellVal(v) ?? '').trim();
 const num = v => { const n = Number(cellVal(v)); return Number.isFinite(n) ? n : null; };
+// La hoja TABLAS guarda LINEA/FAMILIA/SUB FAMILIA como texto con ceros a la izquierda
+// ("004"), pero la hoja ITEMS los trae como número plano (4) — se normalizan a 3 dígitos
+// para que los códigos de MaestroItem calcen con MaestroLinea/Familia/SubFamilia.
+const cod3 = v => { const s = str(v); return /^\d+$/.test(s) ? s.padStart(3, '0') : s; };
 
 async function main() {
   console.log(`\nArchivo: ${FILE_PATH}`);
@@ -100,9 +104,9 @@ async function main() {
       item,
       nombre:           str(v[2]),
       tipoItem:         str(v[3]),
-      linea:            str(v[4]),
-      familia:          str(v[5]),
-      subFamilia:       str(v[6]),
+      linea:            cod3(v[4]),
+      familia:          cod3(v[5]),
+      subFamilia:       cod3(v[6]),
       um:               str(v[7]),
       cuentaInventario: num(v[9]),
       cuentaGasto:      num(v[10]),
