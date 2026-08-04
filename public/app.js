@@ -4243,9 +4243,10 @@ async function renderPaso1(container) {
   document.getElementById('pg-cargar-pagos').addEventListener('click', async () => {
     const file = document.getElementById('pg-file-pagos').files[0];
     if (!file) { toast('Selecciona el archivo de Pagos', 'error'); return; }
+    if (!progActual?._id) { toast('Abre una programación de la lista antes de cargar Pagos — si no, el promedio no queda guardado', 'error'); return; }
     const fd = new FormData();
     fd.append('archivo', file);
-    if (progActual?._id) fd.append('progId', progActual._id);
+    fd.append('progId', progActual._id);
     document.getElementById('pg-prog-wrap-pagos')?.remove();
     pgSetProgress('pagos', 0, 'Iniciando...');
     try {
