@@ -94,6 +94,12 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | MaestroLinea/Familia/SubFamilia/TipoItem/UM/Item/ItemSociedad | `scripts/importMaestroTablas.js` | EBC TABLAS PARA ITEMS.xlsx | manual (al actualizar el Excel) |
 | MaestroCuenta | `scripts/importPlanContable.js` | EBC PLAN CONTABLE.xlsx | manual (al actualizar el Excel) |
 
+`scripts/importar-maestro-items.bat` corre ambos scripts en orden (con sus rutas de Box
+por defecto) — **no está en `sync-master.bat`**: ambos scripts hacen `deleteMany` +
+`insertMany` completo, así que automatizarlos a diario borraría los ítems creados vía el
+flujo de solicitudes de la app. Se ejecuta a mano en `C:\pedidos-app` solo cuando se
+actualiza alguno de los 2 Excel de origen.
+
 - Sync manual de items desde consola del navegador (admin logueado), si se necesita fuera del horario del bat:
 ```javascript
 (async () => {
