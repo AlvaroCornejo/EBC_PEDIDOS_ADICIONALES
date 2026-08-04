@@ -3302,7 +3302,15 @@ async function viewMaestroItems(container) {
     }
 
     function pintar(res, data, page) {
-      if (!data.items.length) { res.innerHTML = '<div class="empty-state"><p>Sin ítems para los filtros seleccionados</p></div>'; return; }
+      if (!data.items.length) {
+        const soc = document.getElementById('mi-c-soc').value;
+        const noAsig = document.getElementById('mi-c-noasig').checked;
+        const msg = noAsig
+          ? 'No se encontraron ítems sin asignar con esos filtros.'
+          : `Sin ítems asignados a <strong>${esc(soc)}</strong> con esos filtros. Probá con otra sociedad, o activá "Mostrar solo NO asignados" para ver los ítems del maestro general.`;
+        res.innerHTML = `<div class="empty-state"><p>${msg}</p></div>`;
+        return;
+      }
       res.innerHTML = `
         <div class="table-wrap" style="overflow-x:auto">
           <table class="data-table" style="font-size:13px">
