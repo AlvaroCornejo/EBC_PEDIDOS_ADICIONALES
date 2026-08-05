@@ -4988,7 +4988,7 @@ async function renderPaso1(container) {
         <div style="overflow-x:auto;max-height:calc(100vh - 420px);overflow-y:auto">
           <table class="data-table" style="font-size:11px">
             <thead><tr>
-              <th style="width:28px"></th>
+              <th style="width:28px" title="Programado">Prog.</th>
               <th>Tipo</th><th>N° Documento</th><th>Vencimiento</th><th>F. Documento</th><th class="text-right">Plazo</th>
               <th>Mon.</th><th class="text-right">Monto</th><th class="text-right">Monto S/</th>
               <th>Beneficiario</th><th>Banco</th>
@@ -15290,13 +15290,19 @@ function exportarVistaExcel(containerId, nombreArchivo) {
   const tablas = cont ? [...cont.querySelectorAll('table')] : [];
   if (!tablas.length) { toast('No hay datos para exportar', 'error'); return; }
 
-  const celda = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+  // Un <td> con checkbox (ej. "programado", "seleccionado") no tiene texto visible —
+  // sin esto la columna salía vacía en el Excel. Se lee el estado marcado/no marcado.
+  const celda = c => {
+    const chk = c.querySelector('input[type="checkbox"]');
+    if (chk) return chk.checked ? 'Sí' : 'No';
+    return String(c.innerText || c.textContent || '').replace(/\s+/g, ' ').trim();
+  };
   const hojas = tablas.map((t, ti) => ({
     nombre: tablas.length > 1 ? `Hoja${ti + 1}` : nombreArchivo,
     filas: [...t.rows].map(row =>
       [...row.cells]
         .filter(c => getComputedStyle(c).display !== 'none')
-        .map(c => celda(c.innerText || c.textContent || ''))
+        .map(celda)
     ).filter(fila => fila.length),
   }));
 
