@@ -41,8 +41,32 @@ async function main() {
   if (!ws) throw new Error('No se encontró la hoja "VENTAS"');
   console.log(`Hoja "VENTAS": ${ws.rowCount} filas (incluye encabezado).`);
 
-  const headerRow = ws.getRow(1).values;
-  console.log('Fila 1 (encabezado) tal como se lee:', JSON.stringify(headerRow));
+  // El orden de columnas de este Excel ha cambiado entre versiones (confirmado: pasó de
+  // CANAL,FECHA,PAX,TRANSACCIONES,VENTA BRUTA,VENTA BRUTA MAS REDENCION,OPERACION a
+  // FECHA,OPERACION,CANAL,PAX,TRANSACCIONES,VENTA BRUTA,VENTA BRUTA MAS REDENCION en el
+  // servidor) — se resuelven las columnas por NOMBRE de encabezado, no por posición fija,
+  // para no romperse de nuevo si vuelve a reordenarse.
+  const norm = s => String(s ?? '').trim().toUpperCase();
+  const header = {};
+  ws.getRow(1).eachCell({ includeEmpty: false }, (cell, col) => { header[norm(cellVal(cell.value))] = col; });
+  console.log('Encabezado detectado:', JSON.stringify(header));
+  const col = (...nombres) => {
+    for (const n of nombres) { if (header[n] !== undefined) return header[n]; }
+    return undefined;
+  };
+  const COL = {
+    canal:                  col('CANAL'),
+    fecha:                  col('FECHA'),
+    pax:                    col('PAX'),
+    transacciones:          col('TRANSACCIONES'),
+    ventaBruta:             col('VENTA BRUTA'),
+    ventaBrutaMasRedencion: col('VENTA BRUTA MAS REDENCION'),
+    operacion:              col('OPERACION', 'OPERACIÓN'),
+  };
+  const faltantes = Object.entries(COL).filter(([, c]) => c === undefined).map(([k]) => k);
+  if (faltantes.length) throw new Error(`No se encontraron las columnas: ${faltantes.join(', ')} — revisar encabezados del Excel.`);
+  console.log('Columnas resueltas:', JSON.stringify(COL));
+
   const filaEjemplo = ws.getRow(2).values;
   console.log('Fila 2 (primer dato) tal como se lee:', JSON.stringify(filaEjemplo));
   console.log();
@@ -59,20 +83,20 @@ async function main() {
   const conflictos = [];
   ws.eachRow((row, i) => {
     if (i === 1) return; // encabezado
-    const v = row.values; // 1-based: 1=CANAL,2=FECHA,3=PAX,4=TRANSACCIONES,5=VENTA BRUTA,6=VENTA BRUTA MAS REDENCION,7=OPERACION
-    const canal = str(v[1]);
-    const fRaw  = v[2];
+    const v = row.values; // 1-based, posiciones resueltas por nombre en COL
+    const canal = str(v[COL.canal]);
+    const fRaw  = v[COL.fecha];
     const fecha = fRaw instanceof Date ? fRaw : (fRaw ? new Date(cellVal(fRaw)) : null);
-    const operacion = str(v[7]);
+    const operacion = str(v[COL.operacion]);
     if (!canal) { motivos.canal++; return; }
     if (!operacion) { motivos.operacion++; return; }
     if (!fecha || isNaN(fecha)) { motivos.fecha++; return; }
     const doc = {
       operacion, canal, fecha,
-      pax:                    num(v[3]),
-      transacciones:          num(v[4]),
-      ventaBruta:             num(v[5]),
-      ventaBrutaMasRedencion: num(v[6]),
+      pax:                    num(v[COL.pax]),
+      transacciones:          num(v[COL.transacciones]),
+      ventaBruta:             num(v[COL.ventaBruta]),
+      ventaBrutaMasRedencion: num(v[COL.ventaBrutaMasRedencion]),
     };
     const clave = `${operacion}|${canal}|${fecha.toISOString().slice(0, 10)}`;
     const previa = porClave.get(clave);
