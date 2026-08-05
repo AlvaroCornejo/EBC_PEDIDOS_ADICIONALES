@@ -36,10 +36,19 @@ async function main() {
   await wb.xlsx.readFile(FILE_PATH);
   console.log('Excel cargado.\n');
 
+  console.log('Hojas encontradas en el archivo:', wb.worksheets.map(s => `"${s.name}"`).join(', '));
   const ws = wb.getWorksheet('VENTAS');
   if (!ws) throw new Error('No se encontró la hoja "VENTAS"');
+  console.log(`Hoja "VENTAS": ${ws.rowCount} filas (incluye encabezado).`);
+
+  const headerRow = ws.getRow(1).values;
+  console.log('Fila 1 (encabezado) tal como se lee:', JSON.stringify(headerRow));
+  const filaEjemplo = ws.getRow(2).values;
+  console.log('Fila 2 (primer dato) tal como se lee:', JSON.stringify(filaEjemplo));
+  console.log();
 
   console.log('Importando filas...');
+  const motivos = { canal: 0, operacion: 0, fecha: 0 };
   // El Excel a veces trae bloques de filas duplicados (mismo operacion+canal+fecha
   // repetido tal cual, ej. un rango de fechas de una operación pegado dos veces) — se
   // dedupe quedándose con la primera fila de cada clave. Si dos filas con la misma clave
@@ -55,7 +64,9 @@ async function main() {
     const fRaw  = v[2];
     const fecha = fRaw instanceof Date ? fRaw : (fRaw ? new Date(cellVal(fRaw)) : null);
     const operacion = str(v[7]);
-    if (!canal || !operacion || !fecha || isNaN(fecha)) return;
+    if (!canal) { motivos.canal++; return; }
+    if (!operacion) { motivos.operacion++; return; }
+    if (!fecha || isNaN(fecha)) { motivos.fecha++; return; }
     const doc = {
       operacion, canal, fecha,
       pax:                    num(v[3]),
@@ -71,6 +82,7 @@ async function main() {
     if (mismosValores) duplicadosIdenticos++;
     else conflictos.push({ clave, fila: i, previa, nueva: doc });
   });
+  console.log(`Filas rechazadas por falta de dato — canal: ${motivos.canal}, operación: ${motivos.operacion}, fecha: ${motivos.fecha}.`);
   if (duplicadosIdenticos) console.log(`  ⚠ ${duplicadosIdenticos} filas duplicadas idénticas (misma operación+canal+fecha) — se descartó la repetida.`);
   if (conflictos.length) {
     console.log(`  ⚠ ${conflictos.length} filas con la misma clave pero VALORES DISTINTOS — se conservó la primera, revisar a mano:`);
