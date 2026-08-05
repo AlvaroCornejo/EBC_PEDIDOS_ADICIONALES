@@ -4057,14 +4057,43 @@ async function viewPronosticoVenta(container) {
   let operacionActual = '';
   let nSemanas = 8;
   let nAnios = 1;
+  let semanaObjetivoElegida = ''; // 'YYYYWW', vacío = dejar que el backend elija (semana actual + 1)
   let dataResumen = null;
   let proyeccion = {};   // canal -> { ticketPropuesto, dias: {1..7: cantidad} }
   let canalPorSlug = {};
+  let bloqueado = false;
 
   const slug = s => String(s).replace(/[^A-Za-z0-9]+/g, '_');
   const fmtN = (v, dec = 0) => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
   const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const DOW_LABEL = { 1: 'LUN', 2: 'MAR', 3: 'MIE', 4: 'JUE', 5: 'VIE', 6: 'SAB', 7: 'DOM' };
+
+  // ── Semanas ISO en el cliente (mismo criterio que el backend) — para armar el selector ──
+  function isoYearCli(date) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    return d.getUTCFullYear();
+  }
+  function isoWeekCli(date) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+    return 1 + Math.round(((d - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
+  }
+  function mondayOfIsoWeekCli(año, semana) {
+    const jan4 = new Date(Date.UTC(año, 0, 4));
+    const jan4Day = jan4.getUTCDay() || 7;
+    const monday1 = new Date(jan4);
+    monday1.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+    const monday = new Date(monday1);
+    monday.setUTCDate(monday1.getUTCDate() + (semana - 1) * 7);
+    return monday;
+  }
+  function addSemanasCli(año, semana, delta) {
+    const d = mondayOfIsoWeekCli(año, semana);
+    d.setUTCDate(d.getUTCDate() + delta * 7);
+    return { año: isoYearCli(d), semana: isoWeekCli(d) };
+  }
 
   container.innerHTML = `
     <div class="page-header">
@@ -4093,10 +4122,15 @@ async function viewPronosticoVenta(container) {
               <button class="btn btn-outline btn-sm" id="pv-mas-anios">+1 año</button>
             </div>
           </div>
-          <div id="pv-semana-objetivo" style="margin-left:auto;font-size:13px;color:var(--text-muted)"></div>
+          <div style="margin-left:auto">
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semana a proyectar</label>
+            <select id="pv-semana-sel" class="form-control" style="width:150px"><option value="">Semana actual + 1</option></select>
+          </div>
           <button class="btn btn-primary" id="pv-guardar">💾 Guardar proyección</button>
         </div>
+        <div id="pv-semana-objetivo" style="margin-top:8px;font-size:13px;color:var(--text-muted)"></div>
       </div>
+      <div id="pv-bloqueo-banner"></div>
       <div id="pv-content"></div>
     </div>`;
 
@@ -4110,18 +4144,35 @@ async function viewPronosticoVenta(container) {
     if (disponibles.length === 1) { sel.value = disponibles[0]; operacionActual = disponibles[0]; }
   } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
 
-  document.getElementById('pv-operacion').addEventListener('change', (e) => { operacionActual = e.target.value; cargar(); });
+  document.getElementById('pv-operacion').addEventListener('change', (e) => { operacionActual = e.target.value; semanaObjetivoElegida = ''; cargar(); });
   document.getElementById('pv-mas-semanas').addEventListener('click', () => { nSemanas += 8; document.getElementById('pv-nsemanas-lbl').textContent = nSemanas; cargar(); });
   document.getElementById('pv-mas-anios').addEventListener('click', () => { nAnios += 1; document.getElementById('pv-nanios-lbl').textContent = nAnios; cargar(); });
+  document.getElementById('pv-semana-sel').addEventListener('change', (e) => { semanaObjetivoElegida = e.target.value; cargar(); });
   document.getElementById('pv-guardar').addEventListener('click', guardar);
+
+  function poblarSelectorSemanas(actual) {
+    const sel = document.getElementById('pv-semana-sel');
+    const valorPrevio = semanaObjetivoElegida;
+    const opciones = [];
+    for (let i = -4; i <= 12; i++) {
+      const s = addSemanasCli(actual.año, actual.semana, i);
+      const val = `${s.año}${String(s.semana).padStart(2, '0')}`;
+      opciones.push(`<option value="${val}">SEM ${s.semana}/${s.año}${i === 1 ? ' (siguiente)' : i === 0 ? ' (actual)' : ''}</option>`);
+    }
+    sel.innerHTML = '<option value="">Semana actual + 1</option>' + opciones.join('');
+    sel.value = valorPrevio || '';
+  }
 
   async function cargar() {
     if (!operacionActual) { root.innerHTML = ''; return; }
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
       const params = new URLSearchParams({ operacion: operacionActual, nSemanas, nAnios });
+      if (semanaObjetivoElegida) params.set('semanaObjetivo', semanaObjetivoElegida);
       dataResumen = await GET(`/pronostico-venta/resumen?${params}`);
+      poblarSelectorSemanas(dataResumen.actual);
       const fc = await GET(`/pronostico-venta/forecast?operacion=${encodeURIComponent(operacionActual)}&año=${dataResumen.objetivo.año}&semana=${dataResumen.objetivo.semana}`);
+      bloqueado = !!fc.bloqueado;
 
       proyeccion = {};
       canalPorSlug = {};
@@ -4140,8 +4191,32 @@ async function viewPronosticoVenta(container) {
       document.getElementById('pv-semana-objetivo').innerHTML =
         `Proyectando <strong>SEM ${dataResumen.objetivo.semana}/${dataResumen.objetivo.año}</strong> — semana actual: SEM ${dataResumen.actual.semana}/${dataResumen.actual.año}`;
 
+      const banner = document.getElementById('pv-bloqueo-banner');
+      const guardarBtn = document.getElementById('pv-guardar');
+      if (bloqueado) {
+        guardarBtn.style.display = 'none';
+        banner.innerHTML = `<div class="card mb-16" style="padding:12px 16px;background:#fef3c7;border:1px solid #fbbf24;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span>🔒 Este pronóstico ya fue guardado por <strong>${esc(fc.bloqueadoPor||'')}</strong> el ${fc.bloqueadoEn ? new Date(fc.bloqueadoEn).toLocaleDateString('es-PE') : ''} y no se puede editar.</span>
+          ${esAdmin ? `<button class="btn btn-outline btn-sm" id="pv-desbloquear">🔓 Habilitar edición</button>` : ''}
+        </div>`;
+        const btnDesb = document.getElementById('pv-desbloquear');
+        if (btnDesb) btnDesb.addEventListener('click', desbloquear);
+      } else {
+        guardarBtn.style.display = '';
+        banner.innerHTML = '';
+      }
+
       render();
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  async function desbloquear() {
+    if (!confirm('¿Reabrir este pronóstico para poder editarlo?')) return;
+    try {
+      await POST('/pronostico-venta/forecast/desbloquear', { operacion: operacionActual, año: dataResumen.objetivo.año, semana: dataResumen.objetivo.semana });
+      toast('Pronóstico reabierto', 'success');
+      await cargar();
+    } catch (e) { toast(e.message, 'error'); }
   }
 
   function colHeaders() {
@@ -4186,7 +4261,7 @@ async function viewPronosticoVenta(container) {
       return `<tr>
         <td>${esc(c.canal)} <span class="text-muted" style="font-size:11px">(${c.tipo === 'pax' ? 'PAX' : 'TRX'})</span></td>
         <td class="text-right" id="pv-armado-pax-${slug(c.canal)}">${fmtN(proyectado)}</td>
-        <td><input type="number" step="0.01" class="form-control text-right" id="pv-ticket-${slug(c.canal)}" value="${ticket ? ticket.toFixed(2) : ''}" style="width:110px" oninput="pvTicketChange('${slug(c.canal)}')"></td>
+        <td><input type="number" step="0.01" class="form-control text-right" id="pv-ticket-${slug(c.canal)}" value="${ticket ? ticket.toFixed(2) : ''}" style="width:110px" oninput="pvTicketChange('${slug(c.canal)}')" ${bloqueado ? 'disabled' : ''}></td>
         <td class="text-right" id="pv-armado-venta-${slug(c.canal)}">${fmtMoney(proyectado * ticket)}</td>
       </tr>`;
     }).join('');
@@ -4211,7 +4286,7 @@ async function viewPronosticoVenta(container) {
         <td>${DOW_LABEL[d.diaSemana]}</td>
         ${[...vals, ...valsAnios].map(v => `<td class="text-right">${v}</td>`).join('')}
         <td class="text-right" style="color:#8b5cf6">${fmtN(d.propuesta)}</td>
-        <td><input type="number" class="form-control text-right" id="pv-dia-${slug(c.canal)}-${d.diaSemana}" value="${valorActual}" style="width:90px" oninput="pvDiaChange('${slug(c.canal)}',${d.diaSemana})"></td>
+        <td><input type="number" class="form-control text-right" id="pv-dia-${slug(c.canal)}-${d.diaSemana}" value="${valorActual}" style="width:90px" oninput="pvDiaChange('${slug(c.canal)}',${d.diaSemana})" ${bloqueado ? 'disabled' : ''}></td>
       </tr>`;
     }).join('');
     return `<div class="card mb-16" style="padding:14px">
@@ -4260,6 +4335,8 @@ async function viewPronosticoVenta(container) {
 
   async function guardar() {
     if (!operacionActual || !dataResumen) { toast('Selecciona una operación', 'error'); return; }
+    if (bloqueado) { toast('Este pronóstico ya está guardado y bloqueado', 'error'); return; }
+    if (!confirm('Al guardar, este pronóstico queda bloqueado y no se podrá volver a editar (salvo que un administrador lo reabra). ¿Confirmas?')) return;
     const canales = Object.entries(proyeccion).map(([canal, v]) => ({
       canal,
       ticketPropuesto: Number(v.ticketPropuesto) || 0,
@@ -4269,7 +4346,8 @@ async function viewPronosticoVenta(container) {
       await PUT('/pronostico-venta/forecast', {
         operacion: operacionActual, año: dataResumen.objetivo.año, semana: dataResumen.objetivo.semana, canales,
       });
-      toast('Proyección guardada', 'success');
+      toast('Proyección guardada y bloqueada', 'success');
+      await cargar();
     } catch (e) { toast(e.message, 'error'); }
   }
 

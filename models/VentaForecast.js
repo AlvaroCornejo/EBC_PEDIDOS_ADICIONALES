@@ -18,6 +18,12 @@ const ventaForecastSchema = new mongoose.Schema({
 
   canales: { type: [canalForecastSchema], default: [] },
 
+  // Una vez guardado queda bloqueado (solo lectura) — un ADMIN lo tiene que reabrir
+  // explícitamente para poder editarlo de nuevo.
+  bloqueado:    { type: Boolean, default: false },
+  bloqueadoPor: { type: String },
+  bloqueadoEn:  { type: Date },
+
   actualizadoPor: { type: String },
   actualizadoEn:  { type: Date, default: Date.now },
 });

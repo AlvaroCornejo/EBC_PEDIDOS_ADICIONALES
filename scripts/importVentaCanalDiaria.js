@@ -40,7 +40,14 @@ async function main() {
   if (!ws) throw new Error('No se encontró la hoja "VENTAS"');
 
   console.log('Importando filas...');
-  const rows = [];
+  // El Excel a veces trae bloques de filas duplicados (mismo operacion+canal+fecha
+  // repetido tal cual, ej. un rango de fechas de una operación pegado dos veces) — se
+  // dedupe quedándose con la primera fila de cada clave. Si dos filas con la misma clave
+  // tienen valores DISTINTOS, no es un duplicado real sino un problema de datos: se avisa
+  // en consola para revisarlo a mano en vez de sumarlas o descartarlas en silencio.
+  const porClave = new Map();
+  let duplicadosIdenticos = 0;
+  const conflictos = [];
   ws.eachRow((row, i) => {
     if (i === 1) return; // encabezado
     const v = row.values; // 1-based: 1=CANAL,2=FECHA,3=PAX,4=TRANSACCIONES,5=VENTA BRUTA,6=VENTA BRUTA MAS REDENCION,7=OPERACION
@@ -49,14 +56,27 @@ async function main() {
     const fecha = fRaw instanceof Date ? fRaw : (fRaw ? new Date(cellVal(fRaw)) : null);
     const operacion = str(v[7]);
     if (!canal || !operacion || !fecha || isNaN(fecha)) return;
-    rows.push({
+    const doc = {
       operacion, canal, fecha,
       pax:                    num(v[3]),
       transacciones:          num(v[4]),
       ventaBruta:             num(v[5]),
       ventaBrutaMasRedencion: num(v[6]),
-    });
+    };
+    const clave = `${operacion}|${canal}|${fecha.toISOString().slice(0, 10)}`;
+    const previa = porClave.get(clave);
+    if (!previa) { porClave.set(clave, doc); return; }
+    const mismosValores = previa.pax === doc.pax && previa.transacciones === doc.transacciones
+      && previa.ventaBruta === doc.ventaBruta && previa.ventaBrutaMasRedencion === doc.ventaBrutaMasRedencion;
+    if (mismosValores) duplicadosIdenticos++;
+    else conflictos.push({ clave, fila: i, previa, nueva: doc });
   });
+  if (duplicadosIdenticos) console.log(`  ⚠ ${duplicadosIdenticos} filas duplicadas idénticas (misma operación+canal+fecha) — se descartó la repetida.`);
+  if (conflictos.length) {
+    console.log(`  ⚠ ${conflictos.length} filas con la misma clave pero VALORES DISTINTOS — se conservó la primera, revisar a mano:`);
+    conflictos.forEach(c => console.log(`     ${c.clave} (fila ${c.fila}): previa=${JSON.stringify(c.previa)} nueva=${JSON.stringify(c.nueva)}`));
+  }
+  const rows = [...porClave.values()];
 
   await VentaCanalDiaria.deleteMany({});
   let imported = 0;

@@ -218,22 +218,45 @@ router.get('/forecast', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── PUT /forecast ──────────────────────────────────────────────────────────────
+// ── PUT /forecast — guarda Y bloquea (solo lectura hasta que un ADMIN lo reabra) ──
 router.put('/forecast', async (req, res) => {
   try {
     const { operacion, año, semana, canales } = req.body;
     if (!operacion || !año || !semana) return res.status(400).json({ error: 'Operación, año y semana requeridos' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+
+    const existente = await VentaForecast.findOne({ operacion, año, semana }).lean();
+    if (existente?.bloqueado) return res.status(400).json({ error: 'Este pronóstico ya fue guardado y está bloqueado — pídele a un administrador que lo reabra para poder editarlo.' });
+
     const fc = await VentaForecast.findOneAndUpdate(
       { operacion, año, semana },
       {
         operacion, año, semana,
         canales: Array.isArray(canales) ? canales : [],
+        bloqueado: true,
+        bloqueadoPor: req.user.username,
+        bloqueadoEn: new Date(),
         actualizadoPor: req.user.username,
         actualizadoEn: new Date(),
       },
       { upsert: true, new: true }
     );
+    res.json(fc);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /forecast/desbloquear — solo ADMIN, reabre un pronóstico bloqueado ──────
+router.post('/forecast/desbloquear', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo un administrador puede reabrir un pronóstico bloqueado' });
+    const { operacion, año, semana } = req.body;
+    if (!operacion || !año || !semana) return res.status(400).json({ error: 'Operación, año y semana requeridos' });
+    const fc = await VentaForecast.findOneAndUpdate(
+      { operacion, año, semana },
+      { bloqueado: false, bloqueadoPor: undefined, bloqueadoEn: undefined },
+      { new: true }
+    );
+    if (!fc) return res.status(404).json({ error: 'No hay pronóstico guardado para esa semana' });
     res.json(fc);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
