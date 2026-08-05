@@ -44,6 +44,7 @@ app.use('/api/users',       require('./routes/users'));
 app.use('/api/pedidos',     require('./routes/pedidos'));
 app.use('/api/datos',       require('./routes/datos'));
 app.use('/api/upload',      require('./routes/upload'));
+app.use('/api/export',      require('./routes/export'));
 app.use('/api/admin',       require('./routes/admin'));
 app.use('/api/config',      require('./routes/config').router);
 app.use('/api/items',       require('./routes/items'));

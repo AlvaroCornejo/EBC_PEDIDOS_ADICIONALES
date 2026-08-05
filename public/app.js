@@ -6552,7 +6552,6 @@ async function renderPaso3(container) {
     const obs = (p3Prog.obligaciones || []).filter(o => o.seleccionado);
     if (!obs.length) { toast('No hay obligaciones programadas', 'error'); return; }
 
-    const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PE') : '';
     const fmtNum  = n => (n ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -6571,17 +6570,9 @@ async function renderPaso3(container) {
         fmtNum(ob.retencion || 0),
         fmtNum(ob.monto - (ob.retencion || 0)),
         ob.agrupadorPago  || 'INDIVIDUAL',
-      ].map(csvCell).join(','));
+      ]);
 
-    const csv  = [headers.map(csvCell).join(','), ...rows].join('\r\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `paso3-preparacion-${today()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast('✅ Exportando a Excel', 'success');
+    descargarComoExcel(`paso3-preparacion-${today()}`, [{ nombre: 'Paso3', filas: [headers, ...rows] }]);
   };
 
   // ── Refresh / filtrar ────────────────────────────────────────────
@@ -15270,32 +15261,46 @@ function imprimirVista(containerId, titulo) {
   setTimeout(() => win.print(), 400);
 }
 
+// Genera un .xlsx real en el servidor (exceljs) a partir de hojas ya armadas en el
+// cliente: hojas = [{ nombre, filas: [[celda,...], ...] }]. Reemplaza el export a CSV
+// que antes hacían estos mismos botones ("Bajar a Excel" bajaba .csv, no .xlsx real).
+async function descargarComoExcel(nombreArchivo, hojas) {
+  try {
+    const res = await fetch(`${API}/export/tabla`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(S.token ? { Authorization: `Bearer ${S.token}` } : {}) },
+      body: JSON.stringify({ nombreArchivo, hojas }),
+    });
+    if (!res.ok) {
+      let msg = `Error ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch (_) {}
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `${nombreArchivo}.xlsx`; a.click();
+    URL.revokeObjectURL(url);
+    toast('✅ Exportado a Excel', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 function exportarVistaExcel(containerId, nombreArchivo) {
   const cont   = document.getElementById(containerId);
   const tablas = cont ? [...cont.querySelectorAll('table')] : [];
   if (!tablas.length) { toast('No hay datos para exportar', 'error'); return; }
 
-  const csvCell = s => {
-    const v = String(s ?? '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
-    return `"${v.replace(/"/g, '""')}"`;
-  };
-  let csv = '';
-  tablas.forEach((t, ti) => {
-    if (ti) csv += '\r\n';
-    [...t.rows].forEach(row => {
-      const cells = [...row.cells]
+  const celda = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+  const hojas = tablas.map((t, ti) => ({
+    nombre: tablas.length > 1 ? `Hoja${ti + 1}` : nombreArchivo,
+    filas: [...t.rows].map(row =>
+      [...row.cells]
         .filter(c => getComputedStyle(c).display !== 'none')
-        .map(c => csvCell(c.innerText || c.textContent || ''));
-      if (cells.length) csv += cells.join(',') + '\r\n';
-    });
-  });
+        .map(c => celda(c.innerText || c.textContent || ''))
+    ).filter(fila => fila.length),
+  }));
 
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = `${nombreArchivo}-${today()}.csv`; a.click();
-  URL.revokeObjectURL(url);
-  toast('✅ Exportando a Excel', 'success');
+  descargarComoExcel(`${nombreArchivo}-${today()}`, hojas);
 }
 
 // ─── App Init ─────────────────────────────────────────────────────
