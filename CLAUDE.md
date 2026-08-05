@@ -59,6 +59,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 - `puedeVerKardex`: boolean — solo rol CONS, da acceso a vista Kardex
 - `puedeVerComparativo`: boolean — acceso a Comparativo OC / Ingresos al Almacén
 - `puedeVerVentas`: boolean — acceso a Venta & TIP por Operación
+- `puedeVerPronosticoVenta`: boolean — acceso a Pronóstico de Venta (scoped por `operations`, igual que `puedeVerVentas`)
 - `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
 - `sociedadesCompra`: array — sociedades para ver Precios de Compra (códigos del catálogo `Sociedad`, ver sección "Sociedades y Operaciones")
 - `operations`: array — operaciones asignadas al usuario
@@ -90,6 +91,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | CompraPareto / CompraRoc | `scripts/importCompras.js` | EBC COMPRAS HISTORICAS.xlsx | semanal |
 | ComparativoOC | `scripts/importComparativoOC.js` | COMPARATIVO OC INGRESOS.xlsx | diario |
 | VentasTip | `scripts/importVentasTip.js` | EBC VENTAS TIP RESUMEN.xlsx | diario |
+| VentaCanalDiaria | `scripts/importVentaCanalDiaria.js` (vía `sync-venta-canal.bat`) | EBC VENTAS CABECERA.xlsx | diario |
 | KardexBajaVenta | `scripts/importBajas.js` | data/*ADICIONALES.xlsx | diario |
 | MaestroLinea/Familia/SubFamilia/TipoItem/UM/Item/ItemSociedad | `scripts/importMaestroTablas.js` | EBC TABLAS PARA ITEMS.xlsx | manual (al actualizar el Excel) |
 | MaestroCuenta | `scripts/importPlanContable.js` | EBC PLAN CONTABLE.xlsx | manual (al actualizar el Excel) |

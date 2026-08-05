@@ -260,6 +260,7 @@ const NAV_ITEMS = [
   { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT], extraPerm: 'puedeVerComparativo' },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
+  { id: 'pronostico-venta', label: 'Pronóstico de Venta', icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerPronosticoVenta' },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
   { id: 'maestro-items',  label: 'Maestro de Ítems', icon: '🗂️', roles: [ROLES.ADMIN], extraPerm: 'rolMaestroItems' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
@@ -328,7 +329,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -3044,6 +3045,25 @@ async function viewMaestroItems(container) {
   }
   const cuentaVal = id => document.getElementById(`mi-fh-${id}`)?.value || '';
 
+  // Nombre de ítem: solo mayúsculas, letras/números/espacios, permite Ñ, no tildes ni
+  // caracteres especiales ($, &, /, #, etc.)
+  const sanitizeNombreItem = v => v.toUpperCase().replace(/[^A-Z0-9Ñ ]/g, '');
+  function wireNombreUpper(id) {
+    const inp = document.getElementById(id);
+    if (!inp) return;
+    inp.value = sanitizeNombreItem(inp.value);
+    inp.addEventListener('input', () => {
+      const start  = inp.selectionStart;
+      const before = inp.value;
+      const after  = sanitizeNombreItem(before);
+      if (before !== after) {
+        inp.value = after;
+        const pos = Math.max(0, start - (before.length - after.length));
+        inp.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
   // ── Cascada línea → familia → sub-familia dentro de un form ─────
   async function wireCascada(prefix, refs, base) {
     const selLinea = document.getElementById(`${prefix}-linea`);
@@ -3119,6 +3139,7 @@ async function viewMaestroItems(container) {
     const titulo = editId ? 'Editar solicitud' : (base ? `Nuevo ítem — copiado de #${base.item}` : 'Nuevo ítem');
     openModal(titulo, body, null, { wide: true });
 
+    wireNombreUpper('mi-f-nombre');
     await wireCascada('mi-f', refs, base);
     wireCuentaField('cuenta-inventario', base?.cuentaInventario, '');
     wireCuentaField('cuenta-gasto', base?.cuentaGasto, '');
@@ -3507,12 +3528,14 @@ async function viewMaestroItems(container) {
                    <button class="btn btn-primary btn-sm" onclick="miRegistrar('${s._id}')">🏷️ Registrar</button>`}
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:4px 16px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:4px 16px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px">
             ${detalleCampo('Tipo', s.tipoItemNombre || s.tipoItem)}
             ${detalleCampo('Línea', s.lineaNombre || s.linea)}
             ${detalleCampo('Familia', s.familiaNombre || s.familia)}
             ${detalleCampo('Sub-familia', s.subFamiliaNombre || s.subFamilia)}
             ${detalleCampo('UM', s.um)}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px">
             ${detalleCampo('Cuenta Inventario', s.cuentaInventario ? `${s.cuentaInventario} — ${s.cuentaInventarioNombre}` : '')}
             ${detalleCampo('Cuenta Gasto', s.cuentaGasto ? `${s.cuentaGasto} — ${s.cuentaGastoNombre}` : '')}
             ${detalleCampo('Cuenta Costo Venta', s.cuentaCostoVenta ? `${s.cuentaCostoVenta} — ${s.cuentaCostoVentaNombre}` : '')}
@@ -4025,6 +4048,233 @@ window._dglsEnviarSolicitud = async function(targetOp) {
     if (btn) { btn.disabled = false; btn.textContent = '📤 Enviar solicitud'; }
   }
 };
+
+// ─── View: Pronóstico de Venta ─────────────────────────────────────
+async function viewPronosticoVenta(container) {
+  const esAdmin = S.user.role === 'ADMIN';
+  const misOperaciones = esAdmin ? null : (S.user.operations || []);
+
+  let operacionActual = '';
+  let nSemanas = 8;
+  let nAnios = 1;
+  let dataResumen = null;
+  let proyeccion = {};   // canal -> { ticketPropuesto, dias: {1..7: cantidad} }
+  let canalPorSlug = {};
+
+  const slug = s => String(s).replace(/[^A-Za-z0-9]+/g, '_');
+  const fmtN = (v, dec = 0) => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const DOW_LABEL = { 1: 'LUN', 2: 'MAR', 3: 'MIE', 4: 'JUE', 5: 'VIE', 6: 'SAB', 7: 'DOM' };
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">📈 Pronóstico de Venta</div>
+    </div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="pv-operacion" class="form-control" style="width:160px">
+              <option value="">— Seleccionar —</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semanas de historial</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <strong id="pv-nsemanas-lbl">8</strong>
+              <button class="btn btn-outline btn-sm" id="pv-mas-semanas">+8 semanas</button>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Años a comparar</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <strong id="pv-nanios-lbl">1</strong>
+              <button class="btn btn-outline btn-sm" id="pv-mas-anios">+1 año</button>
+            </div>
+          </div>
+          <div id="pv-semana-objetivo" style="margin-left:auto;font-size:13px;color:var(--text-muted)"></div>
+          <button class="btn btn-primary" id="pv-guardar">💾 Guardar proyección</button>
+        </div>
+      </div>
+      <div id="pv-content"></div>
+    </div>`;
+
+  const root = document.getElementById('pv-content');
+
+  try {
+    const ops = await GET('/pronostico-venta/operaciones');
+    const disponibles = misOperaciones === null ? ops : ops.filter(o => misOperaciones.includes(o));
+    const sel = document.getElementById('pv-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + disponibles.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (disponibles.length === 1) { sel.value = disponibles[0]; operacionActual = disponibles[0]; }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+  document.getElementById('pv-operacion').addEventListener('change', (e) => { operacionActual = e.target.value; cargar(); });
+  document.getElementById('pv-mas-semanas').addEventListener('click', () => { nSemanas += 8; document.getElementById('pv-nsemanas-lbl').textContent = nSemanas; cargar(); });
+  document.getElementById('pv-mas-anios').addEventListener('click', () => { nAnios += 1; document.getElementById('pv-nanios-lbl').textContent = nAnios; cargar(); });
+  document.getElementById('pv-guardar').addEventListener('click', guardar);
+
+  async function cargar() {
+    if (!operacionActual) { root.innerHTML = ''; return; }
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual, nSemanas, nAnios });
+      dataResumen = await GET(`/pronostico-venta/resumen?${params}`);
+      const fc = await GET(`/pronostico-venta/forecast?operacion=${encodeURIComponent(operacionActual)}&año=${dataResumen.objetivo.año}&semana=${dataResumen.objetivo.semana}`);
+
+      proyeccion = {};
+      canalPorSlug = {};
+      dataResumen.canales.forEach(c => {
+        canalPorSlug[slug(c.canal)] = c.canal;
+        const ultimoTicket = c.serieSemanal[c.serieSemanal.length - 1]?.ticketPromedio || 0;
+        proyeccion[c.canal] = { ticketPropuesto: ultimoTicket, dias: {} };
+        c.dias.forEach(d => { proyeccion[c.canal].dias[d.diaSemana] = d.propuesta; });
+      });
+      (fc.canales || []).forEach(fcc => {
+        if (!proyeccion[fcc.canal]) proyeccion[fcc.canal] = { ticketPropuesto: 0, dias: {} };
+        if (fcc.ticketPropuesto) proyeccion[fcc.canal].ticketPropuesto = fcc.ticketPropuesto;
+        (fcc.dias || []).forEach(d => { proyeccion[fcc.canal].dias[d.diaSemana] = d.cantidad; });
+      });
+
+      document.getElementById('pv-semana-objetivo').innerHTML =
+        `Proyectando <strong>SEM ${dataResumen.objetivo.semana}/${dataResumen.objetivo.año}</strong> — semana actual: SEM ${dataResumen.actual.semana}/${dataResumen.actual.año}`;
+
+      render();
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function colHeaders() {
+    const cols = dataResumen.semanas.map(s => `SEM ${s.semana}/${s.año}`);
+    dataResumen.aniosAnteriores.forEach(a => {
+      const ult = a.semanas[a.semanas.length - 1];
+      cols.push(`SEM ${ult.semana}/${ult.año}`);
+    });
+    return cols;
+  }
+
+  function renderCuadro(titulo, valorFn) {
+    const headers = colHeaders();
+    const filas = dataResumen.canales.map(c => {
+      const vals = c.serieSemanal.map(valorFn);
+      const valsAnios = c.serieAnios.map(arr => valorFn(arr[arr.length - 1]));
+      return `<tr>
+        <td>${esc(c.canal)} <span class="text-muted" style="font-size:11px">(${c.tipo === 'pax' ? 'PAX' : 'TRX'})</span></td>
+        ${[...vals, ...valsAnios].map(v => `<td class="text-right">${v}</td>`).join('')}
+      </tr>`;
+    }).join('');
+    return `<div class="card mb-16" style="padding:14px">
+      <div style="font-weight:600;margin-bottom:8px">${esc(titulo)}</div>
+      <div class="table-wrap" style="overflow-x:auto">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Canal</th>${headers.map(h => `<th class="text-right">${h}</th>`).join('')}</tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  function sumaDias(canal) {
+    const dias = proyeccion[canal]?.dias || {};
+    return [1, 2, 3, 4, 5, 6, 7].reduce((s, d) => s + (Number(dias[d]) || 0), 0);
+  }
+
+  function renderArmado() {
+    const filas = dataResumen.canales.map(c => {
+      const proyectado = sumaDias(c.canal);
+      const ticket = proyeccion[c.canal]?.ticketPropuesto || 0;
+      return `<tr>
+        <td>${esc(c.canal)} <span class="text-muted" style="font-size:11px">(${c.tipo === 'pax' ? 'PAX' : 'TRX'})</span></td>
+        <td class="text-right" id="pv-armado-pax-${slug(c.canal)}">${fmtN(proyectado)}</td>
+        <td><input type="number" step="0.01" class="form-control text-right" id="pv-ticket-${slug(c.canal)}" value="${ticket ? ticket.toFixed(2) : ''}" style="width:110px" oninput="pvTicketChange('${slug(c.canal)}')"></td>
+        <td class="text-right" id="pv-armado-venta-${slug(c.canal)}">${fmtMoney(proyectado * ticket)}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="card mb-16" style="padding:14px">
+      <div style="font-weight:600;margin-bottom:8px">Armado — SEM ${dataResumen.objetivo.semana}/${dataResumen.objetivo.año}</div>
+      <div class="table-wrap" style="overflow-x:auto">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Canal</th><th class="text-right">Pax/Trans. proyectado</th><th>Ticket promedio propuesto</th><th class="text-right">Venta bruta propuesta</th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  function renderDiasCanal(c) {
+    const headers = colHeaders();
+    const filas = c.dias.map(d => {
+      const vals = d.serie.map(v => fmtN(v));
+      const valsAnios = d.serieAnios.map(arr => fmtN(arr[arr.length - 1]));
+      const valorActual = proyeccion[c.canal]?.dias?.[d.diaSemana] ?? d.propuesta;
+      return `<tr>
+        <td>${DOW_LABEL[d.diaSemana]}</td>
+        ${[...vals, ...valsAnios].map(v => `<td class="text-right">${v}</td>`).join('')}
+        <td class="text-right" style="color:#8b5cf6">${fmtN(d.propuesta)}</td>
+        <td><input type="number" class="form-control text-right" id="pv-dia-${slug(c.canal)}-${d.diaSemana}" value="${valorActual}" style="width:90px" oninput="pvDiaChange('${slug(c.canal)}',${d.diaSemana})"></td>
+      </tr>`;
+    }).join('');
+    return `<div class="card mb-16" style="padding:14px">
+      <div style="font-weight:600;margin-bottom:8px">${esc(c.canal)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${c.tipo === 'pax' ? 'PAX' : 'TRANSACCIONES'})</span></div>
+      <div class="table-wrap" style="overflow-x:auto">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Día</th>${headers.map(h => `<th class="text-right">${h}</th>`).join('')}<th class="text-right" style="color:#8b5cf6">Propuesta</th><th>Proyectado</th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  function render() {
+    if (!dataResumen.canales.length) { root.innerHTML = '<div class="empty-state"><p>Sin datos de venta para esta operación.</p></div>'; return; }
+    root.innerHTML =
+      renderCuadro('Pax / Transacciones', p => fmtN(p.cantidad)) +
+      renderCuadro('Venta Bruta + Redención', p => fmtMoney(p.ventaBrutaMasRedencion)) +
+      renderCuadro('Ticket Promedio', p => fmtMoney(p.ticketPromedio)) +
+      renderArmado() +
+      dataResumen.canales.map(renderDiasCanal).join('');
+  }
+
+  window.pvDiaChange = (slugCanal, dow) => {
+    const canal = canalPorSlug[slugCanal];
+    const val = Number(document.getElementById(`pv-dia-${slugCanal}-${dow}`).value) || 0;
+    if (!proyeccion[canal]) proyeccion[canal] = { ticketPropuesto: 0, dias: {} };
+    proyeccion[canal].dias[dow] = val;
+    recalcArmado(slugCanal, canal);
+  };
+  window.pvTicketChange = (slugCanal) => {
+    const canal = canalPorSlug[slugCanal];
+    const val = Number(document.getElementById(`pv-ticket-${slugCanal}`).value) || 0;
+    if (!proyeccion[canal]) proyeccion[canal] = { ticketPropuesto: 0, dias: {} };
+    proyeccion[canal].ticketPropuesto = val;
+    recalcArmado(slugCanal, canal);
+  };
+  function recalcArmado(slugCanal, canal) {
+    const proyectado = sumaDias(canal);
+    const ticket = proyeccion[canal]?.ticketPropuesto || 0;
+    const paxEl = document.getElementById(`pv-armado-pax-${slugCanal}`);
+    const ventaEl = document.getElementById(`pv-armado-venta-${slugCanal}`);
+    if (paxEl) paxEl.textContent = fmtN(proyectado);
+    if (ventaEl) ventaEl.textContent = fmtMoney(proyectado * ticket);
+  }
+
+  async function guardar() {
+    if (!operacionActual || !dataResumen) { toast('Selecciona una operación', 'error'); return; }
+    const canales = Object.entries(proyeccion).map(([canal, v]) => ({
+      canal,
+      ticketPropuesto: Number(v.ticketPropuesto) || 0,
+      dias: [1, 2, 3, 4, 5, 6, 7].map(d => ({ diaSemana: d, cantidad: Number(v.dias?.[d]) || 0 })),
+    }));
+    try {
+      await PUT('/pronostico-venta/forecast', {
+        operacion: operacionActual, año: dataResumen.objetivo.año, semana: dataResumen.objetivo.semana, canales,
+      });
+      toast('Proyección guardada', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  if (operacionActual) await cargar();
+}
 
 // ─── View: Gestión de Pagos ───────────────────────────────────────
 async function viewPagos(container) {
@@ -13779,6 +14029,11 @@ function showUserModal(user, onSave) {
             <span>🛒 <strong>Venta & TIP por Operación</strong></span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-pronostico-venta" ${user?.puedeVerPronosticoVenta?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>📈 <strong>Pronóstico de Venta</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-bajas" ${user?.puedeVerBajas?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🔻 <strong>Seguimiento de Bajas</strong></span>
@@ -13862,6 +14117,7 @@ function showUserModal(user, onSave) {
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
       puedeVerComparativo: !isAdmin && (document.getElementById('um-comparativo')?.checked ?? false),
       puedeVerVentas:      !isAdmin && (document.getElementById('um-ventas')?.checked      ?? false),
+      puedeVerPronosticoVenta: !isAdmin && (document.getElementById('um-pronostico-venta')?.checked ?? false),
       puedeVerBajas:       !isAdmin && (document.getElementById('um-bajas')?.checked       ?? false),
       accesoBajas:          !isAdmin && (document.getElementById('um-acc-bajas')?.checked          ?? false),
       accesoConsumos:       !isAdmin && (document.getElementById('um-acc-consumos')?.checked       ?? false),

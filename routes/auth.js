@@ -12,6 +12,7 @@ function buildPayload(user) {
     id: user.id, username: user.username, role: user.role, operations: user.operations,
     puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo,
     puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas,
+    puedeVerPronosticoVenta: !!user.puedeVerPronosticoVenta,
     rolPago: user.rolPago || '',
     sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [],
     rolBCT: user.rolBCT || '', rol86: user.rol86 || '',

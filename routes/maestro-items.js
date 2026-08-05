@@ -43,6 +43,10 @@ function checkSocAccess(user, sociedad) {
 const escRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const CAMPOS_CUENTA = ['cuentaInventario', 'cuentaGasto', 'cuentaCostoVenta', 'cuentaVenta'];
 const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Nombre de ítem: solo mayúsculas, letras/números/espacios, permite Ñ, sin tildes ni
+// caracteres especiales — mismo filtro que aplica el frontend, reforzado acá por si se
+// llama la API directamente.
+const sanitizeNombreItem = s => String(s || '').toUpperCase().replace(/[^A-Z0-9Ñ ]/g, '');
 
 // ── Notificaciones (push + email), mismo patrón que routes/pedidos.js ──────────
 
@@ -291,7 +295,7 @@ router.post('/solicitudes', async (req, res) => {
 
     const sol = await MaestroItemSolicitud.create({
       sociedad, tipo: 'nuevo', origenItem: origenItem || null,
-      nombre: nombre || '', tipoItem: tipoItem || '', linea: linea || '', familia: familia || '', subFamilia: subFamilia || '', um: um || '',
+      nombre: sanitizeNombreItem(nombre), tipoItem: tipoItem || '', linea: linea || '', familia: familia || '', subFamilia: subFamilia || '', um: um || '',
       cuentaInventario: cuentaInventario || null, cuentaGasto: cuentaGasto || null,
       cuentaCostoVenta: cuentaCostoVenta || null, cuentaVenta: cuentaVenta || null,
       creadoPor: req.user.username,
@@ -319,7 +323,7 @@ router.put('/solicitudes/:id', async (req, res) => {
     if (!editables.includes(sol.estado) || (sol.creadoPor !== req.user.username && req.user.role !== 'ADMIN'))
       return res.status(403).json({ error: 'No se puede editar en este estado' });
     const campos = ['nombre', 'tipoItem', 'linea', 'familia', 'subFamilia', 'um', ...CAMPOS_CUENTA];
-    campos.forEach(c => { if (req.body[c] !== undefined) sol[c] = req.body[c]; });
+    campos.forEach(c => { if (req.body[c] !== undefined) sol[c] = c === 'nombre' ? sanitizeNombreItem(req.body[c]) : req.body[c]; });
     await sol.save();
     res.json(sol);
   } catch (err) { res.status(500).json({ error: err.message }); }
