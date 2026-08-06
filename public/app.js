@@ -4228,22 +4228,37 @@ async function viewPronosticoVenta(container) {
     return cols;
   }
 
-  function renderCuadro(titulo, valorFn) {
+  // puntosDeCanal: un punto de dato por columna (las N semanas de historial + la última
+  // semana de cada año anterior), alineado 1 a 1 con colHeaders().
+  function puntosDeCanal(c) {
+    return [...c.serieSemanal, ...c.serieAnios.map(arr => arr[arr.length - 1])];
+  }
+
+  function renderCuadro(titulo, fmtFn, rawFn, conTotal) {
     const headers = colHeaders();
     const filas = dataResumen.canales.map(c => {
-      const vals = c.serieSemanal.map(valorFn);
-      const valsAnios = c.serieAnios.map(arr => valorFn(arr[arr.length - 1]));
+      const vals = puntosDeCanal(c).map(fmtFn);
       return `<tr>
         <td>${esc(c.canal)} <span class="text-muted" style="font-size:11px">(${c.tipo === 'pax' ? 'PAX' : 'TRX'})</span></td>
-        ${[...vals, ...valsAnios].map(v => `<td class="text-right">${v}</td>`).join('')}
+        ${vals.map(v => `<td class="text-right">${v}</td>`).join('')}
       </tr>`;
     }).join('');
+    let filaTotal = '';
+    if (conTotal) {
+      const totales = headers.map((_, ci) =>
+        dataResumen.canales.reduce((s, c) => s + (rawFn(puntosDeCanal(c)[ci]) || 0), 0)
+      );
+      filaTotal = `<tr style="font-weight:700;border-top:2px solid var(--border);background:var(--bg-secondary)">
+        <td>TOTAL</td>
+        ${totales.map(t => `<td class="text-right">${fmtMoney(t)}</td>`).join('')}
+      </tr>`;
+    }
     return `<div class="card mb-16" style="padding:14px">
       <div style="font-weight:600;margin-bottom:8px">${esc(titulo)}</div>
       <div class="table-wrap" style="overflow-x:auto">
         <table class="data-table" style="font-size:12px">
           <thead><tr><th>Canal</th>${headers.map(h => `<th class="text-right">${h}</th>`).join('')}</tr></thead>
-          <tbody>${filas}</tbody>
+          <tbody>${filas}${filaTotal}</tbody>
         </table>
       </div>
     </div>`;
@@ -4252,6 +4267,13 @@ async function viewPronosticoVenta(container) {
   function sumaDias(canal) {
     const dias = proyeccion[canal]?.dias || {};
     return [1, 2, 3, 4, 5, 6, 7].reduce((s, d) => s + (Number(dias[d]) || 0), 0);
+  }
+
+  function totalArmadoVenta() {
+    return dataResumen.canales.reduce((s, c) => s + sumaDias(c.canal) * (proyeccion[c.canal]?.ticketPropuesto || 0), 0);
+  }
+  function totalArmadoProyectado() {
+    return dataResumen.canales.reduce((s, c) => s + sumaDias(c.canal), 0);
   }
 
   function renderArmado() {
@@ -4265,12 +4287,20 @@ async function viewPronosticoVenta(container) {
         <td class="text-right" id="pv-armado-venta-${slug(c.canal)}">${fmtMoney(proyectado * ticket)}</td>
       </tr>`;
     }).join('');
+    const totalProyectado = totalArmadoProyectado();
+    const totalVenta = totalArmadoVenta();
+    const filaTotal = `<tr style="font-weight:700;border-top:2px solid var(--border);background:var(--bg-secondary)">
+      <td>TOTAL</td>
+      <td class="text-right" id="pv-armado-total-pax">${fmtN(totalProyectado)}</td>
+      <td class="text-right" id="pv-armado-total-ticket" style="color:var(--text-muted);font-weight:400" title="Promedio ponderado">${totalProyectado ? fmtMoney(totalVenta / totalProyectado) : '—'}</td>
+      <td class="text-right" id="pv-armado-total-venta">${fmtMoney(totalVenta)}</td>
+    </tr>`;
     return `<div class="card mb-16" style="padding:14px">
-      <div style="font-weight:600;margin-bottom:8px">Armado — SEM ${dataResumen.objetivo.semana}/${dataResumen.objetivo.año}</div>
+      <div style="font-weight:600;margin-bottom:8px">RESUMEN DE LA SEMANA — SEM ${dataResumen.objetivo.semana}/${dataResumen.objetivo.año}</div>
       <div class="table-wrap" style="overflow-x:auto">
         <table class="data-table" style="font-size:12px">
           <thead><tr><th>Canal</th><th class="text-right">Pax/Trans. proyectado</th><th>Ticket promedio propuesto</th><th class="text-right">Venta bruta propuesta</th></tr></thead>
-          <tbody>${filas}</tbody>
+          <tbody>${filas}${filaTotal}</tbody>
         </table>
       </div>
     </div>`;
@@ -4278,6 +4308,7 @@ async function viewPronosticoVenta(container) {
 
   function renderDiasCanal(c) {
     const headers = colHeaders();
+    const nSemanas = dataResumen.semanas.length;
     const filas = c.dias.map(d => {
       const vals = d.serie.map(v => fmtN(v));
       const valsAnios = d.serieAnios.map(arr => fmtN(arr[arr.length - 1]));
@@ -4289,12 +4320,22 @@ async function viewPronosticoVenta(container) {
         <td><input type="number" class="form-control text-right" id="pv-dia-${slug(c.canal)}-${d.diaSemana}" value="${valorActual}" style="width:90px" oninput="pvDiaChange('${slug(c.canal)}',${d.diaSemana})" ${bloqueado ? 'disabled' : ''}></td>
       </tr>`;
     }).join('');
+    const totalesCol = headers.map((_, ci) =>
+      c.dias.reduce((s, d) => s + (ci < nSemanas ? d.serie[ci] : d.serieAnios[ci - nSemanas]?.[nSemanas - 1] || 0), 0)
+    );
+    const totalPropuesta = c.dias.reduce((s, d) => s + (d.propuesta || 0), 0);
+    const filaTotal = `<tr style="font-weight:700;border-top:2px solid var(--border);background:var(--bg-secondary)">
+      <td>TOTAL SEMANA</td>
+      ${totalesCol.map(t => `<td class="text-right">${fmtN(t)}</td>`).join('')}
+      <td class="text-right" style="color:#8b5cf6">${fmtN(totalPropuesta)}</td>
+      <td class="text-right" id="pv-diatotal-${slug(c.canal)}">${fmtN(sumaDias(c.canal))}</td>
+    </tr>`;
     return `<div class="card mb-16" style="padding:14px">
       <div style="font-weight:600;margin-bottom:8px">${esc(c.canal)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${c.tipo === 'pax' ? 'PAX' : 'TRANSACCIONES'})</span></div>
       <div class="table-wrap" style="overflow-x:auto">
         <table class="data-table" style="font-size:12px">
           <thead><tr><th>Día</th>${headers.map(h => `<th class="text-right">${h}</th>`).join('')}<th class="text-right" style="color:#8b5cf6">Propuesta</th><th>Proyectado</th></tr></thead>
-          <tbody>${filas}</tbody>
+          <tbody>${filas}${filaTotal}</tbody>
         </table>
       </div>
     </div>`;
@@ -4303,9 +4344,9 @@ async function viewPronosticoVenta(container) {
   function render() {
     if (!dataResumen.canales.length) { root.innerHTML = '<div class="empty-state"><p>Sin datos de venta para esta operación.</p></div>'; return; }
     root.innerHTML =
-      renderCuadro('Pax / Transacciones', p => fmtN(p.cantidad)) +
-      renderCuadro('Venta Bruta + Redención', p => fmtMoney(p.ventaBrutaMasRedencion)) +
-      renderCuadro('Ticket Promedio', p => fmtMoney(p.ticketPromedio)) +
+      renderCuadro('Pax / Transacciones', p => fmtN(p?.cantidad), p => p?.cantidad) +
+      renderCuadro('Venta Bruta + Redención', p => fmtMoney(p?.ventaBrutaMasRedencion), p => p?.ventaBrutaMasRedencion, true) +
+      renderCuadro('Ticket Promedio', p => fmtMoney(p?.ticketPromedio), p => p?.ticketPromedio) +
       renderArmado() +
       dataResumen.canales.map(renderDiasCanal).join('');
   }
@@ -4331,6 +4372,18 @@ async function viewPronosticoVenta(container) {
     const ventaEl = document.getElementById(`pv-armado-venta-${slugCanal}`);
     if (paxEl) paxEl.textContent = fmtN(proyectado);
     if (ventaEl) ventaEl.textContent = fmtMoney(proyectado * ticket);
+
+    const diaTotalEl = document.getElementById(`pv-diatotal-${slugCanal}`);
+    if (diaTotalEl) diaTotalEl.textContent = fmtN(proyectado);
+
+    const totalProyectado = totalArmadoProyectado();
+    const totalVenta = totalArmadoVenta();
+    const tPaxEl    = document.getElementById('pv-armado-total-pax');
+    const tTicketEl = document.getElementById('pv-armado-total-ticket');
+    const tVentaEl  = document.getElementById('pv-armado-total-venta');
+    if (tPaxEl)    tPaxEl.textContent    = fmtN(totalProyectado);
+    if (tTicketEl) tTicketEl.textContent = totalProyectado ? fmtMoney(totalVenta / totalProyectado) : '—';
+    if (tVentaEl)  tVentaEl.textContent  = fmtMoney(totalVenta);
   }
 
   async function guardar() {
