@@ -4337,7 +4337,7 @@ async function viewPronosticoVenta(container) {
       <td>TOTAL SEMANA</td>
       ${totalesCol.map(t => `<td class="text-right">${fmtN(t)}</td>`).join('')}
       <td class="text-right" style="color:#8b5cf6">${fmtN(totalPropuesta)}</td>
-      <td class="text-right"><span id="pv-diatotal-${slug(c.canal)}" style="display:inline-block;min-width:90px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-primary)">${fmtN(sumaDias(c.canal))}</span></td>
+      <td><input type="text" class="form-control text-right" id="pv-diatotal-${slug(c.canal)}" value="${fmtN(sumaDias(c.canal))}" style="width:90px;font-weight:700" disabled></td>
     </tr>`;
     return `<div class="card mb-16" style="padding:14px">
       <div style="font-weight:600;margin-bottom:8px">${esc(c.canal)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${c.tipo === 'pax' ? 'PAX' : 'TRANSACCIONES'})</span></div>
@@ -4385,7 +4385,7 @@ async function viewPronosticoVenta(container) {
     if (ventaEl) ventaEl.textContent = fmtMoney(proyectado * ticket);
 
     const diaTotalEl = document.getElementById(`pv-diatotal-${slugCanal}`);
-    if (diaTotalEl) diaTotalEl.textContent = fmtN(proyectado);
+    if (diaTotalEl) diaTotalEl.value = fmtN(proyectado);
 
     const totalProyectado = totalArmadoProyectado();
     const totalVenta = totalArmadoVenta();
