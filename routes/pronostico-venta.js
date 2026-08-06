@@ -125,6 +125,32 @@ router.get('/canales', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /status?operacion= — diagnóstico: última fecha importada, total de filas ────
+router.get('/status', async (req, res) => {
+  try {
+    const { operacion } = req.query;
+    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
+    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const [total, ultima, primera] = await Promise.all([
+      VentaCanalDiaria.countDocuments({ operacion }),
+      VentaCanalDiaria.findOne({ operacion }).sort({ fecha: -1 }).lean(),
+      VentaCanalDiaria.findOne({ operacion }).sort({ fecha: 1 }).lean(),
+    ]);
+    const hoy = new Date();
+    const actual = { año: isoYear(hoy), semana: isoWeek(hoy) };
+    const rango = weekRange(actual.año, actual.semana);
+    const semanaActual = await VentaCanalDiaria.countDocuments({ operacion, fecha: { $gte: rango.desde, $lte: rango.hasta } });
+    res.json({
+      operacion, total,
+      primeraFecha: primera?.fecha || null,
+      ultimaFecha: ultima?.fecha || null,
+      semanaActualISO: actual,
+      rangoSemanaActual: rango,
+      filasSemanaActual: semanaActual,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── GET /resumen?operacion=&semanaObjetivo=YYYYWW&nSemanas=&nAnios= ──────────
 router.get('/resumen', async (req, res) => {
   try {

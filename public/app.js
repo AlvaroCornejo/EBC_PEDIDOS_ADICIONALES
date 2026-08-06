@@ -4178,8 +4178,13 @@ async function viewPronosticoVenta(container) {
       canalPorSlug = {};
       dataResumen.canales.forEach(c => {
         canalPorSlug[slug(c.canal)] = c.canal;
-        const ultimoTicket = c.serieSemanal[c.serieSemanal.length - 1]?.ticketPromedio || 0;
-        proyeccion[c.canal] = { ticketPropuesto: ultimoTicket, dias: {} };
+        // Ticket propuesto por defecto = promedio ponderado de TODAS las semanas mostradas
+        // (venta total / cantidad total), no solo la última — la última semana puede
+        // estar en curso y salir en cero, lo que dejaría el ticket sugerido en 0.
+        const sumaVenta = c.serieSemanal.reduce((s, p) => s + (p.ventaBrutaMasRedencion || 0), 0);
+        const sumaCant  = c.serieSemanal.reduce((s, p) => s + (p.cantidad || 0), 0);
+        const ticketProm = sumaCant ? sumaVenta / sumaCant : 0;
+        proyeccion[c.canal] = { ticketPropuesto: ticketProm, dias: {} };
         c.dias.forEach(d => { proyeccion[c.canal].dias[d.diaSemana] = d.propuesta; });
       });
       (fc.canales || []).forEach(fcc => {
@@ -4219,14 +4224,17 @@ async function viewPronosticoVenta(container) {
     } catch (e) { toast(e.message, 'error'); }
   }
 
+  // Las columnas de año(s) anterior(es) se marcan aparte para que no se confundan con la
+  // última semana del historial (comparten número de semana, solo cambia el año).
   function colHeaders() {
-    const cols = dataResumen.semanas.map(s => `SEM ${s.semana}/${s.año}`);
+    const cols = dataResumen.semanas.map(s => ({ label: `SEM ${s.semana}/${s.año}`, esAnioAnterior: false }));
     dataResumen.aniosAnteriores.forEach(a => {
       const ult = a.semanas[a.semanas.length - 1];
-      cols.push(`SEM ${ult.semana}/${ult.año}`);
+      cols.push({ label: `SEM ${ult.semana}/${ult.año}`, esAnioAnterior: true });
     });
     return cols;
   }
+  const thHeader = h => `<th class="text-right" style="${h.esAnioAnterior ? 'border-left:2px solid var(--border)' : ''}">${h.label}${h.esAnioAnterior ? '<div style="font-weight:400;font-size:10px;color:var(--text-muted)">año ant.</div>' : ''}</th>`;
 
   // puntosDeCanal: un punto de dato por columna (las N semanas de historial + la última
   // semana de cada año anterior), alineado 1 a 1 con colHeaders().
@@ -4257,7 +4265,7 @@ async function viewPronosticoVenta(container) {
       <div style="font-weight:600;margin-bottom:8px">${esc(titulo)}</div>
       <div class="table-wrap" style="overflow-x:auto">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Canal</th>${headers.map(h => `<th class="text-right">${h}</th>`).join('')}</tr></thead>
+          <thead><tr><th>Canal</th>${headers.map(thHeader).join('')}</tr></thead>
           <tbody>${filas}${filaTotal}</tbody>
         </table>
       </div>
@@ -4292,7 +4300,7 @@ async function viewPronosticoVenta(container) {
     const filaTotal = `<tr style="font-weight:700;border-top:2px solid var(--border);background:var(--bg-secondary)">
       <td>TOTAL</td>
       <td class="text-right" id="pv-armado-total-pax">${fmtN(totalProyectado)}</td>
-      <td class="text-right" id="pv-armado-total-ticket" style="color:var(--text-muted);font-weight:400" title="Promedio ponderado">${totalProyectado ? fmtMoney(totalVenta / totalProyectado) : '—'}</td>
+      <td></td>
       <td class="text-right" id="pv-armado-total-venta">${fmtMoney(totalVenta)}</td>
     </tr>`;
     return `<div class="card mb-16" style="padding:14px">
@@ -4334,7 +4342,7 @@ async function viewPronosticoVenta(container) {
       <div style="font-weight:600;margin-bottom:8px">${esc(c.canal)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${c.tipo === 'pax' ? 'PAX' : 'TRANSACCIONES'})</span></div>
       <div class="table-wrap" style="overflow-x:auto">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Día</th>${headers.map(h => `<th class="text-right">${h}</th>`).join('')}<th class="text-right" style="color:#8b5cf6">Propuesta</th><th>Proyectado</th></tr></thead>
+          <thead><tr><th>Día</th>${headers.map(thHeader).join('')}<th class="text-right" style="color:#8b5cf6">Propuesta</th><th>Proyectado</th></tr></thead>
           <tbody>${filas}${filaTotal}</tbody>
         </table>
       </div>
@@ -4378,12 +4386,10 @@ async function viewPronosticoVenta(container) {
 
     const totalProyectado = totalArmadoProyectado();
     const totalVenta = totalArmadoVenta();
-    const tPaxEl    = document.getElementById('pv-armado-total-pax');
-    const tTicketEl = document.getElementById('pv-armado-total-ticket');
-    const tVentaEl  = document.getElementById('pv-armado-total-venta');
-    if (tPaxEl)    tPaxEl.textContent    = fmtN(totalProyectado);
-    if (tTicketEl) tTicketEl.textContent = totalProyectado ? fmtMoney(totalVenta / totalProyectado) : '—';
-    if (tVentaEl)  tVentaEl.textContent  = fmtMoney(totalVenta);
+    const tPaxEl   = document.getElementById('pv-armado-total-pax');
+    const tVentaEl = document.getElementById('pv-armado-total-venta');
+    if (tPaxEl)   tPaxEl.textContent   = fmtN(totalProyectado);
+    if (tVentaEl) tVentaEl.textContent = fmtMoney(totalVenta);
   }
 
   async function guardar() {
