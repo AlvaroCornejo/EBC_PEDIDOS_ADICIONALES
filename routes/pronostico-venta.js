@@ -82,7 +82,7 @@ function tipoCanal(canal) {
  * ajustada por el factor de variación interanual (suma actual / suma año pasado,
  * acotado a [0.5, 1.5] para no disparar el número con un solo dato atípico).
  */
-function calcularPropuesta(serie, serieAñoAnterior) {
+function calcularPropuesta(serie, serieAñoAnterior, decimales = 0) {
   const n = serie.length;
   if (!n) return 0;
   const mx = (n - 1) / 2;
@@ -101,7 +101,8 @@ function calcularPropuesta(serie, serieAñoAnterior) {
       tendencia = (tendencia + tendencia * factor) / 2;
     }
   }
-  return Math.round(tendencia);
+  const f = 10 ** decimales;
+  return Math.round(tendencia * f) / f;
 }
 
 // ── GET /operaciones ────────────────────────────────────────────────────────
@@ -216,11 +217,22 @@ router.get('/resumen', async (req, res) => {
       const dias = [1, 2, 3, 4, 5, 6, 7].map(dow => {
         const serie = historial.map(h => (porDia[`${canal}|${h.año}|${h.semana}|${dow}`] || vacioDia)[metricKey]);
         const serieAniosDia = aniosAnteriores.map(arr => arr.map(h => (porDia[`${canal}|${h.año}|${h.semana}|${dow}`] || vacioDia)[metricKey]));
-        const propuesta = calcularPropuesta(serie, serieAniosDia[0]);
+        // La última semana del historial es la semana en curso (aún incompleta el día que se
+        // hace el pronóstico) — se excluye del cálculo de la propuesta para no subestimar la
+        // tendencia, aunque sí se sigue mostrando en la tabla.
+        const serieParaPropuesta = serie.slice(0, -1);
+        const serieAnioParaPropuesta = serieAniosDia[0] ? serieAniosDia[0].slice(0, -1) : null;
+        const propuesta = calcularPropuesta(serieParaPropuesta, serieAnioParaPropuesta);
         return { diaSemana: dow, serie, serieAnios: serieAniosDia, propuesta };
       });
 
-      return { canal, tipo: metricKey, serieSemanal, serieAnios, dias };
+      // Ticket promedio propuesto: misma lógica (regresión + ajuste interanual) que los días,
+      // aplicada a la serie semanal de ticket promedio, también sin la semana en curso.
+      const serieTicket = serieSemanal.map(p => p.ticketPromedio);
+      const serieTicketAnio = serieAnios[0] ? serieAnios[0].map(p => p.ticketPromedio) : null;
+      const ticketPropuesta = calcularPropuesta(serieTicket.slice(0, -1), serieTicketAnio ? serieTicketAnio.slice(0, -1) : null, 2);
+
+      return { canal, tipo: metricKey, serieSemanal, serieAnios, dias, ticketPropuesta };
     });
 
     res.json({

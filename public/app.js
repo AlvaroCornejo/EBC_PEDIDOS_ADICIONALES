@@ -4178,13 +4178,9 @@ async function viewPronosticoVenta(container) {
       canalPorSlug = {};
       dataResumen.canales.forEach(c => {
         canalPorSlug[slug(c.canal)] = c.canal;
-        // Ticket propuesto por defecto = promedio ponderado de TODAS las semanas mostradas
-        // (venta total / cantidad total), no solo la última — la última semana puede
-        // estar en curso y salir en cero, lo que dejaría el ticket sugerido en 0.
-        const sumaVenta = c.serieSemanal.reduce((s, p) => s + (p.ventaBrutaMasRedencion || 0), 0);
-        const sumaCant  = c.serieSemanal.reduce((s, p) => s + (p.cantidad || 0), 0);
-        const ticketProm = sumaCant ? sumaVenta / sumaCant : 0;
-        proyeccion[c.canal] = { ticketPropuesto: ticketProm, dias: {} };
+        // Ticket propuesto por defecto = propuesta calculada por el backend (regresión +
+        // ajuste interanual, misma lógica que pax/transacciones, sin la semana en curso).
+        proyeccion[c.canal] = { ticketPropuesto: c.ticketPropuesta || 0, dias: {} };
         c.dias.forEach(d => { proyeccion[c.canal].dias[d.diaSemana] = d.propuesta; });
       });
       (fc.canales || []).forEach(fcc => {
@@ -4242,13 +4238,17 @@ async function viewPronosticoVenta(container) {
     return [...c.serieSemanal, ...c.serieAnios.map(arr => arr[arr.length - 1])];
   }
 
-  function renderCuadro(titulo, fmtFn, rawFn, conTotal) {
+  function renderCuadro(titulo, fmtFn, rawFn, conTotal, conTicketPropuesta) {
     const headers = colHeaders();
     const filas = dataResumen.canales.map(c => {
       const vals = puntosDeCanal(c).map(fmtFn);
+      const ticket = proyeccion[c.canal]?.ticketPropuesto || 0;
+      const extra = conTicketPropuesta ? `
+        <td class="text-right" style="color:#8b5cf6;border-left:2px solid var(--border)">${fmtMoney(c.ticketPropuesta || 0)}</td>
+        <td><input type="number" step="0.01" class="form-control text-right" id="pv-ticket-${slug(c.canal)}" value="${ticket ? ticket.toFixed(2) : ''}" style="width:100px" oninput="pvTicketChange('${slug(c.canal)}')" ${bloqueado ? 'disabled' : ''}></td>` : '';
       return `<tr>
         <td>${esc(c.canal)} <span class="text-muted" style="font-size:11px">(${c.tipo === 'pax' ? 'PAX' : 'TRX'})</span></td>
-        ${vals.map(v => `<td class="text-right">${v}</td>`).join('')}
+        ${vals.map(v => `<td class="text-right">${v}</td>`).join('')}${extra}
       </tr>`;
     }).join('');
     let filaTotal = '';
@@ -4258,14 +4258,15 @@ async function viewPronosticoVenta(container) {
       );
       filaTotal = `<tr style="font-weight:700;border-top:2px solid var(--border);background:var(--bg-secondary)">
         <td>TOTAL</td>
-        ${totales.map(t => `<td class="text-right">${fmtMoney(t)}</td>`).join('')}
+        ${totales.map(t => `<td class="text-right">${fmtMoney(t)}</td>`).join('')}${conTicketPropuesta ? '<td></td><td></td>' : ''}
       </tr>`;
     }
+    const extraHead = conTicketPropuesta ? `<th class="text-right" style="color:#8b5cf6;border-left:2px solid var(--border)">Propuesta</th><th>Final</th>` : '';
     return `<div class="card mb-16" style="padding:14px">
       <div style="font-weight:600;margin-bottom:8px">${esc(titulo)}</div>
       <div class="table-wrap" style="overflow-x:auto">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Canal</th>${headers.map(thHeader).join('')}</tr></thead>
+          <thead><tr><th>Canal</th>${headers.map(thHeader).join('')}${extraHead}</tr></thead>
           <tbody>${filas}${filaTotal}</tbody>
         </table>
       </div>
@@ -4291,7 +4292,7 @@ async function viewPronosticoVenta(container) {
       return `<tr>
         <td>${esc(c.canal)} <span class="text-muted" style="font-size:11px">(${c.tipo === 'pax' ? 'PAX' : 'TRX'})</span></td>
         <td class="text-right" id="pv-armado-pax-${slug(c.canal)}">${fmtN(proyectado)}</td>
-        <td><input type="number" step="0.01" class="form-control text-right" id="pv-ticket-${slug(c.canal)}" value="${ticket ? ticket.toFixed(2) : ''}" style="width:110px" oninput="pvTicketChange('${slug(c.canal)}')" ${bloqueado ? 'disabled' : ''}></td>
+        <td class="text-right" id="pv-armado-ticket-${slug(c.canal)}">${fmtMoney(ticket)}</td>
         <td class="text-right" id="pv-armado-venta-${slug(c.canal)}">${fmtMoney(proyectado * ticket)}</td>
       </tr>`;
     }).join('');
@@ -4307,7 +4308,7 @@ async function viewPronosticoVenta(container) {
       <div style="font-weight:600;margin-bottom:8px">RESUMEN DE LA SEMANA — SEM ${dataResumen.objetivo.semana}/${dataResumen.objetivo.año}</div>
       <div class="table-wrap" style="overflow-x:auto">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Canal</th><th class="text-right">Pax/Trans. proyectado</th><th>Ticket promedio propuesto</th><th class="text-right">Venta bruta propuesta</th></tr></thead>
+          <thead><tr><th>Canal</th><th class="text-right">Pax/Trans. proyectado</th><th class="text-right">Ticket promedio final</th><th class="text-right">Venta bruta propuesta</th></tr></thead>
           <tbody>${filas}${filaTotal}</tbody>
         </table>
       </div>
@@ -4336,7 +4337,7 @@ async function viewPronosticoVenta(container) {
       <td>TOTAL SEMANA</td>
       ${totalesCol.map(t => `<td class="text-right">${fmtN(t)}</td>`).join('')}
       <td class="text-right" style="color:#8b5cf6">${fmtN(totalPropuesta)}</td>
-      <td class="text-right" id="pv-diatotal-${slug(c.canal)}">${fmtN(sumaDias(c.canal))}</td>
+      <td class="text-right"><span id="pv-diatotal-${slug(c.canal)}" style="display:inline-block;min-width:90px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-primary)">${fmtN(sumaDias(c.canal))}</span></td>
     </tr>`;
     return `<div class="card mb-16" style="padding:14px">
       <div style="font-weight:600;margin-bottom:8px">${esc(c.canal)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${c.tipo === 'pax' ? 'PAX' : 'TRANSACCIONES'})</span></div>
@@ -4354,7 +4355,7 @@ async function viewPronosticoVenta(container) {
     root.innerHTML =
       renderCuadro('Pax / Transacciones', p => fmtN(p?.cantidad), p => p?.cantidad) +
       renderCuadro('Venta Bruta + Redención', p => fmtMoney(p?.ventaBrutaMasRedencion), p => p?.ventaBrutaMasRedencion, true) +
-      renderCuadro('Ticket Promedio', p => fmtMoney(p?.ticketPromedio), p => p?.ticketPromedio) +
+      renderCuadro('Ticket Promedio', p => fmtMoney(p?.ticketPromedio), p => p?.ticketPromedio, false, true) +
       renderArmado() +
       dataResumen.canales.map(renderDiasCanal).join('');
   }
@@ -4377,8 +4378,10 @@ async function viewPronosticoVenta(container) {
     const proyectado = sumaDias(canal);
     const ticket = proyeccion[canal]?.ticketPropuesto || 0;
     const paxEl = document.getElementById(`pv-armado-pax-${slugCanal}`);
+    const ticketEl = document.getElementById(`pv-armado-ticket-${slugCanal}`);
     const ventaEl = document.getElementById(`pv-armado-venta-${slugCanal}`);
     if (paxEl) paxEl.textContent = fmtN(proyectado);
+    if (ticketEl) ticketEl.textContent = fmtMoney(ticket);
     if (ventaEl) ventaEl.textContent = fmtMoney(proyectado * ticket);
 
     const diaTotalEl = document.getElementById(`pv-diatotal-${slugCanal}`);
