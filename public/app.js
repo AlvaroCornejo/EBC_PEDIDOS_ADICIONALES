@@ -4307,8 +4307,8 @@ async function viewPronosticoVenta(container) {
     return `<div class="card mb-16" style="padding:14px">
       <div style="font-weight:600;margin-bottom:8px">RESUMEN DE LA SEMANA — SEM ${dataResumen.objetivo.semana}/${dataResumen.objetivo.año}</div>
       <div class="table-wrap" style="overflow-x:auto">
-        <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Canal</th><th class="text-right">Pax/Trans. proyectado</th><th class="text-right">Ticket promedio final</th><th class="text-right">Venta bruta propuesta</th></tr></thead>
+        <table class="data-table" style="font-size:12px;width:auto">
+          <thead><tr><th>Canal</th><th class="text-right" style="padding-left:24px">Pax/Trans. proyectado</th><th class="text-right" style="padding-left:24px">Ticket promedio final</th><th class="text-right" style="padding-left:24px">Venta bruta propuesta</th></tr></thead>
           <tbody>${filas}${filaTotal}</tbody>
         </table>
       </div>

@@ -226,11 +226,14 @@ router.get('/resumen', async (req, res) => {
         return { diaSemana: dow, serie, serieAnios: serieAniosDia, propuesta };
       });
 
-      // Ticket promedio propuesto: misma lógica (regresión + ajuste interanual) que los días,
-      // aplicada a la serie semanal de ticket promedio, también sin la semana en curso.
-      const serieTicket = serieSemanal.map(p => p.ticketPromedio);
-      const serieTicketAnio = serieAnios[0] ? serieAnios[0].map(p => p.ticketPromedio) : null;
-      const ticketPropuesta = calcularPropuesta(serieTicket.slice(0, -1), serieTicketAnio ? serieTicketAnio.slice(0, -1) : null, 2);
+      // Ticket promedio propuesto: promedio ponderado (venta / cantidad) de las últimas 4
+      // semanas completas, sin contar la semana en curso (aún incompleta el día que se hace
+      // el pronóstico).
+      const semanasCompletas = serieSemanal.slice(0, -1);
+      const ultimas4 = semanasCompletas.slice(-4);
+      const ventaUltimas4 = ultimas4.reduce((s, p) => s + (p.ventaBrutaMasRedencion || 0), 0);
+      const cantidadUltimas4 = ultimas4.reduce((s, p) => s + (p.cantidad || 0), 0);
+      const ticketPropuesta = cantidadUltimas4 ? Math.round((ventaUltimas4 / cantidadUltimas4) * 100) / 100 : 0;
 
       return { canal, tipo: metricKey, serieSemanal, serieAnios, dias, ticketPropuesta };
     });
