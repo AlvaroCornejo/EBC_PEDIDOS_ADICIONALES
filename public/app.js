@@ -14224,15 +14224,24 @@ function showUserModal(user, onSave) {
     errEl.classList.add('hidden');
     const role = document.getElementById('um-role').value;
     const isAdmin = role === ROLES.ADMIN;
-    // Lista unificada de sociedades para Pagos, Flujo de Caja y (si tiene el permiso) Precios de Compra
-    const sociedadesPago   = isAdmin ? [] : [...document.querySelectorAll('input[name="um-soc"]:checked')].map(cb => cb.value);
-    const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? sociedadesPago : [];
-    const sociedadesConciliacion = (!isAdmin && document.getElementById('um-conciliacion')?.checked) ? sociedadesPago : [];
-    const sociedadesMaestros     = (!isAdmin && document.getElementById('um-maestros')?.checked) ? sociedadesPago : [];
     // Operaciones marcadas individualmente (por defecto siguen a la sociedad al marcarla/
     // desmarcarla, pero se pueden agregar/quitar una por una, esté o no marcada la sociedad).
     // Los destinos de transferencia son el mismo conjunto.
     const operacionesDerivadas = isAdmin ? [] : [...document.querySelectorAll('input[name="um-op"]:checked')].map(cb => cb.value);
+    // Lista unificada de sociedades para Pagos, Flujo de Caja y (si tiene el permiso) Precios de
+    // Compra / Conciliación / Maestro de Ítems: la sociedad marcada arriba, MÁS cualquier
+    // sociedad que tenga al menos una operación marcada individualmente (una operación se puede
+    // marcar sin marcar la sociedad — si no se incluyera acá, el permiso de Precios de Compra
+    // quedaba en blanco al guardar aunque el checkbox estuviera marcado, porque se guardaba
+    // como "sociedadesCompra: []").
+    const socMarcadas = isAdmin ? [] : [...document.querySelectorAll('input[name="um-soc"]:checked')].map(cb => cb.value);
+    const socConOperacion = isAdmin ? [] : (S.sociedades || [])
+      .filter(soc => (soc.operaciones || []).some(o => operacionesDerivadas.includes(o.codigo)))
+      .map(soc => soc.codigo);
+    const sociedadesPago = [...new Set([...socMarcadas, ...socConOperacion])];
+    const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? sociedadesPago : [];
+    const sociedadesConciliacion = (!isAdmin && document.getElementById('um-conciliacion')?.checked) ? sociedadesPago : [];
+    const sociedadesMaestros     = (!isAdmin && document.getElementById('um-maestros')?.checked) ? sociedadesPago : [];
     const data = {
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
