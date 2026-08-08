@@ -13991,7 +13991,8 @@ async function renderAdminUsuarios(container) {
               <td>${(u.operations||[]).map(o=>`<span class="badge" style="background:#f0fdf4;color:#166534;margin-right:4px">${esc(o)}</span>`).join('')}</td>
               <td class="col-actions">
                 <div class="flex gap-8 justify-center">
-                  <button class="btn btn-xs btn-outline edit-user-btn" data-uid="${u.id}">✏️</button>
+                  <button class="btn btn-xs btn-outline edit-user-btn" data-uid="${u.id}" title="Editar">✏️</button>
+                  <button class="btn btn-xs btn-outline copy-user-btn" data-uid="${u.id}" title="Copiar usuario">📋</button>
                   <button class="btn btn-xs btn-danger del-user-btn" data-uid="${u.id}" ${u.id===S.user.id?'disabled':''}>✕</button>
                 </div>
               </td>
@@ -14009,6 +14010,12 @@ async function renderAdminUsuarios(container) {
       showUserModal(u, () => renderAdminUsuarios(container));
     });
   });
+  container.querySelectorAll('.copy-user-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const u = users.find(u => u.id === btn.dataset.uid);
+      showUserModal(u, () => renderAdminUsuarios(container), { copy: true });
+    });
+  });
   container.querySelectorAll('.del-user-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm('¿Eliminar usuario?')) return;
@@ -14021,21 +14028,27 @@ async function renderAdminUsuarios(container) {
   });
 }
 
-function showUserModal(user, onSave) {
+function showUserModal(user, onSave, opts = {}) {
+  // isCopy: se abre precargado con los datos de otro usuario (rol, operaciones, permisos)
+  // pero como un usuario NUEVO — usuario/email/contraseña se piden de cero y se guarda con
+  // POST, no PUT. `editing` (no isCopy) es el único caso que actualiza al usuario existente.
+  const isCopy = !!opts.copy;
+  const editing = !!user && !isCopy;
   const allRoles = [
     ['', '— Sin acceso —'],
     ...Object.entries(ROLE_LABELS).filter(([k]) => k !== 'OPERADOR_CONSULTA'),
   ];
   const body = `
     <form id="user-form">
+      ${isCopy ? `<div class="msg-info" style="margin-bottom:12px">📋 Copiando permisos de <strong>${esc(user.username)}</strong> — completa usuario, email y contraseña.</div>` : ''}
       <div class="form-group"><label>Usuario *</label>
-        <input type="text" id="um-username" required value="${esc(user?.username||'')}" placeholder="nombre_usuario">
+        <input type="text" id="um-username" required value="${isCopy ? '' : esc(user?.username||'')}" placeholder="nombre_usuario">
       </div>
       <div class="form-group"><label>Email *</label>
-        <input type="email" id="um-email" required value="${esc(user?.email||'')}" placeholder="email@empresa.com">
+        <input type="email" id="um-email" required value="${isCopy ? '' : esc(user?.email||'')}" placeholder="email@empresa.com">
       </div>
-      <div class="form-group"><label>Contraseña ${user?'(dejar vacío para no cambiar)':''} *</label>
-        <input type="password" id="um-password" ${!user?'required':''} placeholder="${user?'Nueva contraseña (opcional)':'Contraseña'}">
+      <div class="form-group"><label>Contraseña ${editing?'(dejar vacío para no cambiar)':''} *</label>
+        <input type="password" id="um-password" ${!editing?'required':''} placeholder="${editing?'Nueva contraseña (opcional)':'Contraseña'}">
       </div>
       <div class="form-group"><label>Rol para Pedidos Adicionales</label>
         <select id="um-role">
@@ -14199,7 +14212,7 @@ function showUserModal(user, onSave) {
       <button class="btn btn-primary" id="um-save">💾 Guardar</button>
     </div>`;
 
-  openModal(user ? 'Editar Usuario' : 'Nuevo Usuario', body);
+  openModal(editing ? 'Editar Usuario' : (isCopy ? 'Nuevo Usuario (copia)' : 'Nuevo Usuario'), body);
 
   // Mostrar/ocultar secciones según el rol seleccionado
   function syncRoleUI() {
@@ -14274,11 +14287,11 @@ function showUserModal(user, onSave) {
     };
     const pwd = document.getElementById('um-password').value;
     if (pwd) data.password = pwd;
-    if (!user && !pwd) { errEl.textContent = 'La contraseña es requerida'; errEl.classList.remove('hidden'); return; }
+    if (!editing && !pwd) { errEl.textContent = 'La contraseña es requerida'; errEl.classList.remove('hidden'); return; }
     try {
-      if (user) await PUT(`/users/${user.id}`, data);
+      if (editing) await PUT(`/users/${user.id}`, data);
       else await POST('/users', data);
-      toast(user ? 'Usuario actualizado' : 'Usuario creado', 'success');
+      toast(editing ? 'Usuario actualizado' : 'Usuario creado', 'success');
       document.getElementById('modal').classList.add('hidden');
       onSave?.();
     } catch (err) { errEl.textContent = err.message; errEl.classList.remove('hidden'); }
