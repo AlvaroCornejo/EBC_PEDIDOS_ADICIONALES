@@ -261,7 +261,7 @@ const NAV_ITEMS = [
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT], extraPerm: 'puedeVerComparativo' },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'pronostico-venta', label: 'Pronóstico de Venta', icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerPronosticoVenta' },
-  { id: 'recetas-costeo', label: 'Costeo de Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'puedeVerCosteoRecetas' },
+  { id: 'recetas-costeo', label: 'Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'puedeVerCosteoRecetas' },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
   { id: 'maestro-items',  label: 'Maestro de Ítems', icon: '🗂️', roles: [ROLES.ADMIN], extraPerm: 'rolMaestroItems' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
@@ -4058,6 +4058,7 @@ async function viewCostoRecetas(container) {
   let operacionActual = '';
   let filtros = { grupo: '', item: '', nombre: '', semaforo: '' };
   let debounceNombre = null;
+  let itemSeleccionado = null;
 
   const esc2 = s => esc(String(s ?? ''));
   const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -4068,7 +4069,7 @@ async function viewCostoRecetas(container) {
 
   container.innerHTML = `
     <div class="page-header">
-      <div class="page-title">🧾 Costeo de Recetas</div>
+      <div class="page-title">🧾 Recetas</div>
     </div>
     <div class="page-body">
       <div class="card mb-16" style="padding:14px">
@@ -4105,10 +4106,16 @@ async function viewCostoRecetas(container) {
           </div>
         </div>
       </div>
-      <div id="cr-content"></div>
+      <div id="cr-split" style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+        <div id="cr-content" style="flex:1 1 380px;min-width:0"></div>
+        <div id="cr-detalle" style="flex:1 1 380px;min-width:0">
+          <div class="card"><div class="empty-state"><p>Selecciona un ítem de la lista para ver el detalle de su receta.</p></div></div>
+        </div>
+      </div>
     </div>`;
 
   const root = document.getElementById('cr-content');
+  const detalleRoot = document.getElementById('cr-detalle');
 
   try {
     const ops = await GET('/recetas-costeo/operaciones');
@@ -4125,6 +4132,8 @@ async function viewCostoRecetas(container) {
     document.getElementById('cr-item').value = '';
     document.getElementById('cr-nombre').value = '';
     document.getElementById('cr-semaforo').value = '';
+    itemSeleccionado = null;
+    detalleRoot.innerHTML = '<div class="card"><div class="empty-state"><p>Selecciona un ítem de la lista para ver el detalle de su receta.</p></div></div>';
     await cargarGrupos();
     await cargar();
   });
@@ -4171,7 +4180,7 @@ async function viewCostoRecetas(container) {
               <th class="text-right">Desviación</th><th class="text-center">Semáforo</th>
             </tr></thead>
             <tbody>
-              ${filas.map(f => `<tr class="cr-row" data-item="${f.item}" style="cursor:pointer">
+              ${filas.map(f => `<tr class="cr-row${f.item === itemSeleccionado ? ' cr-row-sel' : ''}" data-item="${f.item}" style="cursor:pointer${f.item === itemSeleccionado ? ';background:var(--bg-secondary)' : ''}">
                 <td>${esc2(f.grupo)}</td>
                 <td>${f.item}</td>
                 <td>${esc2(f.nombre)}</td>
@@ -4190,6 +4199,13 @@ async function viewCostoRecetas(container) {
   }
 
   async function verDetalle(item) {
+    itemSeleccionado = item;
+    root.querySelectorAll('.cr-row').forEach(tr => {
+      const sel = parseInt(tr.dataset.item) === item;
+      tr.classList.toggle('cr-row-sel', sel);
+      tr.style.background = sel ? 'var(--bg-secondary)' : '';
+    });
+    detalleRoot.innerHTML = '<div class="card"><div class="text-muted text-center py-24">⏳ Cargando...</div></div>';
     try {
       const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}`);
       const insumosHtml = d.insumos.map(i => `<tr>
@@ -4203,42 +4219,43 @@ async function viewCostoRecetas(container) {
         <td class="text-center">${i.delivery ? '✓' : '—'}</td>
       </tr>`).join('');
 
-      const body = `
-        <div class="mb-16">
-          <div style="font-weight:600;font-size:15px">${esc2(d.nombre)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${d.grupo})</span></div>
-          <div style="display:flex;gap:20px;margin-top:8px;font-size:13px">
-            <div>Costo Receta: <strong>${fmtMoney(d.costo)}</strong></div>
-            <div>Costo Real: <strong>${fmtMoney(d.costoReal)}</strong></div>
-            <div>Semáforo: ${semaforoDot(d.semaforo)}</div>
-            <div>Batch: <strong>${d.batch}</strong></div>
+      detalleRoot.innerHTML = `
+        <div class="card" style="padding:14px">
+          <div class="mb-16">
+            <div style="font-weight:600;font-size:15px">${esc2(d.nombre)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${d.grupo} — Ítem ${d.item})</span></div>
+            <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;flex-wrap:wrap">
+              <div>Costo Receta: <strong>${fmtMoney(d.costo)}</strong></div>
+              <div>Costo Real: <strong>${fmtMoney(d.costoReal)}</strong></div>
+              <div>Semáforo: ${semaforoDot(d.semaforo)}</div>
+              <div>Batch: <strong>${d.batch}</strong></div>
+            </div>
           </div>
-        </div>
-        <div style="display:flex;gap:12px;margin-bottom:16px">
-          <div class="card" style="flex:1;padding:10px;text-align:center">
-            <div style="font-size:11px;color:var(--text-muted)">TOTAL MESA</div>
-            <div style="font-weight:700;font-size:16px">${fmtMoney(d.totales.mesa)}</div>
+          <div style="display:flex;gap:10px;margin-bottom:16px">
+            <div class="card" style="flex:1;padding:10px;text-align:center">
+              <div style="font-size:11px;color:var(--text-muted)">TOTAL MESA</div>
+              <div style="font-weight:700;font-size:15px">${fmtMoney(d.totales.mesa)}</div>
+            </div>
+            <div class="card" style="flex:1;padding:10px;text-align:center">
+              <div style="font-size:11px;color:var(--text-muted)">TOTAL LLEVAR</div>
+              <div style="font-weight:700;font-size:15px">${fmtMoney(d.totales.llevar)}</div>
+            </div>
+            <div class="card" style="flex:1;padding:10px;text-align:center">
+              <div style="font-size:11px;color:var(--text-muted)">TOTAL DELIVERY</div>
+              <div style="font-weight:700;font-size:15px">${fmtMoney(d.totales.delivery)}</div>
+            </div>
           </div>
-          <div class="card" style="flex:1;padding:10px;text-align:center">
-            <div style="font-size:11px;color:var(--text-muted)">TOTAL LLEVAR</div>
-            <div style="font-weight:700;font-size:16px">${fmtMoney(d.totales.llevar)}</div>
+          <div class="table-wrap" style="max-height:60vh;overflow-y:auto">
+            <table class="data-table" style="font-size:12px">
+              <thead><tr>
+                <th>Insumo</th><th>Nombre</th><th class="text-right">Cantidad</th>
+                <th class="text-right">Unitario</th><th class="text-right">Costo</th>
+                <th class="text-center">Mesa</th><th class="text-center">Llevar</th><th class="text-center">Delivery</th>
+              </tr></thead>
+              <tbody>${insumosHtml}</tbody>
+            </table>
           </div>
-          <div class="card" style="flex:1;padding:10px;text-align:center">
-            <div style="font-size:11px;color:var(--text-muted)">TOTAL DELIVERY</div>
-            <div style="font-weight:700;font-size:16px">${fmtMoney(d.totales.delivery)}</div>
-          </div>
-        </div>
-        <div class="table-wrap" style="max-height:50vh;overflow-y:auto">
-          <table class="data-table" style="font-size:12px">
-            <thead><tr>
-              <th>Insumo</th><th>Nombre</th><th class="text-right">Cantidad</th>
-              <th class="text-right">Unitario</th><th class="text-right">Costo</th>
-              <th class="text-center">Mesa</th><th class="text-center">Llevar</th><th class="text-center">Delivery</th>
-            </tr></thead>
-            <tbody>${insumosHtml}</tbody>
-          </table>
         </div>`;
-      openModal(`Detalle de receta — Ítem ${d.item}`, body, null, { wide: true });
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) { detalleRoot.innerHTML = `<div class="card"><p style="color:red;padding:14px">${esc2(e.message)}</p></div>`; }
   }
 }
 
@@ -14373,7 +14390,7 @@ function showUserModal(user, onSave, opts = {}) {
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-costeo-recetas" ${user?.puedeVerCosteoRecetas?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
-            <span>🧾 <strong>Costeo de Recetas</strong></span>
+            <span>🧾 <strong>Recetas</strong></span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-bajas" ${user?.puedeVerBajas?'checked':''}
