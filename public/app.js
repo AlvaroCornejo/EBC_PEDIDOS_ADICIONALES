@@ -4208,7 +4208,7 @@ async function viewCostoRecetas(container) {
     detalleRoot.innerHTML = '<div class="card"><div class="text-muted text-center py-24">⏳ Cargando...</div></div>';
     try {
       const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}`);
-      const insumosHtml = d.insumos.map(i => `<tr>
+      const insumosHtml = d.insumos.map(i => `<tr class="cr-insumo-row" data-insumo="${i.insumo}" style="cursor:pointer">
         <td>${i.insumo}</td>
         <td>${esc2(i.nombreInsumo)}</td>
         <td class="text-right">${Number(i.cantidad).toLocaleString('es-PE', { maximumFractionDigits: 4 })}</td>
@@ -4254,8 +4254,63 @@ async function viewCostoRecetas(container) {
               <tbody>${insumosHtml}</tbody>
             </table>
           </div>
-        </div>`;
+        </div>
+        <div id="cr-subreceta" style="margin-top:16px"></div>`;
+
+      detalleRoot.querySelectorAll('.cr-insumo-row').forEach(tr => {
+        tr.addEventListener('click', () => {
+          detalleRoot.querySelectorAll('.cr-insumo-row').forEach(r => r.style.background = '');
+          tr.style.background = 'var(--bg-secondary)';
+          verSubReceta(parseInt(tr.dataset.insumo));
+        });
+      });
     } catch (e) { detalleRoot.innerHTML = `<div class="card"><p style="color:red;padding:14px">${esc2(e.message)}</p></div>`; }
+  }
+
+  // Si el insumo clickeado es a su vez un producto con receta propia (mismo código de ítem en
+  // RecetaCosteo), se muestra su detalle debajo — permite bajar un nivel en la composición.
+  async function verSubReceta(item) {
+    const sub = document.getElementById('cr-subreceta');
+    if (!sub) return;
+    sub.innerHTML = '<div class="card"><div class="text-muted text-center py-16">⏳ Cargando receta del insumo...</div></div>';
+    try {
+      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}`);
+      const insumosHtml = d.insumos.map(i => `<tr>
+        <td>${i.insumo}</td>
+        <td>${esc2(i.nombreInsumo)}</td>
+        <td class="text-right">${Number(i.cantidad).toLocaleString('es-PE', { maximumFractionDigits: 4 })}</td>
+        <td class="text-right">${fmtMoney(i.unitario)}</td>
+        <td class="text-right">${fmtMoney(i.costo)}</td>
+        <td class="text-center">${i.mesa ? '✓' : '—'}</td>
+        <td class="text-center">${i.llevar ? '✓' : '—'}</td>
+        <td class="text-center">${i.delivery ? '✓' : '—'}</td>
+      </tr>`).join('');
+      sub.innerHTML = `
+        <div class="card" style="padding:14px;border-left:3px solid var(--primary)">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">RECETA DEL INSUMO</div>
+          <div class="mb-16">
+            <div style="font-weight:600;font-size:14px">${esc2(d.nombre)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${d.grupo} — Ítem ${d.item})</span></div>
+            <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;flex-wrap:wrap">
+              <div>Costo Receta: <strong>${fmtMoney(d.costo)}</strong></div>
+              <div>Costo Real: <strong>${fmtMoney(d.costoReal)}</strong></div>
+              <div>Semáforo: ${semaforoDot(d.semaforo)}</div>
+              <div>Batch: <strong>${d.batch}</strong></div>
+            </div>
+          </div>
+          <div class="table-wrap" style="max-height:40vh;overflow-y:auto">
+            <table class="data-table" style="font-size:12px">
+              <thead><tr>
+                <th>Insumo</th><th>Nombre</th><th class="text-right">Cantidad</th>
+                <th class="text-right">Unitario</th><th class="text-right">Costo</th>
+                <th class="text-center">Mesa</th><th class="text-center">Llevar</th><th class="text-center">Delivery</th>
+              </tr></thead>
+              <tbody>${insumosHtml}</tbody>
+            </table>
+          </div>
+        </div>`;
+    } catch (e) {
+      sub.innerHTML = `<div class="card" style="padding:14px"><p class="text-muted" style="margin:0">Este insumo no tiene receta propia registrada.</p></div>`;
+    }
   }
 }
 
