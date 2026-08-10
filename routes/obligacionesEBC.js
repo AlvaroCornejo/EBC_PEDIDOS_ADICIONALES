@@ -165,8 +165,10 @@ router.get('/', async (req, res) => {
   try {
     if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
     const { compania } = req.query;
-    const sociedades = req.user.sociedadesPago || [];
-    const allowed = isAdmin(req.user) || !sociedades.length ? null : sociedades;
+    // "compania" acá es a nivel operación (ej. GBADC, GBCRP), no sociedad — sociedadesPago
+    // guarda códigos de sociedad (ej. GB) y nunca calzaría con "compania".
+    const operaciones = req.user.operations || [];
+    const allowed = isAdmin(req.user) || !operaciones.length ? null : operaciones;
     if (allowed && compania && !allowed.includes(compania))
       return res.status(403).json({ error: 'Sin acceso a esta empresa' });
     const filter = compania

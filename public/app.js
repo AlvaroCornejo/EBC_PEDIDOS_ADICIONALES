@@ -4061,7 +4061,8 @@ async function viewCostoRecetas(container) {
   let itemSeleccionado = null;
 
   const esc2 = s => esc(String(s ?? ''));
-  const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtCant = v => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
   const fmtPct = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
   const SEMAFORO_COLOR = { verde: '#22c55e', amarillo: '#eab308', rojo: '#ef4444', gris: '#94a3b8' };
   const SEMAFORO_LABEL = { verde: 'Verde (≤5%)', amarillo: 'Amarillo (≤15%)', rojo: 'Rojo (>15%)', gris: 'Sin costo de receta' };
@@ -4215,7 +4216,7 @@ async function viewCostoRecetas(container) {
       const insumosHtml = d.insumos.map(i => `<tr class="cr-insumo-row" data-insumo="${i.insumo}" style="cursor:pointer">
         <td>${i.insumo}</td>
         <td>${esc2(i.nombreInsumo)}</td>
-        <td class="text-right">${Number(i.cantidad).toLocaleString('es-PE', { maximumFractionDigits: 4 })}</td>
+        <td class="text-right">${fmtCant(i.cantidad)}</td>
         <td class="text-right">${fmtMoney(i.unitario)}</td>
         <td class="text-right">${fmtMoney(i.costo)}</td>
         <td class="text-center">${i.mesa ? '✓' : '—'}</td>
@@ -4282,7 +4283,7 @@ async function viewCostoRecetas(container) {
       const insumosHtml = d.insumos.map(i => `<tr class="cr-insumo-row" data-insumo="${i.insumo}" style="cursor:pointer">
         <td>${i.insumo}</td>
         <td>${esc2(i.nombreInsumo)}</td>
-        <td class="text-right">${Number(i.cantidad).toLocaleString('es-PE', { maximumFractionDigits: 4 })}</td>
+        <td class="text-right">${fmtCant(i.cantidad)}</td>
         <td class="text-right">${fmtMoney(i.unitario)}</td>
         <td class="text-right">${fmtMoney(i.costo)}</td>
         <td class="text-center">${i.mesa ? '✓' : '—'}</td>
@@ -11365,10 +11366,12 @@ async function viewAutorizacionesPago(container) {
   } catch(e) { _ebcCompanias = []; }
 
   const sel = document.getElementById('ebc-compania-sel');
-  const sociedades = S.user.sociedadesPago || [];
-  const companiasFiltradas = (isAdmin || !sociedades.length)
+  // "compania" es a nivel operación (GBADC, GBCRP...), no sociedad — se filtra contra
+  // S.user.operations, no sociedadesPago (que guarda códigos de sociedad como "GB").
+  const operaciones = S.user.operations || [];
+  const companiasFiltradas = (isAdmin || !operaciones.length)
     ? _ebcCompanias
-    : _ebcCompanias.filter(c => sociedades.includes(c.compania));
+    : _ebcCompanias.filter(c => operaciones.includes(c.compania));
   companiasFiltradas.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.compania;
