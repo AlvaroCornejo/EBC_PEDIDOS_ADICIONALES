@@ -130,12 +130,11 @@ async function main() {
   const faltantesD = Object.entries(COLD).filter(([, c]) => c === undefined).map(([k]) => k);
   if (faltantesD.length) throw new Error(`"EBC RECETAS DETALLE": no se encontraron las columnas: ${faltantesD.join(', ')}`);
 
-  // Mismo control de duplicados que el resumen, con SOCIEDAD + OPERACION + ITEM + INSUMO
-  // como llave (un insumo puede repetirse en distintos ítems, pero no dos veces en el
-  // mismo ítem+operación+sociedad).
-  const porClaveD = new Map();
-  let duplicadosIdenticosD = 0;
-  const conflictosD = [];
+  // A diferencia del resumen, acá NO se deduplica por clave — un mismo INSUMO puede
+  // aparecer más de una vez dentro del mismo SOCIEDAD+OPERACION+ITEM (ej. usado en dos
+  // preparaciones distintas de la receta) y ambas filas deben conservarse tal cual vienen
+  // del Excel, sumándose en los totales por canal.
+  const detalleDocs = [];
   let rechazadasD = 0;
   wsDetalle.eachRow((row, i) => {
     if (i === 1) return;
@@ -143,29 +142,15 @@ async function main() {
     const item = num(v[COLD.item]);
     const insumo = num(v[COLD.insumo]);
     const operacion = str(v[COLD.operacion]);
-    const sociedad = str(v[COLD.sociedad]);
     if (!item || !insumo || !operacion) { rechazadasD++; return; }
-    const doc = {
+    detalleDocs.push({
       item, nombre: str(v[COLD.nombre]), insumo, nombreInsumo: str(v[COLD.nombreInsumo]),
       cantidad: num(v[COLD.cantidad]), mesa: bool(v[COLD.mesa]), llevar: bool(v[COLD.llevar]), delivery: bool(v[COLD.delivery]),
       unitario: num(v[COLD.unitario]), batch: num(v[COLD.batch]), costo: num(v[COLD.costo]),
-      grupo: str(v[COLD.grupo]), sociedad, operacion,
-    };
-    const clave = `${sociedad}|${operacion}|${item}|${insumo}`;
-    const previa = porClaveD.get(clave);
-    if (!previa) { porClaveD.set(clave, doc); return; }
-    const mismosValores = previa.cantidad === doc.cantidad && previa.unitario === doc.unitario
-      && previa.costo === doc.costo && previa.mesa === doc.mesa && previa.llevar === doc.llevar && previa.delivery === doc.delivery;
-    if (mismosValores) duplicadosIdenticosD++;
-    else conflictosD.push({ clave, fila: i, previa, nueva: doc });
+      grupo: str(v[COLD.grupo]), sociedad: str(v[COLD.sociedad]), operacion,
+    });
   });
-  const detalleDocs = [...porClaveD.values()];
   console.log(`"EBC RECETAS DETALLE": ${detalleDocs.length} filas válidas, ${rechazadasD} rechazadas (sin item/insumo/operación).`);
-  if (duplicadosIdenticosD) console.log(`  ⚠ ${duplicadosIdenticosD} filas duplicadas idénticas (misma SOCIEDAD+OPERACION+ITEM+INSUMO) — se descartó la repetida.`);
-  if (conflictosD.length) {
-    console.log(`  ⚠ ${conflictosD.length} filas con la misma llave pero VALORES DISTINTOS — se conservó la primera, revisar a mano:`);
-    conflictosD.forEach(c => console.log(`     ${c.clave} (fila ${c.fila}): previa=${JSON.stringify(c.previa)} nueva=${JSON.stringify(c.nueva)}`));
-  }
 
   // ── Reemplazo completo (snapshot del estado actual, no serie histórica) ────
   console.log('\nImportando a MongoDB...');
