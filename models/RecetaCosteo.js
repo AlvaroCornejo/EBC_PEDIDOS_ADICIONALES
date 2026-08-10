@@ -10,7 +10,7 @@ const recetaCosteoSchema = new mongoose.Schema({
   sociedad:   { type: String, default: '' },
   operacion:  { type: String, required: true },
 });
-recetaCosteoSchema.index({ item: 1, operacion: 1 }, { unique: true });
+recetaCosteoSchema.index({ sociedad: 1, operacion: 1, item: 1 }, { unique: true });
 recetaCosteoSchema.index({ operacion: 1, grupo: 1 });
 
 module.exports = mongoose.model('RecetaCosteo', recetaCosteoSchema);

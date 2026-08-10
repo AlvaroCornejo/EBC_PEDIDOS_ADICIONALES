@@ -70,21 +70,41 @@ async function main() {
   const faltantesR = Object.entries(COLR).filter(([, c]) => c === undefined).map(([k]) => k);
   if (faltantesR.length) throw new Error(`"EBC RECETAS": no se encontraron las columnas: ${faltantesR.join(', ')}`);
 
-  const resumenDocs = [];
+  // El control de duplicados usa SOCIEDAD + OPERACION + ITEM como llave: se descarta una
+  // repetición idéntica (mismo valor en todos los campos), pero si la misma llave trae
+  // valores DISTINTOS no es un duplicado real sino un problema de datos — se avisa en
+  // consola para revisarlo a mano en vez de sumar o descartar en silencio.
+  const porClaveR = new Map();
+  let duplicadosIdenticosR = 0;
+  const conflictosR = [];
   let rechazadasR = 0;
   wsResumen.eachRow((row, i) => {
     if (i === 1) return;
     const v = row.values;
     const item = num(v[COLR.item]);
     const operacion = str(v[COLR.operacion]);
+    const sociedad = str(v[COLR.sociedad]);
     if (!item || !operacion) { rechazadasR++; return; }
-    resumenDocs.push({
+    const doc = {
       grupo: str(v[COLR.grupo]), item, nombre: str(v[COLR.nombre]),
       costo: num(v[COLR.costo]), batch: num(v[COLR.batch]), costoReal: num(v[COLR.costoReal]),
-      sociedad: str(v[COLR.sociedad]), operacion,
-    });
+      sociedad, operacion,
+    };
+    const clave = `${sociedad}|${operacion}|${item}`;
+    const previa = porClaveR.get(clave);
+    if (!previa) { porClaveR.set(clave, doc); return; }
+    const mismosValores = previa.grupo === doc.grupo && previa.nombre === doc.nombre
+      && previa.costo === doc.costo && previa.batch === doc.batch && previa.costoReal === doc.costoReal;
+    if (mismosValores) duplicadosIdenticosR++;
+    else conflictosR.push({ clave, fila: i, previa, nueva: doc });
   });
+  const resumenDocs = [...porClaveR.values()];
   console.log(`"EBC RECETAS": ${resumenDocs.length} filas válidas, ${rechazadasR} rechazadas (sin item/operación).`);
+  if (duplicadosIdenticosR) console.log(`  ⚠ ${duplicadosIdenticosR} filas duplicadas idénticas (misma SOCIEDAD+OPERACION+ITEM) — se descartó la repetida.`);
+  if (conflictosR.length) {
+    console.log(`  ⚠ ${conflictosR.length} filas con la misma llave pero VALORES DISTINTOS — se conservó la primera, revisar a mano:`);
+    conflictosR.forEach(c => console.log(`     ${c.clave} (fila ${c.fila}): previa=${JSON.stringify(c.previa)} nueva=${JSON.stringify(c.nueva)}`));
+  }
 
   // ── Hoja detalle: EBC RECETAS DETALLE ───────────────────────────────────────
   const wsDetalle = wb.getWorksheet('EBC RECETAS DETALLE');
@@ -110,7 +130,12 @@ async function main() {
   const faltantesD = Object.entries(COLD).filter(([, c]) => c === undefined).map(([k]) => k);
   if (faltantesD.length) throw new Error(`"EBC RECETAS DETALLE": no se encontraron las columnas: ${faltantesD.join(', ')}`);
 
-  const detalleDocs = [];
+  // Mismo control de duplicados que el resumen, con SOCIEDAD + OPERACION + ITEM + INSUMO
+  // como llave (un insumo puede repetirse en distintos ítems, pero no dos veces en el
+  // mismo ítem+operación+sociedad).
+  const porClaveD = new Map();
+  let duplicadosIdenticosD = 0;
+  const conflictosD = [];
   let rechazadasD = 0;
   wsDetalle.eachRow((row, i) => {
     if (i === 1) return;
@@ -118,15 +143,29 @@ async function main() {
     const item = num(v[COLD.item]);
     const insumo = num(v[COLD.insumo]);
     const operacion = str(v[COLD.operacion]);
+    const sociedad = str(v[COLD.sociedad]);
     if (!item || !insumo || !operacion) { rechazadasD++; return; }
-    detalleDocs.push({
+    const doc = {
       item, nombre: str(v[COLD.nombre]), insumo, nombreInsumo: str(v[COLD.nombreInsumo]),
       cantidad: num(v[COLD.cantidad]), mesa: bool(v[COLD.mesa]), llevar: bool(v[COLD.llevar]), delivery: bool(v[COLD.delivery]),
       unitario: num(v[COLD.unitario]), batch: num(v[COLD.batch]), costo: num(v[COLD.costo]),
-      grupo: str(v[COLD.grupo]), sociedad: str(v[COLD.sociedad]), operacion,
-    });
+      grupo: str(v[COLD.grupo]), sociedad, operacion,
+    };
+    const clave = `${sociedad}|${operacion}|${item}|${insumo}`;
+    const previa = porClaveD.get(clave);
+    if (!previa) { porClaveD.set(clave, doc); return; }
+    const mismosValores = previa.cantidad === doc.cantidad && previa.unitario === doc.unitario
+      && previa.costo === doc.costo && previa.mesa === doc.mesa && previa.llevar === doc.llevar && previa.delivery === doc.delivery;
+    if (mismosValores) duplicadosIdenticosD++;
+    else conflictosD.push({ clave, fila: i, previa, nueva: doc });
   });
+  const detalleDocs = [...porClaveD.values()];
   console.log(`"EBC RECETAS DETALLE": ${detalleDocs.length} filas válidas, ${rechazadasD} rechazadas (sin item/insumo/operación).`);
+  if (duplicadosIdenticosD) console.log(`  ⚠ ${duplicadosIdenticosD} filas duplicadas idénticas (misma SOCIEDAD+OPERACION+ITEM+INSUMO) — se descartó la repetida.`);
+  if (conflictosD.length) {
+    console.log(`  ⚠ ${conflictosD.length} filas con la misma llave pero VALORES DISTINTOS — se conservó la primera, revisar a mano:`);
+    conflictosD.forEach(c => console.log(`     ${c.clave} (fila ${c.fila}): previa=${JSON.stringify(c.previa)} nueva=${JSON.stringify(c.nueva)}`));
+  }
 
   // ── Reemplazo completo (snapshot del estado actual, no serie histórica) ────
   console.log('\nImportando a MongoDB...');
