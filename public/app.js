@@ -4125,6 +4125,10 @@ async function viewCostoRecetas(container) {
     if (disponibles.length === 1) { sel.value = disponibles[0]; operacionActual = disponibles[0]; }
   } catch (e) { root.innerHTML = `<p style="color:red">${esc2(e.message)}</p>`; return; }
 
+  // Si quedó preseleccionada por ser la única operación disponible, el <select> no dispara
+  // 'change' al asignar .value por código — hay que cargar grupos y resumen a mano.
+  if (operacionActual) { await cargarGrupos(); await cargar(); }
+
   document.getElementById('cr-operacion').addEventListener('change', async (e) => {
     operacionActual = e.target.value;
     filtros = { grupo: '', item: '', nombre: '', semaforo: '' };
