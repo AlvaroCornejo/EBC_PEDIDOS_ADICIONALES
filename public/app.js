@@ -11366,12 +11366,12 @@ async function viewAutorizacionesPago(container) {
   } catch(e) { _ebcCompanias = []; }
 
   const sel = document.getElementById('ebc-compania-sel');
-  // "compania" es a nivel operación (GBADC, GBCRP...), no sociedad — se filtra contra
-  // S.user.operations, no sociedadesPago (que guarda códigos de sociedad como "GB").
-  const operaciones = S.user.operations || [];
-  const companiasFiltradas = (isAdmin || !operaciones.length)
+  // "compania" es a nivel sociedad (GB, ERSAC... — ver models/CompaniaCodigo.js), se filtra
+  // contra S.user.sociedadesPago.
+  const sociedades = S.user.sociedadesPago || [];
+  const companiasFiltradas = (isAdmin || !sociedades.length)
     ? _ebcCompanias
-    : _ebcCompanias.filter(c => operaciones.includes(c.compania));
+    : _ebcCompanias.filter(c => sociedades.includes(c.compania));
   companiasFiltradas.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.compania;

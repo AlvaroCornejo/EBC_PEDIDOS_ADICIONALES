@@ -103,9 +103,11 @@ function parseCSVObligaciones(buffer, mapaCompanias) {
 }
 
 // ── GET /mapa-companias ────────────────────────────────────────────
+// Lectura abierta a cualquier autorizador/programador (la usan para poblar el dropdown de
+// "Empresa" en Incluir Pagos) — solo crear/editar/borrar el mapeo es exclusivo de ADMIN.
 router.get('/mapa-companias', async (req, res) => {
   try {
-    if (!isAdmin(req.user)) return res.status(403).json({ error: 'Solo administradores' });
+    if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
     const docs = await CompaniaCodigo.find().sort({ codigo: 1 }).lean();
     res.json(docs);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -165,10 +167,10 @@ router.get('/', async (req, res) => {
   try {
     if (!isAutorizador(req.user)) return res.status(403).json({ error: 'Sin acceso' });
     const { compania } = req.query;
-    // "compania" acá es a nivel operación (ej. GBADC, GBCRP), no sociedad — sociedadesPago
-    // guarda códigos de sociedad (ej. GB) y nunca calzaría con "compania".
-    const operaciones = req.user.operations || [];
-    const allowed = isAdmin(req.user) || !operaciones.length ? null : operaciones;
+    // "compania" acá es a nivel sociedad (ej. GB, ERSAC — ver models/CompaniaCodigo.js),
+    // coincide con sociedadesPago, no con operations (que es más granular, ej. GBADC).
+    const sociedades = req.user.sociedadesPago || [];
+    const allowed = isAdmin(req.user) || !sociedades.length ? null : sociedades;
     if (allowed && compania && !allowed.includes(compania))
       return res.status(403).json({ error: 'Sin acceso a esta empresa' });
     const filter = compania
