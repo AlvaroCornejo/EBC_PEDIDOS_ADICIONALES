@@ -258,7 +258,7 @@ const NAV_ITEMS = [
   { id: 'aprobar',        label: 'Aprobar',         icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
   { id: 'atender',        label: 'Atender',         icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
   { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
-  { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT], extraPerm: 'puedeVerComparativo' },
+  { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerComparativo' },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'pronostico-venta', label: 'Pronóstico de Venta', icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerPronosticoVenta' },
   { id: 'recetas-costeo', label: 'Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'puedeVerCosteoRecetas' },

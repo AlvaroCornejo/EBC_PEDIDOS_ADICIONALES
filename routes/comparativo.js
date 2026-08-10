@@ -5,6 +5,12 @@ const ComparativoOC = require('../models/ComparativoOC');
 const router = express.Router();
 router.use(authMiddleware);
 
+function requireAccess(req, res, next) {
+  if (req.user.role === 'ADMIN' || req.user.puedeVerComparativo) return next();
+  return res.status(403).json({ error: 'Sin acceso a Comparativo OC' });
+}
+router.use(requireAccess);
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Últimos N añosem desde hoy */

@@ -261,6 +261,9 @@ router.get('/item-data', async (req, res) => {
 /** GET /api/datos/kardex-item?item=ID&operacion=AASI&semanas=8 */
 router.get('/kardex-item', async (req, res) => {
   try {
+    if (req.user.role !== 'ADMIN' && !req.user.puedeVerKardex) {
+      return res.status(403).json({ error: 'Sin acceso al Kardex' });
+    }
     const { item, operacion, semanas: semQ } = req.query;
     if (!item || !operacion) return res.status(400).json({ error: 'item y operacion requeridos' });
     if (!checkOpAccess(req.user, operacion))

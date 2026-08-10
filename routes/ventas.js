@@ -5,6 +5,12 @@ const VentasTip = require('../models/VentasTip');
 const router = express.Router();
 router.use(authMiddleware);
 
+function requireAccess(req, res, next) {
+  if (req.user.role === 'ADMIN' || req.user.puedeVerVentas) return next();
+  return res.status(403).json({ error: 'Sin acceso a Venta & TIP' });
+}
+router.use(requireAccess);
+
 const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 /** Filtro de operaciones según perfil del usuario */

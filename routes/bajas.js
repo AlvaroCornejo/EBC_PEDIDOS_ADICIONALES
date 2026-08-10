@@ -6,6 +6,12 @@ const CompraItem       = require('../models/CompraItem');
 const router = express.Router();
 router.use(authMiddleware);
 
+function requireAccess(req, res, next) {
+  if (req.user.role === 'ADMIN' || req.user.puedeVerBajas) return next();
+  return res.status(403).json({ error: 'Sin acceso a Seguimiento de Bajas' });
+}
+router.use(requireAccess);
+
 function opsFilter(user, operacionParam) {
   const userOps = user.role === 'ADMIN' ? null : (user.operations || []);
   if (operacionParam) {
