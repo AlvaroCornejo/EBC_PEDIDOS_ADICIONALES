@@ -18,6 +18,7 @@
 ::    11. EBC EERR (Estado de Resultados) -> MongoDB
 ::    12. EBC EERR Costo de Venta (Detalle) -> MongoDB
 ::    13. Conciliacion de Cobranzas (EECC + Cobranza + TC) -> MongoDB
+::    14. Costeo de Recetas                 -> MongoDB
 :: ============================================================
 
 setlocal
@@ -39,81 +40,87 @@ echo ============================================================
 
 :: -- 1. Sync Excel ADICIONALES --
 echo.
-echo [1/12] Sync Excel Pedidos (ADICIONALES + git push)
+echo [1/14] Sync Excel Pedidos (ADICIONALES + git push)
 call "%APP%\sync-excel.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-excel & set ERRORES=1) else echo  OK
 
 :: -- 2. OC Ingresos Actualizacion --
 echo.
-echo [2/12] OC Ingresos Actualizacion
+echo [2/14] OC Ingresos Actualizacion
 call "%APP%\sync-oc-ingresos.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-oc-ingresos & set ERRORES=1) else echo  OK
 
 :: -- 3. Comparativo OC -> MongoDB --
 echo.
-echo [3/12] Comparativo OC
+echo [3/14] Comparativo OC
 call "%APP%\sync-comparativo.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-comparativo & set ERRORES=1) else echo  OK
 
 :: -- 4. Ventas / TIP -> MongoDB --
 echo.
-echo [4/13] Ventas / TIP
+echo [4/14] Ventas / TIP
 call "%APP%\sync-ventas.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-ventas & set ERRORES=1) else echo  OK
 
 :: -- 5. Venta por Canal (Pronostico de Venta) -> MongoDB --
 echo.
-echo [5/13] Venta por Canal - Pronostico de Venta
+echo [5/14] Venta por Canal - Pronostico de Venta
 call "%APP%\sync-venta-canal.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-venta-canal & set ERRORES=1) else echo  OK
 
 :: -- 6. Bajas -> MongoDB --
 echo.
-echo [6/13] Bajas
+echo [6/14] Bajas
 call "%APP%\sync-bajas.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-bajas & set ERRORES=1) else echo  OK
 
 :: -- 7. Compras Historicas -> MongoDB --
 echo.
-echo [7/13] Compras Historicas
+echo [7/14] Compras Historicas
 call "%APP%\scripts\ejecutar-importacion.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en importacion compras & set ERRORES=1) else echo  OK
 
 :: -- 8. Items -> MongoDB --
 echo.
-echo [8/13] Items
+echo [8/14] Items
 call "%APP%\sync-items.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-items & set ERRORES=1) else echo  OK
 
 :: -- 9. Recetas Planta -> MongoDB --
 echo.
-echo [9/13] Recetas Planta
+echo [9/14] Recetas Planta
 call "%APP%\sync-recetas.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-recetas & set ERRORES=1) else echo  OK
 
 :: -- 10. EBC Obligaciones -> MongoDB --
 echo.
-echo [10/13] EBC Obligaciones
+echo [10/14] EBC Obligaciones
 call "%APP%\sync-obligaciones.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-obligaciones & set ERRORES=1) else echo  OK
 
 :: -- 11. EBC EERR (Estado de Resultados) -> MongoDB --
 echo.
-echo [11/13] EBC EERR - Estado de Resultados
+echo [11/14] EBC EERR - Estado de Resultados
 call "%APP%\sync-eerr.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-eerr ^& set ERRORES=1) else echo  OK
 
 :: -- 12. EBC EERR Costo de Venta (Detalle) -> MongoDB --
 echo.
-echo [12/13] EBC EERR Costo de Venta - Detalle
+echo [12/14] EBC EERR Costo de Venta - Detalle
 call "%APP%\sync-costoventa.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-costoventa & set ERRORES=1) else echo  OK
 
 :: -- 13. Conciliacion de Cobranzas (EECC + Cobranza + TC) -> MongoDB --
 echo.
-echo [13/13] Conciliacion de Cobranzas
+echo [13/14] Conciliacion de Cobranzas
 call "%APP%\sync-conciliacion.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-conciliacion ^& set ERRORES=1) else echo  OK
+
+:: -- 14. Costeo de Recetas -> MongoDB --
+echo.
+echo [14/14] Costeo de Recetas
+call "%APP%\sync-recetas-costeo.bat"
+if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-recetas-costeo & set ERRORES=1) else echo  OK
 
 :: -- Resumen --
 echo.

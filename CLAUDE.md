@@ -60,6 +60,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 - `puedeVerComparativo`: boolean — acceso a Comparativo OC / Ingresos al Almacén
 - `puedeVerVentas`: boolean — acceso a Venta & TIP por Operación
 - `puedeVerPronosticoVenta`: boolean — acceso a Pronóstico de Venta (scoped por `operations`, igual que `puedeVerVentas`)
+- `puedeVerCosteoRecetas`: boolean — acceso a Costeo de Recetas (scoped por `operations`, igual que `puedeVerVentas`)
 - `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
 - `sociedadesCompra`: array — sociedades para ver Precios de Compra (códigos del catálogo `Sociedad`, ver sección "Sociedades y Operaciones")
 - `operations`: array — operaciones asignadas al usuario
@@ -95,6 +96,13 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | KardexBajaVenta | `scripts/importBajas.js` | data/*ADICIONALES.xlsx | diario |
 | MaestroLinea/Familia/SubFamilia/TipoItem/UM/Item/ItemSociedad | `scripts/importMaestroTablas.js` | EBC TABLAS PARA ITEMS.xlsx | manual (al actualizar el Excel) |
 | MaestroCuenta | `scripts/importPlanContable.js` | EBC PLAN CONTABLE.xlsx | manual (al actualizar el Excel) |
+| RecetaCosteo / RecetaCosteoDetalle | `scripts/importRecetasCosteo.js` (vía `sync-recetas-costeo.bat`) | EBC RECETAS.xlsx | diario |
+
+> `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
+> costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
+> `routes/recetas.js`, montado en `/api/recetas`) — ese otro es el desglose recursivo de
+> recetas de planta desde `EBC JERARQUIA.xlsx`, usado en "Solicitud de Adicionales desde
+> Desglose". Nombres separados a propósito para no chocar.
 
 `scripts/importar-maestro-items.bat` corre ambos scripts en orden (con sus rutas de Box
 por defecto) — **no está en `sync-master.bat`**: ambos scripts hacen `deleteMany` +

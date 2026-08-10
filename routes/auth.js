@@ -13,6 +13,7 @@ function buildPayload(user) {
     puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo,
     puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas,
     puedeVerPronosticoVenta: !!user.puedeVerPronosticoVenta,
+    puedeVerCosteoRecetas: !!user.puedeVerCosteoRecetas,
     rolPago: user.rolPago || '',
     sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [],
     rolBCT: user.rolBCT || '', rol86: user.rol86 || '',

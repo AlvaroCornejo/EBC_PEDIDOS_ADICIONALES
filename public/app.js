@@ -261,6 +261,7 @@ const NAV_ITEMS = [
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT], extraPerm: 'puedeVerComparativo' },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'pronostico-venta', label: 'Pronóstico de Venta', icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerPronosticoVenta' },
+  { id: 'recetas-costeo', label: 'Costeo de Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'puedeVerCosteoRecetas' },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
   { id: 'maestro-items',  label: 'Maestro de Ítems', icon: '🗂️', roles: [ROLES.ADMIN], extraPerm: 'rolMaestroItems' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
@@ -329,7 +330,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -4048,6 +4049,198 @@ window._dglsEnviarSolicitud = async function(targetOp) {
     if (btn) { btn.disabled = false; btn.textContent = '📤 Enviar solicitud'; }
   }
 };
+
+// ─── View: Costeo de Recetas ────────────────────────────────────────
+async function viewCostoRecetas(container) {
+  const esAdmin = S.user.role === 'ADMIN';
+  const misOperaciones = esAdmin ? null : (S.user.operations || []);
+
+  let operacionActual = '';
+  let filtros = { grupo: '', item: '', nombre: '', semaforo: '' };
+  let debounceNombre = null;
+
+  const esc2 = s => esc(String(s ?? ''));
+  const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  const fmtPct = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+  const SEMAFORO_COLOR = { verde: '#22c55e', amarillo: '#eab308', rojo: '#ef4444', gris: '#94a3b8' };
+  const SEMAFORO_LABEL = { verde: 'Verde (≤5%)', amarillo: 'Amarillo (≤15%)', rojo: 'Rojo (>15%)', gris: 'Sin costo de receta' };
+  const semaforoDot = s => `<span title="${SEMAFORO_LABEL[s] || s}" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${SEMAFORO_COLOR[s] || '#ccc'}"></span>`;
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">🧾 Costeo de Recetas</div>
+    </div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="cr-operacion" class="form-control" style="width:160px">
+              <option value="">— Seleccionar —</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Grupo</label>
+            <select id="cr-grupo" class="form-control" style="width:180px">
+              <option value="">— Todos —</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Ítem</label>
+            <input type="number" id="cr-item" class="form-control" style="width:110px" placeholder="Código">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Nombre</label>
+            <input type="text" id="cr-nombre" class="form-control" style="width:220px" placeholder="Buscar por nombre...">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semáforo</label>
+            <select id="cr-semaforo" class="form-control" style="width:150px">
+              <option value="">— Todos —</option>
+              <option value="verde">🟢 Verde</option>
+              <option value="amarillo">🟡 Amarillo</option>
+              <option value="rojo">🔴 Rojo</option>
+              <option value="gris">⚪ Sin dato</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div id="cr-content"></div>
+    </div>`;
+
+  const root = document.getElementById('cr-content');
+
+  try {
+    const ops = await GET('/recetas-costeo/operaciones');
+    const disponibles = misOperaciones === null ? ops : ops.filter(o => misOperaciones.includes(o));
+    const sel = document.getElementById('cr-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + disponibles.map(o => `<option value="${esc2(o)}">${esc2(o)}</option>`).join('');
+    if (disponibles.length === 1) { sel.value = disponibles[0]; operacionActual = disponibles[0]; }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc2(e.message)}</p>`; return; }
+
+  document.getElementById('cr-operacion').addEventListener('change', async (e) => {
+    operacionActual = e.target.value;
+    filtros = { grupo: '', item: '', nombre: '', semaforo: '' };
+    document.getElementById('cr-grupo').innerHTML = '<option value="">— Todos —</option>';
+    document.getElementById('cr-item').value = '';
+    document.getElementById('cr-nombre').value = '';
+    document.getElementById('cr-semaforo').value = '';
+    await cargarGrupos();
+    await cargar();
+  });
+  document.getElementById('cr-grupo').addEventListener('change', (e) => { filtros.grupo = e.target.value; cargar(); });
+  document.getElementById('cr-item').addEventListener('input', (e) => { filtros.item = e.target.value; cargar(); });
+  document.getElementById('cr-nombre').addEventListener('input', (e) => {
+    filtros.nombre = e.target.value;
+    clearTimeout(debounceNombre);
+    debounceNombre = setTimeout(cargar, 300);
+  });
+  document.getElementById('cr-semaforo').addEventListener('change', (e) => { filtros.semaforo = e.target.value; cargar(); });
+
+  async function cargarGrupos() {
+    if (!operacionActual) return;
+    try {
+      const grupos = await GET(`/recetas-costeo/grupos?operacion=${encodeURIComponent(operacionActual)}`);
+      document.getElementById('cr-grupo').innerHTML = '<option value="">— Todos —</option>' + grupos.map(g => `<option value="${esc2(g)}">${esc2(g)}</option>`).join('');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function cargar() {
+    if (!operacionActual) { root.innerHTML = ''; return; }
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual });
+      if (filtros.grupo) params.set('grupo', filtros.grupo);
+      if (filtros.item) params.set('item', filtros.item);
+      if (filtros.nombre) params.set('nombre', filtros.nombre);
+      if (filtros.semaforo) params.set('semaforo', filtros.semaforo);
+      const filas = await GET(`/recetas-costeo/resumen?${params}`);
+      render(filas);
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc2(e.message)}</p>`; }
+  }
+
+  function render(filas) {
+    if (!filas.length) { root.innerHTML = '<div class="empty-state"><p>Sin ítems para los filtros elegidos.</p></div>'; return; }
+    root.innerHTML = `
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:13px">
+            <thead><tr>
+              <th>Grupo</th><th>Ítem</th><th>Nombre</th>
+              <th class="text-right">Costo Receta</th><th class="text-right">Costo Real</th>
+              <th class="text-right">Desviación</th><th class="text-center">Semáforo</th>
+            </tr></thead>
+            <tbody>
+              ${filas.map(f => `<tr class="cr-row" data-item="${f.item}" style="cursor:pointer">
+                <td>${esc2(f.grupo)}</td>
+                <td>${f.item}</td>
+                <td>${esc2(f.nombre)}</td>
+                <td class="text-right">${fmtMoney(f.costo)}</td>
+                <td class="text-right">${fmtMoney(f.costoReal)}</td>
+                <td class="text-right">${fmtPct(f.desviacionPct)}</td>
+                <td class="text-center">${semaforoDot(f.semaforo)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    root.querySelectorAll('.cr-row').forEach(tr => {
+      tr.addEventListener('click', () => verDetalle(parseInt(tr.dataset.item)));
+    });
+  }
+
+  async function verDetalle(item) {
+    try {
+      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}`);
+      const insumosHtml = d.insumos.map(i => `<tr>
+        <td>${i.insumo}</td>
+        <td>${esc2(i.nombreInsumo)}</td>
+        <td class="text-right">${Number(i.cantidad).toLocaleString('es-PE', { maximumFractionDigits: 4 })}</td>
+        <td class="text-right">${fmtMoney(i.unitario)}</td>
+        <td class="text-right">${fmtMoney(i.costo)}</td>
+        <td class="text-center">${i.mesa ? '✓' : '—'}</td>
+        <td class="text-center">${i.llevar ? '✓' : '—'}</td>
+        <td class="text-center">${i.delivery ? '✓' : '—'}</td>
+      </tr>`).join('');
+
+      const body = `
+        <div class="mb-16">
+          <div style="font-weight:600;font-size:15px">${esc2(d.nombre)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${d.grupo})</span></div>
+          <div style="display:flex;gap:20px;margin-top:8px;font-size:13px">
+            <div>Costo Receta: <strong>${fmtMoney(d.costo)}</strong></div>
+            <div>Costo Real: <strong>${fmtMoney(d.costoReal)}</strong></div>
+            <div>Semáforo: ${semaforoDot(d.semaforo)}</div>
+            <div>Batch: <strong>${d.batch}</strong></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:16px">
+          <div class="card" style="flex:1;padding:10px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted)">TOTAL MESA</div>
+            <div style="font-weight:700;font-size:16px">${fmtMoney(d.totales.mesa)}</div>
+          </div>
+          <div class="card" style="flex:1;padding:10px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted)">TOTAL LLEVAR</div>
+            <div style="font-weight:700;font-size:16px">${fmtMoney(d.totales.llevar)}</div>
+          </div>
+          <div class="card" style="flex:1;padding:10px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted)">TOTAL DELIVERY</div>
+            <div style="font-weight:700;font-size:16px">${fmtMoney(d.totales.delivery)}</div>
+          </div>
+        </div>
+        <div class="table-wrap" style="max-height:50vh;overflow-y:auto">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr>
+              <th>Insumo</th><th>Nombre</th><th class="text-right">Cantidad</th>
+              <th class="text-right">Unitario</th><th class="text-right">Costo</th>
+              <th class="text-center">Mesa</th><th class="text-center">Llevar</th><th class="text-center">Delivery</th>
+            </tr></thead>
+            <tbody>${insumosHtml}</tbody>
+          </table>
+        </div>`;
+      openModal(`Detalle de receta — Ítem ${d.item}`, body, null, { wide: true });
+    } catch (e) { toast(e.message, 'error'); }
+  }
+}
 
 // ─── View: Pronóstico de Venta ─────────────────────────────────────
 async function viewPronosticoVenta(container) {
@@ -14178,6 +14371,11 @@ function showUserModal(user, onSave, opts = {}) {
             <span>📈 <strong>Pronóstico de Venta</strong></span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-costeo-recetas" ${user?.puedeVerCosteoRecetas?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🧾 <strong>Costeo de Recetas</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-bajas" ${user?.puedeVerBajas?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🔻 <strong>Seguimiento de Bajas</strong></span>
@@ -14271,6 +14469,7 @@ function showUserModal(user, onSave, opts = {}) {
       puedeVerComparativo: !isAdmin && (document.getElementById('um-comparativo')?.checked ?? false),
       puedeVerVentas:      !isAdmin && (document.getElementById('um-ventas')?.checked      ?? false),
       puedeVerPronosticoVenta: !isAdmin && (document.getElementById('um-pronostico-venta')?.checked ?? false),
+      puedeVerCosteoRecetas: !isAdmin && (document.getElementById('um-costeo-recetas')?.checked ?? false),
       puedeVerBajas:       !isAdmin && (document.getElementById('um-bajas')?.checked       ?? false),
       accesoBajas:          !isAdmin && (document.getElementById('um-acc-bajas')?.checked          ?? false),
       accesoConsumos:       !isAdmin && (document.getElementById('um-acc-consumos')?.checked       ?? false),
