@@ -4834,7 +4834,7 @@ async function renderPaso1(container) {
           ${(S.user.rolPago === 'programador' || S.user.rolPago === 'admin' || S.user.role === 'ADMIN') ? `
           <!-- Pagos (todas las sociedades) -->
           <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
-            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Pagos (todas las sociedades)</label>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Pagos</label>
             <input type="file" id="pg-file-pagos" accept=".csv" style="display:none">
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-pagos').click()" style="width:100%;justify-content:center">
               📊 Seleccionar
@@ -4845,7 +4845,7 @@ async function renderPaso1(container) {
 
           <!-- Adelantos (todas las sociedades) -->
           <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
-            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Adelantos por Rendir (todas las sociedades)</label>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Por Rendir</label>
             <input type="file" id="pg-file-adelantos" accept=".csv" style="display:none">
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-adelantos').click()" style="width:100%;justify-content:center">
               💵 Seleccionar
@@ -5034,18 +5034,18 @@ async function renderPaso1(container) {
     if (!file) { toast('Selecciona el archivo EBC OBLIGACIONES.csv', 'error'); return; }
     const fd = new FormData();
     fd.append('archivo', file);
+    document.getElementById('pg-prog-wrap-ebc')?.remove();
+    pgSetProgress('ebc', 0, 'Iniciando...');
     try {
-      const res = await fetch(`${API}/obligaciones-ebc/cargar`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${S.token}` },
-        body: fd
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+      const data = await pgUploadXHR('/api/obligaciones-ebc/cargar', fd, 'ebc');
+      pgSetProgress('ebc', 100, `✓ ${data.insertados} obligaciones cargadas`);
       toast(`✅ ${data.insertados} obligaciones cargadas, ${data.reasignados||0} con pago ya programado reasignado (${(data.companias||[]).join(', ')})`, 'success');
       document.getElementById('pg-filename-ebc').textContent = 'Sin archivo';
       document.getElementById('pg-file-ebc').value = '';
-    } catch(e) { toast(e.message, 'error'); }
+    } catch(e) {
+      document.getElementById('pg-prog-wrap-ebc')?.remove();
+      toast(e.message, 'error');
+    }
   });
 
   // Ver relación de adelantos
@@ -5130,7 +5130,7 @@ async function renderPaso1(container) {
   };
 
   // ── Barra de progreso genérica ─────────────────────────────────────
-  // key: 'prog' | 'pagos' | 'adelantos'  — ancla en el botón pg-cargar[-key]
+  // key: 'prog' | 'pagos' | 'adelantos' | 'ebc'  — ancla en el botón pg-cargar[-key]
   function pgSetProgress(key, pct, label) {
     const btnId  = key === 'prog' ? 'pg-cargar' : `pg-cargar-${key}`;
     const wrapId = `pg-prog-wrap-${key}`;
