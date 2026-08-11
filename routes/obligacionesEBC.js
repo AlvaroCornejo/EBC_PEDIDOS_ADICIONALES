@@ -151,14 +151,44 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
     const rows = parseCSVObligaciones(req.file.buffer, mapaCompanias);
     if (!rows.length) return res.json({ ok: true, insertados: 0, message: 'Sin filas AP/PP en el archivo' });
 
-    // Identificar compañías afectadas y limpiar sus registros previos
+    // Identificar compañías afectadas
     const companiasAfectadas = [...new Set(rows.map(r => r.compania))];
+
+    // Antes de reemplazar, rescatar el estado de "incluido para pago" (seleccionadoPor/En,
+    // comentario, programacionId, pendienteNextProg) de los documentos existentes, para
+    // reasignarlo a la fila equivalente del archivo nuevo — si el documento ya no aparece en
+    // el archivo nuevo, se omite sin más (ya no vuelve a existir, así que no hay nada que
+    // reasignar). La llave de comparación es compania+numeroDocumento+tipoDocumento+proveedor,
+    // que es la combinación que identifica un mismo documento entre cargas.
+    const keyOf = r => `${r.compania}|${r.numeroDocumento}|${r.tipoDocumento}|${r.proveedorKey}`;
+    const previos = await ObligacionEBC.find(
+      { compania: { $in: companiasAfectadas } },
+      { compania: 1, numeroDocumento: 1, tipoDocumento: 1, proveedorKey: 1,
+        seleccionadoPor: 1, seleccionadoEn: 1, comentario: 1, programacionId: 1, pendienteNextProg: 1 }
+    ).lean();
+    const estadoPrevio = new Map();
+    previos.forEach(p => estadoPrevio.set(keyOf(p), p));
+
+    let reasignados = 0;
+    const rowsConEstado = rows.map(r => {
+      const prev = estadoPrevio.get(keyOf(r));
+      if (!prev) return r;
+      reasignados++;
+      return {
+        ...r,
+        seleccionadoPor:   prev.seleccionadoPor,
+        seleccionadoEn:    prev.seleccionadoEn,
+        comentario:        prev.comentario || '',
+        programacionId:    prev.programacionId,
+        pendienteNextProg: prev.pendienteNextProg || false,
+      };
+    });
+
+    // Reemplazo completo: limpiar y volver a insertar ya con el estado reasignado
     await ObligacionEBC.deleteMany({ compania: { $in: companiasAfectadas } });
+    await ObligacionEBC.insertMany(rowsConEstado);
 
-    // Insertar nuevos
-    await ObligacionEBC.insertMany(rows);
-
-    res.json({ ok: true, insertados: rows.length, companias: companiasAfectadas });
+    res.json({ ok: true, insertados: rows.length, reasignados, companias: companiasAfectadas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

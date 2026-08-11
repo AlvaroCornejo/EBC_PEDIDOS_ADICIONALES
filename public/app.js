@@ -5039,7 +5039,7 @@ async function renderPaso1(container) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
-      toast(`✅ ${data.insertados} obligaciones cargadas (${(data.companias||[]).join(', ')})`, 'success');
+      toast(`✅ ${data.insertados} obligaciones cargadas, ${data.reasignados||0} con pago ya programado reasignado (${(data.companias||[]).join(', ')})`, 'success');
       document.getElementById('pg-filename-ebc').textContent = 'Sin archivo';
       document.getElementById('pg-file-ebc').value = '';
     } catch(e) { toast(e.message, 'error'); }
@@ -11328,6 +11328,8 @@ async function renderAdminProyTiendas(container) {
 let _ebcCompanias     = [];
 let _ebcObligaciones  = [];
 let _ebcCompaniaActual = '';
+let _ebcFiltroProveedor = '';
+let _ebcFiltroDoc       = '';
 
 async function viewAutorizacionesPago(container) {
   const rolP = S.user.rolPago || (S.user.role === 'ADMIN' ? 'admin' : '');
@@ -11347,12 +11349,23 @@ async function viewAutorizacionesPago(container) {
     </div>
     <div class="page-body">
 
+      <div class="msg-info" style="margin-bottom:12px">
+        Los documentos incluidos hasta el lunes al final de día se programarán para el pago en esta semana.
+        Luego de ese plazo serán incluidos en el pago de la semana siguiente.
+      </div>
+
       <div class="card" style="padding:16px;margin-bottom:12px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <label style="font-size:13px;font-weight:600">Empresa:</label>
           <select id="ebc-compania-sel" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:160px">
             <option value="">— Seleccionar —</option>
           </select>
+          <label style="font-size:13px;font-weight:600;margin-left:8px">Proveedor:</label>
+          <input type="text" id="ebc-filtro-proveedor" placeholder="Buscar proveedor…"
+            style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:180px">
+          <label style="font-size:13px;font-weight:600">N° Documento:</label>
+          <input type="text" id="ebc-filtro-doc" placeholder="Buscar N° doc…"
+            style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:140px">
           <button class="btn btn-outline btn-sm" id="ebc-refresh-btn">🔄 Actualizar</button>
         </div>
       </div>
@@ -11388,6 +11401,13 @@ async function viewAutorizacionesPago(container) {
 
   document.getElementById('ebc-refresh-btn').addEventListener('click', () => ebcCargarTabla());
 
+  const inpProveedor = document.getElementById('ebc-filtro-proveedor');
+  const inpDoc       = document.getElementById('ebc-filtro-doc');
+  inpProveedor.value = _ebcFiltroProveedor;
+  inpDoc.value       = _ebcFiltroDoc;
+  inpProveedor.addEventListener('input', (e) => { _ebcFiltroProveedor = e.target.value; ebcRenderTabla(); });
+  inpDoc.addEventListener('input', (e) => { _ebcFiltroDoc = e.target.value; ebcRenderTabla(); });
+
   // Auto-cargar si ya hay compañía seleccionada
   if (_ebcCompaniaActual) ebcCargarTabla();
 }
@@ -11412,10 +11432,21 @@ async function ebcCargarTabla() {
 function ebcRenderTabla() {
   const wrap = document.getElementById('ebc-tabla-wrap');
   if (!wrap) return;
-  const obs = _ebcObligaciones;
+
+  if (!_ebcObligaciones.length) {
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin obligaciones AP/PP para esta empresa</p></div>`;
+    return;
+  }
+
+  const fProv = _ebcFiltroProveedor.trim().toUpperCase();
+  const fDoc  = _ebcFiltroDoc.trim().toUpperCase();
+  const obs = _ebcObligaciones.filter(o =>
+    (!fProv || (o.proveedor || '').toUpperCase().includes(fProv))
+    && (!fDoc || (o.numeroDocumento || '').toUpperCase().includes(fDoc))
+  );
 
   if (!obs.length) {
-    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>Sin obligaciones AP/PP para esta empresa</p></div>`;
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><p>Sin resultados para el filtro aplicado</p></div>`;
     return;
   }
 
@@ -14252,6 +14283,8 @@ async function renderAdminUsuarios(container) {
   let users = [];
   try { users = await GET('/users'); } catch (err) { toast(err.message, 'error'); }
 
+  users.sort((a, b) => (a.username || '').localeCompare(b.username || '', 'es', { sensitivity: 'base' }));
+
   const allOps = [...new Set(users.flatMap(u => u.operations || []))];
 
   container.innerHTML = `
@@ -14263,13 +14296,12 @@ async function renderAdminUsuarios(container) {
       <div class="table-wrap">
         <table id="users-table">
           <thead><tr>
-            <th>Usuario</th><th>Email</th><th>Rol</th><th>Operaciones</th><th class="col-actions">Acciones</th>
+            <th>Usuario</th><th>Email</th><th>Operaciones</th><th class="col-actions">Acciones</th>
           </tr></thead>
           <tbody>
             ${users.map(u => `<tr data-uid="${u.id}">
               <td><strong>${esc(u.username)}</strong></td>
               <td>${esc(u.email)}</td>
-              <td><span class="badge" style="background:#e0e7ff;color:#3730a3">${esc(ROLE_LABELS[u.role] || u.role)}</span></td>
               <td>${(u.operations||[]).map(o=>`<span class="badge" style="background:#f0fdf4;color:#166534;margin-right:4px">${esc(o)}</span>`).join('')}</td>
               <td class="col-actions">
                 <div class="flex gap-8 justify-center">
