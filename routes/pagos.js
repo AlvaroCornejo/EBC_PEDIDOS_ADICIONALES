@@ -9,6 +9,7 @@ const PagoDetalleGrupo   = require('../models/PagoDetalleGrupo');
 const PagoBanco          = require('../models/PagoBanco');
 const EstadoCuenta       = require('../models/EstadoCuenta');
 const PagoAdelanto       = require('../models/PagoAdelanto');
+const CompaniaCodigo     = require('../models/CompaniaCodigo');
 
 const router  = express.Router();
 const upload  = multer({ storage: multer.memoryStorage() });
@@ -33,6 +34,19 @@ function checkSocAccess(user, compania) {
   const socs = socsPago(user);
   if (socs === null) return true;       // admin ve todas
   return socs.includes(compania);
+}
+
+/** Programador/admin: puede cargar archivos globales que afectan varias sociedades a la vez */
+function isProgramador(user) {
+  return user.role === 'ADMIN' || user.rolPago === 'programador' || user.rolPago === 'admin';
+}
+
+/** Mapa codigo→compania (CompaniaCodigo), mismo catálogo que usa Obligaciones EBC */
+async function mapaCompaniasPorCodigo() {
+  const docs = await CompaniaCodigo.find().lean();
+  const mapa = {};
+  docs.forEach(d => { mapa[d.codigo] = d.compania; });
+  return mapa;
 }
 
 /** Filtro MongoDB de sociedad para el usuario */
@@ -166,14 +180,23 @@ function parseCSVProgramacion(buffer) {
  * 11  TipoAdelanto
  * 13  Busqueda (2)       → responsable interno
  * 14  CentroCostos
+ * CompaniaSocio no está duplicada, así que esa sí se resuelve por nombre de columna
+ * (más robusto si el archivo cambia de orden) — trae el mismo código que
+ * CompaniaCodigo (ver models/CompaniaCodigo.js) pero con 2 caracteres de más al final
+ * (ej. "00000100" → quitando los últimos 2 → "000001"), hay que recortarlos para que
+ * calce con el catálogo.
  */
 function parseCSVAdelantos(buffer) {
   const text  = buffer.toString('latin1').replace(/\r/g, '');
   const lines = text.split('\n').filter(l => l.trim());
+  const headers = parseCSVLine(lines[0]).map(h => h.trim());
+  const idxCompania = headers.indexOf('CompaniaSocio');
+  if (idxCompania === -1) throw new Error('No se encontró la columna CompaniaSocio en el archivo');
   return lines.slice(1).map(line => {
     const v = parseCSVLine(line);
     const get = i => (v[i] || '').trim();
     return {
+      companiaCodigo: get(idxCompania).slice(0, -2),
       numeroAdelanto: get(1),
       fechaDocumento: parseFecha(get(4)),
       montoTotal:     parseFloat(get(6)) || 0,
@@ -465,28 +488,30 @@ router.post('/cargar', upload.single('archivo'), async (req, res) => {
 });
 
 // ── POST /api/pagos/adelantos/cargar ─────────────────────────────────────────
-// Carga ADELANTOS.csv — reemplaza los adelantos previos de la compañía
+// Carga ADELANTOS.csv — una sola vez para TODAS las sociedades (cada fila trae su propia
+// compañía vía CompaniaSocio, igual patrón que Obligaciones EBC). Reemplaza los adelantos
+// previos solo de las sociedades presentes en el archivo.
 router.post('/adelantos/cargar', upload.single('archivo'), async (req, res) => {
   try {
+    if (!isProgramador(req.user)) return res.status(403).json({ error: 'Sin acceso para cargar' });
     if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
-    const { compania } = req.body;
-    if (!compania)     return res.status(400).json({ error: 'Compañía requerida' });
-    if (!checkSocAccess(req.user, compania))
-      return res.status(403).json({ error: 'Sociedad no autorizada' });
 
     const rows = parseCSVAdelantos(req.file.buffer);
     if (!rows.length) return res.status(400).json({ error: 'Archivo vacío o inválido' });
 
-    await PagoAdelanto.deleteMany({ compania });
-    const docs = rows.map(r => ({
+    const mapaCompanias = await mapaCompaniasPorCodigo();
+    const docs = rows.map(({ companiaCodigo, ...r }) => ({
       ...r,
-      compania,
+      compania: mapaCompanias[companiaCodigo] || companiaCodigo,
       proveedorKey: r.proveedor.trim().toUpperCase(),
     }));
+
+    const companiasAfectadas = [...new Set(docs.map(d => d.compania))];
+    await PagoAdelanto.deleteMany({ compania: { $in: companiasAfectadas } });
     await PagoAdelanto.insertMany(docs);
 
     const proveedores = new Set(docs.map(d => d.proveedorKey));
-    res.json({ ok: true, total: docs.length, proveedores: proveedores.size });
+    res.json({ ok: true, total: docs.length, proveedores: proveedores.size, companias: companiasAfectadas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -754,14 +779,20 @@ router.put('/programaciones/:progId/grupo-beneficiario', async (req, res) => {
 });
 
 // ── POST /api/pagos/cargar-pagos ──────────────────────────────────────────────
-// Carga Q PAGOS.csv y devuelve promedio de pago por beneficiario (últimas 4 semanas)
+// Carga Q PAGOS.csv UNA sola vez para TODAS las sociedades — cada fila trae su propia
+// compañía vía CompaniaCodigo (mismo catálogo que Obligaciones EBC, sin recorte). Calcula
+// el promedio de pago por beneficiario (últimas 4 semanas) POR COMPAÑÍA (antes se
+// mezclaban todas las sociedades en un solo cálculo) y lo guarda en la programación
+// editable (borrador/pendiente) más reciente de cada sociedad — si una sociedad no tiene
+// ninguna programación editable en ese momento, se omite (no hay dónde guardarlo aún).
 router.post('/cargar-pagos', upload.single('archivo'), async (req, res) => {
   try {
+    if (!isProgramador(req.user)) return res.status(403).json({ error: 'Sin acceso para cargar' });
     if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
-    const { progId } = req.body;
     const rows = parseCSV(req.file.buffer);
+    const mapaCompanias = await mapaCompaniasPorCodigo();
 
-    // Primero: recopilar todas las fechas válidas para hallar las 4 semanas más recientes del archivo
+    // Recopilar filas válidas junto con su compañía resuelta
     const parsedRows = [];
     for (const r of rows) {
       const pagarA = (r['PagarA'] || '').trim();
@@ -771,37 +802,49 @@ router.post('/cargar-pagos', upload.single('archivo'), async (req, res) => {
       if (!fecha || isNaN(fecha)) continue;
       const monto = parseFloat(r['PagoMonedaLocal'] || r['PagoMonedaExtranjera'] || 0) || 0;
       const clave = `${fecha.getFullYear()}-${String(isoWeek(fecha)).padStart(2,'0')}`;
-      parsedRows.push({ pagarA, monto, clave });
+      const companiaCodigo = (r['CompaniaCodigo'] || '').trim();
+      const compania = mapaCompanias[companiaCodigo] || companiaCodigo;
+      parsedRows.push({ pagarA, monto, clave, compania });
     }
 
-    // Obtener las 4 semanas más recientes presentes en el archivo
+    // Las 4 semanas más recientes presentes en el archivo (globales, igual criterio que antes)
     const todasSemanas = [...new Set(parsedRows.map(r => r.clave))].sort().reverse();
     const semanas4 = new Set(todasSemanas.slice(0, 4));
 
-    // Acumular por beneficiario (solo las 4 semanas más recientes)
-    const benef = {};
+    // Acumular por compañía + beneficiario (solo las 4 semanas más recientes)
+    const porCompania = {}; // compania -> { pagarA -> {total, semanas:Set} }
     for (const r of parsedRows) {
       if (!semanas4.has(r.clave)) continue;
+      if (!porCompania[r.compania]) porCompania[r.compania] = {};
+      const benef = porCompania[r.compania];
       if (!benef[r.pagarA]) benef[r.pagarA] = { total: 0, semanas: new Set() };
       benef[r.pagarA].total += r.monto;
       benef[r.pagarA].semanas.add(r.clave);
     }
 
-    // Calcular promedio
-    const resultado = {};
-    for (const [pa, d] of Object.entries(benef)) {
-      resultado[pa.toUpperCase()] = {
-        total:    d.total,
-        semanas:  d.semanas.size,
-        promedio: d.semanas.size > 0 ? d.total / d.semanas.size : 0,
-      };
-    }
-    // Guardar en la programación si se proporcionó un progId
-    if (progId) {
-      await PagoProgramacion.findByIdAndUpdate(progId, { promediosPagos: resultado });
+    const actualizadas = [];
+    const sinProgramacionAbierta = [];
+    for (const [compania, benef] of Object.entries(porCompania)) {
+      const resultado = {};
+      for (const [pa, d] of Object.entries(benef)) {
+        resultado[pa.toUpperCase()] = {
+          total:    d.total,
+          semanas:  d.semanas.size,
+          promedio: d.semanas.size > 0 ? d.total / d.semanas.size : 0,
+        };
+      }
+      const prog = await PagoProgramacion.findOne(
+        { compania, estado: { $in: ['borrador', 'pendiente'] } }
+      ).sort({ creadoEn: -1 });
+      if (prog) {
+        await PagoProgramacion.findByIdAndUpdate(prog._id, { promediosPagos: resultado });
+        actualizadas.push(compania);
+      } else {
+        sinProgramacionAbierta.push(compania);
+      }
     }
 
-    res.json(resultado);
+    res.json({ ok: true, companias: Object.keys(porCompania), actualizadas, sinProgramacionAbierta });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

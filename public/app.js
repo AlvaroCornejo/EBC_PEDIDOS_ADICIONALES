@@ -4830,9 +4830,11 @@ async function renderPaso1(container) {
             <button class="btn btn-outline btn-sm" id="pg-agregar" style="width:100%;justify-content:center">➕ Agregar oblig.</button>
           </div>
 
-          <!-- Pagos -->
+          <!-- Cargas globales — una sola vez para TODAS las sociedades (solo programador/admin) -->
+          ${(S.user.rolPago === 'programador' || S.user.rolPago === 'admin' || S.user.role === 'ADMIN') ? `
+          <!-- Pagos (todas las sociedades) -->
           <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
-            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Pagos</label>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Pagos (todas las sociedades)</label>
             <input type="file" id="pg-file-pagos" accept=".csv" style="display:none">
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-pagos').click()" style="width:100%;justify-content:center">
               📊 Seleccionar
@@ -4841,9 +4843,9 @@ async function renderPaso1(container) {
             <button class="btn btn-primary btn-sm" id="pg-cargar-pagos" style="width:100%;justify-content:center">📂 Cargar</button>
           </div>
 
-          <!-- Adelantos -->
+          <!-- Adelantos (todas las sociedades) -->
           <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
-            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Adelantos por Rendir</label>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Adelantos por Rendir (todas las sociedades)</label>
             <input type="file" id="pg-file-adelantos" accept=".csv" style="display:none">
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('pg-file-adelantos').click()" style="width:100%;justify-content:center">
               💵 Seleccionar
@@ -4852,8 +4854,7 @@ async function renderPaso1(container) {
             <button class="btn btn-primary btn-sm" id="pg-cargar-adelantos" style="width:100%;justify-content:center">📂 Cargar</button>
           </div>
 
-          <!-- EBC Obligaciones (solo programador/admin) -->
-          ${(S.user.rolPago === 'programador' || S.user.rolPago === 'admin' || S.user.role === 'ADMIN') ? `
+          <!-- EBC Obligaciones -->
           <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
             <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Obligaciones EBC</label>
             <input type="file" id="pg-file-ebc" accept=".csv" style="display:none">
@@ -4971,19 +4972,24 @@ async function renderPaso1(container) {
   document.getElementById('pg-cargar-pagos').addEventListener('click', async () => {
     const file = document.getElementById('pg-file-pagos').files[0];
     if (!file) { toast('Selecciona el archivo de Pagos', 'error'); return; }
-    if (!progActual?._id) { toast('Abre una programación de la lista antes de cargar Pagos — si no, el promedio no queda guardado', 'error'); return; }
     const fd = new FormData();
     fd.append('archivo', file);
-    fd.append('progId', progActual._id);
     document.getElementById('pg-prog-wrap-pagos')?.remove();
     pgSetProgress('pagos', 0, 'Iniciando...');
     try {
       const data = await pgUploadXHR('/api/pagos/cargar-pagos', fd, 'pagos');
       pgSetProgress('pagos', 95, 'Actualizando resúmenes...');
-      pagosPromedios = data;
-      renderResumenes();
-      pgSetProgress('pagos', 100, `✓ ${Object.keys(data).length} proveedores cargados`);
-      toast(`Pagos cargados — ${Object.keys(data).length} proveedores`, 'success');
+      // Si la programación abierta en pantalla es de una de las sociedades actualizadas,
+      // recargarla para reflejar el promedio nuevo (se guardó directo en la BD por compañía).
+      if (progActual?._id && (data.actualizadas || []).includes(progActual.compania)) {
+        progActual = await GET(`/pagos/programaciones/${progActual._id}`);
+        pagosPromedios = progActual.promediosPagos || {};
+        renderResumenes();
+      }
+      pgSetProgress('pagos', 100, `✓ ${(data.actualizadas||[]).length} sociedades actualizadas`);
+      const omitidas = (data.sinProgramacionAbierta||[]).length
+        ? ` — sin programación abierta (omitidas): ${data.sinProgramacionAbierta.join(', ')}` : '';
+      toast(`Pagos cargados — actualizadas: ${(data.actualizadas||[]).join(', ') || 'ninguna'}${omitidas}`, 'success');
     } catch(e) {
       document.getElementById('pg-prog-wrap-pagos')?.remove();
       toast(e.message, 'error');
@@ -4996,25 +5002,22 @@ async function renderPaso1(container) {
     document.getElementById('pg-filename-adelantos').textContent = f ? f.name : 'Sin archivo';
   });
   document.getElementById('pg-cargar-adelantos').addEventListener('click', async () => {
-    const compania = document.getElementById('pg-compania').value;
-    if (!compania) { toast('Selecciona una sociedad', 'error'); return; }
     const file = document.getElementById('pg-file-adelantos').files[0];
     if (!file) { toast('Selecciona el archivo de Adelantos', 'error'); return; }
     const fd = new FormData();
     fd.append('archivo', file);
-    fd.append('compania', compania);
     document.getElementById('pg-prog-wrap-adelantos')?.remove();
     pgSetProgress('adelantos', 0, 'Iniciando...');
     try {
       const data = await pgUploadXHR('/api/pagos/adelantos/cargar', fd, 'adelantos');
       pgSetProgress('adelantos', 90, 'Actualizando tabla...');
-      delete _pgAdelantosCache[compania];
-      if (progActual?.compania === compania) {
-        await pgAdelantosResumen(compania);
+      (data.companias || []).forEach(c => delete _pgAdelantosCache[c]);
+      if (progActual?.compania && (data.companias || []).includes(progActual.compania)) {
+        await pgAdelantosResumen(progActual.compania);
         renderTabla();
       }
       pgSetProgress('adelantos', 100, `✓ ${data.total} docs, ${data.proveedores} proveedores`);
-      toast(`Adelantos cargados — ${data.total} documentos, ${data.proveedores} proveedores`, 'success');
+      toast(`Adelantos cargados — ${data.total} documentos en ${(data.companias||[]).length} sociedades`, 'success');
     } catch(e) {
       document.getElementById('pg-prog-wrap-adelantos')?.remove();
       toast(e.message, 'error');
