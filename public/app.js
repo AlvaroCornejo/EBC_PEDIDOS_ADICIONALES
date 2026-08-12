@@ -12070,7 +12070,10 @@ async function viewPL(container) {
       });
       const exportRowsDetallado = rowsDetallado.map(row => {
         const rawLabel = row.type === 'item' ? row.grupo : row.label;
-        const label = rawLabel.replace(/^TOTAL\s+/i, '');
+        // Sangría (con espacios, no CSS — esto va a Excel) para los items que son el detalle
+        // de un subtotal, así se distinguen visualmente de las líneas de TOTAL/subtotal.
+        const esHijoDeSubtotal = row.type === 'item' && gruposEnSubtotal.has(row.grupo);
+        const label = (esHijoDeSubtotal ? '    ' : '') + rawLabel.replace(/^TOTAL\s+/i, '');
         const tot = getTotal(row);
         const exportRow = { concepto: label };
         colsData.forEach(col => { exportRow[fmtCol(col)] = getVal(row, col); });
