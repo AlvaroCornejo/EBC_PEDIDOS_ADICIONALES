@@ -11790,6 +11790,7 @@ async function viewPL(container) {
         </div>
         <button class="btn btn-primary" onclick="plConsultar()">🔍 Consultar</button>
         <button class="btn btn-outline" id="pl-export-btn" style="display:none" onclick="plExportarExcel()">📥 Exportar a Excel</button>
+        <button class="btn btn-outline" id="pl-export-vista-btn" style="display:none" onclick="exportarVistaExcel('pl-resultado','pl-detalle')">📥 Exportar vista actual</button>
       </div>
       ${renderOpsSection(unidadesDisp)}
     </div>
@@ -12129,6 +12130,8 @@ async function viewPL(container) {
 
       const exportBtn = document.getElementById('pl-export-btn');
       if (exportBtn) exportBtn.style.display = '';
+      const exportVistaBtn = document.getElementById('pl-export-vista-btn');
+      if (exportVistaBtn) exportVistaBtn.style.display = '';
 
     } catch(e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   };
@@ -12137,24 +12140,11 @@ async function viewPL(container) {
     const { exportRows } = window._plContext || {};
     if (!exportRows || !exportRows.length) { toast('No hay datos para exportar', 'warning'); return; }
     const headers = Object.keys(exportRows[0]);
-    const escCsv = v => {
-      const s = v === null || v === undefined ? '' : String(v);
-      return /[",\n;]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
-    };
-    const lines = [headers.map(escCsv).join(';')];
-    exportRows.forEach(r => {
-      lines.push(headers.map(h => escCsv(typeof r[h] === 'number' ? r[h].toFixed(2) : r[h])).join(';'));
-    });
-    const csv = '﻿' + lines.join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `PL_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    const filas = [headers, ...exportRows.map(r => headers.map(h => {
+      const v = r[h];
+      return typeof v === 'number' ? Number(v.toFixed(2)) : (v ?? '');
+    }))];
+    descargarComoExcel(`PL_${today()}`, [{ nombre: 'PL', filas }]);
   };
 
   const _plFmtN = v => {
