@@ -12058,6 +12058,27 @@ async function viewPL(container) {
         }
       });
 
+      // Export "un nivel más": igual que exportRows, pero SIN excluir los items que están
+      // dentro de un subtotal (ej. SUELDOS, ASIGNACION FAMILIAR... bajo TOTAL PLANILLA) —
+      // se arma con la misma regla de "ocultar standalone en cero" aplicada a TODOS los items.
+      const alwaysShowItems = new Set(['PARTICIPACION DE LOS TRABAJADORES', 'IMPUESTO A LA RENTA']);
+      const rowsDetallado = PL_ESTRUCTURA.filter(r => r.type !== 'header').filter(r => {
+        if (r.type !== 'item') return true;
+        if (alwaysShowItems.has(r.grupo || '')) return true;
+        const total = colsData.reduce((s, c) => s + Math.abs(getVal(r, c) || 0), 0);
+        return total !== 0;
+      });
+      const exportRowsDetallado = rowsDetallado.map(row => {
+        const rawLabel = row.type === 'item' ? row.grupo : row.label;
+        const label = rawLabel.replace(/^TOTAL\s+/i, '');
+        const tot = getTotal(row);
+        const exportRow = { concepto: label };
+        colsData.forEach(col => { exportRow[fmtCol(col)] = getVal(row, col); });
+        if (showTotal) exportRow['TOTAL'] = tot;
+        if (multiSede) { exportRow['ELIMINACION'] = 0; exportRow['TOTAL NETO'] = tot; }
+        return exportRow;
+      });
+
       // Balance check por columna: rawTotalByCol debe coincidir con UTIL_NETA_DI calculado por columna
       const utilNetaDIRow = PL_ESTRUCTURA.find(r => r.key === 'UTIL_NETA_DI');
       if (utilNetaDIRow) {
@@ -12125,6 +12146,7 @@ async function viewPL(container) {
       colsData.forEach(c => { ventaNetaPorCol[c] = getVentaNeta(c); });
       window._plContext = {
         periodoDesde, periodoHasta, cols, unidades, lookup, colsData, multiSede, exportRows,
+        exportRowsDetallado,
         ventaNetaPorCol, ventaNetaTotalVal: getVentaNeta(totalCol), showTotal, fmtCol,
       };
 
@@ -12137,7 +12159,8 @@ async function viewPL(container) {
   };
 
   window.plExportarExcel = function() {
-    const { exportRows } = window._plContext || {};
+    const { exportRowsDetallado } = window._plContext || {};
+    const exportRows = exportRowsDetallado;
     if (!exportRows || !exportRows.length) { toast('No hay datos para exportar', 'warning'); return; }
     const headers = Object.keys(exportRows[0]);
     const filas = [headers, ...exportRows.map(r => headers.map(h => {
@@ -15692,7 +15715,15 @@ function exportarVistaExcel(containerId, nombreArchivo) {
   const celda = c => {
     const chk = c.querySelector('input[type="checkbox"]');
     if (chk) return chk.checked ? 'Sí' : 'No';
-    return String(c.innerText || c.textContent || '').replace(/\s+/g, ' ').trim();
+    // Si la celda contiene una tabla anidada (ej. detalle expandido en PL), no mezclar su
+    // texto acá — esa tabla ya se captura aparte como su propia hoja más abajo, y si no se
+    // excluye, innerText junta todo el contenido de la tabla anidada en una sola celda.
+    let el = c;
+    if (c.querySelector('table')) {
+      el = c.cloneNode(true);
+      el.querySelectorAll('table').forEach(t => t.remove());
+    }
+    return String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
   };
   const hojas = tablas.map((t, ti) => ({
     nombre: tablas.length > 1 ? `Hoja${ti + 1}` : nombreArchivo,
