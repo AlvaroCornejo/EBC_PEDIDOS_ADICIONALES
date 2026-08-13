@@ -61,6 +61,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 - `puedeVerVentas`: boolean — acceso a Venta & TIP por Operación
 - `puedeVerPronosticoVenta`: boolean — acceso a Pronóstico de Venta (scoped por `operations`, igual que `puedeVerVentas`)
 - `puedeVerCosteoRecetas`: boolean — acceso a Costeo de Recetas (scoped por `operations`, igual que `puedeVerVentas`)
+- `rolPagoRecurrente`: '' | programador | registrador | consulta — acceso a Pagos Recurrentes (scoped por `operations`)
 - `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
 - `sociedadesCompra`: array — sociedades para ver Precios de Compra (códigos del catálogo `Sociedad`, ver sección "Sociedades y Operaciones")
 - `operations`: array — operaciones asignadas al usuario
@@ -441,3 +442,46 @@ AUTORIZACION, MONEDA`.
   (no promedio simple de porcentajes por transacción). Devuelve `null` si el denominador es 0
   (se muestra "—" en vez de dividir por cero). Incluye una columna TOTAL por mes (todos los
   operadores juntos, mismo cálculo agregado).
+
+### Sesión 7 — Pagos Recurrentes
+
+Nuevo módulo para controlar pagos recurrentes (electricidad, agua, internet, etc.) por
+operación, sin depender de cargar archivos externos — a diferencia del resto de Gestión
+de Pagos, todo se ingresa a mano desde la UI.
+
+**Modelos** (`models/`):
+- `PagoRecurrenteTipo` — catálogo simple `{nombre, activo}` (Electricidad, Agua,
+  Internet...), mismo patrón que `PagoGrupoProveedor`.
+- `PagoRecurrenteRegla` — la regla de recurrencia: `{operacion, tipoPago, descripcion,
+  diaPago, intervaloMeses, montoEstimado, fechaInicio, activa}`.
+- `PagoRecurrenteProgramacion` — cada ocurrencia generada (lo que se lista/filtra/paga):
+  `{reglaId, operacion, tipoPago, descripcion, fechaProgramada, montoProgramado, estado:
+  pendiente|pagado|anulado, fechaPagoReal, montoPagoReal, comentario}`. Índice único
+  `{reglaId, fechaProgramada}`.
+
+**Backend** (`routes/pagos-recurrentes.js`, montado en `/api/pagos-recurrentes`).
+Acceso por `rolPagoRecurrente` (`'' | programador | registrador | consulta`), scoped por
+`operations` (igual patrón que Pronóstico de Venta / Recetas — NO por `sociedadesPago`
+como el resto de Gestión de Pagos).
+- **Generador de ocurrencias** (`asegurarProgramacionFutura(regla)`): para una regla
+  activa, genera filas `pendiente` desde la última ya generada (o `fechaInicio`) sumando
+  `intervaloMeses` hasta cubrir **hoy + 6 meses**, ajustando `diaPago` al último día del
+  mes si no existe (ej. día 31 en febrero → 28/29). Idempotente vía el índice único
+  `reglaId+fechaProgramada` (duplicados del `insertMany` con `ordered:false` se
+  descartan). Se invoca al crear/reactivar una regla y al inicio de
+  `GET /programaciones` — mantiene la ventana de 6 meses al día sin necesitar un cron.
+- `GET/POST/DELETE /tipos` — catálogo (crear/borrar solo `programador`).
+- `GET/POST/PUT /reglas` — CRUD de reglas (solo `programador`); reactivar (`activa:true`)
+  dispara el generador de nuevo.
+- `GET /programaciones?operacion=&tipoPago=&estado=&fechaProgDesde=&fechaProgHasta=&
+  fechaPagoDesde=&fechaPagoHasta=` — lista filtrada.
+- `PUT /programaciones/:id` — editar fecha/monto de una ocurrencia puntual (solo
+  `programador`, antes de pagar). `PUT /programaciones/:id/pagar` — completa
+  fecha/monto real y pasa a `pagado` (`programador` o `registrador`).
+  `PUT /programaciones/:id/anular` — pasa a `anulado` (solo `programador`).
+
+**Frontend**: nav `pagos-recurrentes` → `viewPagosRecurrentes` — filtros (Operación, Tipo
+de Pago, Estado, rango Fecha Programada, rango Fecha Pago Real), tabla de ocurrencias con
+botón "💰 Pagar" (`programador`/`registrador`) y "✕ Anular" (`programador`), botón
+"＋ Nueva regla" (modal con creación de tipo de pago al vuelo) y "📋 Reglas" (listar/
+pausar/reactivar reglas existentes), ambos solo para `programador`.
