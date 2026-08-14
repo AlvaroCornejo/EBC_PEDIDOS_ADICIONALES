@@ -10004,35 +10004,71 @@ async function viewPagosRecurrentes(container) {
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
+  const PR_MESES_ABR = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Set','Oct','Nov','Dic'];
+  const prMesKey   = f => new Date(f).toISOString().slice(0, 7); // YYYY-MM
+  const prMesLabel = k => { const [y, m] = k.split('-'); return `${PR_MESES_ABR[parseInt(m, 10) - 1]} ${y}`; };
+
   function render(docs) {
     if (!docs.length) { root.innerHTML = '<div class="empty-state"><p>Sin programaciones para los filtros elegidos.</p></div>'; return; }
+
+    // Una fila (de 2 líneas) por regla = por operación + tipo de pago; los pagos se
+    // reparten en columnas por mes (según fechaProgramada) a la derecha.
+    const porRegla = {};
+    docs.forEach(d => {
+      if (!porRegla[d.reglaId]) porRegla[d.reglaId] = { operacion: d.operacion, tipoPago: d.tipoPago, descripcion: d.descripcion, ocurrencias: {} };
+      porRegla[d.reglaId].ocurrencias[prMesKey(d.fechaProgramada)] = d;
+    });
+    const meses = [...new Set(docs.map(d => prMesKey(d.fechaProgramada)))].sort();
+    const reglas = Object.entries(porRegla).sort(([, a], [, b]) =>
+      a.operacion.localeCompare(b.operacion) || a.tipoPago.localeCompare(b.tipoPago));
+
+    const celdaVacia = '<td class="text-right">—</td><td class="text-right">—</td>';
+
     root.innerHTML = `
       <div class="card">
         <div class="table-wrap">
-          <table class="data-table" style="font-size:13px">
-            <thead><tr>
-              <th>Operación</th><th>Tipo de Pago</th><th>Descripción</th>
-              <th class="text-right">Fecha Programada</th><th class="text-right">Monto Programado</th>
-              <th class="text-center">Estado</th>
-              <th class="text-right">Fecha Pago Real</th><th class="text-right">Monto Pago Real</th>
-              <th>Comentario</th><th class="text-center">Acciones</th>
-            </tr></thead>
+          <table class="data-table" style="font-size:12px">
+            <thead>
+              <tr>
+                <th rowspan="2" style="vertical-align:bottom">Operación</th>
+                <th rowspan="2" style="vertical-align:bottom">Tipo de Pago</th>
+                <th rowspan="2" style="vertical-align:bottom"></th>
+                ${meses.map(m => `<th class="text-center" colspan="2" style="border-left:2px solid var(--border)">${prMesLabel(m)}</th>`).join('')}
+              </tr>
+              <tr>${meses.map(() => `<th class="text-right" style="border-left:2px solid var(--border)">Fecha</th><th class="text-right">Importe</th>`).join('')}</tr>
+            </thead>
             <tbody>
-              ${docs.map(d => `<tr>
-                <td>${esc(d.operacion)}</td>
-                <td>${esc(d.tipoPago)}</td>
-                <td>${esc(d.descripcion || '')}</td>
-                <td class="text-right">${fmtFecha(d.fechaProgramada)}</td>
-                <td class="text-right">${fmtMoney(d.montoProgramado)}</td>
-                <td class="text-center">${PR_ESTADO_BADGE[d.estado] || d.estado}</td>
-                <td class="text-right">${fmtFecha(d.fechaPagoReal)}</td>
-                <td class="text-right">${fmtMoney(d.montoPagoReal)}</td>
-                <td>${esc(d.comentario || '')}</td>
-                <td class="text-center" style="white-space:nowrap">
-                  ${d.estado === 'pendiente' && puedeRegistrarPago ? `<button class="btn btn-xs btn-primary" onclick="prMarcarPagado('${d._id}',${d.montoProgramado})">💰 Pagar</button>` : ''}
-                  ${d.estado === 'pendiente' && esProgramador ? `<button class="btn btn-xs btn-outline" onclick="prAnular('${d._id}')" title="Anular">✕</button>` : ''}
-                </td>
-              </tr>`).join('')}
+              ${reglas.map(([reglaId, r]) => {
+                const filaProg = meses.map(m => {
+                  const d = r.ocurrencias[m];
+                  if (!d) return celdaVacia;
+                  return `<td class="text-right" style="border-left:2px solid var(--border)">${fmtFecha(d.fechaProgramada)}</td><td class="text-right">${fmtMoney(d.montoProgramado)}</td>`;
+                }).join('');
+                const filaReal = meses.map(m => {
+                  const d = r.ocurrencias[m];
+                  if (!d) return celdaVacia;
+                  if (d.estado === 'pagado') {
+                    return `<td class="text-right" style="border-left:2px solid var(--border)" title="${esc(d.comentario || '')}">${fmtFecha(d.fechaPagoReal)}</td><td class="text-right">${fmtMoney(d.montoPagoReal)}</td>`;
+                  }
+                  if (d.estado === 'anulado') {
+                    return `<td class="text-center" colspan="2" style="border-left:2px solid var(--border);color:var(--text-muted)">Anulado</td>`;
+                  }
+                  return `<td class="text-center" colspan="2" style="border-left:2px solid var(--border);white-space:nowrap">
+                    ${puedeRegistrarPago ? `<button class="btn btn-xs btn-primary" onclick="prMarcarPagado('${d._id}',${d.montoProgramado})">💰 Pagar</button>` : PR_ESTADO_BADGE.pendiente}
+                    ${esProgramador ? `<button class="btn btn-xs btn-outline" onclick="prAnular('${d._id}')" title="Anular">✕</button>` : ''}
+                  </td>`;
+                }).join('');
+                return `<tr style="border-top:2px solid var(--border)">
+                    <td rowspan="2" style="vertical-align:middle" title="${esc(r.descripcion || '')}">${esc(r.operacion)}</td>
+                    <td rowspan="2" style="vertical-align:middle">${esc(r.tipoPago)}</td>
+                    <td style="font-size:10px;color:var(--text-muted);white-space:nowrap">Programado</td>
+                    ${filaProg}
+                  </tr>
+                  <tr>
+                    <td style="font-size:10px;color:var(--text-muted);white-space:nowrap">Real</td>
+                    ${filaReal}
+                  </tr>`;
+              }).join('')}
             </tbody>
           </table>
         </div>
