@@ -10189,7 +10189,7 @@ async function viewPagosRecurrentes(container) {
     const render2 = () => `
       <div class="table-wrap" style="max-height:60vh;overflow-y:auto">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Operación</th><th>Tipo</th><th>Descripción</th><th>Día</th><th>Intervalo</th><th class="text-right">Monto Est.</th><th class="text-center">Activa</th></tr></thead>
+          <thead><tr><th>Operación</th><th>Tipo</th><th>Descripción</th><th>Día</th><th>Intervalo</th><th class="text-right">Monto Est.</th><th class="text-center">Activa</th><th></th></tr></thead>
           <tbody>${reglas.map(r => `<tr>
             <td>${esc(r.operacion)}</td><td>${esc(r.tipoPago)}</td><td>${esc(r.descripcion || '')}</td>
             <td class="text-center">${r.diaPago}</td>
@@ -10198,6 +10198,7 @@ async function viewPagosRecurrentes(container) {
             <td class="text-center">
               <input type="checkbox" ${r.activa ? 'checked' : ''} onchange="prToggleRegla('${r._id}', this.checked)">
             </td>
+            <td class="text-center"><button class="btn btn-xs btn-outline" onclick="prEditarRegla('${r._id}')" title="Editar">✏️</button></td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
@@ -10211,7 +10212,46 @@ async function viewPagosRecurrentes(container) {
         await PUT(`/pagos-recurrentes/reglas/${id}`, { activa });
         toast(activa ? 'Regla reactivada — se generó su programación' : 'Regla pausada', 'success');
         cargar();
+        abrirModalReglas();
       } catch (e) { toast(e.message, 'error'); }
+    };
+
+    window.prEditarRegla = (id) => {
+      const r = reglas.find(x => x._id === id);
+      if (!r) return;
+      const body = `
+        <div class="form-group"><label>Operación</label>
+          <input type="text" class="form-control" value="${esc(r.operacion)} — ${esc(r.tipoPago)}" disabled></div>
+        <div class="form-group"><label>Descripción</label>
+          <input type="text" id="pr-e-descripcion" class="form-control" value="${esc(r.descripcion || '')}"></div>
+        <div class="form-group"><label>Día de pago (1-31) *</label>
+          <input type="number" id="pr-e-dia" class="form-control" min="1" max="31" value="${r.diaPago}"></div>
+        <div class="form-group"><label>Intervalo *</label>
+          <select id="pr-e-intervalo" class="form-control">
+            ${PR_INTERVALOS.map(i => `<option value="${i.v}" ${i.v === r.intervaloMeses ? 'selected' : ''}>${i.label}</option>`).join('')}
+          </select></div>
+        <div class="form-group"><label>Monto estimado *</label>
+          <input type="number" step="0.01" id="pr-e-monto" class="form-control" value="${r.montoEstimado}"></div>
+        <div id="pr-e-error" class="msg-error hidden"></div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
+          <button class="btn btn-primary" id="pr-e-save">💾 Guardar</button>
+        </div>`;
+      openModal('Editar regla de pago recurrente', body);
+      document.getElementById('pr-e-save').addEventListener('click', async () => {
+        const errEl = document.getElementById('pr-e-error');
+        try {
+          await PUT(`/pagos-recurrentes/reglas/${id}`, {
+            descripcion: document.getElementById('pr-e-descripcion').value,
+            diaPago: document.getElementById('pr-e-dia').value,
+            intervaloMeses: document.getElementById('pr-e-intervalo').value,
+            montoEstimado: document.getElementById('pr-e-monto').value,
+          });
+          document.getElementById('modal').classList.add('hidden');
+          toast('Regla actualizada — los cambios aplican a las próximas ocurrencias', 'success');
+          cargar();
+        } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
+      });
     };
   }
 
