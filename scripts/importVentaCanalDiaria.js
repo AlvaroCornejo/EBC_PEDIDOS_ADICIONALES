@@ -65,6 +65,14 @@ async function main() {
   };
   const faltantes = Object.entries(COL).filter(([, c]) => c === undefined).map(([k]) => k);
   if (faltantes.length) throw new Error(`No se encontraron las columnas: ${faltantes.join(', ')} — revisar encabezados del Excel.`);
+  // Venta Neta / Venta Neta Mas Redencion: columnas agregadas recién a este Excel (fuente
+  // también de Aprobación y Seguimiento de Compras) — opcionales por si el archivo del
+  // servidor todavía no se sincronizó con la versión nueva; si faltan, quedan en 0.
+  COL.ventaNeta = col('VENTA NETA');
+  COL.ventaNetaMasRedencion = col('VENTA NETA MAS REDENCION');
+  if (COL.ventaNeta === undefined || COL.ventaNetaMasRedencion === undefined) {
+    console.log('  ⚠ No se encontraron las columnas VENTA NETA / VENTA NETA MAS REDENCION — quedarán en 0 (revisar si el archivo del servidor ya tiene la versión nueva).');
+  }
   console.log('Columnas resueltas:', JSON.stringify(COL));
 
   const filaEjemplo = ws.getRow(2).values;
@@ -97,12 +105,15 @@ async function main() {
       transacciones:          num(v[COL.transacciones]),
       ventaBruta:             num(v[COL.ventaBruta]),
       ventaBrutaMasRedencion: num(v[COL.ventaBrutaMasRedencion]),
+      ventaNeta:              num(v[COL.ventaNeta]),
+      ventaNetaMasRedencion:  num(v[COL.ventaNetaMasRedencion]),
     };
     const clave = `${operacion}|${canal}|${fecha.toISOString().slice(0, 10)}`;
     const previa = porClave.get(clave);
     if (!previa) { porClave.set(clave, doc); return; }
     const mismosValores = previa.pax === doc.pax && previa.transacciones === doc.transacciones
-      && previa.ventaBruta === doc.ventaBruta && previa.ventaBrutaMasRedencion === doc.ventaBrutaMasRedencion;
+      && previa.ventaBruta === doc.ventaBruta && previa.ventaBrutaMasRedencion === doc.ventaBrutaMasRedencion
+      && previa.ventaNeta === doc.ventaNeta && previa.ventaNetaMasRedencion === doc.ventaNetaMasRedencion;
     if (mismosValores) duplicadosIdenticos++;
     else conflictos.push({ clave, fila: i, previa, nueva: doc });
   });

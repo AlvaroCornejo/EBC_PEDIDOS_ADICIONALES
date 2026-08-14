@@ -26,6 +26,7 @@ function buildPayload(user) {
     accesoConciliacion: !!user.accesoConciliacion, sociedadesConciliacion: user.sociedadesConciliacion || [],
     rolMaestroItems: user.rolMaestroItems || '', sociedadesMaestros: user.sociedadesMaestros || [],
     rolPagoRecurrente: user.rolPagoRecurrente || '',
+    rolSeguimientoCompras: user.rolSeguimientoCompras || '',
   };
 }
 

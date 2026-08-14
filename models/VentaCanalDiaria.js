@@ -8,6 +8,8 @@ const ventaCanalDiariaSchema = new mongoose.Schema({
   transacciones:          { type: Number, default: 0 },
   ventaBruta:             { type: Number, default: 0 },
   ventaBrutaMasRedencion: { type: Number, default: 0 },
+  ventaNeta:              { type: Number, default: 0 },
+  ventaNetaMasRedencion:  { type: Number, default: 0 },
 });
 ventaCanalDiariaSchema.index({ operacion: 1, canal: 1, fecha: 1 }, { unique: true });
 ventaCanalDiariaSchema.index({ operacion: 1, fecha: 1 });

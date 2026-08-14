@@ -63,6 +63,7 @@ app.use('/api/flujo-caja',  require('./routes/flujoCaja'));
 app.use('/api/movimientos', require('./routes/movimientos'));
 app.use('/api/recetas',    require('./routes/recetas'));
 app.use('/api/recetas-costeo', require('./routes/recetas-costeo'));
+app.use('/api/seguimiento-compras', require('./routes/seguimiento-compras'));
 app.use('/api/caja',       require('./routes/caja'));
 app.use('/api/obligaciones-ebc', require('./routes/obligacionesEBC'));
 app.use('/api/proyeccion',      require('./routes/proyeccion'));

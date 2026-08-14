@@ -13,6 +13,7 @@ const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULT
 const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pagos']];
 const MAESTRO_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador de cuentas'],['registrador','Registrador ERP'],['admin','Administrador']];
 const PAGO_RECURRENTE_ROLES = [['','— Sin acceso —'],['programador','Programador (crea reglas)'],['registrador','Registrador (marca pagos)'],['consulta','Consulta'],['admin','Administrador (todo)']];
+const SEGUIMIENTO_COMPRAS_ROLES = [['','— Sin acceso —'],['carga','Carga (Pedido Tienda)'],['aprobacion','Aprobación'],['consulta','Consulta'],['admin','Administrador (todo)']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 // Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
 // iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
@@ -268,6 +269,7 @@ const NAV_ITEMS = [
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'pagos-recurrentes', label: 'Pagos Recurrentes', icon: '🔁', roles: [ROLES.ADMIN], extraPerm: 'rolPagoRecurrente' },
+  { id: 'seguimiento-compras', label: 'Aprob. y Seg. de Compras', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'rolSeguimientoCompras' },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
   { id: 'autorizaciones', label: 'Incluir Pagos', icon: '📋', roles: [ROLES.ADMIN], extraPermAny: ['rolObligaciones', 'rolPago'] },
@@ -332,7 +334,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, 'pagos-recurrentes': viewPagosRecurrentes, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, 'pagos-recurrentes': viewPagosRecurrentes, 'seguimiento-compras': viewSeguimientoCompras, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -10258,6 +10260,250 @@ async function viewPagosRecurrentes(container) {
   cargar();
 }
 
+// ─── View: Aprobación y Seguimiento de Compras ────────────────────
+async function viewSeguimientoCompras(container) {
+  const esAdmin = S.user.role === 'ADMIN';
+  const rol = S.user.rolSeguimientoCompras || '';
+  const puedeCargar = esAdmin || rol === 'carga' || rol === 'admin';
+  const puedeAprobar = esAdmin || rol === 'aprobacion' || rol === 'admin';
+  const misOperaciones = esAdmin ? null : (S.user.operations || []);
+
+  let operacionActual = '';
+  let semanaSelElegida = ''; // 'YYYYWW', vacío = semana actual + 1
+  let nSemanasCuadro2 = 8;
+
+  const fmtN = (v, dec = 0) => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtPct = v => v == null ? '—' : (Number(v) * 100).toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+
+  function isoYearCli(date) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    return d.getUTCFullYear();
+  }
+  function isoWeekCli(date) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+    return 1 + Math.round(((d - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
+  }
+  function mondayOfIsoWeekCli(año, semana) {
+    const jan4 = new Date(Date.UTC(año, 0, 4));
+    const jan4Day = jan4.getUTCDay() || 7;
+    const monday1 = new Date(jan4);
+    monday1.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+    const monday = new Date(monday1);
+    monday.setUTCDate(monday1.getUTCDate() + (semana - 1) * 7);
+    return monday;
+  }
+  function addSemanasCli(año, semana, delta) {
+    const d = mondayOfIsoWeekCli(año, semana);
+    d.setUTCDate(d.getUTCDate() + delta * 7);
+    return { año: isoYearCli(d), semana: isoWeekCli(d) };
+  }
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">📦 Aprobación y Seguimiento de Compras</div>
+    </div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="sc-operacion" class="form-control" style="width:160px">
+              <option value="">— Seleccionar —</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semana seleccionada</label>
+            <select id="sc-semana-sel" class="form-control" style="width:170px"><option value="">Semana actual + 1</option></select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semanas en Cuadro 2</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <strong id="sc-nsemanas-lbl">8</strong>
+              <button class="btn btn-outline btn-sm" id="sc-mas-semanas">+8 semanas</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="sc-content"></div>
+    </div>`;
+
+  const root = document.getElementById('sc-content');
+
+  try {
+    const ops = await GET('/seguimiento-compras/operaciones');
+    const disponibles = misOperaciones === null ? ops : ops.filter(o => misOperaciones.includes(o));
+    const sel = document.getElementById('sc-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + disponibles.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (disponibles.length === 1) { sel.value = disponibles[0]; operacionActual = disponibles[0]; }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+  document.getElementById('sc-operacion').addEventListener('change', (e) => { operacionActual = e.target.value; semanaSelElegida = ''; cargar(); });
+  document.getElementById('sc-semana-sel').addEventListener('change', (e) => { semanaSelElegida = e.target.value; cargar(); });
+  document.getElementById('sc-mas-semanas').addEventListener('click', () => { nSemanasCuadro2 += 8; document.getElementById('sc-nsemanas-lbl').textContent = nSemanasCuadro2; cargarCuadro2(); });
+
+  function poblarSelectorSemanas(actual) {
+    const sel = document.getElementById('sc-semana-sel');
+    const valorPrevio = semanaSelElegida;
+    const opciones = [];
+    for (let i = -4; i <= 12; i++) {
+      const s = addSemanasCli(actual.año, actual.semana, i);
+      const val = `${s.año}${String(s.semana).padStart(2, '0')}`;
+      opciones.push(`<option value="${val}">SEM ${s.semana}/${s.año}${i === 1 ? ' (siguiente)' : i === 0 ? ' (actual)' : ''}</option>`);
+    }
+    sel.innerHTML = '<option value="">Semana actual + 1</option>' + opciones.join('');
+    sel.value = valorPrevio || '';
+  }
+
+  let objetivoActual = null;
+
+  async function cargar() {
+    if (!operacionActual) { root.innerHTML = ''; return; }
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual });
+      const hoy = new Date();
+      let objetivo;
+      if (semanaSelElegida) objetivo = { año: +semanaSelElegida.slice(0, 4), semana: +semanaSelElegida.slice(4) };
+      else objetivo = addSemanasCli(isoYearCli(hoy), isoWeekCli(hoy), 1);
+      poblarSelectorSemanas({ año: isoYearCli(hoy), semana: isoWeekCli(hoy) });
+      objetivoActual = objetivo;
+      params.set('año', objetivo.año); params.set('semana', objetivo.semana);
+
+      root.innerHTML = `
+        <div class="card mb-16" style="padding:14px;overflow-x:auto">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <h3 style="margin:0">Cuadro 1 · Compras / OC por Familia</h3>
+            ${puedeAprobar ? `<button class="btn btn-primary btn-sm" id="sc-aprobar">✅ Aprobar semana</button>` : ''}
+          </div>
+          <div id="sc-cuadro1"></div>
+        </div>
+        <div class="card" style="padding:14px;overflow-x:auto">
+          <h3 style="margin:0 0 10px 0">Cuadro 2 · Venta / Costo semanal</h3>
+          <div id="sc-cuadro2"></div>
+        </div>`;
+
+      if (puedeAprobar) {
+        document.getElementById('sc-aprobar').addEventListener('click', aprobarSemana);
+      }
+
+      await cargarCuadro1(params);
+      await cargarCuadro2();
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  async function cargarCuadro1(params) {
+    const el = document.getElementById('sc-cuadro1');
+    el.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const data = await GET(`/seguimiento-compras/compras?${params}`);
+      if (!data.filas.length) { el.innerHTML = '<p class="text-muted">Sin datos de compras para esta operación/semana.</p>'; return; }
+      el.innerHTML = `
+        <table class="table" style="min-width:1200px">
+          <thead>
+            <tr>
+              <th rowspan="2">Familia</th>
+              <th colspan="3" style="text-align:center;border-bottom:2px solid var(--border)">Semana Sel. (SEM ${data.semanaSeleccionada.semana}/${data.semanaSeleccionada.año})</th>
+              <th colspan="7" style="text-align:center;border-bottom:2px solid var(--border)">Semana Anterior (SEM ${data.semanaAnterior.semana}/${data.semanaAnterior.año})</th>
+            </tr>
+            <tr>
+              <th>Pedido Tienda</th><th>OC Aprobada</th><th>OC - Pedido</th>
+              <th>OC Aprobada</th><th>OC Normal</th><th>OC Adicional</th><th>OC Otros</th><th>OC Total</th><th>Compra Real</th><th>Diferencia</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.filas.map(f => `
+              <tr>
+                <td>${esc(f.grupoCompra)}</td>
+                <td>${puedeCargar
+                  ? `<input type="number" step="0.01" class="form-control sc-pedido-input" data-familia="${esc(f.grupoCompra)}" value="${f.semanaSeleccionada.pedidoTienda}" style="width:110px">`
+                  : fmtMoney(f.semanaSeleccionada.pedidoTienda)}</td>
+                <td>${fmtMoney(f.semanaSeleccionada.ocAprobada)}</td>
+                <td>${fmtMoney(f.semanaSeleccionada.ocPedido)}</td>
+                <td>${f.semanaAnterior.ocAprobada == null ? '—' : fmtMoney(f.semanaAnterior.ocAprobada)}</td>
+                <td>${fmtMoney(f.semanaAnterior.ocNormal)}</td>
+                <td>${fmtMoney(f.semanaAnterior.ocAdicional)}</td>
+                <td>${fmtMoney(f.semanaAnterior.ocOtros)}</td>
+                <td>${fmtMoney(f.semanaAnterior.ocTotal)}</td>
+                <td>${fmtMoney(f.semanaAnterior.compraReal)}</td>
+                <td>${fmtMoney(f.semanaAnterior.diferencia)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+
+      if (puedeCargar) {
+        el.querySelectorAll('.sc-pedido-input').forEach(input => {
+          input.addEventListener('blur', async () => {
+            const familia = input.dataset.familia;
+            const monto = parseFloat(input.value) || 0;
+            try {
+              await PUT('/seguimiento-compras/pedido-tienda', {
+                operacion: operacionActual, grupoCompra: familia,
+                año: data.semanaSeleccionada.año, semana: data.semanaSeleccionada.semana, monto,
+              });
+              toast('Pedido Tienda guardado', 'success');
+            } catch (e) { toast(e.message, 'error'); }
+          });
+        });
+      }
+    } catch (e) { el.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  async function cargarCuadro2() {
+    const el = document.getElementById('sc-cuadro2');
+    if (!el || !objetivoActual) return;
+    el.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const params = new URLSearchParams({
+        operacion: operacionActual, nSemanas: nSemanasCuadro2,
+        semanaObjetivo: `${objetivoActual.año}${String(objetivoActual.semana).padStart(2, '0')}`,
+      });
+      const data = await GET(`/seguimiento-compras/resumen-semanal?${params}`);
+      el.innerHTML = `
+        <table class="table" style="min-width:1900px;font-size:12px">
+          <thead>
+            <tr>
+              <th>Semana</th><th>Venta Bruta</th><th>Venta Neta</th><th>VN AyB</th>
+              <th>% Ing. Almacén (sem)</th><th>% Ing. Almacén (4sem)</th>
+              <th>Compra</th><th>Transferencias</th><th>Compra Total</th>
+              <th>% FC Teórico (sem)</th><th>% FC Teórico (4sem)</th><th>FC Teórico</th>
+              <th>% CV Real (sem)</th><th>% CV Real (4sem)</th><th>Costo de Venta</th>
+              <th>Inv. Inicial</th><th>Inv. Final</th><th>Var. Inv</th>
+              <th>Consumos</th><th>Faltantes</th><th>Sobrante</th><th>Bajas &amp; Mermas</th><th>Prod &amp; Transfer</th><th>Otros Movim</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.filas.map(f => `
+              <tr>
+                <td>SEM ${f.semana}/${f.año}</td>
+                <td>${fmtMoney(f.ventaBruta)}</td><td>${fmtMoney(f.ventaNeta)}</td><td>${fmtMoney(f.vnAyB)}</td>
+                <td>${fmtPct(f.pctIngresoAlmacenSemana)}</td><td>${fmtPct(f.pctIngresoAlmacen4Sem)}</td>
+                <td>${fmtMoney(f.compra)}</td><td>${fmtMoney(f.transferencias)}</td><td>${fmtMoney(f.compraTotal)}</td>
+                <td>${fmtPct(f.pctFcTeoricoSemana)}</td><td>${fmtPct(f.pctFcTeorico4Sem)}</td><td>${fmtMoney(f.fcTeorico)}</td>
+                <td>${fmtPct(f.pctCvRealSemana)}</td><td>${fmtPct(f.pctCvReal4Sem)}</td><td>${fmtMoney(f.costoDeVenta)}</td>
+                <td>${fmtMoney(f.invInicial)}</td><td>${fmtMoney(f.invFinal)}</td><td>${fmtMoney(f.varInv)}</td>
+                <td>${fmtMoney(f.consumos)}</td><td>${fmtMoney(f.faltantes)}</td><td>${fmtMoney(f.sobrante)}</td><td>${fmtMoney(f.bajasYMermas)}</td><td>${fmtMoney(f.prodYTransfer)}</td><td>${fmtMoney(f.otrosMovim)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    } catch (e) { el.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  async function aprobarSemana() {
+    if (!objetivoActual) return;
+    if (!confirm(`¿Aprobar la OC de la semana SEM ${objetivoActual.semana}/${objetivoActual.año} para todas las familias? Esta acción congela el monto actual de OC Aprobada de cada familia.`)) return;
+    try {
+      const r = await POST('/seguimiento-compras/aprobar', { operacion: operacionActual, año: objetivoActual.año, semana: objetivoActual.semana });
+      toast(`Aprobado: ${r.familiasAprobadas} familia(s)`, 'success');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  cargar();
+}
+
 // ─── View: Registro de Bajas, Consumos, Transferencias y 86 ───────
 const MOV_FLUJOS = {
   BAJA:          { label: 'Bajas',          icon: '🔻', accesoField: 'accesoBajas',          rolField: 'rolBCT', tipos: ['MANIPULACIÓN', 'CALIDAD', 'VENCIMIENTO'], tipoLabel: 'Tipo de Baja' },
@@ -14785,6 +15031,11 @@ function showUserModal(user, onSave, opts = {}) {
           ${PAGO_RECURRENTE_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolPagoRecurrente||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Rol para Aprob. y Seguimiento de Compras</label>
+        <select id="um-rol-seguimiento-compras">
+          ${SEGUIMIENTO_COMPRAS_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolSeguimientoCompras||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-group" id="um-socs-section"><label>Sociedades</label>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
           ${(S.sociedades||[]).map(soc => {
@@ -14972,6 +15223,7 @@ function showUserModal(user, onSave, opts = {}) {
       rolPago:      document.getElementById('um-pago-role').value,
       rolMaestroItems: document.getElementById('um-maestro-items-role').value,
       rolPagoRecurrente: document.getElementById('um-rol-pago-recurrente').value,
+      rolSeguimientoCompras: document.getElementById('um-rol-seguimiento-compras').value,
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,

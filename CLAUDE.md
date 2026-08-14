@@ -62,6 +62,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 - `puedeVerPronosticoVenta`: boolean — acceso a Pronóstico de Venta (scoped por `operations`, igual que `puedeVerVentas`)
 - `puedeVerCosteoRecetas`: boolean — acceso a Costeo de Recetas (scoped por `operations`, igual que `puedeVerVentas`)
 - `rolPagoRecurrente`: '' | programador | registrador | consulta — acceso a Pagos Recurrentes (scoped por `operations`)
+- `rolSeguimientoCompras`: '' | carga | aprobacion | consulta | admin — acceso a Aprobación y Seguimiento de Compras (scoped por `operations`, ver Sesión 8)
 - `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
 - `sociedadesCompra`: array — sociedades para ver Precios de Compra (códigos del catálogo `Sociedad`, ver sección "Sociedades y Operaciones")
 - `operations`: array — operaciones asignadas al usuario
@@ -98,6 +99,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | MaestroLinea/Familia/SubFamilia/TipoItem/UM/Item/ItemSociedad | `scripts/importMaestroTablas.js` | EBC TABLAS PARA ITEMS.xlsx | manual (al actualizar el Excel) |
 | MaestroCuenta | `scripts/importPlanContable.js` | EBC PLAN CONTABLE.xlsx | manual (al actualizar el Excel) |
 | RecetaCosteo / RecetaCosteoDetalle | `scripts/importRecetasCosteo.js` (vía `sync-recetas-costeo.bat`) | EBC RECETAS.xlsx | diario |
+| SeguimientoCompraMovimiento / SeguimientoCompraOC | `scripts/importSeguimientoCompras.js` (vía `sync-seguimiento-compras.bat`) | EBC BASE SEGUIMIENTO DE COMPRAS.xlsx (hojas MOVIMIENTOS/OC) | diario |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
@@ -485,3 +487,65 @@ de Pago, Estado, rango Fecha Programada, rango Fecha Pago Real), tabla de ocurre
 botón "💰 Pagar" (`programador`/`registrador`) y "✕ Anular" (`programador`), botón
 "＋ Nueva regla" (modal con creación de tipo de pago al vuelo) y "📋 Reglas" (listar/
 pausar/reactivar reglas existentes), ambos solo para `programador`.
+
+### Sesión 8 — Aprobación y Seguimiento de Compras
+
+Migra a la app un seguimiento semanal (venta vs. compras vs. inventario vs. costo de
+venta, por operación) más un flujo de aprobación de órdenes de compra por familia, que
+antes se llevaba en Excel manual.
+
+**Fuentes de datos**:
+- `EBC VENTAS CABECERA.xlsx` (la misma de Pronóstico de Venta) — se le agregaron las
+  columnas `VENTA NETA` y `VENTA NETA MAS REDENCION` a `VentaCanalDiaria`/
+  `importVentaCanalDiaria.js` (columnas opcionales, no rompen si el Excel del servidor
+  aún no las trae).
+- `EBC BASE SEGUIMIENTO DE COMPRAS.xlsx` (`C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI
+  BASES\EBC SEGUIMIENTO DE COMPRAS\`), hojas `MOVIMIENTOS` y `OC` (la 3ra, `TABLAS`, es
+  solo documentación, no se importa). **Solo se importan filas con `GRUPO='FC'`** (se
+  descartan las `SD`). Reemplazo completo por corrida (snapshot, no serie histórica
+  incremental).
+- Pedido Tienda: manual, se ingresa desde la app.
+- OC Aprobada (snapshot): se congela al presionar "Aprobar semana" en la app.
+
+**Modelos** (`models/`): `SeguimientoCompraMovimiento` (`{grupo, grupoGeneral,
+grupoCompra, operacion, movimiento, año, semana, cantidad, importe}`, `importe` ya con
+signo aplicado en la fuente), `SeguimientoCompraOC` (`{..., claseOC: NORMAL|ADICIONAL|
+OTRA, cantidadOC, importeOC}`), `SeguimientoCompraPedidoTienda` y
+`SeguimientoCompraAprobacion` (ambos `{operacion, grupoCompra, año, semana, monto(...)}`,
+únicos por esa combinación).
+
+**Backend** (`routes/seguimiento-compras.js`, montado en `/api/seguimiento-compras`).
+Acceso por `rolSeguimientoCompras` (`'' | carga | aprobacion | consulta | admin`), scoped
+por `operations` (mismo patrón que Pronóstico de Venta / Recetas / Pagos Recurrentes).
+- `GET /compras?operacion=&año=&semana=` — **Cuadro 1** (una fila por familia): de la
+  semana seleccionada muestra Pedido Tienda (manual) y OC Aprobada en vivo (todas las
+  clases); de la semana anterior muestra el snapshot de OC Aprobada (si se aprobó en su
+  momento), OC Normal/Adicional/Otros en vivo, OC Total, Compra Real (suma `IMPORTE` de
+  `MOVIMIENTOS` con `MOVIMIENTO ∈ {COMPRA, TRANSFERENCIA}`) y la Diferencia.
+- `PUT /pedido-tienda` — upsert manual (solo `carga`/`admin`).
+- `POST /aprobar {operacion,año,semana}` — **una sola acción por semana**: congela TODAS
+  las familias con OC de esa semana a la vez (solo `aprobacion`/`admin`).
+- `GET /resumen-semanal?operacion=&semanaObjetivo=&nSemanas=` — **Cuadro 2** (una fila
+  por semana, a nivel operación): Venta Bruta/Neta (de `VentaCanalDiaria`), Compra,
+  Transferencias, Compra Total, FC Teórico (`|VENTA|`), Consumos, Faltantes, Sobrante,
+  Bajas&Mermas, Prod&Transfer, **Otros Movim** (residuo de control matemático — en teoría
+  0 si los 12 tipos de movimiento conocidos cubren todo; si no da 0 es señal de un tipo
+  de movimiento nuevo sin mapear), Inv. Inicial/Final (balance acumulado **encadenado**
+  semana a semana desde el inicio del dataset), Var. Inv, Costo de Venta (`InvInicial +
+  CompraTotal − InvFinal`), y 3 %'s con `Venta Neta` de denominador (columna semana +
+  columna 4 semanas, sumando numerador/denominador antes de dividir, no promedio de %).
+  El endpoint calcula 3 semanas extra antes del rango pedido para que la primera fila
+  mostrada también tenga sus 4 semanas completas en el acumulado.
+- **Validado contra datos reales** (Sesión 8): para CDLAO semana 31/2026 (el número de
+  semana ISO de la base viene desfasado en 1 respecto al que muestra el Excel de origen),
+  Inv. Inicial y Inv. Final calculados coincidieron **exactos** contra el pantallazo real
+  del usuario (S/30,851 y S/25,252). Una comparación adicional que el usuario mencionó
+  ("%FC Teórico proyectado vs. FC Teórico real", S/35,244 vs S/36,252) es un cálculo
+  distinto, fuera del alcance de Cuadro 1/Cuadro 2 — **pendiente, no implementado**, se
+  dejó fuera a propósito por decisión del usuario.
+
+**Frontend**: nav `seguimiento-compras` → `viewSeguimientoCompras` — selector Operación +
+Semana seleccionada + cantidad de semanas del Cuadro 2 (botón "+8 semanas"). Cuadro 1 con
+input editable de Pedido Tienda (si `carga`/`admin`) y botón "✅ Aprobar semana" (si
+`aprobacion`/`admin`, con `confirm()` ya que congela todas las familias de una vez).
+Cuadro 2 es una tabla histórica de solo lectura.
