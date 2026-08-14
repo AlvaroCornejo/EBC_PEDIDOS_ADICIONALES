@@ -14,8 +14,9 @@ function requireAccess(req, res, next) {
 }
 router.use(requireAccess);
 
-const isProgramador = user => user.role === 'ADMIN' || user.rolPagoRecurrente === 'programador';
-const puedeRegistrarPago = user => user.role === 'ADMIN'
+const isProgramador = user => user.role === 'ADMIN'
+  || user.rolPagoRecurrente === 'programador' || user.rolPagoRecurrente === 'admin';
+const puedeRegistrarPago = user => user.role === 'ADMIN' || user.rolPagoRecurrente === 'admin'
   || user.rolPagoRecurrente === 'programador' || user.rolPagoRecurrente === 'registrador';
 
 /** Operaciones autorizadas del usuario (null = todas) */

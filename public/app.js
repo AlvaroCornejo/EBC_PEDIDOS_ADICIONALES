@@ -12,7 +12,7 @@ const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULT
 const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pagos']];
 const MAESTRO_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador de cuentas'],['registrador','Registrador ERP'],['admin','Administrador']];
-const PAGO_RECURRENTE_ROLES = [['','— Sin acceso —'],['programador','Programador (crea reglas)'],['registrador','Registrador (marca pagos)'],['consulta','Consulta']];
+const PAGO_RECURRENTE_ROLES = [['','— Sin acceso —'],['programador','Programador (crea reglas)'],['registrador','Registrador (marca pagos)'],['consulta','Consulta'],['admin','Administrador (todo)']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 // Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
 // iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
@@ -9907,8 +9907,8 @@ const PR_ESTADO_BADGE = {
 async function viewPagosRecurrentes(container) {
   const isAdmin = S.user.role === 'ADMIN';
   const rol = S.user.rolPagoRecurrente || (isAdmin ? 'programador' : '');
-  const esProgramador = isAdmin || rol === 'programador';
-  const puedeRegistrarPago = isAdmin || rol === 'programador' || rol === 'registrador';
+  const esProgramador = isAdmin || rol === 'programador' || rol === 'admin';
+  const puedeRegistrarPago = isAdmin || rol === 'programador' || rol === 'registrador' || rol === 'admin';
   const misOperaciones = isAdmin ? null : (S.user.operations || []);
 
   const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -10048,11 +10048,12 @@ async function viewPagosRecurrentes(container) {
         <input type="number" step="0.01" id="pr-pago-monto" class="form-control" value="${montoSugerido}"></div>
       <div class="form-group"><label>Comentario</label>
         <input type="text" id="pr-pago-comentario" class="form-control" placeholder="Opcional"></div>
-      <div id="pr-pago-error" class="msg-error hidden"></div>`;
+      <div id="pr-pago-error" class="msg-error hidden"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
+        <button class="btn btn-primary" id="pr-pago-save">💾 Guardar</button>
+      </div>`;
     openModal('Registrar pago', body);
-    document.querySelector('.modal-footer').innerHTML = `
-      <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
-      <button class="btn btn-primary" id="pr-pago-save">💾 Guardar</button>`;
     document.getElementById('pr-pago-save').addEventListener('click', async () => {
       const errEl = document.getElementById('pr-pago-error');
       try {
@@ -10106,11 +10107,12 @@ async function viewPagosRecurrentes(container) {
         <input type="number" step="0.01" id="pr-r-monto" class="form-control"></div>
       <div class="form-group"><label>Fecha de inicio *</label>
         <input type="date" id="pr-r-inicio" class="form-control" value="${hoy}"></div>
-      <div id="pr-r-error" class="msg-error hidden"></div>`;
+      <div id="pr-r-error" class="msg-error hidden"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
+        <button class="btn btn-primary" id="pr-r-save">💾 Guardar</button>
+      </div>`;
     openModal('Nueva regla de pago recurrente', body);
-    document.querySelector('.modal-footer').innerHTML = `
-      <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
-      <button class="btn btn-primary" id="pr-r-save">💾 Guardar</button>`;
 
     document.getElementById('pr-r-tipo-crear').addEventListener('click', async () => {
       const nombre = document.getElementById('pr-r-tipo-nuevo').value.trim();
@@ -10162,10 +10164,11 @@ async function viewPagosRecurrentes(container) {
             </td>
           </tr>`).join('')}</tbody>
         </table>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cerrar</button>
       </div>`;
     openModal('Reglas de pago recurrente', render2(), null, { wide: true });
-    document.querySelector('.modal-footer').innerHTML = `
-      <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cerrar</button>`;
 
     window.prToggleRegla = async (id, activa) => {
       try {
