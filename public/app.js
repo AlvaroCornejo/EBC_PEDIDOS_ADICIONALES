@@ -1966,6 +1966,7 @@ async function viewComparativo(container) {
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">📈 Comparativo OC vs Ingresos</div>
+      <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('cmp-result','comparativo-oc')">📥 Bajar a Excel</button>
     </div>
     <div class="page-body">
       <!-- Filtros -->
@@ -4075,6 +4076,7 @@ async function viewCostoRecetas(container) {
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">🧾 Recetas</div>
+      <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('cr-content','costeo-de-recetas')">📥 Bajar a Excel</button>
     </div>
     <div class="page-body">
       <div class="card mb-16" style="padding:14px">
@@ -15771,6 +15773,7 @@ async function viewPrecios(container) {
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">💰 Precios de Compra</div>
+      <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('pr-result','precios-de-compra')">📥 Bajar a Excel</button>
       <button class="btn btn-outline btn-sm" onclick="showHelp('precios')">❓ Ayuda</button>
     </div>
     <div class="page-body">
