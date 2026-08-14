@@ -9933,7 +9933,7 @@ async function viewPagosRecurrentes(container) {
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
             <select id="pr-operacion" class="form-control" style="width:150px">
               <option value="">— Todas —</option>
-              ${(misOperaciones === null ? ALL_OPS : misOperaciones).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
+              ${(misOperaciones === null ? ALL_OPS : misOperaciones).slice().sort((a, b) => a.localeCompare(b)).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
             </select>
           </div>
           <div>
@@ -10120,7 +10120,7 @@ async function viewPagosRecurrentes(container) {
       <div class="form-group"><label>Operación *</label>
         <select id="pr-r-operacion" class="form-control">
           <option value="">— Seleccionar —</option>
-          ${(misOperaciones === null ? ALL_OPS : misOperaciones).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
+          ${(misOperaciones === null ? ALL_OPS : misOperaciones).slice().sort((a, b) => a.localeCompare(b)).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
         </select></div>
       <div class="form-group"><label>Tipo de Pago *</label>
         <select id="pr-r-tipo" class="form-control">
