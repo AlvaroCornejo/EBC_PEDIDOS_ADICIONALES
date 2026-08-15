@@ -1218,6 +1218,14 @@ function renderPedidosListConCheck(container, pedidos, selected, onToggle) {
   container.querySelectorAll('.mp-pedido-check').forEach(chk => {
     chk.addEventListener('change', e => { e.stopPropagation(); onToggle(chk.dataset.id, chk.checked); });
   });
+
+  // Excel de este pedido
+  container.querySelectorAll('.btn-export-pedido').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = pedidos.find(x => x.id === btn.dataset.id);
+      if (p) exportarExcel([p]);
+    });
+  });
 }
 
 function pedidoCardConCheck(p, isChecked) {
@@ -1244,7 +1252,10 @@ function pedidoCardConCheck(p, isChecked) {
       </div>
       <div class="pedido-card-body">
         ${renderLineasReadOnly(p.lineas, p.operacion)}
-        <div class="mt-8 text-right font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
+        <div class="mt-8 flex gap-8 justify-between items-center">
+          <button class="btn btn-sm btn-outline btn-export-pedido" data-id="${p.id}">📥 Excel</button>
+          <div class="font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
+        </div>
       </div>
     </div>`;
 }
@@ -1656,7 +1667,10 @@ function renderPedidosAprobar(container, pedidos) {
           </table>
         </div>
         <div class="aprobacion-row" style="justify-content:space-between">
-          ${S.user.role === 'ADMIN' ? `<button class="btn btn-sm btn-danger apr-del-btn" data-id="${p.id}">🗑️ Eliminar pedido</button>` : '<span></span>'}
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm btn-outline btn-export-pedido" data-id="${p.id}">📥 Excel</button>
+            ${S.user.role === 'ADMIN' ? `<button class="btn btn-sm btn-danger apr-del-btn" data-id="${p.id}">🗑️ Eliminar pedido</button>` : ''}
+          </div>
           <button class="btn btn-primary apr-save-btn" data-id="${p.id}">💾 Guardar aprobación</button>
         </div>
       </div>
@@ -1664,6 +1678,13 @@ function renderPedidosAprobar(container, pedidos) {
 
   container.querySelectorAll('.pedido-card-header').forEach(h => {
     h.addEventListener('click', () => h.nextElementSibling.classList.toggle('open'));
+  });
+
+  container.querySelectorAll('.btn-export-pedido').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = pedidos.find(x => x.id === btn.dataset.id);
+      if (p) exportarExcel([p]);
+    });
   });
 
   container.querySelectorAll('.apr-del-btn').forEach(btn => {
@@ -1730,13 +1751,22 @@ function renderPedidosProcesados(container, pedidos) {
           ${renderTableHeader(estadoMode)}
           <tbody>${p.lineas.map((l,i) => renderLineaRow(l, i, false, estadoMode, p.operacion)).join('')}</tbody>
         </table></div>
-        <div class="mt-8 text-right font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
+        <div class="mt-8 flex gap-8 justify-between items-center">
+          <button class="btn btn-sm btn-outline btn-export-pedido" data-id="${p.id}">📥 Excel</button>
+          <div class="font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
+        </div>
       </div>
     </div>`;
   }).join('');
   wrap.querySelectorAll('.pedido-card-header').forEach(h =>
     h.addEventListener('click', () => h.nextElementSibling.classList.toggle('open'))
   );
+  wrap.querySelectorAll('.btn-export-pedido').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = pedidos.find(x => x.id === btn.dataset.id);
+      if (p) exportarExcel([p]);
+    });
+  });
   wrap.querySelectorAll('.pcp-del-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
@@ -1825,7 +1855,10 @@ function renderPedidosAtender(container, pedidos, gestionFilter = '') {
       <div class="pedido-card-body open">
         ${renderLineasAtenderSimple(p.lineas, gestionFilter, gestionRol, false)}
         <div class="flex gap-8 mt-8 justify-between items-center">
-          <div class="font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-sm btn-outline btn-export-pedido" data-id="${p.id}">📥 Excel</button>
+            <div class="font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
+          </div>
           <button class="btn btn-success ate-save-btn" data-id="${p.id}">💾 Guardar atención</button>
         </div>
       </div>
@@ -1833,6 +1866,13 @@ function renderPedidosAtender(container, pedidos, gestionFilter = '') {
 
   container.querySelectorAll('.pedido-card-header').forEach(h => {
     h.addEventListener('click', () => h.nextElementSibling.classList.toggle('open'));
+  });
+
+  container.querySelectorAll('.btn-export-pedido').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = pedidos.find(x => x.id === btn.dataset.id);
+      if (p) exportarExcel([p]);
+    });
   });
 
   container.querySelectorAll('.ate-save-btn').forEach(btn => {
@@ -1880,11 +1920,20 @@ function renderPedidosAtendidos(container, pedidos, gestionFilter = '') {
       </div>
       <div class="pedido-card-body">
         ${renderLineasAtenderSimple(p.lineas, gestionFilter, '', true)}
-        <div class="mt-8 text-right font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
+        <div class="mt-8 flex gap-8 justify-between items-center">
+          <button class="btn btn-sm btn-outline btn-export-pedido" data-id="${p.id}">📥 Excel</button>
+          <div class="font-bold">Total: ${fmtMoney(p.lineas.reduce((s,l)=>(s+(l.cantidadSolicitada||0)*(l.costoUnitario||0)),0))}</div>
+        </div>
       </div>
     </div>`).join('');
   wrap.querySelectorAll('.pedido-card-header').forEach(h => {
     h.addEventListener('click', () => h.nextElementSibling.classList.toggle('open'));
+  });
+  wrap.querySelectorAll('.btn-export-pedido').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = pedidos.find(x => x.id === btn.dataset.id);
+      if (p) exportarExcel([p]);
+    });
   });
   container.appendChild(wrap);
 }
