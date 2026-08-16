@@ -12211,8 +12211,10 @@ const PL_ESTRUCTURA = [
   { type:'item',   grupo:'AUSPICIOS' },
   { type:'item',   grupo:'REDENCION PROMOCIONAL' },
   { type:'item',   grupo:'OTROS INGRESOS' },
+  { type:'item',   grupo:'SERVICIOS MEDICOS' },
+  { type:'item',   grupo:'VENTA PILATES NO RECURRENTES' },
   { type:'subtotal', key:'VENTA_NETA', label:'VENTA NETA',
-    grupos:['VENTA NETA A&B','VENTA NETA EVENTOS','AUSPICIOS','REDENCION PROMOCIONAL','OTROS INGRESOS'] },
+    grupos:['VENTA NETA A&B','VENTA NETA EVENTOS','AUSPICIOS','REDENCION PROMOCIONAL','OTROS INGRESOS','SERVICIOS MEDICOS','VENTA PILATES NO RECURRENTES'] },
 
   { type:'item', grupo:'COSTO DE VENTA' },
 
