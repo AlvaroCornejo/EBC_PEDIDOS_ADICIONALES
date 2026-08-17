@@ -12933,14 +12933,14 @@ async function viewPL(container) {
           ${_plDetalleColgroup()}
           <thead>
             <tr style="background:var(--bg-page)">
-              <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Proveedor / Persona</th>
+              <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 44px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Proveedor / Persona</th>
               ${h1}
             </tr>
             <tr style="background:var(--bg-page)">${h2}</tr>
           </thead>
           <tbody>${data.datos.slice(0,100).map(r => `
             <tr style="border-bottom:1px solid var(--border)">
-              <td style="width:340px;padding:3px 10px 3px 20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.persona||'(sin proveedor)')}</td>
+              <td style="width:340px;padding:3px 10px 3px 44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.persona||'(sin proveedor)')}</td>
               ${_plDetalleRowCells(r)}
             </tr>`).join('')}
           ${data.datos.length>100?`<tr><td colspan="${_plDetalleColspan()}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-100} más</td></tr>`:''}
@@ -12964,7 +12964,7 @@ async function viewPL(container) {
       if (!data.datos.length) return; // sin detalle adicional para este grupo
 
       const header = document.createElement('div');
-      header.style.cssText = 'padding:6px 10px 2px 20px;color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase';
+      header.style.cssText = 'padding:6px 10px 2px 44px;color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase';
       header.textContent = 'Detalle adicional por operación / ítem';
       container.appendChild(header);
 
@@ -12973,7 +12973,7 @@ async function viewPL(container) {
       table.style.cssText = `width:${_plDetalleTableWidth()}px;border-collapse:collapse;font-size:12px;margin:2px 0 6px 0;table-layout:fixed`;
       table.innerHTML = `${_plDetalleColgroup()}<thead>
           <tr style="background:var(--bg-page)">
-            <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Operación</th>
+            <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 44px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Operación</th>
             ${h1}
           </tr>
           <tr style="background:var(--bg-page)">${h2}</tr>
@@ -12984,7 +12984,7 @@ async function viewPL(container) {
         const row = document.createElement('tr');
         row.style.cssText = 'border-bottom:1px solid var(--border);cursor:pointer';
         row.innerHTML = `
-          <td style="width:340px;padding:3px 10px 3px 20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.nombreOp)}</td>
+          <td style="width:340px;padding:3px 10px 3px 44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.nombreOp)}</td>
           ${_plDetalleRowCells(r)}`;
         const detailRow = document.createElement('tr');
         detailRow.style.display = 'none';
@@ -13022,14 +13022,14 @@ async function viewPL(container) {
         ${_plDetalleColgroup()}
         <thead>
           <tr style="background:var(--bg-card)">
-            <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 20px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Ítem</th>
+            <th rowspan="2" style="width:340px;text-align:left;padding:3px 10px 3px 56px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom">Ítem</th>
             ${h1}
           </tr>
           <tr style="background:var(--bg-card)">${h2}</tr>
         </thead>
         <tbody>${data.datos.slice(0,200).map(r => `
           <tr style="border-bottom:1px solid var(--border)">
-            <td style="width:340px;padding:3px 10px 3px 20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.nombreItem)}</td>
+            <td style="width:340px;padding:3px 10px 3px 56px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.nombreItem)}</td>
             ${_plDetalleRowCells(r)}
           </tr>`).join('')}
         ${data.datos.length>200?`<tr><td colspan="${_plDetalleColspan()}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-200} más</td></tr>`:''}
