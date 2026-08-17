@@ -12218,8 +12218,9 @@ const PL_ESTRUCTURA = [
 
   { type:'item', grupo:'COSTO DE VENTA' },
   { type:'item', grupo:'SERVICIOS DE MAQUILA' },
+  { type:'item', grupo:'CONSUMOS' },
   { type:'subtotal', key:'COSTO_VENTA', label:'COSTO DE VENTA',
-    grupos:['COSTO DE VENTA','SERVICIOS DE MAQUILA'] },
+    grupos:['COSTO DE VENTA','SERVICIOS DE MAQUILA','CONSUMOS'] },
 
   { type:'computed', key:'MARGEN', label:'MARGEN DE CONTRIBUCIÓN', bold:true,
     fn: t => (t['VENTA_NETA']||0) + (t['COSTO_VENTA']||0) },
