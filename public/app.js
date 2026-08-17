@@ -12217,9 +12217,12 @@ const PL_ESTRUCTURA = [
     grupos:['VENTA NETA A&B','VENTA NETA EVENTOS','AUSPICIOS','REDENCION PROMOCIONAL','OTROS INGRESOS','SERVICIOS MEDICOS','VENTA PILATES NO RECURRENTES'] },
 
   { type:'item', grupo:'COSTO DE VENTA' },
+  { type:'item', grupo:'SERVICIOS DE MAQUILA' },
+  { type:'subtotal', key:'COSTO_VENTA', label:'COSTO DE VENTA',
+    grupos:['COSTO DE VENTA','SERVICIOS DE MAQUILA'] },
 
   { type:'computed', key:'MARGEN', label:'MARGEN DE CONTRIBUCIÓN', bold:true,
-    fn: t => (t['VENTA_NETA']||0) + (t['COSTO DE VENTA']||0) },
+    fn: t => (t['VENTA_NETA']||0) + (t['COSTO_VENTA']||0) },
 
   { type:'header', label:'PLANILLA' },
   { type:'item', grupo:'SUELDOS' },
@@ -12253,8 +12256,9 @@ const PL_ESTRUCTURA = [
   { type:'item', grupo:'GAS' },
   { type:'item', grupo:'INTERNET' },
   { type:'item', grupo:'TELEFONO' },
+  { type:'item', grupo:'FACTURACION ELECTRONICA' },
   { type:'subtotal', key:'SSPP', label:'TOTAL SSPP',
-    grupos:['ELECTRICIDAD','AGUA','GAS','INTERNET','TELEFONO'] },
+    grupos:['ELECTRICIDAD','AGUA','GAS','INTERNET','TELEFONO','FACTURACION ELECTRONICA'] },
 
   { type:'header', label:'ASESORÍAS' },
   { type:'item', grupo:'ASESORIA ADMINISTRATIVA' },
@@ -12648,11 +12652,11 @@ async function viewPL(container) {
       const totalCols = colsData.length * 2 + (showTotal ? 2 : 0) + (multiSede ? 2 : 0);
 
       // Rows that get green+bold highlight
-      const keyRows = new Set(['VENTA_NETA','MARGEN','EBITDA','UTIL_OPERATIVA','UTIL_NETA','UTIL_NETA_DI']);
-      const keyItems = new Set(['COSTO DE VENTA']); // standalone items also highlighted
+      const keyRows = new Set(['VENTA_NETA','COSTO_VENTA','MARGEN','EBITDA','UTIL_OPERATIVA','UTIL_NETA','UTIL_NETA_DI']);
+      const keyItems = new Set(); // standalone items also highlighted (ninguno actualmente — COSTO DE VENTA pasó a subtotal)
       // Rows with font size +1
-      const bigRows = new Set(['VENTA_NETA','EBITDA']);
-      const bigItems = new Set(['COSTO DE VENTA']);
+      const bigRows = new Set(['VENTA_NETA','COSTO_VENTA','EBITDA']);
+      const bigItems = new Set();
 
       const exportRows = [];
 
