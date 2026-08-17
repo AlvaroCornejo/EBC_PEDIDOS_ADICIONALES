@@ -12258,8 +12258,9 @@ const PL_ESTRUCTURA = [
   { type:'item', grupo:'INTERNET' },
   { type:'item', grupo:'TELEFONO' },
   { type:'item', grupo:'FACTURACION ELECTRONICA' },
+  { type:'item', grupo:'CABLE' },
   { type:'subtotal', key:'SSPP', label:'TOTAL SSPP',
-    grupos:['ELECTRICIDAD','AGUA','GAS','INTERNET','TELEFONO','FACTURACION ELECTRONICA'] },
+    grupos:['ELECTRICIDAD','AGUA','GAS','INTERNET','TELEFONO','FACTURACION ELECTRONICA','CABLE'] },
 
   { type:'header', label:'ASESORÍAS' },
   { type:'item', grupo:'ASESORIA ADMINISTRATIVA' },
