@@ -5405,7 +5405,10 @@ async function renderPaso1(container) {
                 const montoColor= o.monto < 0 ? 'color:#ef4444' : '';
                 const esLocal   = o.moneda === 'LO';
                 const montoSol  = esLocal ? o.monto : o.monto * tc;
-                const autoCheck = dv >= 0 && dv <= 9;
+                // No se auto-programa ninguna factura de un proveedor con adelantos sin rendir
+                // pendientes — el usuario debe revisarlo y marcarlo a mano si corresponde.
+                const tieneAdelantoPendiente = !!(_pgAdelantosActual || {})[(o.pagarA || '').trim().toUpperCase()]?.numDocs;
+                const autoCheck = dv >= 0 && dv <= 9 && !tieneAdelantoPendiente;
                 const checked   = o.seleccionado !== undefined ? o.seleccionado : autoCheck;
                 // Detalles filtrados por grupo actual
                 const dtOpts = ['OTROS', ...detallesRef.filter(d => d.grupoProveedor === o.grupo).map(d => d.nombre)]
