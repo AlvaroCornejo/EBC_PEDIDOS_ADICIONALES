@@ -100,6 +100,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | MaestroCuenta | `scripts/importPlanContable.js` | EBC PLAN CONTABLE.xlsx | manual (al actualizar el Excel) |
 | RecetaCosteo / RecetaCosteoDetalle | `scripts/importRecetasCosteo.js` (vía `sync-recetas-costeo.bat`) | EBC RECETAS.xlsx | diario |
 | SeguimientoCompraMovimiento / SeguimientoCompraOC | `scripts/importSeguimientoCompras.js` (vía `sync-seguimiento-compras.bat`) | EBC BASE SEGUIMIENTO DE COMPRAS.xlsx (hojas MOVIMIENTOS/OC) | diario |
+| FlujoMovimientoBancario / FlujoPagoERP | `scripts/importFlujoCaja.js` (vía `sync-flujo-caja.bat`) | Movimiento{Soles\|Dolares}{BBVA\|BCP\|BN\|IBK}.xlsx + PagosSpring.xls, rutas por sociedad en `FlujoConfig` | diario |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
@@ -549,3 +550,107 @@ Semana seleccionada + cantidad de semanas del Cuadro 2 (botón "+8 semanas"). Cu
 input editable de Pedido Tienda (si `carga`/`admin`) y botón "✅ Aprobar semana" (si
 `aprobacion`/`admin`, con `confirm()` ya que congela todas las familias de una vez).
 Cuadro 2 es una tabla histórica de solo lectura.
+
+### Sesión 9 — Flujo de Caja (reconstrucción completa)
+
+El módulo anterior (`routes/flujoCaja.js` viejo, 8 colecciones,
+~4,786 documentos) se borró por completo — código y datos — a pedido del
+usuario, para reconstruirlo con un diseño distinto. **Al hacerlo se detectó
+que `models/EstadoCuenta.js` (5 docs) no era exclusivo de ese módulo** —
+`routes/pagos.js` lo usa para una función propia de Gestión de Pagos
+(`parsearEstadoCuenta`, `POST/GET /api/pagos/estados-cuenta`) — se restauró
+de inmediato tras detectarlo por una verificación cruzada post-borrado.
+Lección: al borrar un modelo compartido, grepear el nombre del **modelo**,
+no solo el del módulo — un nombre genérico como `EstadoCuenta` no contiene
+la palabra "FlujoCaja" y por eso no apareció en la primera búsqueda.
+
+**Jerarquía de clasificación**: LINEA → DETALLE → MOVIMIENTO (3 niveles).
+Cada `FlujoDetalle` pertenece a una `FlujoLinea` y tiene un `tipo`
+(`operacion`/`inversion`/`financiamiento`). Los movimientos bancarios
+(`FlujoMovimientoBancario`) se asignan a un `detalleCodigo` por 3 métodos,
+en este orden:
+1. **Glosa** (`FlujoGlosaRegla`, `{texto, criterio: exacta|contiene,
+   detalleCodigo}`) — si la glosa del movimiento coincide, asignación
+   automática directa.
+2. **Cruce contra el ERP** — si el método 1 no aplicó, se agrupan los pagos
+   del ERP (`FlujoPagoERP`) por `(cuentaBancaria, numeroPago)` y se suma
+   `montoLocal`/`montoExtranjero` según la moneda del movimiento; si esa
+   suma coincide (tolerancia `TOL_IMPORTE=1`) con el `Math.abs(importe)`
+   del banco para ese mismo número de operación, se resuelve el
+   beneficiario (`pagarA`) contra `FlujoProveedorDetalle` (tabla
+   beneficiario→detalle, normalizada a mayúsculas). **El número de
+   operación del banco puede venir con ceros a la izquierda (BBVA:
+   `"0000004569"`) y hay que normalizarlo a entero antes de comparar contra
+   `NumeroPago` del ERP** (`normNumOp()` en `utils/flujoCajaReconciliar.js`)
+   — bug real encontrado y corregido durante la validación de esta sesión
+   (sin la normalización, 0 cruces; con ella, ~90-96% de coincidencia
+   validado contra datos reales).
+3. **Manual** (`PUT /movimientos/:id/asignar`) — para lo que ninguno de los
+   dos métodos anteriores resolvió.
+
+**Fuentes de datos** (una carpeta por sociedad en Box, ej.
+`EBC POSICION DE CAJA\EBC POSICION DE CAJA GB\`):
+- **Movimiento bancario** (EECC), 4 bancos, cada uno con columnas propias
+  (parseadas por nombre, no posición, en `utils/flujoCajaImport.js`):
+  BBVA/BCP (soles y dólares, mismo formato cada uno) e IBK/BN (solo soles).
+  El archivo de BN usa celdas de **texto enriquecido** (`richText`) tanto en
+  el encabezado como en la glosa — `cellVal()` las desenvuelve. El archivo
+  de IBK tiene una inconsistencia real del propio banco en fechas recientes
+  (2026): la columna "Nro. de operación" a veces trae una fecha duplicada
+  en vez del número — se detecta con `parseFechaDDMMYYYY()` y se descarta
+  (queda `null`) en vez de guardar una fecha como si fuera un número válido
+  (~57% de las filas de IBK sí traen número real, el resto queda sin él).
+- **Pagos del ERP** (`PagosSpring.xls`, formato **Excel legacy `.xls`** —
+  no lo soporta `exceljs`, se lee con el paquete `xlsx`/SheetJS,
+  `leerPagosERP()`). Columnas clave: `CuentaBancaria` (cuenta ERP, se mapea
+  a banco+moneda vía `FlujoCuentaBanco`, mantenimiento manual en Admin),
+  `NumeroPago` (número de operación para el cruce), `CompaniaCodigo` (→
+  sociedad, ver abajo), `PagarA`.
+- **Sociedad**: en Pagos ERP sale de `CompaniaCodigo` contra la colección ya
+  existente `CompaniaCodigo` (`{codigo, compania}`), rellenando a 6 dígitos
+  (`padStart(6,'0')`, ej. `7` → `'000007'` → `GB`). Los archivos de banco
+  **no** traen sociedad — queda fija por la configuración de esa ruta
+  (`FlujoConfig.archivosBanco[].{banco,moneda,ruta}` por sociedad) o la
+  elige el usuario en la carga manual. **No hay operación** — se descartó
+  a pedido del usuario, el módulo solo agrupa por sociedad.
+
+**Modelos** (`models/`): `FlujoLinea`, `FlujoDetalle`, `FlujoCuentaBanco`,
+`FlujoConfig` (rutas de sync por sociedad), `FlujoMovimientoBancario`
+(snapshot, reemplazo completo por `sociedad+banco+moneda` en cada import),
+`FlujoPagoERP` (snapshot, reemplazo completo por `sociedad`),
+`FlujoGlosaRegla`, `FlujoProveedorDetalle`. `TipoCambio` (ya existía) se
+reutiliza tal cual para la vista "todo en soles".
+
+**Backend**: `utils/flujoCajaImport.js` (parsers puros, comparten
+`ExcelJS.Workbook`/buffer entre el sync diario y la carga manual — un solo
+parser por banco, no duplicado) + `utils/flujoCajaReconciliar.js`
+(`reconciliar(sociedad)`, idempotente, corre métodos 1 y 2 sobre los
+movimientos con `detalleCodigo: null`). `scripts/importFlujoCaja.js`
+recorre `FlujoConfig` de todas las sociedades e importa + reconcilia al
+final de cada una (`sync-flujo-caja.bat`, paso 16/16 en `sync-master.bat`).
+`routes/flujoCaja.js` (montado en `/api/flujo-caja`) expone además
+`POST /cargar/pagos-erp` y `POST /cargar/banco` (multer, carga manual con
+el mismo parser) y `POST /reconciliar?sociedad=`. Acceso por
+`rolPago`/`sociedadesPago` — mismo patrón y mismo permiso que Gestión de
+Pagos (comparten el nav item `flujo-caja`, que ya usaba `rolPago`).
+
+**Frontend**: `viewFlujoCaja` — selector Sociedad + rango de fechas + modo
+Nativa/Soles (convierte USD a PEN con el `TipoCambio` más reciente a esa
+fecha), tabla LINEA→DETALLE con columnas por día y fila de sin asignar
+arriba (con `<select>` inline por movimiento para asignación manual, método
+3) + botón "🔄 Reconciliar". Admin → tab "💵 Flujo de Caja"
+(`renderAdminFlujoCaja`) con 5 sub-secciones (sub-tabs propios,
+`fc-admin-tab`/`fc-admin-panel`, para no chocar con los tabs del Admin
+general): Rutas por sociedad (mismo patrón que
+`renderAdminConciliacion`), Líneas/Detalles, Glosas, Proveedores, Cuentas
+ERP↔Banco.
+
+**Validado contra datos reales** (sociedad GB): import completo — 4,137
+pagos ERP, 11,058 movimientos bancarios (5,018 BBVA PEN + 395 BBVA USD + 26
+BCP PEN + 28 BCP USD + 14 BN PEN + 5,577 IBK PEN) — y el cruce método 2
+probado con un proveedor real de alto volumen: 72/80 pagos conciliados
+(90%), consistente con la validación previa por script (~96% sobre BBVA
+Soles agregado). El catálogo real de Líneas/Detalles/Glosas/Proveedores
+**queda vacío a propósito** — es clasificación de negocio que define el
+usuario desde Admin, no algo que se deba inventar; los datos de prueba
+usados para validar el cruce se crearon y se borraron en la misma sesión.

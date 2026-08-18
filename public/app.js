@@ -8987,978 +8987,186 @@ async function renderPaso5(container) {
   p5RenderFooter();
 }
 
-// ─── View: Admin ──────────────────────────────────────────────────
 // ─── View: Flujo de Caja ─────────────────────────────────────────
 async function viewFlujoCaja(container) {
-  const esAdminFC = S.user.role === 'ADMIN' || S.user.rolPago === 'admin';
-  const socsFC    = esAdminFC ? ALL_SOCS_COMPRA : (S.user.sociedadesPago || []);
+  const esAdmin = S.user.role === 'ADMIN' || S.user.rolPago === 'admin';
+  const sociedades = esAdmin ? ALL_SOCS_COMPRA : (S.user.sociedadesPago || []);
+  const puedeAsignar = esAdmin || ['programador', 'admin'].includes(S.user.rolPago);
 
-  const fmtMonto = n => (n||0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const SECCION_LABEL = {
-    SALDO_INICIAL:   '1. SALDO INICIAL',
-    INGRESOS:        '2. INGRESOS',
-    EGRESOS:         '3. EGRESOS',
-    OTROS:           '4. OTROS',
-    POR_IDENTIFICAR: '5. POR IDENTIFICAR',
-    SALDO_FINAL:     '6. SALDO FINAL',
-  };
-  const TIPO_ACT_LABEL = { OPERACION: 'Operación', FINANCIAMIENTO: 'Financiamiento', INVERSION: 'Inversión' };
-  const TIPO_ACT_COLOR = { OPERACION: '#2563eb', FINANCIAMIENTO: '#9333ea', INVERSION: '#ea580c' };
+  let sociedadActual = sociedades[0] || '';
+  let modo = 'nativa'; // nativa | soles
+  let resumenData = null;
 
-  const fcISOWeekCode = (d => {
-    const u = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    const day = u.getUTCDay() || 7;
-    u.setUTCDate(u.getUTCDate() + 4 - day);
-    const jan4 = new Date(Date.UTC(u.getUTCFullYear(), 0, 4));
-    return u.getUTCFullYear() * 100 + 1 + Math.round(((u - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
-  })(new Date());
-
-  const fcAddWeeks = (yyyyiw, n) => {
-    let w = yyyyiw;
-    for (let i = 0; i < n; i++) {
-      const year = Math.floor(w / 100), week = w % 100;
-      const dow = (m, d2) => new Date(Date.UTC(year, m - 1, d2)).getUTCDay();
-      const max = (dow(1,1) === 4 || dow(12,31) === 4) ? 53 : 52;
-      w = week < max ? year * 100 + week + 1 : (year + 1) * 100 + 1;
-    }
-    return w;
-  };
-
-  const fcWeekLabel = yyyyiw => `Sem ${yyyyiw % 100}/${Math.floor(yyyyiw / 100)}`;
+  const fmtMoney = n => (n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtFechaCorta = f => { const [, m, d] = f.split('-'); return `${d}/${m}`; };
+  const hoy = new Date();
+  const hace30 = new Date(hoy); hace30.setDate(hace30.getDate() - 30);
+  const iso = d => d.toISOString().slice(0, 10);
 
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">💵 Flujo de Caja</div>
     </div>
     <div class="page-body">
-      <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border)">
-        ${esAdminFC ? `<button class="fc-mode-btn" data-mode="real"
-          style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)"
-          onclick="fcSetMode('real')">📊 Flujo Real</button>` : ''}
-        <button class="fc-mode-btn" data-mode="carga"
-          style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)"
-          onclick="fcSetMode('carga')">📂 Carga y Conciliación</button>
-        <button class="fc-mode-btn" data-mode="proyeccion"
-          style="padding:8px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--text-muted)"
-          onclick="fcSetMode('proyeccion')">📈 Proyección</button>
-      </div>
-
-      <!-- Panel Flujo Real (solo administrador) -->
-      <div id="fc-panel-real" style="display:none">
-        ${esAdminFC ? `<div class="card mb-16" style="padding:16px">
-          <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-end">
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px">Sociedad(es)</label>
-              <div id="fc-socs" style="display:flex;flex-wrap:wrap;gap:10px;max-width:520px">
-                ${socsFC.map((s,i) => `
-                  <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
-                    <input type="checkbox" class="fc-soc-chk" value="${esc(s)}" ${i===0?'checked':''}> ${esc(s)}
-                  </label>`).join('') || '<span class="text-muted" style="font-size:13px">Sin sociedades asignadas</span>'}
-              </div>
-            </div>
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
-              <select id="fc-moneda" class="form-control" style="width:170px">
-                <option value="SOL">Soles (S/)</option>
-                <option value="USD">Dólares (US$)</option>
-                <option value="COMBO">Combinado (en soles)</option>
-              </select>
-            </div>
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Periodo</label>
-              <select id="fc-granularidad" class="form-control" style="width:130px">
-                <option value="semana">Semanal</option>
-                <option value="mes">Mensual</option>
-              </select>
-            </div>
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Desde</label>
-              <input id="fc-desde" type="date" class="form-control" style="width:145px">
-            </div>
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px"># Periodos</label>
-              <input id="fc-periodos" type="number" min="1" max="52" value="12" class="form-control" style="width:90px">
-            </div>
-            <div>
-              <button class="btn btn-primary btn-sm" onclick="fcVerFlujo()">🔍 Ver Flujo</button>
-            </div>
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
+            <select id="fc-sociedad" class="form-control" style="width:150px">
+              ${sociedades.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+            </select>
           </div>
-        </div>
-        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
-          <button class="btn btn-outline btn-sm" onclick="imprimirVista('fc-wrap','Flujo de Caja')">🖨️ Imprimir</button>
-          <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-wrap','flujo-de-caja')">📥 Bajar a Excel</button>
-        </div>
-        <div id="fc-wrap"><div class="text-muted text-center py-24">Selecciona sociedad(es) y presiona "Ver Flujo".</div></div>` : ''}
-      </div>
-
-      <!-- Panel Carga y Conciliación -->
-      <div id="fc-panel-carga" style="display:none">
-        <div class="card mb-16" style="padding:14px">
-          <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-bottom:14px">
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
-              <select id="fc-carga-soc" class="form-control" style="width:160px" onchange="fcCargarCuentas()">
-                ${socsFC.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
-              </select>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:4px;min-width:160px">
-              <span style="font-size:11px;font-weight:600;color:var(--text-muted)">💳 PAGOS ERP</span>
-              <div style="display:flex;align-items:center;border:1px solid var(--border);border-radius:6px;padding:4px 8px;background:var(--bg-secondary);cursor:pointer" onclick="document.getElementById('fc-erp-file').click()">
-                <span id="fc-erp-nombre" style="font-size:11px;color:var(--text-muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sin archivo</span>
-              </div>
-              <input type="file" id="fc-erp-file" accept=".csv" style="display:none" onchange="fcCargarERP()">
-              <button class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 12px" onclick="document.getElementById('fc-erp-file').click()">📂 Cargar</button>
-              <div id="fc-erp-status" style="font-size:10px;color:var(--text-muted)"></div>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:4px;justify-content:flex-end">
-              <button class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 12px;color:#dc2626;border-color:#dc2626" onclick="fcBorrarDatos()">🗑️ Borrar datos</button>
-            </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Desde</label>
+            <input type="date" id="fc-desde" class="form-control" value="${iso(hace30)}">
           </div>
-          <div id="fc-cuentas-wrap" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
-            <span style="font-size:12px;color:var(--text-muted)">Cargando cuentas...</span>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Hasta</label>
+            <input type="date" id="fc-hasta" class="form-control" value="${iso(hoy)}">
           </div>
-        </div>
-        <div id="fc-conc-wrap" style="margin-bottom:16px"></div>
-      </div>
-
-      <!-- Panel Proyección -->
-      <div id="fc-panel-proyeccion" style="display:none">
-        <div class="card mb-16" style="padding:16px">
-          <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad</label>
-              <select id="fcproy-compania" class="form-control" style="width:180px">
-                ${socsFC.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Desde (YYYYSS)</label>
-              <input id="fcproy-desde" type="number" value="${fcISOWeekCode}" class="form-control" style="width:110px">
-            </div>
-            <div>
-              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Hasta (YYYYSS)</label>
-              <input id="fcproy-hasta" type="number" value="${fcAddWeeks(fcISOWeekCode, 11)}" class="form-control" style="width:110px">
-            </div>
-            <div>
-              <button class="btn btn-primary btn-sm" onclick="fcProyCargar()">🔄 Cargar</button>
-            </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
+            <select id="fc-modo" class="form-control" style="width:170px">
+              <option value="nativa">Nativa (PEN/USD)</option>
+              <option value="soles">Todo en Soles (TC del día)</option>
+            </select>
           </div>
+          ${puedeAsignar ? `<button class="btn btn-outline btn-sm" id="fc-reconciliar">🔄 Reconciliar</button>` : ''}
         </div>
-        <div id="fcproy-tiendas-wrap"><div class="text-muted text-center py-24">Selecciona una sociedad y presiona "Cargar".</div></div>
-        <div id="fcproy-calculo-wrap"></div>
       </div>
+      <div id="fc-sin-asignar"></div>
+      <div id="fc-content"></div>
     </div>`;
 
-  window.fcVerFlujo = async function() {
-    const companias = [...document.querySelectorAll('.fc-soc-chk:checked')].map(c => c.value);
-    const moneda    = document.getElementById('fc-moneda').value;
-    const granularidad = document.getElementById('fc-granularidad').value;
-    const periodos  = document.getElementById('fc-periodos').value || 12;
-    const desde     = document.getElementById('fc-desde').value; // YYYY-MM-DD o vacío
-    const wrap = document.getElementById('fc-wrap');
-    if (!companias.length) { toast('Selecciona al menos una sociedad', 'warning'); return; }
-    wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+  const root = document.getElementById('fc-content');
+  if (!sociedades.length) { root.innerHTML = '<div class="empty-state"><p>No tienes sociedades autorizadas.</p></div>'; return; }
+
+  document.getElementById('fc-sociedad').addEventListener('change', e => { sociedadActual = e.target.value; cargar(); });
+  document.getElementById('fc-desde').addEventListener('change', cargar);
+  document.getElementById('fc-hasta').addEventListener('change', cargar);
+  document.getElementById('fc-modo').addEventListener('change', e => { modo = e.target.value; cargar(); });
+  document.getElementById('fc-reconciliar')?.addEventListener('click', reconciliar);
+
+  async function reconciliar() {
+    const btn = document.getElementById('fc-reconciliar');
+    btn.disabled = true; btn.textContent = '⏳ Reconciliando...';
     try {
-      const desdeParam = desde ? `&desde=${encodeURIComponent(desde)}` : '';
-      const data = await GET(`/flujo-caja/resumen?companias=${encodeURIComponent(companias.join(','))}&moneda=${moneda}&granularidad=${granularidad}&periodos=${periodos}${desdeParam}`);
-      const simbolo = moneda === 'USD' ? 'US$' : 'S/';
+      const r = await POST(`/flujo-caja/reconciliar?sociedad=${encodeURIComponent(sociedadActual)}`, {});
+      toast(`✅ ${r.porGlosa} por glosa, ${r.porERP} por ERP — quedan ${r.sinAsignar} sin asignar`, 'success');
+      await cargar();
+    } catch (e) { toast(e.message, 'error'); }
+    btn.disabled = false; btn.textContent = '🔄 Reconciliar';
+  }
 
-      const SECCION_ORDEN = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
-      // Agrupar por sección en el orden correcto
-      const porSeccion = {};
-      data.filas.forEach(f => { (porSeccion[f.seccion] = porSeccion[f.seccion] || []).push(f); });
-
-      let filasHtml = '';
-      SECCION_ORDEN.forEach(sec => {
-        const filas = porSeccion[sec];
-        if (!filas || !filas.length) return;
-        const esResumen = ['SALDO_INICIAL','SALDO_FINAL'].includes(sec);
-        const secId = `fc-sec-${sec}`;
-        // Fila de cabecera de sección (clickeable)
-        filasHtml += `<tr class="fc-sec-hdr" data-sec="${sec}" onclick="fcToggleSec('${sec}')"
-            style="background:#1a1f3a;cursor:pointer;user-select:none">
-          <td colspan="${data.periodos.length + 1}" style="padding:6px 10px;color:#fff;font-weight:700;font-size:12px">
-            <span id="fc-arr-${sec}" style="margin-right:6px;font-size:10px">${esResumen ? '' : '▾'}</span>${esc(SECCION_LABEL[sec] || sec)}
-          </td>
-        </tr>`;
-        // Filas de la sección (colapsables)
-        filas.forEach(f => {
-          filasHtml += `<tr class="fc-fila-${sec}" ${esResumen ? 'style="font-weight:700;background:#bbf7d0"' : ''}>
-            <td style="padding:5px 10px 5px 28px">${esc(f.nombre)}</td>
-            ${f.valores.map(v => `<td style="padding:5px 10px;text-align:right;${v<0?'color:#dc2626':''}">${fmtMonto(v)}</td>`).join('')}
-          </tr>`;
-        });
-      });
-
-      wrap.innerHTML = `
-        <div class="card" style="overflow:auto">
-          <table class="data-table" style="font-size:12px;white-space:nowrap">
-            <thead>
-              <tr>
-                <th style="position:sticky;left:0;background:#1a1f3a;z-index:1">Línea (${esc(simbolo)}) — ${esc(companias.join(', '))}</th>
-                ${data.periodos.map(p => `<th style="text-align:right">${esc(p.label)}</th>`).join('')}
-              </tr>
-            </thead>
-            <tbody>${filasHtml}</tbody>
-          </table>
-        </div>`;
-
-      window.fcToggleSec = function(sec) {
-        const filas = document.querySelectorAll(`.fc-fila-${sec}`);
-        const arr   = document.getElementById(`fc-arr-${sec}`);
-        if (!filas.length) return;
-        const abierto = filas[0].style.display !== 'none';
-        filas.forEach(tr => tr.style.display = abierto ? 'none' : '');
-        if (arr) arr.textContent = abierto ? '▸' : '▾';
-      };
-
-      wrap.innerHTML += `
-        <p style="font-size:11px;color:var(--text-muted);margin-top:8px">
-          ℹ️ Por ahora se muestra el saldo inicial real (desde Cuentas Bancarias) y la estructura completa del flujo;
-          los movimientos reales y proyectados se incorporarán en una próxima entrega.
-        </p>`;
-    } catch(e) {
-      wrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`;
-    }
-  };
-
-  // ── Carga de datos bancarios ──────────────────────────────────────────────
-
-  window.fcBorrarDatos = async function() {
-    const compania = document.getElementById('fc-carga-soc').value;
-    if (!confirm(`¿Borrar todos los EECC y Pagos ERP de ${compania}?\nEsta acción no se puede deshacer.`)) return;
+  async function cargarSinAsignar() {
+    const wrap = document.getElementById('fc-sin-asignar');
+    if (!sociedadActual) { wrap.innerHTML = ''; return; }
     try {
-      await Promise.all([
-        DEL(`/flujo-caja/eecc?compania=${encodeURIComponent(compania)}`),
-        DEL(`/flujo-caja/pagos-erp?compania=${encodeURIComponent(compania)}`),
+      const [movs, detalles, lineas] = await Promise.all([
+        GET(`/flujo-caja/movimientos?sociedad=${encodeURIComponent(sociedadActual)}&sinAsignar=true`),
+        GET('/flujo-caja/detalles'),
+        GET('/flujo-caja/lineas'),
       ]);
-      document.querySelectorAll('[id^="fc-eecc-status-"]').forEach(el => { el.textContent = ''; });
-      document.querySelectorAll('[id^="fc-eecc-nombre-"]').forEach(el => { el.textContent = 'Sin archivo'; });
-      document.getElementById('fc-erp-status').textContent = '';
-      document.getElementById('fc-conc-wrap').innerHTML = '';
-      toast('EECC y Pagos ERP borrados', 'success');
-    } catch(e) { toast(e.message, 'error'); }
-  };
-
-  window.fcCargarCuentas = async function() {
-    const compania = document.getElementById('fc-carga-soc').value;
-    const wrap = document.getElementById('fc-cuentas-wrap');
-    wrap.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Cargando...</span>';
-    try {
-      const cuentas = await GET(`/flujo-caja/cuentas?compania=${encodeURIComponent(compania)}`);
-      if (!cuentas.length) {
-        wrap.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Sin cuentas configuradas para esta sociedad.</span>';
-        return;
-      }
-      wrap.innerHTML = cuentas.map(c => {
-        const bid = `${c.banco}-${c.moneda}`.replace(/[^A-Z0-9-]/gi, '_');
-        const lbl = c.alias ? esc(c.alias) : `${esc(c.banco)} · ${esc(c.moneda)}`;
-        const mon = c.moneda === 'USD' ? '🇺🇸' : '🇵🇪';
-        return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;min-width:170px;max-width:200px;background:var(--bg-secondary)">
-          <p style="font-weight:700;font-size:12px;margin-bottom:2px">${mon} ${lbl}</p>
-          <p style="font-size:10px;color:var(--text-muted);margin-bottom:8px">${esc(c.banco)} · ${c.moneda === 'USD' ? 'Dólares' : 'Soles'}</p>
-          <div style="border:1px solid var(--border);border-radius:5px;padding:3px 7px;background:var(--bg);cursor:pointer;margin-bottom:5px"
-               onclick="document.getElementById('fc-eecc-${bid}').click()">
-            <span id="fc-eecc-nombre-${bid}" style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">Sin archivo</span>
-          </div>
-          <input type="file" id="fc-eecc-${bid}" accept=".xls,.xlsx" style="display:none"
-                 onchange="fcCargarEECC('${esc(c.banco)}','${esc(c.moneda)}','${bid}')">
-          <div style="display:flex;gap:5px">
-            <button class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 10px;flex:1"
-                    onclick="document.getElementById('fc-eecc-${bid}').click()">📂 Cargar</button>
-            <button class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 10px;flex:1"
-                    onclick="fcVerConciliacion('${esc(c.banco)}','${esc(c.moneda)}')">🔗 Conciliar</button>
-          </div>
-          <div id="fc-eecc-status-${bid}" style="font-size:10px;margin-top:4px;color:var(--text-muted)"></div>
-        </div>`;
-      }).join('');
-    } catch(e) {
-      wrap.innerHTML = `<span style="font-size:12px;color:#dc2626">Error: ${esc(e.message)}</span>`;
-    }
-  };
-
-  window.fcCargarEECC = async function(banco, moneda, bid) {
-    const compania = document.getElementById('fc-carga-soc').value;
-    const fi = document.getElementById(`fc-eecc-${bid}`);
-    const st = document.getElementById(`fc-eecc-status-${bid}`);
-    if (!fi.files.length) return;
-    document.getElementById(`fc-eecc-nombre-${bid}`).textContent = fi.files[0].name;
-    st.textContent = '⏳ Cargando...';
-    const fd = new FormData();
-    fd.append('archivo', fi.files[0]);
-    fd.append('compania', compania);
-    fd.append('banco', banco);
-    fd.append('moneda', moneda);
-    fi.value = '';
-    try {
-      const r = await fetch('/api/flujo-caja/eecc/cargar', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
-        body: fd,
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'Error');
-      st.innerHTML = `<span style="color:#16a34a">✓ ${j.count} movimientos</span>`;
-      toast(`EECC cargado: ${j.count} movimientos · ${banco} ${moneda}`);
-    } catch(e) {
-      st.innerHTML = `<span style="color:#dc2626">✗ ${esc(e.message)}</span>`;
-    }
-  };
-
-  window.fcCargarERP = async function() {
-    const compania = document.getElementById('fc-carga-soc').value;
-    const fi = document.getElementById('fc-erp-file');
-    const st = document.getElementById('fc-erp-status');
-    if (!fi.files.length) { toast('Selecciona un archivo CSV de Pagos ERP', 'warning'); return; }
-    document.getElementById('fc-erp-nombre').textContent = fi.files[0].name;
-    st.textContent = '⏳ Cargando...';
-    const fd = new FormData();
-    fd.append('archivo', fi.files[0]);
-    fd.append('compania', compania);
-    fi.value = '';
-    try {
-      const r = await fetch('/api/flujo-caja/pagos-erp/cargar', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('ebc_token') },
-        body: fd,
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'Error');
-      st.innerHTML = `<span style="color:#16a34a">✓ ${j.total} pagos · ${j.cuentas.length} cuenta(s): ${j.cuentas.map(esc).join(', ')}</span>`;
-      toast(`Pagos ERP: ${j.total} registros cargados`);
-    } catch(e) {
-      st.innerHTML = `<span style="color:#dc2626">✗ ${esc(e.message)}</span>`;
-    }
-  };
-
-  window.fcVerConciliacion = async function(banco, moneda) {
-    const compania = document.getElementById('fc-carga-soc').value;
-    const wrap = document.getElementById('fc-conc-wrap');
-    wrap.innerHTML = '<div class="text-muted text-center py-16">⏳ Calculando conciliación...</div>';
-    try {
-      const data = await GET(`/flujo-caja/conciliacion?compania=${encodeURIComponent(compania)}&banco=${encodeURIComponent(banco)}&moneda=${encodeURIComponent(moneda)}`);
-      const simbolo = moneda === 'USD' ? 'US$' : 'S/';
-      const fmtF = d => d ? new Date(d).toLocaleDateString('es-PE', {day:'2-digit',month:'2-digit',year:'numeric',timeZone:'UTC'}) : '';
-      const fmtN = v => v == null ? '' : Number(v).toLocaleString('es-PE', {minimumFractionDigits:2, maximumFractionDigits:2});
-      const BGMAP = { CONCILIADO: '#dcfce7', SIN_ERP: '#fef9c3', INGRESO: '#dbeafe' };
-      const LBLMAP = { CONCILIADO: '✓ Conciliado', SIN_ERP: '⚠ Sin ERP', INGRESO: '↑ Ingreso' };
-
-      const FUENTELBL = { MOV_BANCARIO: 'Cód. op.', PROVEEDOR: 'Proveedor', OPERACION: 'Operación', DIRECTA: 'Directo' };
-      const SECC_ORD = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
-      const SECC_LBL = {'SALDO_INICIAL':'1. Saldo Inicial','INGRESOS':'2. Ingresos','EGRESOS':'3. Egresos','OTROS':'4. Otros','POR_IDENTIFICAR':'5. Por Identificar','SALDO_FINAL':'6. Saldo Final'};
-
-      // Guardar contexto para funciones de asignación
-      _fcConData = { compania, banco, moneda, transacciones: data.transacciones, lineas: data.lineas };
-
-      // Celda de línea para fila EECC sin sub-registros ERP
-      const lineaCellTrx = (t) => {
-        if (t.erpRegistros && t.erpRegistros.length > 0) return ''; // líneas vienen de sub-filas ERP
-        const nd = (t.nroDoc || '').replace(/'/g, "\\'");
-        if (t.lineaFuente === 'MANUAL') {
-          return `<span style="font-size:11px;color:#b45309;font-weight:600">⚑ Por asignar</span>
-                  <button onclick="fcConAsignar('${nd}')" style="font-size:10px;color:#b45309;background:none;border:none;cursor:pointer;text-decoration:underline;padding:0 0 0 4px">✏ Cambiar</button>
-                  ${t.lineaDirecta ? `<button onclick="fcConQuitarAsign('${nd}')" style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0 0 0 2px">✕</button>` : ''}`;
-        }
-        if (t.lineaNombre) {
-          const src = `<span style="font-size:10px;color:var(--text-muted)">${esc(FUENTELBL[t.lineaFuente]||t.lineaFuente||'')}</span>`;
-          if (t.lineaDirecta) {
-            return `<span style="font-size:11px">${esc(t.lineaNombre)}</span> ${src}
-                    <button onclick="fcConAsignar('${nd}')" style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0 0 0 4px" title="Cambiar">✏</button>
-                    <button onclick="fcConQuitarAsign('${nd}')" style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;padding:0 0 0 2px" title="Quitar asignación directa">✕</button>`;
-          }
-          return `<span style="font-size:11px">${esc(t.lineaNombre)}</span><br>${src}`;
-        }
-        return `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>
-                <button onclick="fcConAsignar('${nd}')" style="font-size:10px;padding:2px 6px;border:1px solid #dc2626;border-radius:3px;background:none;color:#dc2626;cursor:pointer;margin-left:4px">🔗 Asignar</button>`;
-      };
-
-      // Celda de línea para sub-fila ERP (asignación vía Mapeo Proveedores)
-      const lineaCellErp = (r) => {
-        const pv = (r.pagarA || '').replace(/'/g, "\\'");
-        if (r.lineaNombre) {
-          return `<span style="font-size:11px">${esc(r.lineaNombre)}</span><br>
-                  <span style="font-size:10px;color:var(--text-muted)">Proveedor</span>`;
-        }
-        return `<span style="font-size:10px;color:#dc2626;font-weight:600">Sin asignar</span>
-                <button onclick="fcConAsignarProv('${pv}')" style="font-size:10px;padding:2px 6px;border:1px solid #dc2626;border-radius:3px;background:none;color:#dc2626;cursor:pointer;margin-left:4px">🔗 Mapeo</button>`;
-      };
-
-      const trxRows = data.transacciones.flatMap(t => {
-        const bg = BGMAP[t.estado] || '';
-        const bgStyle = bg ? `background:${bg}` : '';
-        const tieneERP = t.erpRegistros && t.erpRegistros.length > 0;
-        const rows = [`<tr style="${bgStyle}">
-          <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fmtF(t.fecha))}</td>
-          <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(t.codigo||'')}${t.codigo?' · ':''}${esc(t.nroDoc||'')}</td>
-          <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.concepto||'')}</td>
-          <td style="padding:4px 8px;font-size:12px;text-align:right;white-space:nowrap;${t.importe<0?'color:#dc2626':''}">${fmtN(t.importe)}</td>
-          <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(LBLMAP[t.estado]||t.estado)}</td>
-          <td style="padding:4px 8px;line-height:1.4">${tieneERP ? '' : lineaCellTrx(t)}</td>
-        </tr>`];
-        // Sub-filas ERP: cada una con su propia línea del flujo vía Mapeo Proveedores
-        (t.erpRegistros || []).forEach(r => {
-          rows.push(`<tr style="${bgStyle};opacity:0.9">
-            <td style="padding:2px 8px 2px 20px;font-size:10px;color:var(--text-muted);white-space:nowrap">↳ ERP</td>
-            <td></td>
-            <td style="padding:2px 8px;font-size:11px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500">${esc(r.pagarA||'')}${r.tipoPago?` <span style="font-weight:400;color:var(--text-muted)">· ${esc(r.tipoPago)}</span>`:''}</td>
-            <td style="padding:2px 8px;font-size:11px;text-align:right;white-space:nowrap;color:#dc2626">${fmtN(r.importe)}</td>
-            <td></td>
-            <td style="padding:2px 8px;line-height:1.4">${lineaCellErp(r)}</td>
-          </tr>`);
-        });
-        return rows;
-      }).join('');
-
-      let erpRows = '';
-      if (data.soloERP.length) {
-        erpRows = `<tr style="background:#1a1f3a"><td colspan="6" style="padding:5px 8px;color:#fff;font-weight:700;font-size:11px">PAGOS ERP SIN MOVIMIENTO EN BANCO (${data.soloERP.length})</td></tr>`;
-        erpRows += data.soloERP.map(g => {
-          const total = moneda === 'USD'
-            ? g.registros.reduce((s,r) => s + r.pagoExtranjero, 0)
-            : g.registros.reduce((s,r) => s + r.pagoLocal, 0);
-          const provs = [...new Set(g.registros.map(r => r.pagarA).filter(Boolean))].join(', ');
-          const fecha = g.registros[0]?.fechaPago ? fmtF(g.registros[0].fechaPago) : '';
-          return `<tr style="background:#fee2e2">
-            <td style="padding:4px 8px;font-size:12px;white-space:nowrap">${esc(fecha)}</td>
-            <td style="padding:4px 8px;font-size:12px">${g.numeroPago}</td>
-            <td style="padding:4px 8px;font-size:12px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(provs)}</td>
-            <td style="padding:4px 8px;font-size:12px;text-align:right;color:#dc2626;white-space:nowrap">${fmtN(total)}</td>
-            <td style="padding:4px 8px;font-size:11px;white-space:nowrap">✗ Sin banco · ${g.registros.length} reg.</td>
-            <td></td>
-          </tr>`;
-        }).join('');
-      }
-
-      const s = data.stats;
-
-      // Tarjeta de pendientes sin línea asignada (EECC sin ERP + sub-registros ERP sin proveedor mapeado)
-      const sinLineaItems = [];
-      data.transacciones.forEach(t => {
-        if (t.erpRegistros && t.erpRegistros.length > 0) {
-          t.erpRegistros.forEach(r => {
-            if (!r.lineaId) sinLineaItems.push({ fecha: t.fecha, nroDoc: t.nroDoc, concepto: r.pagarA || t.concepto, importe: r.importe, esERP: true, pagarA: r.pagarA });
-          });
-        } else if (!t.lineaId) {
-          sinLineaItems.push({ fecha: t.fecha, nroDoc: t.nroDoc, concepto: t.concepto, importe: t.importe, esERP: false });
-        }
-      });
-      const _slSecc = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
-      const _slLbl  = {'SALDO_INICIAL':'1. Saldo Inicial','INGRESOS':'2. Ingresos','EGRESOS':'3. Egresos','OTROS':'4. Otros','POR_IDENTIFICAR':'5. Por Identificar','SALDO_FINAL':'6. Saldo Final'};
-      const _slSorted = [...data.lineas].sort((a,b) => {
-        if (!!a.esManual !== !!b.esManual) return a.esManual ? 1 : -1;
-        const si = _slSecc.indexOf(a.seccion), sj = _slSecc.indexOf(b.seccion);
-        return si!==sj ? si-sj : (a.orden||0)-(b.orden||0) || a.nombre.localeCompare(b.nombre,'es');
-      });
-      const _lineaOpts = '<option value="">— Seleccionar línea —</option>' +
-        _slSorted.map(l => {
-          const lbl = l.esManual ? `⚑ ${esc(l.nombre)}` : `${esc(_slLbl[l.seccion]||l.seccion)} — ${esc(l.nombre)}`;
-          return `<option value="${l._id}">${lbl}</option>`;
-        }).join('');
-
-      const sinLineaCard = sinLineaItems.length ? `
-        <div class="card mb-16" style="padding:12px;border-left:4px solid #f59e0b">
-          <div style="margin-bottom:10px;font-weight:700;font-size:13px;color:#92400e">⚠ ${sinLineaItems.length} elemento${sinLineaItems.length>1?'s':''} sin línea del flujo asignada</div>
-          <div style="overflow:auto;max-height:320px">
-            <table class="data-table" style="font-size:12px;width:100%">
-              <thead><tr>
-                <th style="text-align:left;white-space:nowrap">Fecha Op.</th>
-                <th style="text-align:left;white-space:nowrap">Nº Doc</th>
-                <th style="text-align:left">Concepto / Proveedor</th>
-                <th style="text-align:right;white-space:nowrap">Importe</th>
-                <th style="text-align:left;min-width:220px">Línea del flujo</th>
-              </tr></thead>
-              <tbody>${sinLineaItems.map(item => {
-                const nd  = (item.nroDoc||'').replace(/'/g,"\\'");
-                const pv  = (item.pagarA||'').replace(/'/g,"\\'");
-                const sel = item.esERP
-                  ? `<select class="form-control" style="font-size:11px;padding:2px 6px;height:auto"
-                       onchange="if(this.value)fcConMapearProvDirecto('${pv}',this.value)">${_lineaOpts}</select>`
-                  : `<select class="form-control" style="font-size:11px;padding:2px 6px;height:auto"
-                       onchange="if(this.value)fcConAsignarDirecto('${nd}',this.value)">${_lineaOpts}</select>`;
-                return `<tr>
-                  <td style="padding:4px 8px;white-space:nowrap">${esc(fmtF(item.fecha))}</td>
-                  <td style="padding:4px 8px;white-space:nowrap">${esc(item.nroDoc||'')}</td>
-                  <td style="padding:4px 8px;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                    ${item.esERP ? `<span style="font-size:10px;color:var(--text-muted)">↳ ERP</span> ` : ''}${esc(item.concepto||'')}
-                  </td>
-                  <td style="padding:4px 8px;text-align:right;white-space:nowrap;${item.importe<0?'color:#dc2626':''}">${fmtN(item.importe)}</td>
-                  <td style="padding:4px 8px">${sel}</td>
-                </tr>`;
-              }).join('')}</tbody>
-            </table>
-          </div>
-        </div>` : '';
-
+      if (!movs.length) { wrap.innerHTML = ''; return; }
+      const lineaMap = Object.fromEntries(lineas.map(l => [l.codigo, l.nombre]));
+      const detOpts = detalles
+        .sort((a, b) => (a.lineaCodigo + a.nombre).localeCompare(b.lineaCodigo + b.nombre))
+        .map(d => `<option value="${esc(d.codigo)}">${esc(lineaMap[d.lineaCodigo] || d.lineaCodigo)} — ${esc(d.nombre)}</option>`)
+        .join('');
       wrap.innerHTML = `
-        <div class="card mb-16" style="padding:12px">
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-            <b style="font-size:13px">Conciliación ${esc(banco)} ${esc(simbolo)} — ${esc(compania)}${data.alias ? ' · ' + esc(data.alias) : ''}</b>
-            <span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.conciliados} conciliados</span>
-            <span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.soloEECC} solo en EECC</span>
-            <span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.soloERP} solo en ERP</span>
-            ${s.sinLinea ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">⚠ ${s.sinLinea} sin línea</span>` : ''}
-            ${s.nuevosProveedores ? `<span style="background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:4px;font-size:11px">+${s.nuevosProveedores} prov. nuevos añadidos</span>` : ''}
-            ${data.cargadoEn ? `<span style="font-size:11px;color:var(--text-muted)">EECC al ${esc(fmtF(data.cargadoEn))}</span>` : ''}
-          </div>
-          <div style="overflow:auto;max-height:520px">
-            <table class="data-table" style="font-size:12px;width:100%">
-              <thead><tr>
-                <th style="text-align:left;white-space:nowrap">Fecha</th>
-                <th style="text-align:left;white-space:nowrap">Cód / Nº Doc</th>
-                <th style="text-align:left">Concepto / Proveedor ERP</th>
-                <th style="text-align:right;white-space:nowrap">Importe (${esc(simbolo)})</th>
-                <th style="text-align:left">Estado</th>
-                <th style="text-align:left">Línea del flujo</th>
-              </tr></thead>
-              <tbody>${trxRows}${erpRows}</tbody>
+        <div class="card mb-16" style="padding:0;border-left:3px solid #f59e0b">
+          <div style="padding:10px 14px;font-weight:600;background:#fffbeb">⚠ ${movs.length} movimiento${movs.length !== 1 ? 's' : ''} sin asignar</div>
+          <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+            <table class="data-table" style="font-size:12px">
+              <thead><tr><th>Fecha</th><th>Banco</th><th>Mon.</th><th>N° Op.</th><th>Glosa</th><th class="text-right">Importe</th>${puedeAsignar ? '<th>Asignar a</th>' : ''}</tr></thead>
+              <tbody>
+                ${movs.map(m => `
+                  <tr>
+                    <td>${fmtDate(m.fecha)}</td>
+                    <td>${esc(m.banco)}</td>
+                    <td>${esc(m.moneda)}</td>
+                    <td>${esc(m.numeroOperacion || '—')}</td>
+                    <td>${esc(m.glosa)}</td>
+                    <td class="text-right" style="${m.importe < 0 ? 'color:#dc2626' : ''}">${fmtMoney(m.importe)}</td>
+                    ${puedeAsignar ? `<td>
+                      <select class="fc-asignar-sel" data-id="${m._id}" style="font-size:12px;padding:2px 4px">
+                        <option value="">— Elegir —</option>
+                        ${detOpts}
+                      </select>
+                    </td>` : ''}
+                  </tr>`).join('')}
+              </tbody>
             </table>
           </div>
-        </div>
-        ${sinLineaCard}`;
-
-      // Funciones de asignación directa (en closure sobre compania/banco/moneda/data)
-      window.fcConAsignar = (nroDoc) => {
-        if (!_fcConData) return;
-        const { transacciones, lineas } = _fcConData;
-        const t = transacciones.find(tx => tx.nroDoc === nroDoc) || {};
-        const SECC_ORD2 = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
-        const SECC_LBL2 = {'SALDO_INICIAL':'1. Saldo Inicial','INGRESOS':'2. Ingresos','EGRESOS':'3. Egresos','OTROS':'4. Otros','POR_IDENTIFICAR':'5. Por Identificar','SALDO_FINAL':'6. Saldo Final'};
-        const sorted = [...lineas].sort((a,b) => {
-          if (!!a.esManual !== !!b.esManual) return a.esManual ? 1 : -1;
-          const si = SECC_ORD2.indexOf(a.seccion), sj = SECC_ORD2.indexOf(b.seccion);
-          return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');
-        });
-        const html = `
-          <div style="margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:6px">
-            <div style="font-size:11px;color:var(--text-muted)">Fecha: <b>${esc(fmtF(t.fecha))}</b> &nbsp;·&nbsp; Nº: <b>${esc(nroDoc)}</b></div>
-            <div style="font-size:13px;margin-top:4px;font-weight:600">${esc(t.concepto||'')}</div>
-            <div style="font-size:13px;margin-top:2px;color:${(t.importe||0)<0?'#dc2626':'#16a34a'}">${esc(simbolo)} ${fmtN(t.importe)}</div>
-          </div>
-          <label style="font-size:12px;color:var(--text-muted)">Línea del flujo:</label>
-          <select id="fccon-linea-sel" class="form-control" style="font-size:12px;width:100%;margin-top:4px">
-            <option value="">— Seleccionar línea —</option>
-            ${sorted.map(l => {
-              const lbl = l.esManual ? `⚑ ${esc(l.nombre)}` : `${esc(SECC_LBL2[l.seccion]||l.seccion)} — ${esc(l.nombre)}`;
-              const sel = t.lineaId === String(l._id) ? ' selected' : '';
-              return `<option value="${l._id}"${sel}>${lbl}</option>`;
-            }).join('')}
-          </select>
-          <input type="hidden" id="fccon-nrodoc-val" value="${esc(nroDoc)}">
-          <div style="margin-top:12px;text-align:right">
-            <button class="btn btn-primary btn-sm" onclick="fcConConfirmarAsign()">✓ Asignar</button>
-          </div>`;
-        openModal('🔗 Asignar línea del flujo', html, null, { medium: true });
-      };
-
-      window.fcConConfirmarAsign = async () => {
-        const lineaId = document.getElementById('fccon-linea-sel')?.value;
-        const nroDoc  = document.getElementById('fccon-nrodoc-val')?.value;
-        if (!lineaId) { toast('Selecciona una línea del flujo', 'warning'); return; }
-        const { compania: c, banco: b, moneda: m } = _fcConData;
-        try {
-          await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId });
-          document.getElementById('modal')?.classList.add('hidden');
-          toast('✅ Línea asignada', 'success');
-          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
-        } catch(err) { toast(err.message, 'error'); }
-      };
-
-      window.fcConAsignarDirecto = async (nroDoc, lineaId) => {
-        if (!lineaId || !_fcConData) return;
-        const { compania: c, banco: b, moneda: m } = _fcConData;
-        try {
-          await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId });
-          toast('✅ Línea asignada', 'success');
-          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
-        } catch(err) { toast(err.message, 'error'); }
-      };
-
-      window.fcConMapearProvDirecto = async (pagarA, lineaId) => {
-        if (!lineaId || !_fcConData) return;
-        const { compania: c } = _fcConData;
-        try {
-          await PUT('/flujo-caja/proveedor-linea', { compania: c, nombreProveedor: pagarA, lineaId });
-          toast('✅ Proveedor mapeado', 'success');
-          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
-        } catch(err) { toast(err.message, 'error'); }
-      };
-
-      window.fcConQuitarAsign = async (nroDoc) => {
-        if (!confirm('¿Quitar la asignación directa de esta línea?')) return;
-        const { compania: c, banco: b, moneda: m } = _fcConData;
-        try {
-          await PUT('/flujo-caja/asignacion', { compania: c, banco: b, moneda: m, nroDoc, lineaId: null });
-          toast('✅ Asignación directa eliminada', 'success');
-          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
-        } catch(err) { toast(err.message, 'error'); }
-      };
-
-      // Asignación de línea a proveedor desde sub-fila ERP (actualiza Mapeo Proveedores)
-      window.fcConAsignarProv = (pagarA) => {
-        if (!_fcConData) return;
-        const { compania: c, lineas } = _fcConData;
-        const SECC_ORD2 = ['SALDO_INICIAL','INGRESOS','EGRESOS','OTROS','POR_IDENTIFICAR','SALDO_FINAL'];
-        const SECC_LBL2 = {'SALDO_INICIAL':'1. Saldo Inicial','INGRESOS':'2. Ingresos','EGRESOS':'3. Egresos','OTROS':'4. Otros','POR_IDENTIFICAR':'5. Por Identificar','SALDO_FINAL':'6. Saldo Final'};
-        const sorted = [...lineas].sort((a,b) => {
-          if (!!a.esManual !== !!b.esManual) return a.esManual ? 1 : -1;
-          const si = SECC_ORD2.indexOf(a.seccion), sj = SECC_ORD2.indexOf(b.seccion);
-          return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');
-        });
-        const html = `
-          <div style="margin-bottom:12px;padding:10px;background:var(--bg-secondary);border-radius:6px">
-            <div style="font-size:11px;color:var(--text-muted)">Proveedor ERP</div>
-            <div style="font-size:13px;margin-top:4px;font-weight:600">${esc(pagarA)}</div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">La línea asignada quedará guardada en Mapeo de Proveedores y se aplicará a todos los pagos futuros de este proveedor.</div>
-          </div>
-          <label style="font-size:12px;color:var(--text-muted)">Línea del flujo:</label>
-          <select id="fccon-prov-linea-sel" class="form-control" style="font-size:12px;width:100%;margin-top:4px">
-            <option value="">— Seleccionar línea —</option>
-            ${sorted.map(l => {
-              const lbl = l.esManual ? `⚑ ${esc(l.nombre)}` : `${esc(SECC_LBL2[l.seccion]||l.seccion)} — ${esc(l.nombre)}`;
-              return `<option value="${l._id}">${lbl}</option>`;
-            }).join('')}
-          </select>
-          <input type="hidden" id="fccon-prov-nombre" value="${esc(pagarA)}">
-          <div style="margin-top:12px;text-align:right">
-            <button class="btn btn-primary btn-sm" onclick="fcConConfirmarAsignProv()">✓ Guardar en Mapeo</button>
-          </div>`;
-        openModal('🔗 Asignar línea — Mapeo Proveedores', html, null, { medium: true });
-      };
-
-      window.fcConConfirmarAsignProv = async () => {
-        const lineaId        = document.getElementById('fccon-prov-linea-sel')?.value;
-        const nombreProveedor = document.getElementById('fccon-prov-nombre')?.value;
-        if (!lineaId) { toast('Selecciona una línea del flujo', 'warning'); return; }
-        const { compania: c } = _fcConData;
-        try {
-          await PUT('/flujo-caja/proveedor-linea', { compania: c, nombreProveedor, lineaId });
-          document.getElementById('modal')?.classList.add('hidden');
-          toast('✅ Proveedor mapeado. Recargando...', 'success');
-          await window.fcVerConciliacion(_fcConData.banco, _fcConData.moneda);
-        } catch(err) { toast(err.message, 'error'); }
-      };
-
-    } catch(e) {
-      wrap.innerHTML = `<div class="text-center py-16" style="color:#dc2626">${esc(e.message)}</div>`;
-    }
-  };
-
-  // Tab mode switcher
-  window.fcSetMode = function(mode) {
-    document.querySelectorAll('.fc-mode-btn').forEach(b => {
-      const active = b.dataset.mode === mode;
-      b.style.color             = active ? 'var(--primary)' : 'var(--text-muted)';
-      b.style.borderBottomColor = active ? 'var(--primary)' : 'transparent';
-    });
-    document.getElementById('fc-panel-real').style.display       = mode === 'real'       ? '' : 'none';
-    document.getElementById('fc-panel-carga').style.display      = mode === 'carga'      ? '' : 'none';
-    document.getElementById('fc-panel-proyeccion').style.display = mode === 'proyeccion' ? '' : 'none';
-  };
-  window.fcSetMode(esAdminFC ? 'real' : 'carga');
-
-  // ── Conciliación: contexto para modal de asignación ─────────────────────
-  let _fcConData = null; // { compania, banco, moneda, transacciones, lineas }
-
-  // ── Proyección: estado módulo-level ──────────────────────────────────────
-  let _fcProyTiendas    = [];
-  let _fcProySupuestos  = {}; // tiendaId → [supuesto]
-
-  const fcProyFmt = n => (n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-  window.fcProyCargar = async function() {
-    const compania = document.getElementById('fcproy-compania')?.value;
-    const wrap = document.getElementById('fcproy-tiendas-wrap');
-    if (!compania) { toast('Selecciona una sociedad', 'warning'); return; }
-    wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
-    document.getElementById('fcproy-calculo-wrap').innerHTML = '';
-    try {
-      _fcProyTiendas = await GET(`/proyeccion/tiendas?compania=${encodeURIComponent(compania)}`);
-      // Cargar supuestos de todas las tiendas en paralelo
-      const results = await Promise.all(_fcProyTiendas.map(t => GET(`/proyeccion/tiendas/${t._id}/supuestos`)));
-      _fcProySupuestos = {};
-      _fcProyTiendas.forEach((t, i) => { _fcProySupuestos[t._id] = results[i]; });
-      fcProyRenderTiendas(compania);
-    } catch (e) { wrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`; }
-  };
-
-  function fcProyRenderTiendas(compania) {
-    const wrap = document.getElementById('fcproy-tiendas-wrap');
-    if (!_fcProyTiendas.length) {
-      wrap.innerHTML = `<div class="text-muted text-center py-24">No hay tiendas configuradas para ${esc(compania)}. Ve a Admin → 🏪 Tiendas para agregarlas.</div>`;
-      return;
-    }
-    const html = _fcProyTiendas.map(t => {
-      const sups = _fcProySupuestos[t._id] || [];
-      const supsRows = sups.map(s => `
-        <tr>
-          <td style="padding:4px 10px">${fcWeekLabel(s.semana)} (${s.semana})</td>
-          <td style="padding:4px 10px;text-align:right">${fcProyFmt(s.ventaBruta)}</td>
-          <td style="padding:4px 10px;text-align:center">
-            <button class="btn btn-sm" style="padding:1px 8px;font-size:11px;color:#dc2626;border-color:#dc2626"
-              onclick="fcProyEliminarSupuesto('${t._id}', ${s.semana})">🗑</button>
-          </td>
-        </tr>`).join('');
-      const canalesDesc = (t.canales || []).map(c => {
-        if (c.tipo === 'efectivo') return `Efectivo ${(c.pct*100).toFixed(0)}%`;
-        return `${c.nombre||c.tipo} ${(c.pct*100).toFixed(0)}% (com ${(c.comisionRate*100).toFixed(1)}%)`;
-      }).join(' · ');
-      return `
-        <div class="card mb-12" style="padding:0;overflow:hidden">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);cursor:pointer"
-            onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
-            <div>
-              <span style="font-weight:600;font-size:13px">🏪 ${esc(t.nombre)}</span>
-              <span style="margin-left:10px;font-size:11px;color:var(--text-muted)">${esc(t.moneda)} · IGV ${(t.igvRate*100).toFixed(0)}% · RC ${(t.rcRate*100).toFixed(0)}% · TIP ${(t.tipRate*100).toFixed(0)}%</span>
-              ${canalesDesc ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${esc(canalesDesc)}</div>` : ''}
-            </div>
-            <span style="font-size:11px;color:var(--text-muted)">${sups.length} supuesto(s) ▾</span>
-          </div>
-          <div style="padding:12px 14px">
-            ${sups.length ? `
-              <table style="width:100%;font-size:12px;border-collapse:collapse;margin-bottom:10px">
-                <thead><tr style="color:var(--text-muted)">
-                  <th style="padding:4px 10px;text-align:left;font-weight:500">Semana</th>
-                  <th style="padding:4px 10px;text-align:right;font-weight:500">Venta Bruta (${esc(t.moneda)})</th>
-                  <th></th>
-                </tr></thead>
-                <tbody>${supsRows}</tbody>
-              </table>` : '<p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Sin supuestos — la venta se asume 0.</p>'}
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <input id="fcproy-sem-${t._id}" type="number" placeholder="Sem YYYYSS" class="form-control" style="width:120px;font-size:12px">
-              <input id="fcproy-vb-${t._id}" type="number" placeholder="Venta bruta" class="form-control" style="width:130px;font-size:12px" min="0">
-              <button class="btn btn-sm btn-outline" onclick="fcProyAgregarSupuesto('${t._id}')">+ Agregar</button>
-            </div>
-          </div>
         </div>`;
-    }).join('');
-
-    wrap.innerHTML = `
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
-        <button class="btn btn-primary btn-sm" onclick="fcProyVerCalculo()">📈 Ver Cálculo</button>
-      </div>
-      ${html}`;
+      wrap.querySelectorAll('.fc-asignar-sel').forEach(sel => {
+        sel.addEventListener('change', async () => {
+          if (!sel.value) return;
+          try {
+            await PUT(`/flujo-caja/movimientos/${sel.dataset.id}/asignar`, { detalleCodigo: sel.value });
+            toast('Asignado', 'success');
+            await Promise.all([cargarSinAsignar(), cargar()]);
+          } catch (e) { toast(e.message, 'error'); }
+        });
+      });
+    } catch (e) { wrap.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
-  window.fcProyAgregarSupuesto = async function(tiendaId) {
-    const semana    = Number(document.getElementById(`fcproy-sem-${tiendaId}`)?.value);
-    const ventaBruta = Number(document.getElementById(`fcproy-vb-${tiendaId}`)?.value);
-    if (!semana || semana < 190001 || semana > 210053) { toast('Semana inválida (ej: 202638)', 'warning'); return; }
-    if (isNaN(ventaBruta) || ventaBruta < 0) { toast('Venta bruta inválida', 'warning'); return; }
+  async function cargar() {
+    if (!sociedadActual) { root.innerHTML = ''; return; }
+    const desde = document.getElementById('fc-desde').value;
+    const hasta = document.getElementById('fc-hasta').value;
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
-      const sup = await POST(`/proyeccion/tiendas/${tiendaId}/supuestos`, { semana, ventaBruta });
-      const list = _fcProySupuestos[tiendaId] || [];
-      const idx = list.findIndex(s => s.semana === sup.semana);
-      if (idx >= 0) list[idx] = sup; else list.push(sup);
-      list.sort((a, b) => a.semana - b.semana);
-      _fcProySupuestos[tiendaId] = list;
-      const compania = document.getElementById('fcproy-compania')?.value;
-      fcProyRenderTiendas(compania);
-      toast('Supuesto guardado', 'success');
-    } catch (e) { toast(e.message, 'error'); }
-  };
-
-  window.fcProyEliminarSupuesto = async function(tiendaId, semana) {
-    if (!confirm(`¿Eliminar supuesto de la semana ${semana}?`)) return;
-    try {
-      await DEL(`/proyeccion/tiendas/${tiendaId}/supuestos/${semana}`);
-      _fcProySupuestos[tiendaId] = (_fcProySupuestos[tiendaId] || []).filter(s => s.semana !== semana);
-      const compania = document.getElementById('fcproy-compania')?.value;
-      fcProyRenderTiendas(compania);
-      toast('Supuesto eliminado', 'success');
-    } catch (e) { toast(e.message, 'error'); }
-  };
-
-  let _fcProyCalcData = null;
-  let _fcProyPorTienda = false;
-
-  function fcProyBuildTbody(data, channelMap, agg, porTienda) {
-    const cols  = data.semanas.length + 1;
-    const tdNum = v => `<td style="padding:4px 10px;text-align:right;font-size:12px">${fcProyFmt(v)}</td>`;
-    const tdLbl = (lbl, indent) => `<td style="padding:4px 10px${indent?' 4px 22px':''};font-size:12px;white-space:nowrap">${esc(lbl)}</td>`;
-    const trSec = (lbl, bg) => `<tr style="background:${bg||'#1a1f3a'}"><td colspan="${cols}" style="padding:5px 10px;color:#fff;font-weight:700;font-size:11px">${lbl}</td></tr>`;
-
-    if (!porTienda) {
-      // ── Vista agregada ────────────────────────────────────────────
-      let t = trSec('INGRESOS — Tiendas');
-      channelMap.forEach((ch, key) => {
-        t += `<tr>${tdLbl(ch.label, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.monto)).join('')}</tr>`;
-      });
-      t += `<tr>${tdLbl('TIP cobrado', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
-      t += trSec('EGRESOS — Tiendas');
-      t += `<tr>${tdLbl('IGV Neto (a pagar SUNAT)', true)}${data.semanas.map(s => {
-        let igvCom = 0;
-        channelMap.forEach((ch, key) => { if (ch.tipo !== 'efectivo') igvCom += agg[s].ch[key]?.igvComision || 0; });
-        return tdNum(agg[s].igv - igvCom);
-      }).join('')}</tr>`;
-      t += `<tr>${tdLbl('RC (Recargo al consumo)', true)}${data.semanas.map(s => tdNum(agg[s].rc)).join('')}</tr>`;
-      t += `<tr>${tdLbl('TIP empleados', true)}${data.semanas.map(s => tdNum(agg[s].tip)).join('')}</tr>`;
-      channelMap.forEach((ch, key) => {
-        if (ch.tipo === 'efectivo') return;
-        if (!data.semanas.some(s => (agg[s].ch[key]?.comision || 0) > 0)) return;
-        t += `<tr>${tdLbl(`Comisión ${ch.label}`, true)}${data.semanas.map(s => tdNum(agg[s].ch[key]?.comision)).join('')}</tr>`;
-      });
-      return t;
-    }
-
-    // ── Vista por tienda ──────────────────────────────────────────
-    let t = '';
-    data.tiendas.forEach(tienda => {
-      // Canales de esta tienda
-      const tChMap = new Map();
-      data.semanas.forEach(sem => {
-        const d = tienda.porSemana[sem];
-        if (!d) return;
-        d.canales.forEach(c => {
-          const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
-          if (!tChMap.has(key)) tChMap.set(key, { tipo: c.tipo, nombre: c.nombre, label: c.tipo === 'efectivo' ? 'Efectivo' : c.nombre });
-        });
-      });
-
-      // Sub-header de tienda
-      t += `<tr style="background:#1e3a5f"><td colspan="${cols}" style="padding:6px 10px;color:#93c5fd;font-weight:700;font-size:12px">🏪 ${esc(tienda.nombre)} (${esc(tienda.moneda)})</td></tr>`;
-
-      // INGRESOS de esta tienda
-      t += trSec('  INGRESOS', '#0f2744');
-      tChMap.forEach((ch, key) => {
-        t += `<tr>${tdLbl(ch.label, true)}${data.semanas.map(s => {
-          const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
-          return tdNum(c?.monto || 0);
-        }).join('')}</tr>`;
-      });
-      t += `<tr>${tdLbl('TIP cobrado', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.tip || 0)).join('')}</tr>`;
-
-      // EGRESOS de esta tienda
-      t += trSec('  EGRESOS', '#0f2744');
-      t += `<tr>${tdLbl('IGV Neto (a pagar SUNAT)', true)}${data.semanas.map(s => {
-        const d = tienda.porSemana[s];
-        if (!d) return tdNum(0);
-        const igvCom = (d.canales || []).reduce((acc, c) => acc + (c.tipo !== 'efectivo' ? (c.igvComision || 0) : 0), 0);
-        return tdNum(d.igv - igvCom);
-      }).join('')}</tr>`;
-      t += `<tr>${tdLbl('RC (Recargo al consumo)', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.rc || 0)).join('')}</tr>`;
-      t += `<tr>${tdLbl('TIP empleados', true)}${data.semanas.map(s => tdNum(tienda.porSemana[s]?.tip || 0)).join('')}</tr>`;
-      tChMap.forEach((ch, key) => {
-        if (ch.tipo === 'efectivo') return;
-        const hasCom = data.semanas.some(s => {
-          const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
-          return (c?.comision || 0) > 0;
-        });
-        if (!hasCom) return;
-        t += `<tr>${tdLbl(`Comisión ${ch.label}`, true)}${data.semanas.map(s => {
-          const c = (tienda.porSemana[s]?.canales || []).find(x => (x.tipo === 'efectivo' ? 'efectivo' : `${x.tipo}::${x.nombre}`) === key);
-          return tdNum(c?.comision || 0);
-        }).join('')}</tr>`;
-      });
-    });
-    return t;
+      resumenData = await GET(`/flujo-caja/resumen?sociedad=${encodeURIComponent(sociedadActual)}&desde=${desde}&hasta=${hasta}&modo=${modo}`);
+      render();
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
-  function fcProyRenderResultado(compania) {
-    const data = _fcProyCalcData;
-    const calcWrap = document.getElementById('fcproy-calculo-wrap');
-    const thStyle = 'padding:5px 10px;text-align:right;font-size:11px;white-space:nowrap';
+  function render() {
+    const { fechas, filas } = resumenData;
+    if (!fechas.length) { root.innerHTML = '<div class="empty-state"><p>Sin movimientos en el rango seleccionado.</p></div>'; return; }
 
-    // Canales únicos globales (para vista agregada)
-    const channelMap = new Map();
-    data.tiendas.forEach(t => {
-      data.semanas.forEach(sem => {
-        (t.porSemana[sem]?.canales || []).forEach(c => {
-          const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
-          if (!channelMap.has(key)) channelMap.set(key, { tipo: c.tipo, nombre: c.nombre, label: c.tipo === 'efectivo' ? 'Efectivo' : c.nombre });
-        });
-      });
-    });
+    const totalPorFecha = f => filas.reduce((s, l) => s + l.detalles.reduce((s2, d) => s2 + (d.valores[f] || 0), 0), 0);
+    const totalLinea = l => fechas.reduce((s, f) => s + l.detalles.reduce((s2, d) => s2 + (d.valores[f] || 0), 0), 0);
+    const totalDetalle = d => fechas.reduce((s, f) => s + (d.valores[f] || 0), 0);
 
-    // Agregados globales
-    const agg = {};
-    data.semanas.forEach(sem => {
-      agg[sem] = { igv: 0, rc: 0, tip: 0, ch: {} };
-      channelMap.forEach((_, key) => { agg[sem].ch[key] = { monto: 0, comision: 0, igvComision: 0 }; });
-      data.tiendas.forEach(t => {
-        const d = t.porSemana[sem];
-        if (!d) return;
-        agg[sem].igv += d.igv || 0;
-        agg[sem].rc  += d.rc  || 0;
-        agg[sem].tip += d.tip || 0;
-        d.canales.forEach(c => {
-          const key = c.tipo === 'efectivo' ? 'efectivo' : `${c.tipo}::${c.nombre}`;
-          if (agg[sem].ch[key]) {
-            agg[sem].ch[key].monto       += c.monto       || 0;
-            agg[sem].ch[key].comision    += c.comision    || 0;
-            agg[sem].ch[key].igvComision += c.igvComision || 0;
-          }
-        });
-      });
-    });
-
-    calcWrap.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px">
-        <h3 style="font-size:13px;font-weight:600;margin:0">Cálculo Proyectado — Venta Tiendas · ${esc(compania)}</h3>
-        <button class="btn btn-sm btn-outline" onclick="fcProyToggleDesglose()">
-          ${_fcProyPorTienda ? '📊 Ver agregado' : '🏪 Desglose por tienda'}
-        </button>
-      </div>
-      <div class="card" style="overflow:auto">
-        <table class="data-table" style="font-size:12px;white-space:nowrap">
-          <thead><tr>
-            <th style="position:sticky;left:0;background:#1a1f3a;z-index:1;${thStyle};text-align:left">Línea (S/)</th>
-            ${data.semanas.map(s => `<th style="${thStyle}">${fcWeekLabel(s)}</th>`).join('')}
-          </tr></thead>
-          <tbody>${fcProyBuildTbody(data, channelMap, agg, _fcProyPorTienda)}</tbody>
-        </table>
+    root.innerHTML = `
+      <div class="card" style="overflow:hidden">
+        <div class="table-wrap" style="max-height:calc(100vh - 420px);overflow-y:auto">
+          <table class="data-table" style="font-size:12px;white-space:nowrap">
+            <thead><tr>
+              <th style="min-width:260px;position:sticky;left:0;background:var(--bg-card)">Línea / Detalle</th>
+              ${fechas.map(f => `<th class="text-right">${fmtFechaCorta(f)}</th>`).join('')}
+              <th class="text-right" style="font-weight:700">TOTAL</th>
+            </tr></thead>
+            <tbody>
+              ${filas.map(linea => `
+                <tr style="background:var(--bg-hover);font-weight:700">
+                  <td>${esc(linea.nombre)}</td>
+                  ${fechas.map(f => `<td class="text-right">${fmtMoney(linea.detalles.reduce((s, d) => s + (d.valores[f] || 0), 0))}</td>`).join('')}
+                  <td class="text-right">${fmtMoney(totalLinea(linea))}</td>
+                </tr>
+                ${linea.detalles.map(det => `
+                  <tr>
+                    <td style="padding-left:28px;color:var(--text-muted)">${esc(det.nombre)}</td>
+                    ${fechas.map(f => `<td class="text-right">${det.valores[f] ? fmtMoney(det.valores[f]) : ''}</td>`).join('')}
+                    <td class="text-right">${fmtMoney(totalDetalle(det))}</td>
+                  </tr>`).join('')}
+              `).join('')}
+              <tr style="border-top:2px solid var(--border);font-weight:700">
+                <td>TOTAL</td>
+                ${fechas.map(f => `<td class="text-right">${fmtMoney(totalPorFecha(f))}</td>`).join('')}
+                <td class="text-right">${fmtMoney(fechas.reduce((s, f) => s + totalPorFecha(f), 0))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>`;
   }
 
-  window.fcProyToggleDesglose = function() {
-    const compania = document.getElementById('fcproy-compania')?.value;
-    _fcProyPorTienda = !_fcProyPorTienda;
-    fcProyRenderResultado(compania);
-  };
-
-  window.fcProyVerCalculo = async function() {
-    const compania = document.getElementById('fcproy-compania')?.value;
-    const desde    = document.getElementById('fcproy-desde')?.value;
-    const hasta    = document.getElementById('fcproy-hasta')?.value;
-    const calcWrap = document.getElementById('fcproy-calculo-wrap');
-    if (!compania || !desde || !hasta) { toast('Completa sociedad, desde y hasta', 'warning'); return; }
-    calcWrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Calculando...</div>';
-    try {
-      const data = await GET(`/proyeccion/calculo-tiendas?compania=${encodeURIComponent(compania)}&desde=${desde}&hasta=${hasta}`);
-      if (!data.tiendas.length) {
-        calcWrap.innerHTML = '<div class="text-muted text-center py-24">No hay tiendas activas para esta sociedad.</div>';
-        return;
-      }
-      _fcProyCalcData  = data;
-      _fcProyPorTienda = false;
-      fcProyRenderResultado(compania);
-    } catch (e) {
-      calcWrap.innerHTML = `<div class="text-center py-24" style="color:#dc2626">${esc(e.message)}</div>`;
-    }
-  };
-
-  // Fecha Desde por omisión y carga automática del flujo (solo admin)
-  if (esAdminFC) {
-    const _fcD = new Date();
-    _fcD.setDate(_fcD.getDate() - 84);
-    _fcD.setDate(_fcD.getDate() - ((_fcD.getDay() || 7) - 1)); // retroceder al lunes
-    document.getElementById('fc-desde').value = _fcD.toISOString().slice(0, 10);
-    if (socsFC.length) await window.fcVerFlujo();
-  }
-
-  // Cargar cuentas del panel de carga al iniciar
-  if (socsFC.length) await window.fcCargarCuentas();
+  await Promise.all([cargar(), cargarSinAsignar()]);
 }
-
-// ─── View: Pagos Recurrentes ────────────────────────────────────────
-const PR_INTERVALOS = [
-  { v: 1, label: 'Mensual' }, { v: 2, label: 'Bimestral' }, { v: 3, label: 'Trimestral' },
-  { v: 6, label: 'Semestral' }, { v: 12, label: 'Anual' },
-];
-const PR_ESTADO_BADGE = {
-  pendiente: '<span class="badge" style="background:#fef3c7;color:#92400e">Pendiente</span>',
-  pagado:    '<span class="badge" style="background:#dcfce7;color:#166534">Pagado</span>',
-  anulado:   '<span class="badge" style="background:#f1f5f9;color:#64748b">Anulado</span>',
-};
 
 async function viewPagosRecurrentes(container) {
   const isAdmin = S.user.role === 'ADMIN';
@@ -14060,469 +13268,312 @@ async function renderAdminCCCorreo(container) {
 
 // ─── Admin: Flujo de Caja ─────────────────────────────────────────
 async function renderAdminFlujoCaja(container) {
-  const SECCIONES = [
-    ['SALDO_INICIAL',   '1. Saldo Inicial'],
-    ['INGRESOS',        '2. Ingresos'],
-    ['EGRESOS',         '3. Egresos'],
-    ['OTROS',           '4. Otros'],
-    ['POR_IDENTIFICAR', '5. Por Identificar'],
-    ['SALDO_FINAL',     '6. Saldo Final'],
-  ];
-  // Color identificador por sección (RGB base; se aplica con distinta opacidad
-  // para encabezados de sección vs. filas de detalle, y se reutiliza en ambas
-  // estructuras — Base y por Sociedad — para que sea fácil ubicar cada sección).
-  const SECCION_RGB = {
-    SALDO_INICIAL:   '59,130,246',   // azul
-    INGRESOS:        '34,197,94',    // verde
-    EGRESOS:         '239,68,68',    // rojo
-    OTROS:           '234,179,8',    // ámbar
-    POR_IDENTIFICAR: '168,85,247',   // morado
-    SALDO_FINAL:     '20,184,166',   // verde azulado
-  };
-  const seccionBg = (sk, alpha) => `rgba(${SECCION_RGB[sk] || '107,114,128'},${alpha})`;
-  const TIPOS_ACTIVIDAD = [
-    ['OPERACION',      'Operación'],
-    ['FINANCIAMIENTO', 'Financiamiento'],
-    ['INVERSION',      'Inversión'],
-  ];
-  const tipoActLabel = (k) => (TIPOS_ACTIVIDAD.find(t=>t[0]===k)||[,k])[1] || '—';
-  const tipoActSelectHtml = (cls, id, current) => `
-    <select class="form-control ${cls}" data-id="${id}" style="font-size:12px">
-      ${TIPOS_ACTIVIDAD.map(([tk,tl])=>`<option value="${tk}" ${current===tk?'selected':''}>${esc(tl)}</option>`).join('')}
-    </select>`;
   const SUBTABS = [
-    ['sociedad',  '🏢 Estructura por Sociedad'],
-    ['cuentas',   '🏦 Cuentas Bancarias'],
-    ['movb',      '💳 Mapeo Mov. Bancario'],
-    ['provs',     '🧾 Mapeo Proveedores'],
-    ['opers',     '📄 Mapeo Operaciones'],
-    ['tc',        '💱 Tipo de Cambio'],
+    { id: 'rutas',    label: 'Rutas por sociedad' },
+    { id: 'lineas',   label: 'Líneas / Detalles' },
+    { id: 'glosas',   label: 'Glosas' },
+    { id: 'proveedores', label: 'Proveedores' },
+    { id: 'cuentas',  label: 'Cuentas ERP ↔ Banco' },
   ];
-
   container.innerHTML = `
-    <div style="padding:8px">
-      <div class="tabs" style="flex-wrap:wrap">
-        ${SUBTABS.map(([k,l],i) => `<button class="tab-btn fc-adm-tab ${i===0?'active':''}" data-sub="${k}">${l}</button>`).join('')}
-      </div>
-      ${SUBTABS.map(([k],i) => `<div id="fc-adm-${k}" class="tab-panel ${i===0?'active':''}"></div>`).join('')}
-    </div>`;
+    <div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      ${SUBTABS.map((t, i) => `<button class="fc-admin-tab" data-tab="${t.id}" style="padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;border-bottom:2px solid ${i === 0 ? 'var(--primary)' : 'transparent'};font-weight:${i === 0 ? '600' : '400'}">${t.label}</button>`).join('')}
+    </div>
+    ${SUBTABS.map((t, i) => `<div class="fc-admin-panel" data-panel="${t.id}" style="${i === 0 ? '' : 'display:none'}"></div>`).join('')}
+  `;
 
-  container.querySelectorAll('.fc-adm-tab').forEach(btn => {
+  container.querySelectorAll('.fc-admin-tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      container.querySelectorAll('.fc-adm-tab').forEach(b=>b.classList.remove('active'));
-      container.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(`fc-adm-${btn.dataset.sub}`).classList.add('active');
+      container.querySelectorAll('.fc-admin-tab').forEach(b => { b.style.borderBottomColor = 'transparent'; b.style.fontWeight = '400'; });
+      btn.style.borderBottomColor = 'var(--primary)'; btn.style.fontWeight = '600';
+      container.querySelectorAll('.fc-admin-panel').forEach(p => { p.style.display = p.dataset.panel === btn.dataset.tab ? '' : 'none'; });
     });
   });
 
-  const socSelectorHtml = (selectId) => `
-    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
-      <label style="font-size:13px;font-weight:600">Sociedad:</label>
-      <select id="${selectId}" class="form-control" style="width:160px">
-        ${ALL_SOCS_COMPRA.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
-      </select>
+  await fcAdminRutas(container.querySelector('[data-panel="rutas"]'));
+  await fcAdminLineasDetalles(container.querySelector('[data-panel="lineas"]'));
+  await fcAdminGlosas(container.querySelector('[data-panel="glosas"]'));
+  await fcAdminProveedores(container.querySelector('[data-panel="proveedores"]'));
+  await fcAdminCuentas(container.querySelector('[data-panel="cuentas"]'));
+}
+
+async function fcAdminRutas(el) {
+  el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  const BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
+  const MONEDAS = ['PEN', 'USD'];
+
+  const configs = {};
+  try {
+    for (const s of ALL_SOCS_COMPRA) {
+      configs[s] = await GET(`/flujo-caja/config/${encodeURIComponent(s)}`);
+    }
+  } catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+
+  const archivoRow = (soc, a) => `
+    <div style="display:flex;gap:6px;margin-bottom:4px;align-items:center" class="fc-arch-row">
+      <select class="fc-arch-banco" style="width:80px">${BANCOS.map(b => `<option value="${b}" ${a.banco === b ? 'selected' : ''}>${b}</option>`).join('')}</select>
+      <select class="fc-arch-moneda" style="width:70px">${MONEDAS.map(m => `<option value="${m}" ${a.moneda === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
+      <input type="text" class="form-control fc-arch-ruta" value="${esc(a.ruta || '')}" placeholder="C:\\...\\Movimiento....xlsx" style="width:380px">
+      <button type="button" class="btn btn-outline btn-xs fc-arch-del" style="padding:2px 8px">✕</button>
     </div>`;
 
-  // ── 1) Estructura por Sociedad ───────────────────────────────────
-  async function renderSociedad() {
-    const el = document.getElementById('fc-adm-sociedad');
-    el.innerHTML = `
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
-        Cada sociedad hereda las líneas de la estructura base (puedes renombrarlas, reordenarlas
-        o desactivarlas) y puede agregar líneas adicionales propias, siempre enlazadas a una línea base.
-      </p>
-      ${socSelectorHtml('fc-soc-comp')}
-      <div id="fc-soc-cont"></div>`;
-
-    async function load() {
-      const comp = document.getElementById('fc-soc-comp').value;
-      const lineas = await GET(`/flujo-caja/lineas?compania=${encodeURIComponent(comp)}`);
-      const cont = document.getElementById('fc-soc-cont');
-      cont.innerHTML = `
-        <div class="card" style="overflow:hidden;max-width:840px;margin-bottom:16px">
-          <table class="data-table" style="font-size:13px">
-            <thead><tr><th>Sección</th><th>Línea</th><th style="width:160px">Tipo de Actividad</th><th style="width:70px">Orden</th><th style="width:90px">Activa</th><th style="width:100px">Manual</th><th style="width:80px">Acciones</th></tr></thead>
-            <tbody>
-              ${lineas.length ? SECCIONES.map(([sk,sl]) => {
-                const filas = lineas.filter(l => l.seccion === sk).sort((a,b) => (a.orden||0) - (b.orden||0));
-                const headerRow = `<tr><td colspan="7" style="background:${seccionBg(sk,0.28)};font-weight:700;font-size:11px;padding:6px 10px">${esc(sl)}</td></tr>`;
-                if (!filas.length) return headerRow;
-                return headerRow + filas.map(l => `
-                <tr style="background:${l.esManual ? 'rgba(234,179,8,0.08)' : seccionBg(sk,0.07)}">
-                  <td class="text-muted" style="font-size:11px">${esc(sl)}${l.esManual ? ' <span style="color:#b45309;font-size:10px">⚑</span>' : ''}</td>
-                  <td><input class="form-control fc-soc-nombre" data-id="${l._id}" value="${esc(l.nombre)}" style="font-size:12px"></td>
-                  <td>${l.esManual ? '<span style="font-size:11px;color:#b45309">— no aplica —</span>' : tipoActSelectHtml('fc-soc-tipo', l._id, l.tipoActividad || 'OPERACION')}</td>
-                  <td><input type="number" class="form-control fc-soc-orden" data-id="${l._id}" value="${l.orden||0}" style="font-size:12px;width:60px"></td>
-                  <td class="text-center"><input type="checkbox" class="fc-soc-activa" data-id="${l._id}" ${l.activa!==false?'checked':''}></td>
-                  <td class="text-center" title="Si está marcada, este marcador no aparece en la grilla del flujo"><input type="checkbox" class="fc-soc-manual" data-id="${l._id}" ${l.esManual?'checked':''}></td>
-                  <td class="text-center" style="white-space:nowrap">
-                    <button class="btn btn-xs btn-primary" onclick="fcSocGuardar('${l._id}')" title="Guardar">💾</button>
-                    <button class="btn btn-xs btn-danger" onclick="fcSocEliminar('${l._id}')" title="Eliminar">✕</button>
-                  </td>
-                </tr>`).join('');
-              }).join('') : '<tr><td colspan="7" class="text-muted text-center py-8">Sin líneas para esta sociedad. Agrega la primera abajo.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-        <div class="card" style="padding:14px;max-width:840px">
-          <strong style="font-size:13px">+ Nueva línea de ${esc(comp)}</strong>
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
-            <div>
-              <label style="font-size:11px;color:var(--text-muted);display:block">Sección</label>
-              <select id="fc-soc-new-seccion" class="form-control" style="width:170px;font-size:12px">
-                ${SECCIONES.map(([sk,sl])=>`<option value="${sk}">${esc(sl)}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--text-muted);display:block">Nombre de la línea</label>
-              <input id="fc-soc-new-nombre" class="form-control" style="width:240px;font-size:12px" placeholder="Ej: Cobranza Clientes">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--text-muted);display:block">Tipo de Actividad</label>
-              <select id="fc-soc-new-tipo" class="form-control" style="width:160px;font-size:12px">
-                ${TIPOS_ACTIVIDAD.map(([tk,tl])=>`<option value="${tk}">${esc(tl)}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--text-muted);display:block">Orden</label>
-              <input id="fc-soc-new-orden" type="number" class="form-control" style="width:70px;font-size:12px" value="0">
-            </div>
-            <div style="align-self:flex-end;padding-bottom:4px">
-              <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer" title="Marcador para identificar movimientos que requieren asignación caso a caso; no aparece en la grilla del flujo">
-                <input type="checkbox" id="fc-soc-new-manual" style="cursor:pointer">
-                <span style="color:#b45309">⚑ Asignación manual</span>
-              </label>
-            </div>
-            <button class="btn btn-primary btn-sm" onclick="fcSocAgregar()">+ Agregar</button>
-          </div>
+  el.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">
+      Rutas locales por sociedad para el sync diario. El archivo de Pagos ERP es único (PagosSpring.xls);
+      los archivos de banco pueden ser varios (uno por banco+moneda).
+    </p>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${ALL_SOCS_COMPRA.map(s => {
+        const c = configs[s] || { rutaPagosERP: '', archivosBanco: [] };
+        return `
+        <div class="card" style="padding:14px 16px" data-soc="${esc(s)}">
+          <div style="font-weight:700;font-size:13px;margin-bottom:10px">${esc(s)}</div>
+          <label class="form-label" style="font-size:11px">Ruta Pagos ERP (PagosSpring.xls)</label>
+          <input type="text" class="form-control fc-ruta-erp" value="${esc(c.rutaPagosERP || '')}" placeholder="C:\\...\\PagosSpring.xls" style="width:420px;margin-bottom:10px">
+          <label class="form-label" style="font-size:11px">Archivos de banco</label>
+          <div class="fc-archivos">${(c.archivosBanco || []).map(a => archivoRow(s, a)).join('')}</div>
+          <button type="button" class="btn btn-outline btn-xs fc-arch-add">+ Agregar archivo</button>
         </div>`;
+      }).join('')}
+    </div>`;
+
+  async function guardar(card) {
+    const soc = card.dataset.soc;
+    const rutaPagosERP = card.querySelector('.fc-ruta-erp').value.trim();
+    const archivosBanco = [...card.querySelectorAll('.fc-arch-row')].map(row => ({
+      banco: row.querySelector('.fc-arch-banco').value,
+      moneda: row.querySelector('.fc-arch-moneda').value,
+      ruta: row.querySelector('.fc-arch-ruta').value.trim(),
+    })).filter(a => a.ruta);
+    try {
+      await PUT(`/flujo-caja/config/${encodeURIComponent(soc)}`, { rutaPagosERP, archivosBanco });
+      toast(`Configuración de ${soc} actualizada`, 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  }
+
+  el.addEventListener('change', e => {
+    const card = e.target.closest('[data-soc]');
+    if (card && (e.target.classList.contains('fc-ruta-erp') || e.target.classList.contains('fc-arch-ruta') || e.target.classList.contains('fc-arch-banco') || e.target.classList.contains('fc-arch-moneda'))) {
+      guardar(card);
     }
+  });
+  el.addEventListener('click', e => {
+    const addBtn = e.target.closest('.fc-arch-add');
+    if (addBtn) {
+      const card = addBtn.closest('[data-soc]');
+      card.querySelector('.fc-archivos').insertAdjacentHTML('beforeend', archivoRow(card.dataset.soc, { banco: 'BBVA', moneda: 'PEN', ruta: '' }));
+      return;
+    }
+    const delBtn = e.target.closest('.fc-arch-del');
+    if (delBtn) {
+      const card = delBtn.closest('[data-soc]');
+      delBtn.closest('.fc-arch-row').remove();
+      guardar(card);
+    }
+  });
+}
 
-    document.getElementById('fc-soc-comp').addEventListener('change', load);
-    await load();
+async function fcAdminLineasDetalles(el) {
+  el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  const [lineas, detalles] = await Promise.all([GET('/flujo-caja/lineas'), GET('/flujo-caja/detalles')]);
 
-    window.fcSocAgregar = async () => {
-      const comp    = document.getElementById('fc-soc-comp').value;
-      const seccion = document.getElementById('fc-soc-new-seccion').value;
-      const nombre  = document.getElementById('fc-soc-new-nombre').value.trim();
-      const tipoActividad = document.getElementById('fc-soc-new-tipo').value;
-      const orden   = document.getElementById('fc-soc-new-orden').value;
-      const esManual = document.getElementById('fc-soc-new-manual').checked;
-      if (!nombre) { toast('Ingresa el nombre de la línea', 'warning'); return; }
-      try {
-        await POST('/flujo-caja/lineas', { compania: comp, seccion, nombre, tipoActividad, orden, esManual });
-        toast('✅ Línea agregada', 'success');
-        await load();
-      } catch(e) { toast(e.message, 'error'); }
-    };
-    window.fcSocGuardar = async (id) => {
-      const nombre   = container.querySelector(`.fc-soc-nombre[data-id="${id}"]`)?.value.trim();
-      const tipoActividad = container.querySelector(`.fc-soc-tipo[data-id="${id}"]`)?.value;
-      const orden    = container.querySelector(`.fc-soc-orden[data-id="${id}"]`)?.value;
-      const activa   = container.querySelector(`.fc-soc-activa[data-id="${id}"]`)?.checked;
-      const esManual = container.querySelector(`.fc-soc-manual[data-id="${id}"]`)?.checked;
-      try { await PUT(`/flujo-caja/lineas/${id}`, { nombre, tipoActividad, orden, activa, esManual }); toast('Guardado', 'success'); await load(); }
-      catch(e) { toast(e.message, 'error'); }
-    };
-    window.fcSocEliminar = async (id) => {
+  el.innerHTML = `
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+      <div class="card" style="padding:14px;min-width:280px">
+        <div style="font-weight:700;margin-bottom:8px">Líneas</div>
+        <div id="fc-lineas-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px">
+          ${lineas.map(l => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:4px 6px;border-radius:4px;background:var(--bg-hover)">
+            <span><strong>${esc(l.codigo)}</strong> — ${esc(l.nombre)}</span>
+            <button class="btn btn-outline btn-xs fc-linea-del" data-id="${l._id}">✕</button>
+          </div>`).join('') || '<p class="text-muted" style="font-size:12px">Sin líneas aún.</p>'}
+        </div>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="fc-linea-codigo" class="form-control" placeholder="Código" style="width:90px">
+          <input type="text" id="fc-linea-nombre" class="form-control" placeholder="Nombre" style="flex:1">
+          <button class="btn btn-primary btn-sm" id="fc-linea-add">＋</button>
+        </div>
+      </div>
+      <div class="card" style="padding:14px;flex:1;min-width:380px">
+        <div style="font-weight:700;margin-bottom:8px">Detalles</div>
+        <table class="data-table" style="font-size:12px;margin-bottom:10px">
+          <thead><tr><th>Código</th><th>Nombre</th><th>Tipo</th><th>Línea</th><th></th></tr></thead>
+          <tbody>
+            ${detalles.map(d => `<tr>
+              <td>${esc(d.codigo)}</td><td>${esc(d.nombre)}</td><td>${esc(d.tipo)}</td><td>${esc(d.lineaCodigo)}</td>
+              <td><button class="btn btn-outline btn-xs fc-detalle-del" data-id="${d._id}">✕</button></td>
+            </tr>`).join('') || '<tr><td colspan="5" class="text-muted">Sin detalles aún.</td></tr>'}
+          </tbody>
+        </table>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input type="text" id="fc-detalle-codigo" class="form-control" placeholder="Código" style="width:100px">
+          <input type="text" id="fc-detalle-nombre" class="form-control" placeholder="Nombre" style="width:180px">
+          <select id="fc-detalle-tipo" class="form-control" style="width:130px">
+            <option value="operacion">Operación</option>
+            <option value="inversion">Inversión</option>
+            <option value="financiamiento">Financiamiento</option>
+          </select>
+          <select id="fc-detalle-linea" class="form-control" style="width:150px">
+            ${lineas.map(l => `<option value="${esc(l.codigo)}">${esc(l.codigo)} — ${esc(l.nombre)}</option>`).join('')}
+          </select>
+          <button class="btn btn-primary btn-sm" id="fc-detalle-add">＋</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('fc-linea-add').addEventListener('click', async () => {
+    const codigo = document.getElementById('fc-linea-codigo').value.trim();
+    const nombre = document.getElementById('fc-linea-nombre').value.trim();
+    if (!codigo || !nombre) return toast('Código y nombre requeridos', 'error');
+    try { await POST('/flujo-caja/lineas', { codigo, nombre }); await fcAdminLineasDetalles(el); }
+    catch (e) { toast(e.message, 'error'); }
+  });
+  el.querySelectorAll('.fc-linea-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
       if (!confirm('¿Eliminar esta línea?')) return;
-      try { await DEL(`/flujo-caja/lineas/${id}`); toast('Eliminada', 'success'); await load(); }
-      catch(e) { toast(e.message, 'error'); }
-    };
-  }
-
-  // ── 3) Cuentas Bancarias ─────────────────────────────────────────
-  async function renderCuentas() {
-    const el = document.getElementById('fc-adm-cuentas');
-    el.innerHTML = `${socSelectorHtml('fc-cta-comp')}<div id="fc-cta-cont"></div>`;
-
-    async function load() {
-      const comp    = document.getElementById('fc-cta-comp').value;
-      const cuentas = await GET(`/flujo-caja/cuentas?compania=${encodeURIComponent(comp)}`);
-      const cont = document.getElementById('fc-cta-cont');
-      cont.innerHTML = `
-        <div class="card" style="overflow:hidden;max-width:920px;margin-bottom:16px">
-          <table class="data-table" style="font-size:12px">
-            <thead><tr><th>Banco</th><th style="width:80px">Moneda</th><th>N° Cuenta</th><th>Alias</th><th style="width:120px">Saldo Inicial</th><th style="width:130px">Fecha Saldo</th><th style="width:80px">Activa</th><th style="width:80px">Acciones</th></tr></thead>
-            <tbody>
-              ${cuentas.map(c => `
-              <tr>
-                <td><input class="form-control fc-cta-banco" data-id="${c._id}" value="${esc(c.banco)}" style="font-size:12px;width:90px"></td>
-                <td>
-                  <select class="form-control fc-cta-moneda" data-id="${c._id}" style="font-size:12px">
-                    <option value="SOL" ${c.moneda==='SOL'?'selected':''}>SOL</option>
-                    <option value="USD" ${c.moneda==='USD'?'selected':''}>USD</option>
-                  </select>
-                </td>
-                <td><input class="form-control fc-cta-numero" data-id="${c._id}" value="${esc(c.numeroCuenta||'')}" style="font-size:12px"></td>
-                <td><input class="form-control fc-cta-alias" data-id="${c._id}" value="${esc(c.alias||'')}" style="font-size:12px"></td>
-                <td><input type="number" step="0.01" class="form-control fc-cta-saldo" data-id="${c._id}" value="${c.saldoInicial||0}" style="font-size:12px;text-align:right"></td>
-                <td><input type="date" class="form-control fc-cta-fecha" data-id="${c._id}" value="${c.fechaSaldoInicial ? new Date(c.fechaSaldoInicial).toISOString().slice(0,10) : ''}" style="font-size:11px"></td>
-                <td class="text-center"><input type="checkbox" class="fc-cta-activa" data-id="${c._id}" ${c.activa!==false?'checked':''}></td>
-                <td class="text-center" style="white-space:nowrap">
-                  <button class="btn btn-xs btn-primary" onclick="fcCtaGuardar('${c._id}')" title="Guardar">💾</button>
-                  <button class="btn btn-xs btn-danger" onclick="fcCtaEliminar('${c._id}')" title="Eliminar">✕</button>
-                </td>
-              </tr>`).join('') || '<tr><td colspan="8" class="text-muted text-center py-8">Sin cuentas registradas</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-        <div class="card" style="padding:14px;max-width:920px">
-          <strong style="font-size:13px">+ Nueva cuenta bancaria</strong>
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
-            <div><label style="font-size:11px;color:var(--text-muted);display:block">Banco</label>
-              <input id="fc-cta-new-banco" class="form-control" style="width:110px;font-size:12px" placeholder="BCP"></div>
-            <div><label style="font-size:11px;color:var(--text-muted);display:block">Moneda</label>
-              <select id="fc-cta-new-moneda" class="form-control" style="width:90px;font-size:12px">
-                <option value="SOL">SOL</option><option value="USD">USD</option>
-              </select></div>
-            <div><label style="font-size:11px;color:var(--text-muted);display:block">N° Cuenta</label>
-              <input id="fc-cta-new-numero" class="form-control" style="width:160px;font-size:12px"></div>
-            <div><label style="font-size:11px;color:var(--text-muted);display:block">Alias</label>
-              <input id="fc-cta-new-alias" class="form-control" style="width:140px;font-size:12px"></div>
-            <div><label style="font-size:11px;color:var(--text-muted);display:block">Saldo Inicial</label>
-              <input id="fc-cta-new-saldo" type="number" step="0.01" class="form-control" style="width:110px;font-size:12px" value="0"></div>
-            <div><label style="font-size:11px;color:var(--text-muted);display:block">Fecha Saldo</label>
-              <input id="fc-cta-new-fecha" type="date" class="form-control" style="font-size:12px"></div>
-            <button class="btn btn-primary btn-sm" onclick="fcCtaAgregar()">+ Agregar</button>
-          </div>
-        </div>`;
-    }
-
-    document.getElementById('fc-cta-comp').addEventListener('change', load);
-    await load();
-
-    window.fcCtaAgregar = async () => {
-      const compania = document.getElementById('fc-cta-comp').value;
-      const banco    = document.getElementById('fc-cta-new-banco').value.trim();
-      const moneda   = document.getElementById('fc-cta-new-moneda').value;
-      const numeroCuenta = document.getElementById('fc-cta-new-numero').value.trim();
-      const alias    = document.getElementById('fc-cta-new-alias').value.trim();
-      const saldoInicial = document.getElementById('fc-cta-new-saldo').value;
-      const fechaSaldoInicial = document.getElementById('fc-cta-new-fecha').value;
-      if (!banco) { toast('Ingresa el banco', 'warning'); return; }
-      try {
-        await POST('/flujo-caja/cuentas', { compania, banco, moneda, numeroCuenta, alias, saldoInicial, fechaSaldoInicial });
-        toast('✅ Cuenta agregada', 'success');
-        await load();
-      } catch(e) { toast(e.message, 'error'); }
-    };
-    window.fcCtaGuardar = async (id) => {
-      const q = sel => container.querySelector(`${sel}[data-id="${id}"]`);
-      try {
-        await PUT(`/flujo-caja/cuentas/${id}`, {
-          banco: q('.fc-cta-banco')?.value.trim(),
-          moneda: q('.fc-cta-moneda')?.value,
-          numeroCuenta: q('.fc-cta-numero')?.value.trim(),
-          alias: q('.fc-cta-alias')?.value.trim(),
-          saldoInicial: q('.fc-cta-saldo')?.value,
-          fechaSaldoInicial: q('.fc-cta-fecha')?.value || null,
-          activa: q('.fc-cta-activa')?.checked,
-        });
-        toast('Guardado', 'success');
-        await load();
-      } catch(e) { toast(e.message, 'error'); }
-    };
-    window.fcCtaEliminar = async (id) => {
-      if (!confirm('¿Eliminar esta cuenta?')) return;
-      try { await DEL(`/flujo-caja/cuentas/${id}`); toast('Eliminada', 'success'); await load(); }
-      catch(e) { toast(e.message, 'error'); }
-    };
-  }
-
-  // ── 4/5/6) Tablas de mapeo (genérico: clave → línea) ─────────────
-  // cfg = { tabKey, endpoint, titulo, campos: [{id,label,placeholder}], buildClaveCols(row), needsCuenta }
-  async function renderMapeoGenerico(cfg) {
-    const el = document.getElementById(`fc-adm-${cfg.tabKey}`);
-    el.innerHTML = `${socSelectorHtml(`fc-${cfg.tabKey}-comp`)}<div id="fc-${cfg.tabKey}-cont"></div>`;
-
-    async function load() {
-      const comp = document.getElementById(`fc-${cfg.tabKey}-comp`).value;
-      const [rows, lineas, cuentas] = await Promise.all([
-        GET(`/flujo-caja/${cfg.endpoint}?compania=${encodeURIComponent(comp)}`),
-        GET(`/flujo-caja/lineas?compania=${encodeURIComponent(comp)}`),
-        cfg.needsCuenta ? GET(`/flujo-caja/cuentas?compania=${encodeURIComponent(comp)}`) : Promise.resolve([]),
-      ]);
-      const cuentaLabel = c => `${c.banco} ${c.moneda}${c.numeroCuenta?` — ${c.numeroCuenta}`:''}${c.alias?` (${c.alias})`:''}`;
-      const cont = document.getElementById(`fc-${cfg.tabKey}-cont`);
-
-      const colHeaders = cfg.campos.map(c => `<th>${esc(c.label)}</th>`).join('');
-      const lineasSorted = [...lineas].sort((a,b)=>{
-        if (!!a.esManual !== !!b.esManual) return a.esManual ? 1 : -1;
-        const si=SECCIONES.findIndex(s=>s[0]===a.seccion),sj=SECCIONES.findIndex(s=>s[0]===b.seccion);
-        return si!==sj?si-sj:(a.orden||0)-(b.orden||0)||a.nombre.localeCompare(b.nombre,'es');
-      });
-      const lineaOptionHtml = (l, selectedId) => {
-        const label = l.esManual ? `⚑ ${esc(l.nombre)}` : `${esc((SECCIONES.find(s=>s[0]===l.seccion)||[,l.seccion])[1])} — ${esc(l.nombre)}`;
-        return `<option value="${l._id}"${selectedId===String(l._id)?' selected':''}>${label}</option>`;
-      };
-      const sinAsignar = rows.filter(r => !r.lineaId).length;
-
-      cont.innerHTML = `
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${esc(cfg.descripcion)}</p>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none">
-            <input type="checkbox" id="fc-${cfg.tabKey}-filtro-sin" onchange="fcMapFiltrarSin('${cfg.tabKey}',this.checked)" style="cursor:pointer">
-            Solo sin asignar <span style="font-size:11px;color:var(--text-muted)">(${sinAsignar} de ${rows.length})</span>
-          </label>
-        </div>
-        <div class="card" style="overflow:hidden;max-width:920px;margin-bottom:16px">
-          <table class="data-table" id="fc-${cfg.tabKey}-tabla" style="font-size:12px">
-            <thead><tr>${colHeaders}<th>Línea del Flujo</th><th style="width:60px">Acciones</th></tr></thead>
-            <tbody>
-              ${rows.map(r => {
-                const lineaActualId = r.lineaId?._id ? String(r.lineaId._id) : (r.lineaId ? String(r.lineaId) : '');
-                const sinLinea = !lineaActualId ? '1' : '0';
-                const lineaSel = `<select style="font-size:11px;padding:2px 4px;max-width:260px"
-                  onchange="fcMapActualizarLinea('${cfg.endpoint}','${r._id}',this.value)">
-                  <option value="">— Sin asignar —</option>
-                  ${lineasSorted.map(l=>lineaOptionHtml(l, lineaActualId)).join('')}
-                </select>`;
-                return `<tr data-sin-linea="${sinLinea}">
-                  ${cfg.buildClaveCols(r, cuentas, cuentaLabel)}
-                  <td style="padding:4px 8px">${lineaSel}</td>
-                  <td class="text-center"><button class="btn btn-xs btn-danger" onclick="fcMapEliminar('${cfg.endpoint}','${cfg.tabKey}','${r._id}')" title="Eliminar">✕</button></td>
-                </tr>`;
-              }).join('') || `<tr><td colspan="${cfg.campos.length+2}" class="text-muted text-center py-8">Sin registros</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-        <div class="card" style="padding:14px;max-width:920px">
-          <strong style="font-size:13px">+ Nuevo mapeo</strong>
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
-            ${cfg.campos.map(c => `<div><label style="font-size:11px;color:var(--text-muted);display:block">${esc(c.label)}</label>${
-              c.id === 'cuentaId'
-                ? `<select id="fc-${cfg.tabKey}-new-${c.id}" class="form-control" style="font-size:12px;width:200px">${cuentas.map(ct=>`<option value="${ct._id}">${esc(cuentaLabel(ct))}</option>`).join('') || '<option value="">— Sin cuentas —</option>'}</select>`
-                : `<input id="fc-${cfg.tabKey}-new-${c.id}" class="form-control" style="font-size:12px;width:200px" placeholder="${esc(c.placeholder||'')}">`
-            }</div>`).join('')}
-            <div>
-              <label style="font-size:11px;color:var(--text-muted);display:block">Línea del flujo</label>
-              <select id="fc-${cfg.tabKey}-new-linea" class="form-control" style="font-size:12px;width:240px">
-                ${lineasSorted.map(l=>lineaOptionHtml(l, '')).join('') || '<option value="">— Sin líneas —</option>'}
-              </select>
-            </div>
-            <button class="btn btn-primary btn-sm" onclick="fcMapAgregar('${cfg.endpoint}','${cfg.tabKey}',${JSON.stringify(cfg.campos.map(c=>c.id))})">+ Agregar</button>
-          </div>
-        </div>`;
-    }
-
-    document.getElementById(`fc-${cfg.tabKey}-comp`).addEventListener('change', load);
-    await load();
-
-    window.fcMapAgregar = async (endpoint, tabKey, camposIds) => {
-      const compania = document.getElementById(`fc-${tabKey}-comp`).value;
-      const lineaId  = document.getElementById(`fc-${tabKey}-new-linea`).value;
-      if (!lineaId) { toast('Selecciona la línea del flujo', 'warning'); return; }
-      const body = { compania, lineaId };
-      for (const id of camposIds) {
-        const v = document.getElementById(`fc-${tabKey}-new-${id}`)?.value?.trim?.() ?? document.getElementById(`fc-${tabKey}-new-${id}`)?.value;
-        if (!v) { toast('Completa todos los campos', 'warning'); return; }
-        body[id] = v;
-      }
-      try {
-        await POST(`/flujo-caja/${endpoint}`, body);
-        toast('✅ Agregado', 'success');
-        await load();
-      } catch(e) { toast(e.message, 'error'); }
-    };
-    window.fcMapFiltrarSin = (tabKey, soloSin) => {
-      document.querySelectorAll(`#fc-${tabKey}-tabla tbody tr`).forEach(tr => {
-        tr.style.display = soloSin && tr.dataset.sinLinea !== '1' ? 'none' : '';
-      });
-    };
-    window.fcMapEliminar = async (endpoint, tabKey, id) => {
-      if (!confirm('¿Eliminar este registro?')) return;
-      try { await DEL(`/flujo-caja/${endpoint}/${id}`); toast('Eliminado', 'success'); await load(); }
-      catch(e) { toast(e.message, 'error'); }
-    };
-    window.fcMapActualizarLinea = async (endpoint, id, lineaId) => {
-      try {
-        await PUT(`/flujo-caja/${endpoint}/${id}`, { lineaId: lineaId || null });
-        toast('✅ Línea actualizada', 'success');
-      } catch(e) { toast(e.message, 'error'); }
-    };
-  }
-
-  // ── 7) Tipo de Cambio (global) ───────────────────────────────────
-  async function renderTipoCambio() {
-    const el = document.getElementById('fc-adm-tc');
-    async function load() {
-      const rows = await GET('/flujo-caja/tipo-cambio');
-      el.innerHTML = `
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
-          Tabla manual de tipo de cambio (soles por dólar), usada para combinar el flujo de
-          caja de varias monedas en la vista "Combinado en Soles".
-        </p>
-        <div class="card" style="overflow:hidden;max-width:480px;margin-bottom:16px">
-          <table class="data-table" style="font-size:13px">
-            <thead><tr><th>Fecha</th><th>Tipo de Cambio (S/ x US$)</th><th style="width:60px">Eliminar</th></tr></thead>
-            <tbody>
-              ${rows.map(r => `<tr>
-                <td>${new Date(r.fecha).toLocaleDateString('es-PE',{timeZone:'UTC'})}</td>
-                <td>${(r.valor||0).toFixed(4)}</td>
-                <td class="text-center"><button class="btn btn-xs btn-danger" onclick="fcTcEliminar('${r._id}')">✕</button></td>
-              </tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center py-8">Sin registros</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-        <div class="card" style="padding:14px;max-width:480px">
-          <strong style="font-size:13px">+ Nuevo / actualizar tipo de cambio</strong>
-          <div style="display:flex;gap:8px;margin-top:8px;align-items:flex-end">
-            <div><label style="font-size:11px;color:var(--text-muted);display:block">Fecha</label>
-              <input id="fc-tc-new-fecha" type="date" class="form-control" style="font-size:12px"></div>
-            <div><label style="font-size:11px;color:var(--text-muted);display:block">Valor</label>
-              <input id="fc-tc-new-valor" type="number" step="0.0001" class="form-control" style="font-size:12px;width:110px" placeholder="3.7500"></div>
-            <button class="btn btn-primary btn-sm" onclick="fcTcAgregar()">💾 Guardar</button>
-          </div>
-        </div>`;
-    }
-    await load();
-    window.fcTcAgregar = async () => {
-      const fecha = document.getElementById('fc-tc-new-fecha').value;
-      const valor = document.getElementById('fc-tc-new-valor').value;
-      if (!fecha || !valor) { toast('Completa fecha y valor', 'warning'); return; }
-      try { await POST('/flujo-caja/tipo-cambio', { fecha, valor }); toast('✅ Guardado', 'success'); await load(); }
-      catch(e) { toast(e.message, 'error'); }
-    };
-    window.fcTcEliminar = async (id) => {
-      if (!confirm('¿Eliminar este tipo de cambio?')) return;
-      try { await DEL(`/flujo-caja/tipo-cambio/${id}`); toast('Eliminado', 'success'); await load(); }
-      catch(e) { toast(e.message, 'error'); }
-    };
-  }
-
-  // ── Init ─────────────────────────────────────────────────────────
-  await renderSociedad();
-  await renderCuentas();
-  await renderMapeoGenerico({
-    tabKey: 'movb', endpoint: 'mov-bancario',
-    descripcion: 'Identifica la línea del flujo según la cuenta bancaria y el número de operación del movimiento (1er criterio de conciliación).',
-    campos: [
-      { id: 'cuentaId', label: 'Cuenta Bancaria' },
-      { id: 'numeroOperacion', label: 'N° Operación', placeholder: 'Ej: 00123456' },
-    ],
-    needsCuenta: true,
-    buildClaveCols: (r, cuentas, cuentaLabel) => {
-      const cta = cuentas.find(c => c._id === (r.cuentaId?._id || r.cuentaId));
-      return `<td class="text-muted" style="font-size:11px">${esc(cta ? cuentaLabel(cta) : '—')}</td><td>${esc(r.numeroOperacion)}</td>`;
-    },
+      try { await DEL(`/flujo-caja/lineas/${btn.dataset.id}`); await fcAdminLineasDetalles(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
   });
-  await renderMapeoGenerico({
-    tabKey: 'provs', endpoint: 'proveedores',
-    descripcion: 'Identifica la línea del flujo según el nombre del proveedor/beneficiario que recibió el pago (2do criterio, usado al conciliar por cuadre de totales).',
-    campos: [{ id: 'nombreProveedor', label: 'Nombre del Proveedor', placeholder: 'Ej: ACME S.A.C.' }],
-    needsCuenta: false,
-    buildClaveCols: (r) => `<td>${esc(r.nombreProveedor)}</td>`,
+  document.getElementById('fc-detalle-add').addEventListener('click', async () => {
+    const codigo = document.getElementById('fc-detalle-codigo').value.trim();
+    const nombre = document.getElementById('fc-detalle-nombre').value.trim();
+    const tipo = document.getElementById('fc-detalle-tipo').value;
+    const lineaCodigo = document.getElementById('fc-detalle-linea').value;
+    if (!codigo || !nombre || !lineaCodigo) return toast('Datos incompletos', 'error');
+    try { await POST('/flujo-caja/detalles', { codigo, nombre, tipo, lineaCodigo }); await fcAdminLineasDetalles(el); }
+    catch (e) { toast(e.message, 'error'); }
   });
-  await renderMapeoGenerico({
-    tabKey: 'opers', endpoint: 'operaciones',
-    descripcion: 'Identifica la línea del flujo según la descripción de la operación bancaria (3er criterio de conciliación).',
-    campos: [{ id: 'descripcion', label: 'Descripción de la Operación', placeholder: 'Ej: COMISION MANTENIMIENTO' }],
-    needsCuenta: false,
-    buildClaveCols: (r) => `<td>${esc(r.descripcion)}</td>`,
+  el.querySelectorAll('.fc-detalle-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este detalle?')) return;
+      try { await DEL(`/flujo-caja/detalles/${btn.dataset.id}`); await fcAdminLineasDetalles(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
   });
-  await renderTipoCambio();
+}
+
+async function fcAdminGlosas(el) {
+  el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  const [glosas, detalles] = await Promise.all([GET('/flujo-caja/glosas'), GET('/flujo-caja/detalles')]);
+  const detOpts = detalles.map(d => `<option value="${esc(d.codigo)}">${esc(d.lineaCodigo)} — ${esc(d.nombre)}</option>`).join('');
+
+  el.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">Método 1 de asignación: si la glosa del movimiento bancario coincide con la regla, se asigna automáticamente al detalle indicado.</p>
+    <table class="data-table" style="font-size:12px;margin-bottom:10px">
+      <thead><tr><th>Texto</th><th>Criterio</th><th>Detalle</th><th></th></tr></thead>
+      <tbody>
+        ${glosas.map(g => `<tr>
+          <td>${esc(g.texto)}</td><td>${g.criterio === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(g.detalleCodigo)}</td>
+          <td><button class="btn btn-outline btn-xs fc-glosa-del" data-id="${g._id}">✕</button></td>
+        </tr>`).join('') || '<tr><td colspan="4" class="text-muted">Sin reglas aún.</td></tr>'}
+      </tbody>
+    </table>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <input type="text" id="fc-glosa-texto" class="form-control" placeholder="Texto de la glosa" style="width:220px">
+      <select id="fc-glosa-criterio" class="form-control" style="width:120px">
+        <option value="contiene">Contiene</option>
+        <option value="exacta">Exacta</option>
+      </select>
+      <select id="fc-glosa-detalle" class="form-control" style="width:220px">${detOpts}</select>
+      <button class="btn btn-primary btn-sm" id="fc-glosa-add">＋</button>
+    </div>`;
+
+  document.getElementById('fc-glosa-add').addEventListener('click', async () => {
+    const texto = document.getElementById('fc-glosa-texto').value.trim();
+    const criterio = document.getElementById('fc-glosa-criterio').value;
+    const detalleCodigo = document.getElementById('fc-glosa-detalle').value;
+    if (!texto || !detalleCodigo) return toast('Datos incompletos', 'error');
+    try { await POST('/flujo-caja/glosas', { texto, criterio, detalleCodigo }); await fcAdminGlosas(el); }
+    catch (e) { toast(e.message, 'error'); }
+  });
+  el.querySelectorAll('.fc-glosa-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar esta regla?')) return;
+      try { await DEL(`/flujo-caja/glosas/${btn.dataset.id}`); await fcAdminGlosas(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  });
+}
+
+async function fcAdminProveedores(el) {
+  el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  const [proveedores, detalles] = await Promise.all([GET('/flujo-caja/proveedores'), GET('/flujo-caja/detalles')]);
+  const detOpts = detalles.map(d => `<option value="${esc(d.codigo)}">${esc(d.lineaCodigo)} — ${esc(d.nombre)}</option>`).join('');
+
+  el.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">Método 2 de asignación: cuando un pago del ERP calza con el banco (mismo número + importe), se usa el beneficiario (PAGARA) para resolver el detalle aquí.</p>
+    <table class="data-table" style="font-size:12px;margin-bottom:10px">
+      <thead><tr><th>Beneficiario</th><th>Detalle</th><th></th></tr></thead>
+      <tbody>
+        ${proveedores.map(p => `<tr>
+          <td>${esc(p.beneficiario)}</td><td>${esc(p.detalleCodigo)}</td>
+          <td><button class="btn btn-outline btn-xs fc-prov-del" data-id="${p._id}">✕</button></td>
+        </tr>`).join('') || '<tr><td colspan="3" class="text-muted">Sin proveedores aún.</td></tr>'}
+      </tbody>
+    </table>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <input type="text" id="fc-prov-benef" class="form-control" placeholder="Beneficiario (PAGARA)" style="width:260px">
+      <select id="fc-prov-detalle" class="form-control" style="width:220px">${detOpts}</select>
+      <button class="btn btn-primary btn-sm" id="fc-prov-add">＋</button>
+    </div>`;
+
+  document.getElementById('fc-prov-add').addEventListener('click', async () => {
+    const beneficiario = document.getElementById('fc-prov-benef').value.trim();
+    const detalleCodigo = document.getElementById('fc-prov-detalle').value;
+    if (!beneficiario || !detalleCodigo) return toast('Datos incompletos', 'error');
+    try { await POST('/flujo-caja/proveedores', { beneficiario, detalleCodigo }); await fcAdminProveedores(el); }
+    catch (e) { toast(e.message, 'error'); }
+  });
+  el.querySelectorAll('.fc-prov-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este proveedor?')) return;
+      try { await DEL(`/flujo-caja/proveedores/${btn.dataset.id}`); await fcAdminProveedores(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  });
+}
+
+async function fcAdminCuentas(el) {
+  el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  const cuentas = await GET('/flujo-caja/cuentas-banco');
+  const BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
+  const MONEDAS = ['PEN', 'USD'];
+
+  el.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">Mapea la cuenta bancaria del ERP (campo CuentaBancaria de PagosSpring) a su banco y moneda reales — necesario para el cruce del método 2.</p>
+    <table class="data-table" style="font-size:12px;margin-bottom:10px">
+      <thead><tr><th>Sociedad</th><th>Cuenta ERP</th><th>Banco</th><th>Moneda</th><th></th></tr></thead>
+      <tbody>
+        ${cuentas.map(c => `<tr>
+          <td>${esc(c.sociedad)}</td><td>${esc(c.cuentaBancaria)}</td><td>${esc(c.banco)}</td><td>${esc(c.moneda)}</td>
+          <td><button class="btn btn-outline btn-xs fc-cuenta-del" data-id="${c._id}">✕</button></td>
+        </tr>`).join('') || '<tr><td colspan="5" class="text-muted">Sin cuentas mapeadas aún.</td></tr>'}
+      </tbody>
+    </table>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <select id="fc-cta-soc" class="form-control" style="width:130px">${ALL_SOCS_COMPRA.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
+      <input type="text" id="fc-cta-num" class="form-control" placeholder="Cuenta ERP" style="width:150px">
+      <select id="fc-cta-banco" class="form-control" style="width:90px">${BANCOS.map(b => `<option value="${b}">${b}</option>`).join('')}</select>
+      <select id="fc-cta-moneda" class="form-control" style="width:80px">${MONEDAS.map(m => `<option value="${m}">${m}</option>`).join('')}</select>
+      <button class="btn btn-primary btn-sm" id="fc-cta-add">＋</button>
+    </div>`;
+
+  document.getElementById('fc-cta-add').addEventListener('click', async () => {
+    const sociedad = document.getElementById('fc-cta-soc').value;
+    const cuentaBancaria = document.getElementById('fc-cta-num').value.trim();
+    const banco = document.getElementById('fc-cta-banco').value;
+    const moneda = document.getElementById('fc-cta-moneda').value;
+    if (!cuentaBancaria) return toast('Cuenta ERP requerida', 'error');
+    try { await POST('/flujo-caja/cuentas-banco', { sociedad, cuentaBancaria, banco, moneda }); await fcAdminCuentas(el); }
+    catch (e) { toast(e.message, 'error'); }
+  });
+  el.querySelectorAll('.fc-cuenta-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este mapeo?')) return;
+      try { await DEL(`/flujo-caja/cuentas-banco/${btn.dataset.id}`); await fcAdminCuentas(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  });
 }
 
 // ─── Admin: Grupos de Pago ────────────────────────────────────────
