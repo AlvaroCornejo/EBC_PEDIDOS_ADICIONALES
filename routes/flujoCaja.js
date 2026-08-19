@@ -1,5 +1,4 @@
 const express = require('express');
-const multer  = require('multer');
 const auth    = require('../middleware/auth');
 
 const FlujoLinea              = require('../models/FlujoLinea');
@@ -11,10 +10,7 @@ const FlujoGlosaRegla         = require('../models/FlujoGlosaRegla');
 const FlujoProveedorDetalle   = require('../models/FlujoProveedorDetalle');
 const TipoCambio              = require('../models/TipoCambio');
 
-const {
-  obtenerRutas, guardarRutas, obtenerMapaCias, listarDisponibles,
-  importarArchivoEstadoCuenta, importarArchivoPagosERP, reconciliar,
-} = require('../utils/flujoCajaSync');
+const { obtenerRutas, guardarRutas, reconciliar } = require('../utils/flujoCajaSync');
 
 const router = express.Router();
 router.use(auth);
@@ -285,67 +281,6 @@ router.delete('/tipo-cambio/:id', async (req, res) => {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
     await TipoCambio.findByIdAndDelete(req.params.id);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── Carga manual — lista lo que hay en las 2 carpetas y ejecuta lo elegido ──────
-function esAdminFC(user) { return user.role === 'ADMIN' || user.rolPago === 'admin'; }
-
-router.get('/carga-manual/archivos', async (req, res) => {
-  try {
-    const data = await listarDisponibles();
-    // Un usuario no-admin solo ve (y puede cargar) los archivos de Estado de
-    // Cuenta de sus sociedades autorizadas; Pagos ERP mezcla todas las
-    // sociedades en un solo archivo, así que esa carga queda solo para admin.
-    if (!esAdminFC(req.user)) {
-      data.estadoCuenta = data.estadoCuenta.filter(a => a.error || checkSocAccess(req.user, a.sociedad));
-      data.pagosERP = [];
-    }
-    res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-router.post('/carga-manual/ejecutar', async (req, res) => {
-  try {
-    const { archivos } = req.body; // [{tipo:'estado-cuenta', sociedad, banco, moneda, archivo} | {tipo:'pagos-erp', archivo, nombreArchivo}]
-    if (!Array.isArray(archivos) || !archivos.length) return res.status(400).json({ error: 'Selecciona al menos un archivo' });
-
-    const resultados = [];
-    const sociedadesTocadas = new Set();
-    let mapaCias = null;
-
-    for (const item of archivos) {
-      if (item.tipo === 'estado-cuenta') {
-        if (!checkSocAccess(req.user, item.sociedad)) {
-          resultados.push({ ...item, error: 'Sin acceso a esta sociedad' });
-          continue;
-        }
-        try {
-          const n = await importarArchivoEstadoCuenta(item);
-          sociedadesTocadas.add(item.sociedad);
-          resultados.push({ ...item, total: n });
-        } catch (e) { resultados.push({ ...item, error: e.message }); }
-      } else if (item.tipo === 'pagos-erp') {
-        if (!esAdminFC(req.user)) {
-          resultados.push({ ...item, error: 'Solo ADMIN puede cargar Pagos ERP (afecta a todas las sociedades)' });
-          continue;
-        }
-        try {
-          if (!mapaCias) mapaCias = await obtenerMapaCias();
-          const resumen = await importarArchivoPagosERP(item.archivo, mapaCias);
-          Object.keys(resumen).forEach(s => sociedadesTocadas.add(s));
-          resultados.push({ ...item, porSociedad: resumen });
-        } catch (e) { resultados.push({ ...item, error: e.message }); }
-      }
-    }
-
-    const reconciliacion = {};
-    for (const sociedad of sociedadesTocadas) {
-      try { reconciliacion[sociedad] = await reconciliar(sociedad); }
-      catch (e) { reconciliacion[sociedad] = { error: e.message }; }
-    }
-
-    res.json({ resultados, reconciliacion });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
