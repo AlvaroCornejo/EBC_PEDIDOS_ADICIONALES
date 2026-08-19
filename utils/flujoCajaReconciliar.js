@@ -54,7 +54,20 @@ async function asignarPorERP(sociedad) {
   ]);
   if (!pendientes.length || !cuentas.length) return 0;
 
-  const provMap = new Map(proveedores.map(p => [normBeneficiario(p.beneficiario), p.subdetalleCodigo]));
+  // Igual que las reglas de glosa: 'exacta' se resuelve por Map (O(1)),
+  // 'contiene' requiere recorrer la lista buscando si el texto configurado
+  // está contenido en el PAGARA del pago.
+  const provExactos = new Map(
+    proveedores.filter(p => (p.criterio || 'exacta') === 'exacta')
+      .map(p => [normBeneficiario(p.beneficiario), p.subdetalleCodigo])
+  );
+  const provContiene = proveedores.filter(p => p.criterio === 'contiene');
+  function resolverProveedor(pagarA) {
+    const norm = normBeneficiario(pagarA);
+    if (provExactos.has(norm)) return provExactos.get(norm);
+    const match = provContiene.find(p => norm.includes(normBeneficiario(p.beneficiario)));
+    return match ? match.subdetalleCodigo : null;
+  }
 
   // Agrupar pagos ERP por cuenta bancaria + numeroPago, resolviendo cada
   // cuenta a su banco/moneda para saber contra qué movimientos comparar.
@@ -81,7 +94,7 @@ async function asignarPorERP(sociedad) {
     if (!g) continue;
     const montoErp = mov.moneda === 'USD' ? g.montoExtranjero : g.montoLocal;
     if (Math.abs(montoErp - Math.abs(mov.importe)) > TOL_IMPORTE) continue;
-    const subdetalleCodigo = provMap.get(normBeneficiario(g.pagarA));
+    const subdetalleCodigo = resolverProveedor(g.pagarA);
     if (!subdetalleCodigo) continue; // el proveedor existe pero no está mapeado a un subdetalle
     if (usados.has(String(mov._id))) continue;
     usados.add(String(mov._id));

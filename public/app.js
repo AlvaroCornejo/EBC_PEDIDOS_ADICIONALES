@@ -13648,14 +13648,16 @@ async function fcAdminGlosas(el) {
   const etiqueta = s => `${detMap[s.detalleCodigo]?.lineaCodigo || ''} — ${detMap[s.detalleCodigo]?.nombre || s.detalleCodigo} — ${s.nombre}`;
   const subOpts = subdetalles.map(s => `<option value="${esc(s.codigo)}">${esc(etiqueta(s))}</option>`).join('');
   const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
+  const etiquetaDe = codigo => subMap[codigo] ? etiqueta(subMap[codigo]) : codigo;
 
   el.innerHTML = `
     <p class="mb-8 text-muted" style="font-size:13px">Método 1 de asignación: si la glosa del movimiento bancario coincide con la regla, se asigna automáticamente al subdetalle indicado.</p>
+    <input type="text" id="fc-glosa-filtro" class="form-control" placeholder="🔎 Filtrar por texto o subdetalle..." style="width:320px;margin-bottom:8px">
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
       <thead><tr><th>Texto</th><th>Criterio</th><th>Subdetalle</th><th></th></tr></thead>
-      <tbody>
-        ${glosas.map(g => `<tr>
-          <td>${esc(g.texto)}</td><td>${g.criterio === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(subMap[g.subdetalleCodigo] ? etiqueta(subMap[g.subdetalleCodigo]) : g.subdetalleCodigo)}</td>
+      <tbody id="fc-glosa-tbody">
+        ${glosas.map(g => `<tr data-filtro="${esc((g.texto + ' ' + etiquetaDe(g.subdetalleCodigo)).toLowerCase())}">
+          <td>${esc(g.texto)}</td><td>${g.criterio === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(g.subdetalleCodigo))}</td>
           <td><button class="btn btn-outline btn-xs fc-glosa-del" data-id="${g._id}">✕</button></td>
         </tr>`).join('') || '<tr><td colspan="4" class="text-muted">Sin reglas aún.</td></tr>'}
       </tbody>
@@ -13670,6 +13672,12 @@ async function fcAdminGlosas(el) {
       <button class="btn btn-primary btn-sm" id="fc-glosa-add">＋</button>
     </div>`;
 
+  document.getElementById('fc-glosa-filtro').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    el.querySelectorAll('#fc-glosa-tbody tr[data-filtro]').forEach(tr => {
+      tr.style.display = tr.dataset.filtro.includes(q) ? '' : 'none';
+    });
+  });
   document.getElementById('fc-glosa-add').addEventListener('click', async () => {
     const texto = document.getElementById('fc-glosa-texto').value.trim();
     const criterio = document.getElementById('fc-glosa-criterio').value;
@@ -13696,29 +13704,42 @@ async function fcAdminProveedores(el) {
   const etiqueta = s => `${detMap[s.detalleCodigo]?.lineaCodigo || ''} — ${detMap[s.detalleCodigo]?.nombre || s.detalleCodigo} — ${s.nombre}`;
   const subOpts = subdetalles.map(s => `<option value="${esc(s.codigo)}">${esc(etiqueta(s))}</option>`).join('');
   const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
+  const etiquetaDe = codigo => subMap[codigo] ? etiqueta(subMap[codigo]) : codigo;
 
   el.innerHTML = `
-    <p class="mb-8 text-muted" style="font-size:13px">Método 2 de asignación: cuando un pago del ERP calza con el banco (mismo número + importe), se usa el beneficiario (PAGARA) para resolver el subdetalle aquí.</p>
+    <p class="mb-8 text-muted" style="font-size:13px">Método 2 de asignación: cuando un pago del ERP calza con el banco (mismo número + importe), se usa el beneficiario (PAGARA) para resolver el subdetalle aquí. "Exacta" compara el PAGARA completo; "Contiene" resuelve si el texto configurado aparece dentro del PAGARA.</p>
+    <input type="text" id="fc-prov-filtro" class="form-control" placeholder="🔎 Filtrar por beneficiario o subdetalle..." style="width:320px;margin-bottom:8px">
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
-      <thead><tr><th>Beneficiario</th><th>Subdetalle</th><th></th></tr></thead>
-      <tbody>
-        ${proveedores.map(p => `<tr>
-          <td>${esc(p.beneficiario)}</td><td>${esc(subMap[p.subdetalleCodigo] ? etiqueta(subMap[p.subdetalleCodigo]) : p.subdetalleCodigo)}</td>
+      <thead><tr><th>Beneficiario</th><th>Criterio</th><th>Subdetalle</th><th></th></tr></thead>
+      <tbody id="fc-prov-tbody">
+        ${proveedores.map(p => `<tr data-filtro="${esc((p.beneficiario + ' ' + etiquetaDe(p.subdetalleCodigo)).toLowerCase())}">
+          <td>${esc(p.beneficiario)}</td><td>${(p.criterio || 'exacta') === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(p.subdetalleCodigo))}</td>
           <td><button class="btn btn-outline btn-xs fc-prov-del" data-id="${p._id}">✕</button></td>
-        </tr>`).join('') || '<tr><td colspan="3" class="text-muted">Sin proveedores aún.</td></tr>'}
+        </tr>`).join('') || '<tr><td colspan="4" class="text-muted">Sin proveedores aún.</td></tr>'}
       </tbody>
     </table>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <input type="text" id="fc-prov-benef" class="form-control" placeholder="Beneficiario (PAGARA)" style="width:260px">
+      <select id="fc-prov-criterio" class="form-control" style="width:120px">
+        <option value="exacta">Exacta</option>
+        <option value="contiene">Contiene</option>
+      </select>
       <select id="fc-prov-subdetalle" class="form-control" style="width:260px">${subOpts}</select>
       <button class="btn btn-primary btn-sm" id="fc-prov-add">＋</button>
     </div>`;
 
+  document.getElementById('fc-prov-filtro').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    el.querySelectorAll('#fc-prov-tbody tr[data-filtro]').forEach(tr => {
+      tr.style.display = tr.dataset.filtro.includes(q) ? '' : 'none';
+    });
+  });
   document.getElementById('fc-prov-add').addEventListener('click', async () => {
     const beneficiario = document.getElementById('fc-prov-benef').value.trim();
+    const criterio = document.getElementById('fc-prov-criterio').value;
     const subdetalleCodigo = document.getElementById('fc-prov-subdetalle').value;
     if (!beneficiario || !subdetalleCodigo) return toast('Datos incompletos', 'error');
-    try { await POST('/flujo-caja/proveedores', { beneficiario, subdetalleCodigo }); await fcAdminProveedores(el); }
+    try { await POST('/flujo-caja/proveedores', { beneficiario, criterio, subdetalleCodigo }); await fcAdminProveedores(el); }
     catch (e) { toast(e.message, 'error'); }
   });
   el.querySelectorAll('.fc-prov-del').forEach(btn => {

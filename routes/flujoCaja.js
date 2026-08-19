@@ -214,16 +214,19 @@ router.get('/proveedores', async (req, res) => {
 router.post('/proveedores', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { beneficiario, subdetalleCodigo } = req.body;
+    const { beneficiario, criterio, subdetalleCodigo } = req.body;
     if (!beneficiario || !subdetalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
-    res.json(await FlujoProveedorDetalle.create({ beneficiario: beneficiario.trim().toUpperCase(), subdetalleCodigo }));
+    res.json(await FlujoProveedorDetalle.create({ beneficiario: beneficiario.trim().toUpperCase(), criterio: criterio || 'exacta', subdetalleCodigo }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.put('/proveedores/:id', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { subdetalleCodigo } = req.body;
-    const p = await FlujoProveedorDetalle.findByIdAndUpdate(req.params.id, { subdetalleCodigo }, { new: true });
+    const { beneficiario, criterio, subdetalleCodigo } = req.body;
+    const update = { subdetalleCodigo };
+    if (beneficiario !== undefined) update.beneficiario = beneficiario.trim().toUpperCase();
+    if (criterio !== undefined) update.criterio = criterio;
+    const p = await FlujoProveedorDetalle.findByIdAndUpdate(req.params.id, update, { new: true });
     res.json(p);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
