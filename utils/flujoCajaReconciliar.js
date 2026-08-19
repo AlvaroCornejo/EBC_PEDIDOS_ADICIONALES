@@ -3,9 +3,11 @@
 // (POST /api/flujo-caja/reconciliar). Aplica, en orden:
 //   1. Reglas de glosa (FlujoGlosaRegla)
 //   2. Cruce contra pagos del ERP, agrupados por (cuentaBancaria, numeroPago)
-//      y sumados, contra el proveedor -> línea (FlujoProveedorDetalle)
-// Los movimientos que ninguno de los dos métodos resuelve quedan con
-// detalleCodigo=null, para asignación manual (método 3) desde la app.
+//      y sumados, contra el proveedor -> subdetalle (FlujoProveedorDetalle)
+// Ambos métodos asignan subdetalleCodigo (el nivel más granular) — LINEA y
+// DETALLE se derivan de ahí, no se guardan por separado. Los movimientos
+// que ninguno de los dos métodos resuelve quedan con subdetalleCodigo=null,
+// para asignación manual (método 3) desde la app.
 
 const FlujoMovimientoBancario = require('../models/FlujoMovimientoBancario');
 const FlujoPagoERP            = require('../models/FlujoPagoERP');
@@ -24,7 +26,7 @@ function normNumOp(v) { const n = parseInt(v, 10); return Number.isFinite(n) ? n
 async function asignarPorGlosa(sociedad) {
   const reglas = await FlujoGlosaRegla.find({}).lean();
   if (!reglas.length) return 0;
-  const pendientes = await FlujoMovimientoBancario.find({ sociedad, detalleCodigo: null }).lean();
+  const pendientes = await FlujoMovimientoBancario.find({ sociedad, subdetalleCodigo: null }).lean();
 
   let asignados = 0;
   const ops = [];
@@ -35,7 +37,7 @@ async function asignarPorGlosa(sociedad) {
     ops.push({
       updateOne: {
         filter: { _id: mov._id },
-        update: { detalleCodigo: regla.detalleCodigo, metodoAsignacion: 'glosa', asignadoEn: new Date() },
+        update: { subdetalleCodigo: regla.subdetalleCodigo, metodoAsignacion: 'glosa', asignadoEn: new Date() },
       },
     });
     asignados++;
@@ -48,11 +50,11 @@ async function asignarPorERP(sociedad) {
   const [cuentas, proveedores, pendientes] = await Promise.all([
     FlujoCuentaBanco.find({ sociedad }).lean(),
     FlujoProveedorDetalle.find({}).lean(),
-    FlujoMovimientoBancario.find({ sociedad, detalleCodigo: null }).lean(),
+    FlujoMovimientoBancario.find({ sociedad, subdetalleCodigo: null }).lean(),
   ]);
   if (!pendientes.length || !cuentas.length) return 0;
 
-  const provMap = new Map(proveedores.map(p => [normBeneficiario(p.beneficiario), p.detalleCodigo]));
+  const provMap = new Map(proveedores.map(p => [normBeneficiario(p.beneficiario), p.subdetalleCodigo]));
 
   // Agrupar pagos ERP por cuenta bancaria + numeroPago, resolviendo cada
   // cuenta a su banco/moneda para saber contra qué movimientos comparar.
@@ -79,14 +81,14 @@ async function asignarPorERP(sociedad) {
     if (!g) continue;
     const montoErp = mov.moneda === 'USD' ? g.montoExtranjero : g.montoLocal;
     if (Math.abs(montoErp - Math.abs(mov.importe)) > TOL_IMPORTE) continue;
-    const detalleCodigo = provMap.get(normBeneficiario(g.pagarA));
-    if (!detalleCodigo) continue; // el proveedor existe pero no está mapeado a una línea
+    const subdetalleCodigo = provMap.get(normBeneficiario(g.pagarA));
+    if (!subdetalleCodigo) continue; // el proveedor existe pero no está mapeado a un subdetalle
     if (usados.has(String(mov._id))) continue;
     usados.add(String(mov._id));
     ops.push({
       updateOne: {
         filter: { _id: mov._id },
-        update: { detalleCodigo, metodoAsignacion: 'erp', asignadoEn: new Date() },
+        update: { subdetalleCodigo, metodoAsignacion: 'erp', asignadoEn: new Date() },
       },
     });
     asignados++;
@@ -99,7 +101,7 @@ async function asignarPorERP(sociedad) {
 async function reconciliar(sociedad) {
   const porGlosa = await asignarPorGlosa(sociedad);
   const porERP = await asignarPorERP(sociedad);
-  const sinAsignar = await FlujoMovimientoBancario.countDocuments({ sociedad, detalleCodigo: null });
+  const sinAsignar = await FlujoMovimientoBancario.countDocuments({ sociedad, subdetalleCodigo: null });
   return { porGlosa, porERP, sinAsignar };
 }
 

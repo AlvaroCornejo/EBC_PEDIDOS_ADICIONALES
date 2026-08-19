@@ -4,6 +4,7 @@ const auth    = require('../middleware/auth');
 
 const FlujoLinea              = require('../models/FlujoLinea');
 const FlujoDetalle            = require('../models/FlujoDetalle');
+const FlujoSubdetalle         = require('../models/FlujoSubdetalle');
 const FlujoCuentaBanco        = require('../models/FlujoCuentaBanco');
 const FlujoConfig             = require('../models/FlujoConfig');
 const FlujoMovimientoBancario = require('../models/FlujoMovimientoBancario');
@@ -119,6 +120,34 @@ router.delete('/detalles/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.get('/subdetalles', async (req, res) => {
+  try { res.json(await FlujoSubdetalle.find({}).sort({ detalleCodigo: 1, codigo: 1 }).lean()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.post('/subdetalles', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
+    const { codigo, nombre, detalleCodigo } = req.body;
+    if (!codigo || !nombre || !detalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
+    res.json(await FlujoSubdetalle.create({ codigo, nombre, detalleCodigo }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.put('/subdetalles/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
+    const { nombre, detalleCodigo } = req.body;
+    const s = await FlujoSubdetalle.findByIdAndUpdate(req.params.id, { nombre, detalleCodigo }, { new: true });
+    res.json(s);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.delete('/subdetalles/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
+    await FlujoSubdetalle.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Reglas de glosa (método 1) ─────────────────────────────────────────────────
 router.get('/glosas', async (req, res) => {
   try { res.json(await FlujoGlosaRegla.find({}).sort({ texto: 1 }).lean()); }
@@ -127,16 +156,16 @@ router.get('/glosas', async (req, res) => {
 router.post('/glosas', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { texto, criterio, detalleCodigo } = req.body;
-    if (!texto || !criterio || !detalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
-    res.json(await FlujoGlosaRegla.create({ texto, criterio, detalleCodigo }));
+    const { texto, criterio, subdetalleCodigo } = req.body;
+    if (!texto || !criterio || !subdetalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
+    res.json(await FlujoGlosaRegla.create({ texto, criterio, subdetalleCodigo }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.put('/glosas/:id', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { texto, criterio, detalleCodigo } = req.body;
-    const g = await FlujoGlosaRegla.findByIdAndUpdate(req.params.id, { texto, criterio, detalleCodigo }, { new: true });
+    const { texto, criterio, subdetalleCodigo } = req.body;
+    const g = await FlujoGlosaRegla.findByIdAndUpdate(req.params.id, { texto, criterio, subdetalleCodigo }, { new: true });
     res.json(g);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -148,7 +177,7 @@ router.delete('/glosas/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Proveedor -> Detalle (método 2) ────────────────────────────────────────────
+// ── Proveedor -> Subdetalle (método 2) ─────────────────────────────────────────
 router.get('/proveedores', async (req, res) => {
   try { res.json(await FlujoProveedorDetalle.find({}).sort({ beneficiario: 1 }).lean()); }
   catch (err) { res.status(500).json({ error: err.message }); }
@@ -156,16 +185,16 @@ router.get('/proveedores', async (req, res) => {
 router.post('/proveedores', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { beneficiario, detalleCodigo } = req.body;
-    if (!beneficiario || !detalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
-    res.json(await FlujoProveedorDetalle.create({ beneficiario: beneficiario.trim().toUpperCase(), detalleCodigo }));
+    const { beneficiario, subdetalleCodigo } = req.body;
+    if (!beneficiario || !subdetalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
+    res.json(await FlujoProveedorDetalle.create({ beneficiario: beneficiario.trim().toUpperCase(), subdetalleCodigo }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.put('/proveedores/:id', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { detalleCodigo } = req.body;
-    const p = await FlujoProveedorDetalle.findByIdAndUpdate(req.params.id, { detalleCodigo }, { new: true });
+    const { subdetalleCodigo } = req.body;
+    const p = await FlujoProveedorDetalle.findByIdAndUpdate(req.params.id, { subdetalleCodigo }, { new: true });
     res.json(p);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -275,7 +304,7 @@ router.post('/reconciliar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Movimientos (nivel detalle) ────────────────────────────────────────────────
+// ── Movimientos (nivel subdetalle) ─────────────────────────────────────────────
 router.get('/movimientos', async (req, res) => {
   try {
     const { sociedad, banco, moneda, desde, hasta, sinAsignar } = req.query;
@@ -285,24 +314,32 @@ router.get('/movimientos', async (req, res) => {
     const filter = { sociedad };
     if (banco) filter.banco = banco;
     if (moneda) filter.moneda = moneda;
-    if (sinAsignar === 'true') filter.detalleCodigo = null;
+    if (sinAsignar === 'true') filter.subdetalleCodigo = null;
     if (desde || hasta) {
       filter.fecha = {};
       if (desde) filter.fecha.$gte = new Date(desde);
       if (hasta) { const h = new Date(hasta); h.setUTCHours(23, 59, 59, 999); filter.fecha.$lte = h; }
     }
 
-    const [movs, detalles, lineas] = await Promise.all([
+    const [movs, subdetalles, detalles, lineas] = await Promise.all([
       FlujoMovimientoBancario.find(filter).sort({ fecha: -1 }).limit(2000).lean(),
+      FlujoSubdetalle.find({}).lean(),
       FlujoDetalle.find({}).lean(),
       FlujoLinea.find({}).lean(),
     ]);
+    const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
     const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
     const lineaMap = Object.fromEntries(lineas.map(l => [l.codigo, l]));
     const out = movs.map(m => {
-      const det = m.detalleCodigo ? detMap[m.detalleCodigo] : null;
+      const sub = m.subdetalleCodigo ? subMap[m.subdetalleCodigo] : null;
+      const det = sub ? detMap[sub.detalleCodigo] : null;
       const linea = det ? lineaMap[det.lineaCodigo] : null;
-      return { ...m, detalleNombre: det?.nombre || null, lineaCodigo: det?.lineaCodigo || null, lineaNombre: linea?.nombre || null };
+      return {
+        ...m,
+        subdetalleNombre: sub?.nombre || null,
+        detalleCodigo: det?.codigo || null, detalleNombre: det?.nombre || null,
+        lineaCodigo: linea?.codigo || null, lineaNombre: linea?.nombre || null,
+      };
     });
     res.json(out);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -313,9 +350,9 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
     const mov = await FlujoMovimientoBancario.findById(req.params.id);
     if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
     if (!checkSocAccess(req.user, mov.sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
-    const { detalleCodigo } = req.body;
-    if (!detalleCodigo) return res.status(400).json({ error: 'detalleCodigo requerido' });
-    mov.detalleCodigo = detalleCodigo;
+    const { subdetalleCodigo } = req.body;
+    if (!subdetalleCodigo) return res.status(400).json({ error: 'subdetalleCodigo requerido' });
+    mov.subdetalleCodigo = subdetalleCodigo;
     mov.metodoAsignacion = 'manual';
     mov.asignadoPor = req.user.username;
     mov.asignadoEn = new Date();
@@ -324,7 +361,7 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Resumen LINEA -> DETALLE por día ──────────────────────────────────────────
+// ── Resumen LINEA -> DETALLE -> SUBDETALLE por día ─────────────────────────────
 router.get('/resumen', async (req, res) => {
   try {
     const { sociedad, desde, hasta, modo } = req.query;
@@ -334,10 +371,11 @@ router.get('/resumen', async (req, res) => {
     const d1 = new Date(desde);
     const d2 = new Date(hasta); d2.setUTCHours(23, 59, 59, 999);
 
-    const [movs, lineas, detalles, tcRows] = await Promise.all([
+    const [movs, lineas, detalles, subdetalles, tcRows] = await Promise.all([
       FlujoMovimientoBancario.find({ sociedad, fecha: { $gte: d1, $lte: d2 } }).lean(),
       FlujoLinea.find({}).sort({ codigo: 1 }).lean(),
       FlujoDetalle.find({}).lean(),
+      FlujoSubdetalle.find({}).lean(),
       modo === 'soles' ? TipoCambio.find({ fecha: { $lte: d2 } }).sort({ fecha: 1 }).lean() : Promise.resolve([]),
     ]);
 
@@ -348,10 +386,10 @@ router.get('/resumen', async (req, res) => {
       return mejor?.valor || null;
     };
 
-    const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
+    const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
     const ymd = f => f.toISOString().slice(0, 10);
 
-    // clave: lineaCodigo|detalleCodigo|fecha -> monto
+    // clave: lineaCodigo|detalleCodigo|subdetalleCodigo|fecha -> monto
     const grid = {};
     const fechasSet = new Set();
     let sinAsignar = 0;
@@ -359,24 +397,28 @@ router.get('/resumen', async (req, res) => {
     for (const m of movs) {
       const fkey = ymd(m.fecha);
       fechasSet.add(fkey);
-      if (!m.detalleCodigo) { sinAsignar++; continue; }
-      const det = detMap[m.detalleCodigo];
+      const sub = m.subdetalleCodigo ? subMap[m.subdetalleCodigo] : null;
+      if (!sub) { sinAsignar++; continue; }
+      const det = detalles.find(d => d.codigo === sub.detalleCodigo);
       if (!det) continue;
       let importe = m.importe;
       if (modo === 'soles' && m.moneda === 'USD') {
         const tc = tcPorFecha(m.fecha);
         importe = tc ? importe * tc : importe;
       }
-      const key = `${det.lineaCodigo}|${det.codigo}|${fkey}`;
+      const key = `${det.lineaCodigo}|${det.codigo}|${sub.codigo}|${fkey}`;
       grid[key] = (grid[key] || 0) + importe;
     }
 
     const fechas = [...fechasSet].sort();
     const filas = lineas.map(linea => {
-      const dets = detalles.filter(d => d.lineaCodigo === linea.codigo).map(det => ({
-        codigo: det.codigo, nombre: det.nombre, tipo: det.tipo,
-        valores: Object.fromEntries(fechas.map(f => [f, grid[`${linea.codigo}|${det.codigo}|${f}`] || 0])),
-      }));
+      const dets = detalles.filter(d => d.lineaCodigo === linea.codigo).map(det => {
+        const subs = subdetalles.filter(s => s.detalleCodigo === det.codigo).map(sub => ({
+          codigo: sub.codigo, nombre: sub.nombre,
+          valores: Object.fromEntries(fechas.map(f => [f, grid[`${linea.codigo}|${det.codigo}|${sub.codigo}|${f}`] || 0])),
+        }));
+        return { codigo: det.codigo, nombre: det.nombre, tipo: det.tipo, subdetalles: subs };
+      });
       return { codigo: linea.codigo, nombre: linea.nombre, detalles: dets };
     });
 

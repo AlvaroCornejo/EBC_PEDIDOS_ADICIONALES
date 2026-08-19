@@ -9062,16 +9062,23 @@ async function viewFlujoCaja(container) {
     const wrap = document.getElementById('fc-sin-asignar');
     if (!sociedadActual) { wrap.innerHTML = ''; return; }
     try {
-      const [movs, detalles, lineas] = await Promise.all([
+      const [movs, subdetalles, detalles, lineas] = await Promise.all([
         GET(`/flujo-caja/movimientos?sociedad=${encodeURIComponent(sociedadActual)}&sinAsignar=true`),
+        GET('/flujo-caja/subdetalles'),
         GET('/flujo-caja/detalles'),
         GET('/flujo-caja/lineas'),
       ]);
       if (!movs.length) { wrap.innerHTML = ''; return; }
       const lineaMap = Object.fromEntries(lineas.map(l => [l.codigo, l.nombre]));
-      const detOpts = detalles
-        .sort((a, b) => (a.lineaCodigo + a.nombre).localeCompare(b.lineaCodigo + b.nombre))
-        .map(d => `<option value="${esc(d.codigo)}">${esc(lineaMap[d.lineaCodigo] || d.lineaCodigo)} — ${esc(d.nombre)}</option>`)
+      const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
+      const etiqueta = sub => {
+        const det = detMap[sub.detalleCodigo];
+        const lineaNombre = det ? (lineaMap[det.lineaCodigo] || det.lineaCodigo) : '';
+        return `${lineaNombre} — ${det?.nombre || sub.detalleCodigo} — ${sub.nombre}`;
+      };
+      const detOpts = subdetalles
+        .sort((a, b) => etiqueta(a).localeCompare(etiqueta(b)))
+        .map(s => `<option value="${esc(s.codigo)}">${esc(etiqueta(s))}</option>`)
         .join('');
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:0;border-left:3px solid #f59e0b">
@@ -9103,7 +9110,7 @@ async function viewFlujoCaja(container) {
         sel.addEventListener('change', async () => {
           if (!sel.value) return;
           try {
-            await PUT(`/flujo-caja/movimientos/${sel.dataset.id}/asignar`, { detalleCodigo: sel.value });
+            await PUT(`/flujo-caja/movimientos/${sel.dataset.id}/asignar`, { subdetalleCodigo: sel.value });
             toast('Asignado', 'success');
             await Promise.all([cargarSinAsignar(), cargar()]);
           } catch (e) { toast(e.message, 'error'); }
@@ -9127,16 +9134,19 @@ async function viewFlujoCaja(container) {
     const { fechas, filas } = resumenData;
     if (!fechas.length) { root.innerHTML = '<div class="empty-state"><p>Sin movimientos en el rango seleccionado.</p></div>'; return; }
 
-    const totalPorFecha = f => filas.reduce((s, l) => s + l.detalles.reduce((s2, d) => s2 + (d.valores[f] || 0), 0), 0);
-    const totalLinea = l => fechas.reduce((s, f) => s + l.detalles.reduce((s2, d) => s2 + (d.valores[f] || 0), 0), 0);
-    const totalDetalle = d => fechas.reduce((s, f) => s + (d.valores[f] || 0), 0);
+    const sumaSubs = (subs, f) => subs.reduce((s, sub) => s + (sub.valores[f] || 0), 0);
+    const sumaDets = (dets, f) => dets.reduce((s, d) => s + sumaSubs(d.subdetalles, f), 0);
+    const totalPorFecha = f => filas.reduce((s, l) => s + sumaDets(l.detalles, f), 0);
+    const totalLinea = l => fechas.reduce((s, f) => s + sumaDets(l.detalles, f), 0);
+    const totalDetalle = det => fechas.reduce((s, f) => s + sumaSubs(det.subdetalles, f), 0);
+    const totalSub = sub => fechas.reduce((s, f) => s + (sub.valores[f] || 0), 0);
 
     root.innerHTML = `
       <div class="card" style="overflow:hidden">
         <div class="table-wrap" style="max-height:calc(100vh - 420px);overflow-y:auto">
           <table class="data-table" style="font-size:12px;white-space:nowrap">
             <thead><tr>
-              <th style="min-width:260px;position:sticky;left:0;background:var(--bg-card)">Línea / Detalle</th>
+              <th style="min-width:280px;position:sticky;left:0;background:var(--bg-card)">Línea / Detalle / Subdetalle</th>
               ${fechas.map(f => `<th class="text-right">${fmtFechaCorta(f)}</th>`).join('')}
               <th class="text-right" style="font-weight:700">TOTAL</th>
             </tr></thead>
@@ -9144,15 +9154,22 @@ async function viewFlujoCaja(container) {
               ${filas.map(linea => `
                 <tr style="background:var(--bg-hover);font-weight:700">
                   <td>${esc(linea.nombre)}</td>
-                  ${fechas.map(f => `<td class="text-right">${fmtMoney(linea.detalles.reduce((s, d) => s + (d.valores[f] || 0), 0))}</td>`).join('')}
+                  ${fechas.map(f => `<td class="text-right">${fmtMoney(sumaDets(linea.detalles, f))}</td>`).join('')}
                   <td class="text-right">${fmtMoney(totalLinea(linea))}</td>
                 </tr>
                 ${linea.detalles.map(det => `
-                  <tr>
+                  <tr style="font-weight:600">
                     <td style="padding-left:28px;color:var(--text-muted)">${esc(det.nombre)}</td>
-                    ${fechas.map(f => `<td class="text-right">${det.valores[f] ? fmtMoney(det.valores[f]) : ''}</td>`).join('')}
+                    ${fechas.map(f => `<td class="text-right">${sumaSubs(det.subdetalles, f) ? fmtMoney(sumaSubs(det.subdetalles, f)) : ''}</td>`).join('')}
                     <td class="text-right">${fmtMoney(totalDetalle(det))}</td>
-                  </tr>`).join('')}
+                  </tr>
+                  ${det.subdetalles.map(sub => `
+                    <tr>
+                      <td style="padding-left:48px;color:var(--text-muted)">${esc(sub.nombre)}</td>
+                      ${fechas.map(f => `<td class="text-right">${sub.valores[f] ? fmtMoney(sub.valores[f]) : ''}</td>`).join('')}
+                      <td class="text-right">${fmtMoney(totalSub(sub))}</td>
+                    </tr>`).join('')}
+                `).join('')}
               `).join('')}
               <tr style="border-top:2px solid var(--border);font-weight:700">
                 <td>TOTAL</td>
@@ -13270,7 +13287,7 @@ async function renderAdminCCCorreo(container) {
 async function renderAdminFlujoCaja(container) {
   const SUBTABS = [
     { id: 'rutas',    label: 'Rutas por sociedad' },
-    { id: 'lineas',   label: 'Líneas / Detalles' },
+    { id: 'lineas',   label: 'Líneas / Detalles / Subdetalles' },
     { id: 'glosas',   label: 'Glosas' },
     { id: 'proveedores', label: 'Proveedores' },
     { id: 'cuentas',  label: 'Cuentas ERP ↔ Banco' },
@@ -13375,7 +13392,10 @@ async function fcAdminRutas(el) {
 
 async function fcAdminLineasDetalles(el) {
   el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
-  const [lineas, detalles] = await Promise.all([GET('/flujo-caja/lineas'), GET('/flujo-caja/detalles')]);
+  const [lineas, detalles, subdetalles] = await Promise.all([
+    GET('/flujo-caja/lineas'), GET('/flujo-caja/detalles'), GET('/flujo-caja/subdetalles'),
+  ]);
+  const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
 
   el.innerHTML = `
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
@@ -13418,6 +13438,26 @@ async function fcAdminLineasDetalles(el) {
           <button class="btn btn-primary btn-sm" id="fc-detalle-add">＋</button>
         </div>
       </div>
+      <div class="card" style="padding:14px;flex:1;min-width:380px">
+        <div style="font-weight:700;margin-bottom:8px">Subdetalles</div>
+        <table class="data-table" style="font-size:12px;margin-bottom:10px">
+          <thead><tr><th>Código</th><th>Nombre</th><th>Detalle</th><th></th></tr></thead>
+          <tbody>
+            ${subdetalles.map(s => `<tr>
+              <td>${esc(s.codigo)}</td><td>${esc(s.nombre)}</td><td>${esc(detMap[s.detalleCodigo]?.nombre || s.detalleCodigo)}</td>
+              <td><button class="btn btn-outline btn-xs fc-subdetalle-del" data-id="${s._id}">✕</button></td>
+            </tr>`).join('') || '<tr><td colspan="4" class="text-muted">Sin subdetalles aún.</td></tr>'}
+          </tbody>
+        </table>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input type="text" id="fc-subdetalle-codigo" class="form-control" placeholder="Código" style="width:100px">
+          <input type="text" id="fc-subdetalle-nombre" class="form-control" placeholder="Nombre" style="width:180px">
+          <select id="fc-subdetalle-detalle" class="form-control" style="width:180px">
+            ${detalles.map(d => `<option value="${esc(d.codigo)}">${esc(d.codigo)} — ${esc(d.nombre)}</option>`).join('')}
+          </select>
+          <button class="btn btn-primary btn-sm" id="fc-subdetalle-add">＋</button>
+        </div>
+      </div>
     </div>`;
 
   document.getElementById('fc-linea-add').addEventListener('click', async () => {
@@ -13450,20 +13490,40 @@ async function fcAdminLineasDetalles(el) {
       catch (e) { toast(e.message, 'error'); }
     });
   });
+  document.getElementById('fc-subdetalle-add').addEventListener('click', async () => {
+    const codigo = document.getElementById('fc-subdetalle-codigo').value.trim();
+    const nombre = document.getElementById('fc-subdetalle-nombre').value.trim();
+    const detalleCodigo = document.getElementById('fc-subdetalle-detalle').value;
+    if (!codigo || !nombre || !detalleCodigo) return toast('Datos incompletos', 'error');
+    try { await POST('/flujo-caja/subdetalles', { codigo, nombre, detalleCodigo }); await fcAdminLineasDetalles(el); }
+    catch (e) { toast(e.message, 'error'); }
+  });
+  el.querySelectorAll('.fc-subdetalle-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este subdetalle?')) return;
+      try { await DEL(`/flujo-caja/subdetalles/${btn.dataset.id}`); await fcAdminLineasDetalles(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  });
 }
 
 async function fcAdminGlosas(el) {
   el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
-  const [glosas, detalles] = await Promise.all([GET('/flujo-caja/glosas'), GET('/flujo-caja/detalles')]);
-  const detOpts = detalles.map(d => `<option value="${esc(d.codigo)}">${esc(d.lineaCodigo)} — ${esc(d.nombre)}</option>`).join('');
+  const [glosas, subdetalles, detalles] = await Promise.all([
+    GET('/flujo-caja/glosas'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'),
+  ]);
+  const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
+  const etiqueta = s => `${detMap[s.detalleCodigo]?.lineaCodigo || ''} — ${detMap[s.detalleCodigo]?.nombre || s.detalleCodigo} — ${s.nombre}`;
+  const subOpts = subdetalles.map(s => `<option value="${esc(s.codigo)}">${esc(etiqueta(s))}</option>`).join('');
+  const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
 
   el.innerHTML = `
-    <p class="mb-8 text-muted" style="font-size:13px">Método 1 de asignación: si la glosa del movimiento bancario coincide con la regla, se asigna automáticamente al detalle indicado.</p>
+    <p class="mb-8 text-muted" style="font-size:13px">Método 1 de asignación: si la glosa del movimiento bancario coincide con la regla, se asigna automáticamente al subdetalle indicado.</p>
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
-      <thead><tr><th>Texto</th><th>Criterio</th><th>Detalle</th><th></th></tr></thead>
+      <thead><tr><th>Texto</th><th>Criterio</th><th>Subdetalle</th><th></th></tr></thead>
       <tbody>
         ${glosas.map(g => `<tr>
-          <td>${esc(g.texto)}</td><td>${g.criterio === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(g.detalleCodigo)}</td>
+          <td>${esc(g.texto)}</td><td>${g.criterio === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(subMap[g.subdetalleCodigo] ? etiqueta(subMap[g.subdetalleCodigo]) : g.subdetalleCodigo)}</td>
           <td><button class="btn btn-outline btn-xs fc-glosa-del" data-id="${g._id}">✕</button></td>
         </tr>`).join('') || '<tr><td colspan="4" class="text-muted">Sin reglas aún.</td></tr>'}
       </tbody>
@@ -13474,16 +13534,16 @@ async function fcAdminGlosas(el) {
         <option value="contiene">Contiene</option>
         <option value="exacta">Exacta</option>
       </select>
-      <select id="fc-glosa-detalle" class="form-control" style="width:220px">${detOpts}</select>
+      <select id="fc-glosa-subdetalle" class="form-control" style="width:260px">${subOpts}</select>
       <button class="btn btn-primary btn-sm" id="fc-glosa-add">＋</button>
     </div>`;
 
   document.getElementById('fc-glosa-add').addEventListener('click', async () => {
     const texto = document.getElementById('fc-glosa-texto').value.trim();
     const criterio = document.getElementById('fc-glosa-criterio').value;
-    const detalleCodigo = document.getElementById('fc-glosa-detalle').value;
-    if (!texto || !detalleCodigo) return toast('Datos incompletos', 'error');
-    try { await POST('/flujo-caja/glosas', { texto, criterio, detalleCodigo }); await fcAdminGlosas(el); }
+    const subdetalleCodigo = document.getElementById('fc-glosa-subdetalle').value;
+    if (!texto || !subdetalleCodigo) return toast('Datos incompletos', 'error');
+    try { await POST('/flujo-caja/glosas', { texto, criterio, subdetalleCodigo }); await fcAdminGlosas(el); }
     catch (e) { toast(e.message, 'error'); }
   });
   el.querySelectorAll('.fc-glosa-del').forEach(btn => {
@@ -13497,31 +13557,36 @@ async function fcAdminGlosas(el) {
 
 async function fcAdminProveedores(el) {
   el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
-  const [proveedores, detalles] = await Promise.all([GET('/flujo-caja/proveedores'), GET('/flujo-caja/detalles')]);
-  const detOpts = detalles.map(d => `<option value="${esc(d.codigo)}">${esc(d.lineaCodigo)} — ${esc(d.nombre)}</option>`).join('');
+  const [proveedores, subdetalles, detalles] = await Promise.all([
+    GET('/flujo-caja/proveedores'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'),
+  ]);
+  const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
+  const etiqueta = s => `${detMap[s.detalleCodigo]?.lineaCodigo || ''} — ${detMap[s.detalleCodigo]?.nombre || s.detalleCodigo} — ${s.nombre}`;
+  const subOpts = subdetalles.map(s => `<option value="${esc(s.codigo)}">${esc(etiqueta(s))}</option>`).join('');
+  const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
 
   el.innerHTML = `
-    <p class="mb-8 text-muted" style="font-size:13px">Método 2 de asignación: cuando un pago del ERP calza con el banco (mismo número + importe), se usa el beneficiario (PAGARA) para resolver el detalle aquí.</p>
+    <p class="mb-8 text-muted" style="font-size:13px">Método 2 de asignación: cuando un pago del ERP calza con el banco (mismo número + importe), se usa el beneficiario (PAGARA) para resolver el subdetalle aquí.</p>
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
-      <thead><tr><th>Beneficiario</th><th>Detalle</th><th></th></tr></thead>
+      <thead><tr><th>Beneficiario</th><th>Subdetalle</th><th></th></tr></thead>
       <tbody>
         ${proveedores.map(p => `<tr>
-          <td>${esc(p.beneficiario)}</td><td>${esc(p.detalleCodigo)}</td>
+          <td>${esc(p.beneficiario)}</td><td>${esc(subMap[p.subdetalleCodigo] ? etiqueta(subMap[p.subdetalleCodigo]) : p.subdetalleCodigo)}</td>
           <td><button class="btn btn-outline btn-xs fc-prov-del" data-id="${p._id}">✕</button></td>
         </tr>`).join('') || '<tr><td colspan="3" class="text-muted">Sin proveedores aún.</td></tr>'}
       </tbody>
     </table>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <input type="text" id="fc-prov-benef" class="form-control" placeholder="Beneficiario (PAGARA)" style="width:260px">
-      <select id="fc-prov-detalle" class="form-control" style="width:220px">${detOpts}</select>
+      <select id="fc-prov-subdetalle" class="form-control" style="width:260px">${subOpts}</select>
       <button class="btn btn-primary btn-sm" id="fc-prov-add">＋</button>
     </div>`;
 
   document.getElementById('fc-prov-add').addEventListener('click', async () => {
     const beneficiario = document.getElementById('fc-prov-benef').value.trim();
-    const detalleCodigo = document.getElementById('fc-prov-detalle').value;
-    if (!beneficiario || !detalleCodigo) return toast('Datos incompletos', 'error');
-    try { await POST('/flujo-caja/proveedores', { beneficiario, detalleCodigo }); await fcAdminProveedores(el); }
+    const subdetalleCodigo = document.getElementById('fc-prov-subdetalle').value;
+    if (!beneficiario || !subdetalleCodigo) return toast('Datos incompletos', 'error');
+    try { await POST('/flujo-caja/proveedores', { beneficiario, subdetalleCodigo }); await fcAdminProveedores(el); }
     catch (e) { toast(e.message, 'error'); }
   });
   el.querySelectorAll('.fc-prov-del').forEach(btn => {

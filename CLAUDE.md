@@ -564,13 +564,18 @@ Lección: al borrar un modelo compartido, grepear el nombre del **modelo**,
 no solo el del módulo — un nombre genérico como `EstadoCuenta` no contiene
 la palabra "FlujoCaja" y por eso no apareció en la primera búsqueda.
 
-**Jerarquía de clasificación**: LINEA → DETALLE → MOVIMIENTO (3 niveles).
-Cada `FlujoDetalle` pertenece a una `FlujoLinea` y tiene un `tipo`
-(`operacion`/`inversion`/`financiamiento`). Los movimientos bancarios
-(`FlujoMovimientoBancario`) se asignan a un `detalleCodigo` por 3 métodos,
-en este orden:
+**Jerarquía de clasificación**: LINEA → DETALLE → SUBDETALLE → MOVIMIENTO
+(4 niveles; el nivel SUBDETALLE se agregó después de la construcción
+inicial, a pedido del usuario). Cada `FlujoDetalle` pertenece a una
+`FlujoLinea` y tiene un `tipo` (`operacion`/`inversion`/`financiamiento`);
+cada `FlujoSubdetalle` (`{codigo, nombre, detalleCodigo}`) pertenece a un
+`FlujoDetalle`. Los movimientos bancarios (`FlujoMovimientoBancario`) se
+asignan directamente a un `subdetalleCodigo` — LINEA y DETALLE se derivan
+de ahí (`FlujoSubdetalle.detalleCodigo` → `FlujoDetalle.lineaCodigo`), no
+se guardan por separado en el movimiento para no desincronizar si cambia
+el catálogo. La asignación usa 3 métodos, en este orden:
 1. **Glosa** (`FlujoGlosaRegla`, `{texto, criterio: exacta|contiene,
-   detalleCodigo}`) — si la glosa del movimiento coincide, asignación
+   subdetalleCodigo}`) — si la glosa del movimiento coincide, asignación
    automática directa.
 2. **Cruce contra el ERP** — si el método 1 no aplicó, se agrupan los pagos
    del ERP (`FlujoPagoERP`) por `(cuentaBancaria, numeroPago)` y se suma
@@ -578,15 +583,15 @@ en este orden:
    suma coincide (tolerancia `TOL_IMPORTE=1`) con el `Math.abs(importe)`
    del banco para ese mismo número de operación, se resuelve el
    beneficiario (`pagarA`) contra `FlujoProveedorDetalle` (tabla
-   beneficiario→detalle, normalizada a mayúsculas). **El número de
+   beneficiario→subdetalle, normalizada a mayúsculas). **El número de
    operación del banco puede venir con ceros a la izquierda (BBVA:
    `"0000004569"`) y hay que normalizarlo a entero antes de comparar contra
    `NumeroPago` del ERP** (`normNumOp()` en `utils/flujoCajaReconciliar.js`)
    — bug real encontrado y corregido durante la validación de esta sesión
    (sin la normalización, 0 cruces; con ella, ~90-96% de coincidencia
-   validado contra datos reales).
-3. **Manual** (`PUT /movimientos/:id/asignar`) — para lo que ninguno de los
-   dos métodos anteriores resolvió.
+   validado contra datos reales, re-confirmado tras agregar SUBDETALLE).
+3. **Manual** (`PUT /movimientos/:id/asignar`, body `{subdetalleCodigo}`)
+   — para lo que ninguno de los dos métodos anteriores resolvió.
 
 **Fuentes de datos** (una carpeta por sociedad en Box, ej.
 `EBC POSICION DE CAJA\EBC POSICION DE CAJA GB\`):
@@ -614,36 +619,41 @@ en este orden:
   elige el usuario en la carga manual. **No hay operación** — se descartó
   a pedido del usuario, el módulo solo agrupa por sociedad.
 
-**Modelos** (`models/`): `FlujoLinea`, `FlujoDetalle`, `FlujoCuentaBanco`,
-`FlujoConfig` (rutas de sync por sociedad), `FlujoMovimientoBancario`
-(snapshot, reemplazo completo por `sociedad+banco+moneda` en cada import),
-`FlujoPagoERP` (snapshot, reemplazo completo por `sociedad`),
-`FlujoGlosaRegla`, `FlujoProveedorDetalle`. `TipoCambio` (ya existía) se
-reutiliza tal cual para la vista "todo en soles".
+**Modelos** (`models/`): `FlujoLinea`, `FlujoDetalle`, `FlujoSubdetalle`,
+`FlujoCuentaBanco`, `FlujoConfig` (rutas de sync por sociedad),
+`FlujoMovimientoBancario` (snapshot, reemplazo completo por
+`sociedad+banco+moneda` en cada import; campo de asignación es
+`subdetalleCodigo`, no `detalleCodigo`), `FlujoPagoERP` (snapshot,
+reemplazo completo por `sociedad`), `FlujoGlosaRegla`,
+`FlujoProveedorDetalle` (ambos apuntan a `subdetalleCodigo`). `TipoCambio`
+(ya existía) se reutiliza tal cual para la vista "todo en soles".
 
 **Backend**: `utils/flujoCajaImport.js` (parsers puros, comparten
 `ExcelJS.Workbook`/buffer entre el sync diario y la carga manual — un solo
 parser por banco, no duplicado) + `utils/flujoCajaReconciliar.js`
 (`reconciliar(sociedad)`, idempotente, corre métodos 1 y 2 sobre los
-movimientos con `detalleCodigo: null`). `scripts/importFlujoCaja.js`
+movimientos con `subdetalleCodigo: null`). `scripts/importFlujoCaja.js`
 recorre `FlujoConfig` de todas las sociedades e importa + reconcilia al
 final de cada una (`sync-flujo-caja.bat`, paso 16/16 en `sync-master.bat`).
 `routes/flujoCaja.js` (montado en `/api/flujo-caja`) expone además
-`POST /cargar/pagos-erp` y `POST /cargar/banco` (multer, carga manual con
-el mismo parser) y `POST /reconciliar?sociedad=`. Acceso por
-`rolPago`/`sociedadesPago` — mismo patrón y mismo permiso que Gestión de
-Pagos (comparten el nav item `flujo-caja`, que ya usaba `rolPago`).
+`GET/POST/PUT/DELETE /subdetalles`, `POST /cargar/pagos-erp` y
+`POST /cargar/banco` (multer, carga manual con el mismo parser) y
+`POST /reconciliar?sociedad=`. Acceso por `rolPago`/`sociedadesPago` —
+mismo patrón y mismo permiso que Gestión de Pagos (comparten el nav item
+`flujo-caja`, que ya usaba `rolPago`).
 
 **Frontend**: `viewFlujoCaja` — selector Sociedad + rango de fechas + modo
 Nativa/Soles (convierte USD a PEN con el `TipoCambio` más reciente a esa
-fecha), tabla LINEA→DETALLE con columnas por día y fila de sin asignar
-arriba (con `<select>` inline por movimiento para asignación manual, método
-3) + botón "🔄 Reconciliar". Admin → tab "💵 Flujo de Caja"
-(`renderAdminFlujoCaja`) con 5 sub-secciones (sub-tabs propios,
-`fc-admin-tab`/`fc-admin-panel`, para no chocar con los tabs del Admin
-general): Rutas por sociedad (mismo patrón que
-`renderAdminConciliacion`), Líneas/Detalles, Glosas, Proveedores, Cuentas
-ERP↔Banco.
+fecha), tabla LINEA→DETALLE→SUBDETALLE (indentación escalonada, 3 niveles)
+con columnas por día y sección de sin asignar arriba (con `<select>` de
+subdetalles, agrupado por línea/detalle en el label, para asignación
+manual inline — método 3) + botón "🔄 Reconciliar". Admin → tab
+"💵 Flujo de Caja" (`renderAdminFlujoCaja`) con 5 sub-secciones (sub-tabs
+propios, `fc-admin-tab`/`fc-admin-panel`, para no chocar con los tabs del
+Admin general): Rutas por sociedad (mismo patrón que
+`renderAdminConciliacion`), Líneas/Detalles/Subdetalles (3 tarjetas una al
+lado de otra), Glosas, Proveedores, Cuentas ERP↔Banco — estas 2 últimas
+seleccionan el subdetalle (no el detalle) al crear una regla.
 
 **Validado contra datos reales** (sociedad GB): import completo — 4,137
 pagos ERP, 11,058 movimientos bancarios (5,018 BBVA PEN + 395 BBVA USD + 26

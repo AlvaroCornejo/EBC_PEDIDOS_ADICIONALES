@@ -12,13 +12,16 @@ const schema = new mongoose.Schema({
   glosa:           { type: String, default: '' },
   importe:         { type: Number, required: true }, // con signo
 
-  detalleCodigo:    { type: String, default: null },
+  // Nivel más granular de asignación — LINEA y DETALLE se derivan de aquí
+  // (FlujoSubdetalle.detalleCodigo -> FlujoDetalle.lineaCodigo), no se
+  // guardan por separado para no desincronizar si cambia el catálogo.
+  subdetalleCodigo: { type: String, default: null },
   metodoAsignacion: { type: String, default: null, enum: [null, 'glosa', 'erp', 'manual'] },
   asignadoPor:      { type: String, default: '' },
   asignadoEn:       { type: Date, default: null },
 });
 schema.index({ sociedad: 1, banco: 1, moneda: 1, fecha: 1 });
-schema.index({ sociedad: 1, detalleCodigo: 1 });
+schema.index({ sociedad: 1, subdetalleCodigo: 1 });
 schema.index({ sociedad: 1, numeroOperacion: 1 });
 
 module.exports = mongoose.model('FlujoMovimientoBancario', schema);
