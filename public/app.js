@@ -13642,14 +13642,14 @@ async function fcAdminLineasDetalles(el, editando = {}) {
 // Filtro en cascada Línea → Grupo (Detalle) → Subgrupo (Subdetalle),
 // compartido entre Glosas y Proveedores. `prefix` distingue los ids/clases
 // entre ambas tablas (ej. 'fc-glosa-f' / 'fc-prov-f').
-function fcFiltroCascadaHtml(prefix, lineas) {
+function fcFiltroCascadaHtml(prefix, lineas, filtro = {}) {
   return `
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
       <div>
         <label style="font-size:11px;color:var(--text-muted);display:block">Línea</label>
         <select id="${prefix}-linea" class="form-control" style="width:170px">
           <option value="">Todas</option>
-          ${lineas.map(l => `<option value="${esc(l.codigo)}">${esc(l.codigo)} — ${esc(l.nombre)}</option>`).join('')}
+          ${lineas.map(l => `<option value="${esc(l.codigo)}" ${l.codigo === filtro.linea ? 'selected' : ''}>${esc(l.codigo)} — ${esc(l.nombre)}</option>`).join('')}
         </select>
       </div>
       <div>
@@ -13660,10 +13660,10 @@ function fcFiltroCascadaHtml(prefix, lineas) {
         <label style="font-size:11px;color:var(--text-muted);display:block">Subgrupo (Subdetalle)</label>
         <select id="${prefix}-sub" class="form-control" style="width:190px"><option value="">Todos</option></select>
       </div>
-      <input type="text" id="${prefix}-texto" class="form-control" placeholder="🔎 Buscar texto..." style="width:220px">
+      <input type="text" id="${prefix}-texto" class="form-control" placeholder="🔎 Buscar texto..." value="${esc(filtro.texto || '')}" style="width:220px">
     </div>`;
 }
-function fcFiltroCascadaWire(el, prefix, lineas, detalles, subdetalles, tbodySelector) {
+function fcFiltroCascadaWire(el, prefix, lineas, detalles, subdetalles, tbodySelector, filtro = {}) {
   const selLinea = document.getElementById(`${prefix}-linea`);
   const selDetalle = document.getElementById(`${prefix}-detalle`);
   const selSub = document.getElementById(`${prefix}-sub`);
@@ -13687,14 +13687,31 @@ function fcFiltroCascadaWire(el, prefix, lineas, detalles, subdetalles, tbodySel
       tr.style.display = ok ? '' : 'none';
     });
   }
-  poblarDetalles(); poblarSubs();
+  poblarDetalles();
+  if (filtro.detalle) selDetalle.value = filtro.detalle;
+  poblarSubs();
+  if (filtro.sub) selSub.value = filtro.sub;
+  aplicar();
   selLinea.addEventListener('change', () => { poblarDetalles(); selDetalle.value = ''; poblarSubs(); selSub.value = ''; aplicar(); });
   selDetalle.addEventListener('change', () => { poblarSubs(); selSub.value = ''; aplicar(); });
   selSub.addEventListener('change', aplicar);
   inpTexto.addEventListener('input', aplicar);
 }
+// Lee el estado actual de un filtro en cascada ya renderizado, para poder
+// restaurarlo tras recargar el panel (editar/guardar no deben "resetear" el filtro).
+function fcLeerFiltro(prefix) {
+  const selLinea = document.getElementById(`${prefix}-linea`);
+  if (!selLinea) return {};
+  return {
+    linea: selLinea.value,
+    detalle: document.getElementById(`${prefix}-detalle`)?.value || '',
+    sub: document.getElementById(`${prefix}-sub`)?.value || '',
+    texto: document.getElementById(`${prefix}-texto`)?.value || '',
+  };
+}
 
-async function fcAdminGlosas(el, editandoId = null) {
+async function fcAdminGlosas(el, editandoId = null, filtro = null) {
+  if (filtro === null) filtro = fcLeerFiltro('fc-glosa-f');
   el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
   const [glosas, subdetalles, detalles, lineas] = await Promise.all([
     GET('/flujo-caja/glosas'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'), GET('/flujo-caja/lineas'),
@@ -13713,7 +13730,7 @@ async function fcAdminGlosas(el, editandoId = null) {
 
   el.innerHTML = `
     <p class="mb-8 text-muted" style="font-size:13px">Método 1 de asignación: si la glosa del movimiento bancario coincide con la regla, se asigna automáticamente al subdetalle indicado.</p>
-    ${fcFiltroCascadaHtml('fc-glosa-f', lineas)}
+    ${fcFiltroCascadaHtml('fc-glosa-f', lineas, filtro)}
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
       <thead><tr><th>Texto</th><th>Criterio</th><th>Subdetalle</th><th></th></tr></thead>
       <tbody id="fc-glosa-tbody">
@@ -13751,27 +13768,27 @@ async function fcAdminGlosas(el, editandoId = null) {
       <button class="btn btn-primary btn-sm" id="fc-glosa-add">＋</button>
     </div>`;
 
-  fcFiltroCascadaWire(el, 'fc-glosa-f', lineas, detalles, subdetalles, '#fc-glosa-tbody');
+  fcFiltroCascadaWire(el, 'fc-glosa-f', lineas, detalles, subdetalles, '#fc-glosa-tbody', filtro);
   document.getElementById('fc-glosa-add').addEventListener('click', async () => {
     const texto = document.getElementById('fc-glosa-texto').value.trim();
     const criterio = document.getElementById('fc-glosa-criterio').value;
     const subdetalleCodigo = document.getElementById('fc-glosa-subdetalle').value;
     if (!texto || !subdetalleCodigo) return toast('Datos incompletos', 'error');
-    try { await POST('/flujo-caja/glosas', { texto, criterio, subdetalleCodigo }); await fcAdminGlosas(el); }
+    try { await POST('/flujo-caja/glosas', { texto, criterio, subdetalleCodigo }); await fcAdminGlosas(el, null, fcLeerFiltro('fc-glosa-f')); }
     catch (e) { toast(e.message, 'error'); }
   });
   el.querySelectorAll('.fc-glosa-del').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm('¿Eliminar esta regla?')) return;
-      try { await DEL(`/flujo-caja/glosas/${btn.dataset.id}`); await fcAdminGlosas(el); }
+      try { await DEL(`/flujo-caja/glosas/${btn.dataset.id}`); await fcAdminGlosas(el, null, fcLeerFiltro('fc-glosa-f')); }
       catch (e) { toast(e.message, 'error'); }
     });
   });
   el.querySelectorAll('.fc-glosa-editar').forEach(btn => {
-    btn.addEventListener('click', () => fcAdminGlosas(el, btn.dataset.id));
+    btn.addEventListener('click', () => fcAdminGlosas(el, btn.dataset.id, fcLeerFiltro('fc-glosa-f')));
   });
   el.querySelectorAll('.fc-glosa-cancelar').forEach(btn => {
-    btn.addEventListener('click', () => fcAdminGlosas(el));
+    btn.addEventListener('click', () => fcAdminGlosas(el, null, fcLeerFiltro('fc-glosa-f')));
   });
   el.querySelectorAll('.fc-glosa-guardar').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -13780,13 +13797,14 @@ async function fcAdminGlosas(el, editandoId = null) {
       const criterio = row.querySelector('.fc-glosa-edit-criterio').value;
       const subdetalleCodigo = row.querySelector('.fc-glosa-edit-subdetalle').value;
       if (!texto) return toast('Texto requerido', 'error');
-      try { await PUT(`/flujo-caja/glosas/${btn.dataset.id}`, { texto, criterio, subdetalleCodigo }); toast('Guardado', 'success'); await fcAdminGlosas(el); }
+      try { await PUT(`/flujo-caja/glosas/${btn.dataset.id}`, { texto, criterio, subdetalleCodigo }); toast('Guardado', 'success'); await fcAdminGlosas(el, null, fcLeerFiltro('fc-glosa-f')); }
       catch (e) { toast(e.message, 'error'); }
     });
   });
 }
 
-async function fcAdminProveedores(el, editandoId = null) {
+async function fcAdminProveedores(el, editandoId = null, filtro = null) {
+  if (filtro === null) filtro = fcLeerFiltro('fc-prov-f');
   el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
   const [proveedores, subdetalles, detalles, lineas] = await Promise.all([
     GET('/flujo-caja/proveedores'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'), GET('/flujo-caja/lineas'),
@@ -13804,7 +13822,7 @@ async function fcAdminProveedores(el, editandoId = null) {
 
   el.innerHTML = `
     <p class="mb-8 text-muted" style="font-size:13px">Método 2 de asignación: cuando un pago del ERP calza con el banco (mismo número + importe), se usa el beneficiario (PAGARA) para resolver el subdetalle aquí. "Exacta" compara el PAGARA completo; "Contiene" resuelve si el texto configurado aparece dentro del PAGARA.</p>
-    ${fcFiltroCascadaHtml('fc-prov-f', lineas)}
+    ${fcFiltroCascadaHtml('fc-prov-f', lineas, filtro)}
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
       <thead><tr><th>Beneficiario</th><th>Criterio</th><th>Subdetalle</th><th></th></tr></thead>
       <tbody id="fc-prov-tbody">
@@ -13842,27 +13860,27 @@ async function fcAdminProveedores(el, editandoId = null) {
       <button class="btn btn-primary btn-sm" id="fc-prov-add">＋</button>
     </div>`;
 
-  fcFiltroCascadaWire(el, 'fc-prov-f', lineas, detalles, subdetalles, '#fc-prov-tbody');
+  fcFiltroCascadaWire(el, 'fc-prov-f', lineas, detalles, subdetalles, '#fc-prov-tbody', filtro);
   document.getElementById('fc-prov-add').addEventListener('click', async () => {
     const beneficiario = document.getElementById('fc-prov-benef').value.trim();
     const criterio = document.getElementById('fc-prov-criterio').value;
     const subdetalleCodigo = document.getElementById('fc-prov-subdetalle').value;
     if (!beneficiario || !subdetalleCodigo) return toast('Datos incompletos', 'error');
-    try { await POST('/flujo-caja/proveedores', { beneficiario, criterio, subdetalleCodigo }); await fcAdminProveedores(el); }
+    try { await POST('/flujo-caja/proveedores', { beneficiario, criterio, subdetalleCodigo }); await fcAdminProveedores(el, null, fcLeerFiltro('fc-prov-f')); }
     catch (e) { toast(e.message, 'error'); }
   });
   el.querySelectorAll('.fc-prov-del').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!confirm('¿Eliminar este proveedor?')) return;
-      try { await DEL(`/flujo-caja/proveedores/${btn.dataset.id}`); await fcAdminProveedores(el); }
+      try { await DEL(`/flujo-caja/proveedores/${btn.dataset.id}`); await fcAdminProveedores(el, null, fcLeerFiltro('fc-prov-f')); }
       catch (e) { toast(e.message, 'error'); }
     });
   });
   el.querySelectorAll('.fc-prov-editar').forEach(btn => {
-    btn.addEventListener('click', () => fcAdminProveedores(el, btn.dataset.id));
+    btn.addEventListener('click', () => fcAdminProveedores(el, btn.dataset.id, fcLeerFiltro('fc-prov-f')));
   });
   el.querySelectorAll('.fc-prov-cancelar').forEach(btn => {
-    btn.addEventListener('click', () => fcAdminProveedores(el));
+    btn.addEventListener('click', () => fcAdminProveedores(el, null, fcLeerFiltro('fc-prov-f')));
   });
   el.querySelectorAll('.fc-prov-guardar').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -13871,7 +13889,7 @@ async function fcAdminProveedores(el, editandoId = null) {
       const criterio = row.querySelector('.fc-prov-edit-criterio').value;
       const subdetalleCodigo = row.querySelector('.fc-prov-edit-subdetalle').value;
       if (!beneficiario) return toast('Beneficiario requerido', 'error');
-      try { await PUT(`/flujo-caja/proveedores/${btn.dataset.id}`, { beneficiario, criterio, subdetalleCodigo }); toast('Guardado', 'success'); await fcAdminProveedores(el); }
+      try { await PUT(`/flujo-caja/proveedores/${btn.dataset.id}`, { beneficiario, criterio, subdetalleCodigo }); toast('Guardado', 'success'); await fcAdminProveedores(el, null, fcLeerFiltro('fc-prov-f')); }
       catch (e) { toast(e.message, 'error'); }
     });
   });
