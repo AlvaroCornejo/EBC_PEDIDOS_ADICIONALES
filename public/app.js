@@ -13639,27 +13639,106 @@ async function fcAdminLineasDetalles(el, editando = {}) {
   });
 }
 
-async function fcAdminGlosas(el) {
+// Filtro en cascada Línea → Grupo (Detalle) → Subgrupo (Subdetalle),
+// compartido entre Glosas y Proveedores. `prefix` distingue los ids/clases
+// entre ambas tablas (ej. 'fc-glosa-f' / 'fc-prov-f').
+function fcFiltroCascadaHtml(prefix, lineas) {
+  return `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block">Línea</label>
+        <select id="${prefix}-linea" class="form-control" style="width:170px">
+          <option value="">Todas</option>
+          ${lineas.map(l => `<option value="${esc(l.codigo)}">${esc(l.codigo)} — ${esc(l.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block">Grupo (Detalle)</label>
+        <select id="${prefix}-detalle" class="form-control" style="width:190px"><option value="">Todos</option></select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block">Subgrupo (Subdetalle)</label>
+        <select id="${prefix}-sub" class="form-control" style="width:190px"><option value="">Todos</option></select>
+      </div>
+      <input type="text" id="${prefix}-texto" class="form-control" placeholder="🔎 Buscar texto..." style="width:220px">
+    </div>`;
+}
+function fcFiltroCascadaWire(el, prefix, lineas, detalles, subdetalles, tbodySelector) {
+  const selLinea = document.getElementById(`${prefix}-linea`);
+  const selDetalle = document.getElementById(`${prefix}-detalle`);
+  const selSub = document.getElementById(`${prefix}-sub`);
+  const inpTexto = document.getElementById(`${prefix}-texto`);
+
+  function poblarDetalles() {
+    const dets = selLinea.value ? detalles.filter(d => d.lineaCodigo === selLinea.value) : detalles;
+    selDetalle.innerHTML = '<option value="">Todos</option>' + dets.map(d => `<option value="${esc(d.codigo)}">${esc(d.codigo)} — ${esc(d.nombre)}</option>`).join('');
+  }
+  function poblarSubs() {
+    const subs = selDetalle.value ? subdetalles.filter(s => s.detalleCodigo === selDetalle.value) : subdetalles;
+    selSub.innerHTML = '<option value="">Todos</option>' + subs.map(s => `<option value="${esc(s.codigo)}">${esc(s.codigo)} — ${esc(s.nombre)}</option>`).join('');
+  }
+  function aplicar() {
+    const q = inpTexto.value.trim().toLowerCase();
+    el.querySelectorAll(`${tbodySelector} tr[data-linea]`).forEach(tr => {
+      const ok = (!selLinea.value || tr.dataset.linea === selLinea.value)
+        && (!selDetalle.value || tr.dataset.detalle === selDetalle.value)
+        && (!selSub.value || tr.dataset.sub === selSub.value)
+        && (!q || tr.dataset.filtro.includes(q));
+      tr.style.display = ok ? '' : 'none';
+    });
+  }
+  poblarDetalles(); poblarSubs();
+  selLinea.addEventListener('change', () => { poblarDetalles(); selDetalle.value = ''; poblarSubs(); selSub.value = ''; aplicar(); });
+  selDetalle.addEventListener('change', () => { poblarSubs(); selSub.value = ''; aplicar(); });
+  selSub.addEventListener('change', aplicar);
+  inpTexto.addEventListener('input', aplicar);
+}
+
+async function fcAdminGlosas(el, editandoId = null) {
   el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
-  const [glosas, subdetalles, detalles] = await Promise.all([
-    GET('/flujo-caja/glosas'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'),
+  const [glosas, subdetalles, detalles, lineas] = await Promise.all([
+    GET('/flujo-caja/glosas'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'), GET('/flujo-caja/lineas'),
   ]);
   const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
   const etiqueta = s => `${detMap[s.detalleCodigo]?.lineaCodigo || ''} — ${detMap[s.detalleCodigo]?.nombre || s.detalleCodigo} — ${s.nombre}`;
-  const subOpts = subdetalles.map(s => `<option value="${esc(s.codigo)}">${esc(etiqueta(s))}</option>`).join('');
+  const subOpts = (sel) => subdetalles.map(s => `<option value="${esc(s.codigo)}" ${s.codigo === sel ? 'selected' : ''}>${esc(etiqueta(s))}</option>`).join('');
   const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
   const etiquetaDe = codigo => subMap[codigo] ? etiqueta(subMap[codigo]) : codigo;
+  // Para los data-* de filtro: dado un subdetalleCodigo, resuelve sus códigos de detalle/línea padres.
+  const codigosPadre = subdetalleCodigo => {
+    const detalleCodigo = subMap[subdetalleCodigo]?.detalleCodigo || '';
+    const lineaCodigo = detMap[detalleCodigo]?.lineaCodigo || '';
+    return { detalleCodigo, lineaCodigo };
+  };
 
   el.innerHTML = `
     <p class="mb-8 text-muted" style="font-size:13px">Método 1 de asignación: si la glosa del movimiento bancario coincide con la regla, se asigna automáticamente al subdetalle indicado.</p>
-    <input type="text" id="fc-glosa-filtro" class="form-control" placeholder="🔎 Filtrar por texto o subdetalle..." style="width:320px;margin-bottom:8px">
+    ${fcFiltroCascadaHtml('fc-glosa-f', lineas)}
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
       <thead><tr><th>Texto</th><th>Criterio</th><th>Subdetalle</th><th></th></tr></thead>
       <tbody id="fc-glosa-tbody">
-        ${glosas.map(g => `<tr data-filtro="${esc((g.texto + ' ' + etiquetaDe(g.subdetalleCodigo)).toLowerCase())}">
-          <td>${esc(g.texto)}</td><td>${g.criterio === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(g.subdetalleCodigo))}</td>
-          <td><button class="btn btn-outline btn-xs fc-glosa-del" data-id="${g._id}">✕</button></td>
-        </tr>`).join('') || '<tr><td colspan="4" class="text-muted">Sin reglas aún.</td></tr>'}
+        ${glosas.map(g => {
+          if (editandoId === g._id) return `<tr data-id="${g._id}">
+            <td><input type="text" class="form-control fc-glosa-edit-texto" value="${esc(g.texto)}" style="font-size:12px"></td>
+            <td><select class="form-control fc-glosa-edit-criterio" style="font-size:12px">
+              <option value="contiene" ${g.criterio === 'contiene' ? 'selected' : ''}>Contiene</option>
+              <option value="exacta" ${g.criterio === 'exacta' ? 'selected' : ''}>Exacta</option>
+            </select></td>
+            <td><select class="form-control fc-glosa-edit-subdetalle" style="font-size:12px">${subOpts(g.subdetalleCodigo)}</select></td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-primary btn-xs fc-glosa-guardar" data-id="${g._id}">💾</button>
+              <button class="btn btn-outline btn-xs fc-glosa-cancelar">✕</button>
+            </td>
+          </tr>`;
+          const { detalleCodigo, lineaCodigo } = codigosPadre(g.subdetalleCodigo);
+          return `<tr data-linea="${esc(lineaCodigo)}" data-detalle="${esc(detalleCodigo)}" data-sub="${esc(g.subdetalleCodigo || '')}" data-filtro="${esc((g.texto + ' ' + etiquetaDe(g.subdetalleCodigo)).toLowerCase())}">
+            <td>${esc(g.texto)}</td><td>${g.criterio === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(g.subdetalleCodigo))}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-outline btn-xs fc-glosa-editar" data-id="${g._id}">✏️</button>
+              <button class="btn btn-outline btn-xs fc-glosa-del" data-id="${g._id}">✕</button>
+            </td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="4" class="text-muted">Sin reglas aún.</td></tr>'}
       </tbody>
     </table>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -13668,16 +13747,11 @@ async function fcAdminGlosas(el) {
         <option value="contiene">Contiene</option>
         <option value="exacta">Exacta</option>
       </select>
-      <select id="fc-glosa-subdetalle" class="form-control" style="width:260px">${subOpts}</select>
+      <select id="fc-glosa-subdetalle" class="form-control" style="width:260px">${subOpts()}</select>
       <button class="btn btn-primary btn-sm" id="fc-glosa-add">＋</button>
     </div>`;
 
-  document.getElementById('fc-glosa-filtro').addEventListener('input', e => {
-    const q = e.target.value.trim().toLowerCase();
-    el.querySelectorAll('#fc-glosa-tbody tr[data-filtro]').forEach(tr => {
-      tr.style.display = tr.dataset.filtro.includes(q) ? '' : 'none';
-    });
-  });
+  fcFiltroCascadaWire(el, 'fc-glosa-f', lineas, detalles, subdetalles, '#fc-glosa-tbody');
   document.getElementById('fc-glosa-add').addEventListener('click', async () => {
     const texto = document.getElementById('fc-glosa-texto').value.trim();
     const criterio = document.getElementById('fc-glosa-criterio').value;
@@ -13693,29 +13767,69 @@ async function fcAdminGlosas(el) {
       catch (e) { toast(e.message, 'error'); }
     });
   });
+  el.querySelectorAll('.fc-glosa-editar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminGlosas(el, btn.dataset.id));
+  });
+  el.querySelectorAll('.fc-glosa-cancelar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminGlosas(el));
+  });
+  el.querySelectorAll('.fc-glosa-guardar').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const texto = row.querySelector('.fc-glosa-edit-texto').value.trim();
+      const criterio = row.querySelector('.fc-glosa-edit-criterio').value;
+      const subdetalleCodigo = row.querySelector('.fc-glosa-edit-subdetalle').value;
+      if (!texto) return toast('Texto requerido', 'error');
+      try { await PUT(`/flujo-caja/glosas/${btn.dataset.id}`, { texto, criterio, subdetalleCodigo }); toast('Guardado', 'success'); await fcAdminGlosas(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  });
 }
 
-async function fcAdminProveedores(el) {
+async function fcAdminProveedores(el, editandoId = null) {
   el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
-  const [proveedores, subdetalles, detalles] = await Promise.all([
-    GET('/flujo-caja/proveedores'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'),
+  const [proveedores, subdetalles, detalles, lineas] = await Promise.all([
+    GET('/flujo-caja/proveedores'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'), GET('/flujo-caja/lineas'),
   ]);
   const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
   const etiqueta = s => `${detMap[s.detalleCodigo]?.lineaCodigo || ''} — ${detMap[s.detalleCodigo]?.nombre || s.detalleCodigo} — ${s.nombre}`;
-  const subOpts = subdetalles.map(s => `<option value="${esc(s.codigo)}">${esc(etiqueta(s))}</option>`).join('');
+  const subOpts = (sel) => subdetalles.map(s => `<option value="${esc(s.codigo)}" ${s.codigo === sel ? 'selected' : ''}>${esc(etiqueta(s))}</option>`).join('');
   const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
   const etiquetaDe = codigo => subMap[codigo] ? etiqueta(subMap[codigo]) : codigo;
+  const codigosPadre = subdetalleCodigo => {
+    const detalleCodigo = subMap[subdetalleCodigo]?.detalleCodigo || '';
+    const lineaCodigo = detMap[detalleCodigo]?.lineaCodigo || '';
+    return { detalleCodigo, lineaCodigo };
+  };
 
   el.innerHTML = `
     <p class="mb-8 text-muted" style="font-size:13px">Método 2 de asignación: cuando un pago del ERP calza con el banco (mismo número + importe), se usa el beneficiario (PAGARA) para resolver el subdetalle aquí. "Exacta" compara el PAGARA completo; "Contiene" resuelve si el texto configurado aparece dentro del PAGARA.</p>
-    <input type="text" id="fc-prov-filtro" class="form-control" placeholder="🔎 Filtrar por beneficiario o subdetalle..." style="width:320px;margin-bottom:8px">
+    ${fcFiltroCascadaHtml('fc-prov-f', lineas)}
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
       <thead><tr><th>Beneficiario</th><th>Criterio</th><th>Subdetalle</th><th></th></tr></thead>
       <tbody id="fc-prov-tbody">
-        ${proveedores.map(p => `<tr data-filtro="${esc((p.beneficiario + ' ' + etiquetaDe(p.subdetalleCodigo)).toLowerCase())}">
-          <td>${esc(p.beneficiario)}</td><td>${(p.criterio || 'exacta') === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(p.subdetalleCodigo))}</td>
-          <td><button class="btn btn-outline btn-xs fc-prov-del" data-id="${p._id}">✕</button></td>
-        </tr>`).join('') || '<tr><td colspan="4" class="text-muted">Sin proveedores aún.</td></tr>'}
+        ${proveedores.map(p => {
+          if (editandoId === p._id) return `<tr data-id="${p._id}">
+            <td><input type="text" class="form-control fc-prov-edit-benef" value="${esc(p.beneficiario)}" style="font-size:12px"></td>
+            <td><select class="form-control fc-prov-edit-criterio" style="font-size:12px">
+              <option value="exacta" ${(p.criterio || 'exacta') === 'exacta' ? 'selected' : ''}>Exacta</option>
+              <option value="contiene" ${p.criterio === 'contiene' ? 'selected' : ''}>Contiene</option>
+            </select></td>
+            <td><select class="form-control fc-prov-edit-subdetalle" style="font-size:12px">${subOpts(p.subdetalleCodigo)}</select></td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-primary btn-xs fc-prov-guardar" data-id="${p._id}">💾</button>
+              <button class="btn btn-outline btn-xs fc-prov-cancelar">✕</button>
+            </td>
+          </tr>`;
+          const { detalleCodigo, lineaCodigo } = codigosPadre(p.subdetalleCodigo);
+          return `<tr data-linea="${esc(lineaCodigo)}" data-detalle="${esc(detalleCodigo)}" data-sub="${esc(p.subdetalleCodigo || '')}" data-filtro="${esc((p.beneficiario + ' ' + etiquetaDe(p.subdetalleCodigo)).toLowerCase())}">
+            <td>${esc(p.beneficiario)}</td><td>${(p.criterio || 'exacta') === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(p.subdetalleCodigo))}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-outline btn-xs fc-prov-editar" data-id="${p._id}">✏️</button>
+              <button class="btn btn-outline btn-xs fc-prov-del" data-id="${p._id}">✕</button>
+            </td>
+          </tr>`;
+        }).join('') || '<tr><td colspan="4" class="text-muted">Sin proveedores aún.</td></tr>'}
       </tbody>
     </table>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -13724,16 +13838,11 @@ async function fcAdminProveedores(el) {
         <option value="exacta">Exacta</option>
         <option value="contiene">Contiene</option>
       </select>
-      <select id="fc-prov-subdetalle" class="form-control" style="width:260px">${subOpts}</select>
+      <select id="fc-prov-subdetalle" class="form-control" style="width:260px">${subOpts()}</select>
       <button class="btn btn-primary btn-sm" id="fc-prov-add">＋</button>
     </div>`;
 
-  document.getElementById('fc-prov-filtro').addEventListener('input', e => {
-    const q = e.target.value.trim().toLowerCase();
-    el.querySelectorAll('#fc-prov-tbody tr[data-filtro]').forEach(tr => {
-      tr.style.display = tr.dataset.filtro.includes(q) ? '' : 'none';
-    });
-  });
+  fcFiltroCascadaWire(el, 'fc-prov-f', lineas, detalles, subdetalles, '#fc-prov-tbody');
   document.getElementById('fc-prov-add').addEventListener('click', async () => {
     const beneficiario = document.getElementById('fc-prov-benef').value.trim();
     const criterio = document.getElementById('fc-prov-criterio').value;
@@ -13746,6 +13855,23 @@ async function fcAdminProveedores(el) {
     btn.addEventListener('click', async () => {
       if (!confirm('¿Eliminar este proveedor?')) return;
       try { await DEL(`/flujo-caja/proveedores/${btn.dataset.id}`); await fcAdminProveedores(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  });
+  el.querySelectorAll('.fc-prov-editar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminProveedores(el, btn.dataset.id));
+  });
+  el.querySelectorAll('.fc-prov-cancelar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminProveedores(el));
+  });
+  el.querySelectorAll('.fc-prov-guardar').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const beneficiario = row.querySelector('.fc-prov-edit-benef').value.trim();
+      const criterio = row.querySelector('.fc-prov-edit-criterio').value;
+      const subdetalleCodigo = row.querySelector('.fc-prov-edit-subdetalle').value;
+      if (!beneficiario) return toast('Beneficiario requerido', 'error');
+      try { await PUT(`/flujo-caja/proveedores/${btn.dataset.id}`, { beneficiario, criterio, subdetalleCodigo }); toast('Guardado', 'success'); await fcAdminProveedores(el); }
       catch (e) { toast(e.message, 'error'); }
     });
   });
