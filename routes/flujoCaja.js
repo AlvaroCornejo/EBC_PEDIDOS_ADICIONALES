@@ -6,19 +6,17 @@ const FlujoLinea              = require('../models/FlujoLinea');
 const FlujoDetalle            = require('../models/FlujoDetalle');
 const FlujoSubdetalle         = require('../models/FlujoSubdetalle');
 const FlujoCuentaBanco        = require('../models/FlujoCuentaBanco');
-const FlujoConfig             = require('../models/FlujoConfig');
 const FlujoMovimientoBancario = require('../models/FlujoMovimientoBancario');
-const FlujoPagoERP            = require('../models/FlujoPagoERP');
 const FlujoGlosaRegla         = require('../models/FlujoGlosaRegla');
 const FlujoProveedorDetalle   = require('../models/FlujoProveedorDetalle');
 const TipoCambio              = require('../models/TipoCambio');
-const CompaniaCodigo          = require('../models/CompaniaCodigo');
 
-const { leerMovimientoBanco, leerPagosERP } = require('../utils/flujoCajaImport');
-const { reconciliar } = require('../utils/flujoCajaReconciliar');
+const {
+  obtenerRutas, guardarRutas, obtenerMapaCias, listarDisponibles,
+  importarArchivoEstadoCuenta, importarArchivoPagosERP, reconciliar,
+} = require('../utils/flujoCajaSync');
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
 router.use(auth);
 
 function requireAccess(req, res, next) {
@@ -37,29 +35,20 @@ function checkSocAccess(user, sociedad) {
   return socs === null || socs.includes(sociedad);
 }
 
-// ── Config (solo ADMIN) ───────────────────────────────────────────────────────
-router.get('/config/:sociedad', async (req, res) => {
+// ── Config global (solo ADMIN) — 2 carpetas fijas, no por sociedad ───────────
+router.get('/config', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const cfg = await FlujoConfig.findOne({ sociedad: req.params.sociedad }).lean();
-    res.json(cfg || { sociedad: req.params.sociedad, rutaPagosERP: '', archivosBanco: [] });
+    res.json(await obtenerRutas());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.put('/config/:sociedad', async (req, res) => {
+router.put('/config', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { rutaPagosERP, archivosBanco } = req.body;
-    const cfg = await FlujoConfig.findOneAndUpdate(
-      { sociedad: req.params.sociedad },
-      {
-        sociedad: req.params.sociedad,
-        rutaPagosERP: rutaPagosERP || '',
-        archivosBanco: Array.isArray(archivosBanco) ? archivosBanco : [],
-      },
-      { upsert: true, new: true }
-    );
-    res.json(cfg);
+    const { rutaEstadoCuenta, rutaPagosERP } = req.body;
+    await guardarRutas({ rutaEstadoCuenta, rutaPagosERP });
+    res.json(await obtenerRutas());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -296,41 +285,64 @@ router.delete('/tipo-cambio/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Carga manual ─────────────────────────────────────────────────────────────────
-router.post('/cargar/pagos-erp', upload.single('archivo'), async (req, res) => {
+// ── Carga manual — lista lo que hay en las 2 carpetas y ejecuta lo elegido ──────
+function esAdminFC(user) { return user.role === 'ADMIN' || user.rolPago === 'admin'; }
+
+router.get('/carga-manual/archivos', async (req, res) => {
   try {
-    const { sociedad } = req.body;
-    if (!sociedad || !req.file) return res.status(400).json({ error: 'Sociedad y archivo requeridos' });
-    if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
-
-    const companias = await CompaniaCodigo.find({}).lean();
-    const mapaCias = Object.fromEntries(companias.map(c => [c.codigo, c.compania]));
-    const filas = leerPagosERP(req.file.buffer);
-    const propias = filas.filter(f => mapaCias[f.companiaCodigo.padStart(6, '0')] === sociedad);
-
-    await FlujoPagoERP.deleteMany({ sociedad });
-    const docs = propias.map(f => ({
-      sociedad,
-      cuentaBancaria: f.cuentaBancaria, numeroPago: f.numeroPago, pagarA: f.pagarA,
-      moneda: f.moneda, fechaPago: f.fechaPago, montoLocal: f.montoLocal,
-      montoExtranjero: f.montoExtranjero, tipoPago: f.tipoPago, voucherPago: f.voucherPago,
-    }));
-    if (docs.length) await FlujoPagoERP.insertMany(docs, { ordered: false });
-    res.json({ ok: true, total: docs.length, deTodasLasSociedades: filas.length });
+    const data = await listarDisponibles();
+    // Un usuario no-admin solo ve (y puede cargar) los archivos de Estado de
+    // Cuenta de sus sociedades autorizadas; Pagos ERP mezcla todas las
+    // sociedades en un solo archivo, así que esa carga queda solo para admin.
+    if (!esAdminFC(req.user)) {
+      data.estadoCuenta = data.estadoCuenta.filter(a => a.error || checkSocAccess(req.user, a.sociedad));
+      data.pagosERP = [];
+    }
+    res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/cargar/banco', upload.single('archivo'), async (req, res) => {
+router.post('/carga-manual/ejecutar', async (req, res) => {
   try {
-    const { sociedad, banco, moneda } = req.body;
-    if (!sociedad || !banco || !moneda || !req.file) return res.status(400).json({ error: 'Sociedad, banco, moneda y archivo requeridos' });
-    if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
+    const { archivos } = req.body; // [{tipo:'estado-cuenta', sociedad, banco, moneda, archivo} | {tipo:'pagos-erp', archivo, nombreArchivo}]
+    if (!Array.isArray(archivos) || !archivos.length) return res.status(400).json({ error: 'Selecciona al menos un archivo' });
 
-    const movs = await leerMovimientoBanco(banco, req.file.buffer);
-    await FlujoMovimientoBancario.deleteMany({ sociedad, banco, moneda });
-    const docs = movs.map(m => ({ sociedad, banco, moneda, ...m }));
-    if (docs.length) await FlujoMovimientoBancario.insertMany(docs, { ordered: false });
-    res.json({ ok: true, total: docs.length });
+    const resultados = [];
+    const sociedadesTocadas = new Set();
+    let mapaCias = null;
+
+    for (const item of archivos) {
+      if (item.tipo === 'estado-cuenta') {
+        if (!checkSocAccess(req.user, item.sociedad)) {
+          resultados.push({ ...item, error: 'Sin acceso a esta sociedad' });
+          continue;
+        }
+        try {
+          const n = await importarArchivoEstadoCuenta(item);
+          sociedadesTocadas.add(item.sociedad);
+          resultados.push({ ...item, total: n });
+        } catch (e) { resultados.push({ ...item, error: e.message }); }
+      } else if (item.tipo === 'pagos-erp') {
+        if (!esAdminFC(req.user)) {
+          resultados.push({ ...item, error: 'Solo ADMIN puede cargar Pagos ERP (afecta a todas las sociedades)' });
+          continue;
+        }
+        try {
+          if (!mapaCias) mapaCias = await obtenerMapaCias();
+          const resumen = await importarArchivoPagosERP(item.archivo, mapaCias);
+          Object.keys(resumen).forEach(s => sociedadesTocadas.add(s));
+          resultados.push({ ...item, porSociedad: resumen });
+        } catch (e) { resultados.push({ ...item, error: e.message }); }
+      }
+    }
+
+    const reconciliacion = {};
+    for (const sociedad of sociedadesTocadas) {
+      try { reconciliacion[sociedad] = await reconciliar(sociedad); }
+      catch (e) { reconciliacion[sociedad] = { error: e.message }; }
+    }
+
+    res.json({ resultados, reconciliacion });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

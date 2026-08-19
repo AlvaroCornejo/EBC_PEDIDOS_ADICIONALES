@@ -13286,7 +13286,8 @@ async function renderAdminCCCorreo(container) {
 // ─── Admin: Flujo de Caja ─────────────────────────────────────────
 async function renderAdminFlujoCaja(container) {
   const SUBTABS = [
-    { id: 'rutas',    label: 'Rutas por sociedad' },
+    { id: 'rutas',    label: 'Rutas' },
+    { id: 'carga',    label: 'Carga Manual' },
     { id: 'lineas',   label: 'Líneas / Detalles / Subdetalles' },
     { id: 'glosas',   label: 'Glosas' },
     { id: 'proveedores', label: 'Proveedores' },
@@ -13308,6 +13309,7 @@ async function renderAdminFlujoCaja(container) {
   });
 
   await fcAdminRutas(container.querySelector('[data-panel="rutas"]'));
+  await fcAdminCargaManual(container.querySelector('[data-panel="carga"]'));
   await fcAdminLineasDetalles(container.querySelector('[data-panel="lineas"]'));
   await fcAdminGlosas(container.querySelector('[data-panel="glosas"]'));
   await fcAdminProveedores(container.querySelector('[data-panel="proveedores"]'));
@@ -13316,77 +13318,105 @@ async function renderAdminFlujoCaja(container) {
 
 async function fcAdminRutas(el) {
   el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
-  const BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
-  const MONEDAS = ['PEN', 'USD'];
-
-  const configs = {};
-  try {
-    for (const s of ALL_SOCS_COMPRA) {
-      configs[s] = await GET(`/flujo-caja/config/${encodeURIComponent(s)}`);
-    }
-  } catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
-
-  const archivoRow = (soc, a) => `
-    <div style="display:flex;gap:6px;margin-bottom:4px;align-items:center" class="fc-arch-row">
-      <select class="fc-arch-banco" style="width:80px">${BANCOS.map(b => `<option value="${b}" ${a.banco === b ? 'selected' : ''}>${b}</option>`).join('')}</select>
-      <select class="fc-arch-moneda" style="width:70px">${MONEDAS.map(m => `<option value="${m}" ${a.moneda === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
-      <input type="text" class="form-control fc-arch-ruta" value="${esc(a.ruta || '')}" placeholder="C:\\...\\Movimiento....xlsx" style="width:380px">
-      <button type="button" class="btn btn-outline btn-xs fc-arch-del" style="padding:2px 8px">✕</button>
-    </div>`;
+  let cfg;
+  try { cfg = await GET('/flujo-caja/config'); } catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
 
   el.innerHTML = `
     <p class="mb-8 text-muted" style="font-size:13px">
-      Rutas locales por sociedad para el sync diario. El archivo de Pagos ERP es único (PagosSpring.xls);
-      los archivos de banco pueden ser varios (uno por banco+moneda).
+      2 carpetas fijas para el sync diario y la carga manual — dentro de "Estado de Cuenta"
+      cada archivo se llama <code>SOCIEDAD BANCO MONEDA.xlsx</code> (ej. "GB BBVA PEN.xlsx");
+      dentro de "Pagos ERP" va el/los .csv con todas las sociedades (se distinguen por
+      CompaniaCodigo dentro del archivo).
     </p>
-    <div style="display:flex;flex-direction:column;gap:12px">
-      ${ALL_SOCS_COMPRA.map(s => {
-        const c = configs[s] || { rutaPagosERP: '', archivosBanco: [] };
-        return `
-        <div class="card" style="padding:14px 16px" data-soc="${esc(s)}">
-          <div style="font-weight:700;font-size:13px;margin-bottom:10px">${esc(s)}</div>
-          <label class="form-label" style="font-size:11px">Ruta Pagos ERP (PagosSpring.xls)</label>
-          <input type="text" class="form-control fc-ruta-erp" value="${esc(c.rutaPagosERP || '')}" placeholder="C:\\...\\PagosSpring.xls" style="width:420px;margin-bottom:10px">
-          <label class="form-label" style="font-size:11px">Archivos de banco</label>
-          <div class="fc-archivos">${(c.archivosBanco || []).map(a => archivoRow(s, a)).join('')}</div>
-          <button type="button" class="btn btn-outline btn-xs fc-arch-add">+ Agregar archivo</button>
-        </div>`;
-      }).join('')}
+    <div class="card" style="padding:14px 16px;max-width:600px">
+      <label class="form-label" style="font-size:11px">Carpeta Estado de Cuenta</label>
+      <input type="text" id="fc-ruta-eecc" class="form-control" value="${esc(cfg.rutaEstadoCuenta || '')}" placeholder="C:\\...\\EBC ESTADO DE CUENTA" style="width:100%;margin-bottom:12px">
+      <label class="form-label" style="font-size:11px">Carpeta Pagos ERP</label>
+      <input type="text" id="fc-ruta-erp" class="form-control" value="${esc(cfg.rutaPagosERP || '')}" placeholder="C:\\...\\EBC PAGOS ERP" style="width:100%;margin-bottom:12px">
+      <button class="btn btn-primary btn-sm" id="fc-rutas-guardar">💾 Guardar</button>
     </div>`;
 
-  async function guardar(card) {
-    const soc = card.dataset.soc;
-    const rutaPagosERP = card.querySelector('.fc-ruta-erp').value.trim();
-    const archivosBanco = [...card.querySelectorAll('.fc-arch-row')].map(row => ({
-      banco: row.querySelector('.fc-arch-banco').value,
-      moneda: row.querySelector('.fc-arch-moneda').value,
-      ruta: row.querySelector('.fc-arch-ruta').value.trim(),
-    })).filter(a => a.ruta);
+  document.getElementById('fc-rutas-guardar').addEventListener('click', async () => {
+    const rutaEstadoCuenta = document.getElementById('fc-ruta-eecc').value.trim();
+    const rutaPagosERP = document.getElementById('fc-ruta-erp').value.trim();
     try {
-      await PUT(`/flujo-caja/config/${encodeURIComponent(soc)}`, { rutaPagosERP, archivosBanco });
-      toast(`Configuración de ${soc} actualizada`, 'success');
+      await PUT('/flujo-caja/config', { rutaEstadoCuenta, rutaPagosERP });
+      toast('Rutas guardadas', 'success');
     } catch (err) { toast(err.message, 'error'); }
-  }
-
-  el.addEventListener('change', e => {
-    const card = e.target.closest('[data-soc]');
-    if (card && (e.target.classList.contains('fc-ruta-erp') || e.target.classList.contains('fc-arch-ruta') || e.target.classList.contains('fc-arch-banco') || e.target.classList.contains('fc-arch-moneda'))) {
-      guardar(card);
-    }
   });
-  el.addEventListener('click', e => {
-    const addBtn = e.target.closest('.fc-arch-add');
-    if (addBtn) {
-      const card = addBtn.closest('[data-soc]');
-      card.querySelector('.fc-archivos').insertAdjacentHTML('beforeend', archivoRow(card.dataset.soc, { banco: 'BBVA', moneda: 'PEN', ruta: '' }));
-      return;
-    }
-    const delBtn = e.target.closest('.fc-arch-del');
-    if (delBtn) {
-      const card = delBtn.closest('[data-soc]');
-      delBtn.closest('.fc-arch-row').remove();
-      guardar(card);
-    }
+}
+
+async function fcAdminCargaManual(el) {
+  el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  let data;
+  try { data = await GET('/flujo-caja/carga-manual/archivos'); } catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+
+  const filaEECC = a => a.error ? `
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;color:var(--text-muted);font-size:13px">
+      <input type="checkbox" disabled> ⚠ ${esc(a.nombreArchivo)} — ${esc(a.error)}
+    </label>` : `
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px">
+      <input type="checkbox" class="fc-carga-check" data-tipo="estado-cuenta" data-sociedad="${esc(a.sociedad)}" data-banco="${esc(a.banco)}" data-moneda="${esc(a.moneda)}" data-archivo="${esc(a.archivo)}" data-nombre="${esc(a.nombreArchivo)}">
+      ${esc(a.sociedad)} — ${esc(a.banco)} ${esc(a.moneda)} <span class="text-muted">(${esc(a.nombreArchivo)})</span>
+    </label>`;
+
+  const filaERP = a => `
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px">
+      <input type="checkbox" class="fc-carga-check" data-tipo="pagos-erp" data-archivo="${esc(a.archivo)}" data-nombre="${esc(a.nombreArchivo)}">
+      ${esc(a.nombreArchivo)}
+    </label>`;
+
+  el.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">
+      Archivos detectados ahora mismo en las carpetas configuradas — marca los que quieras
+      procesar y presiona "Cargar seleccionados" (no hace falta subir nada desde tu equipo).
+    </p>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+      <div class="card" style="padding:14px;min-width:340px">
+        <div style="font-weight:700;margin-bottom:8px">Estado de Cuenta (${data.estadoCuenta.length})</div>
+        <div style="display:flex;flex-direction:column">
+          ${data.estadoCuenta.map(filaEECC).join('') || '<p class="text-muted" style="font-size:12px">Sin archivos.</p>'}
+        </div>
+      </div>
+      <div class="card" style="padding:14px;min-width:300px">
+        <div style="font-weight:700;margin-bottom:8px">Pagos ERP (${data.pagosERP.length})</div>
+        <div style="display:flex;flex-direction:column">
+          ${data.pagosERP.map(filaERP).join('') || '<p class="text-muted" style="font-size:12px">Sin archivos (o sin permiso — solo ADMIN puede cargar Pagos ERP).</p>'}
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="fc-carga-ejecutar" style="margin-top:14px">📥 Cargar seleccionados</button>
+    <div id="fc-carga-resultado" style="margin-top:12px"></div>`;
+
+  document.getElementById('fc-carga-ejecutar').addEventListener('click', async () => {
+    const seleccionados = [...el.querySelectorAll('.fc-carga-check:checked')].map(chk => ({
+      tipo: chk.dataset.tipo,
+      sociedad: chk.dataset.sociedad,
+      banco: chk.dataset.banco,
+      moneda: chk.dataset.moneda,
+      archivo: chk.dataset.archivo,
+      nombreArchivo: chk.dataset.nombre,
+    }));
+    if (!seleccionados.length) return toast('Selecciona al menos un archivo', 'error');
+    const btn = document.getElementById('fc-carga-ejecutar');
+    btn.disabled = true; btn.textContent = '⏳ Cargando...';
+    try {
+      const r = await POST('/flujo-caja/carga-manual/ejecutar', { archivos: seleccionados });
+      const resWrap = document.getElementById('fc-carga-resultado');
+      resWrap.innerHTML = `
+        <div class="card" style="padding:12px 14px;font-size:12px">
+          ${r.resultados.map(res => res.error
+            ? `<div style="color:#dc2626">✕ ${esc(res.nombreArchivo || res.sociedad)}: ${esc(res.error)}</div>`
+            : `<div>✅ ${esc(res.nombreArchivo || res.sociedad)}: ${res.total != null ? `${res.total} movimientos` : Object.entries(res.porSociedad || {}).map(([s, n]) => `${esc(s)}: ${n} filas`).join(', ')}</div>`
+          ).join('')}
+          ${Object.entries(r.reconciliacion || {}).map(([soc, rec]) => rec.error
+            ? `<div style="color:#dc2626">Reconciliación ${esc(soc)}: ${esc(rec.error)}</div>`
+            : `<div>🔄 ${esc(soc)}: ${rec.porGlosa} por glosa, ${rec.porERP} por ERP, ${rec.sinAsignar} sin asignar</div>`
+          ).join('')}
+        </div>`;
+      toast('Carga completada', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+    btn.disabled = false; btn.textContent = '📥 Cargar seleccionados';
   });
 }
 
