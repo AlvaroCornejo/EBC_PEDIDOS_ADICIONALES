@@ -13300,11 +13300,20 @@ async function renderAdminFlujoCaja(container) {
     ${SUBTABS.map((t, i) => `<div class="fc-admin-panel" data-panel="${t.id}" style="${i === 0 ? '' : 'display:none'}"></div>`).join('')}
   `;
 
+  const RENDERERS = {
+    rutas: fcAdminRutas, carga: fcAdminCargaManual, lineas: fcAdminLineasDetalles,
+    glosas: fcAdminGlosas, proveedores: fcAdminProveedores, cuentas: fcAdminCuentas,
+  };
+
   container.querySelectorAll('.fc-admin-tab').forEach(btn => {
     btn.addEventListener('click', () => {
       container.querySelectorAll('.fc-admin-tab').forEach(b => { b.style.borderBottomColor = 'transparent'; b.style.fontWeight = '400'; });
       btn.style.borderBottomColor = 'var(--primary)'; btn.style.fontWeight = '600';
       container.querySelectorAll('.fc-admin-panel').forEach(p => { p.style.display = p.dataset.panel === btn.dataset.tab ? '' : 'none'; });
+      // Recargar la pestaña al entrar — Glosas/Proveedores dependen del
+      // catálogo de Líneas/Detalles/Subdetalles, que puede haber cambiado
+      // en otra pestaña desde la última vez que se mostró esta.
+      RENDERERS[btn.dataset.tab]?.(container.querySelector(`[data-panel="${btn.dataset.tab}"]`));
     });
   });
 
