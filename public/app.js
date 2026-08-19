@@ -13404,7 +13404,7 @@ async function fcAdminLineasDetalles(el, editando = {}) {
         <div style="font-weight:700;margin-bottom:8px">Líneas</div>
         <div id="fc-lineas-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px">
           ${lineas.map(l => editando.linea === l._id ? `
-            <div style="display:flex;gap:4px;align-items:center" data-id="${l._id}">
+            <div class="fc-linea-edit-row" style="display:flex;gap:4px;align-items:center">
               <input type="text" class="form-control fc-linea-edit-codigo" value="${esc(l.codigo)}" style="width:70px;font-size:12px">
               <input type="text" class="form-control fc-linea-edit-nombre" value="${esc(l.nombre)}" style="flex:1;font-size:12px">
               <button class="btn btn-primary btn-xs fc-linea-guardar" data-id="${l._id}">💾</button>
@@ -13522,7 +13522,7 @@ async function fcAdminLineasDetalles(el, editando = {}) {
   });
   el.querySelectorAll('.fc-linea-guardar').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const row = btn.closest('[data-id]');
+      const row = btn.closest('.fc-linea-edit-row');
       const codigo = row.querySelector('.fc-linea-edit-codigo').value.trim();
       const nombre = row.querySelector('.fc-linea-edit-nombre').value.trim();
       if (!codigo || !nombre) return toast('Código y nombre requeridos', 'error');
@@ -13555,7 +13555,7 @@ async function fcAdminLineasDetalles(el, editando = {}) {
   });
   el.querySelectorAll('.fc-detalle-guardar').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const row = btn.closest('[data-id]');
+      const row = btn.closest('tr');
       const codigo = row.querySelector('.fc-detalle-edit-codigo').value.trim();
       const nombre = row.querySelector('.fc-detalle-edit-nombre').value.trim();
       const tipo = row.querySelector('.fc-detalle-edit-tipo').value;
@@ -13589,7 +13589,7 @@ async function fcAdminLineasDetalles(el, editando = {}) {
   });
   el.querySelectorAll('.fc-subdetalle-guardar').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const row = btn.closest('[data-id]');
+      const row = btn.closest('tr');
       const codigo = row.querySelector('.fc-subdetalle-edit-codigo').value.trim();
       const nombre = row.querySelector('.fc-subdetalle-edit-nombre').value.trim();
       const detalleCodigo = row.querySelector('.fc-subdetalle-edit-detalle').value;
