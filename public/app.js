@@ -13390,22 +13390,33 @@ async function fcAdminRutas(el) {
   });
 }
 
-async function fcAdminLineasDetalles(el) {
+async function fcAdminLineasDetalles(el, editando = {}) {
   el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
   const [lineas, detalles, subdetalles] = await Promise.all([
     GET('/flujo-caja/lineas'), GET('/flujo-caja/detalles'), GET('/flujo-caja/subdetalles'),
   ]);
   const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
+  const TIPOS = [['operacion', 'Operación'], ['inversion', 'Inversión'], ['financiamiento', 'Financiamiento']];
 
   el.innerHTML = `
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
       <div class="card" style="padding:14px;min-width:280px">
         <div style="font-weight:700;margin-bottom:8px">Líneas</div>
         <div id="fc-lineas-list" style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px">
-          ${lineas.map(l => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:4px 6px;border-radius:4px;background:var(--bg-hover)">
-            <span><strong>${esc(l.codigo)}</strong> — ${esc(l.nombre)}</span>
-            <button class="btn btn-outline btn-xs fc-linea-del" data-id="${l._id}">✕</button>
-          </div>`).join('') || '<p class="text-muted" style="font-size:12px">Sin líneas aún.</p>'}
+          ${lineas.map(l => editando.linea === l._id ? `
+            <div style="display:flex;gap:4px;align-items:center" data-id="${l._id}">
+              <input type="text" class="form-control fc-linea-edit-codigo" value="${esc(l.codigo)}" style="width:70px;font-size:12px">
+              <input type="text" class="form-control fc-linea-edit-nombre" value="${esc(l.nombre)}" style="flex:1;font-size:12px">
+              <button class="btn btn-primary btn-xs fc-linea-guardar" data-id="${l._id}">💾</button>
+              <button class="btn btn-outline btn-xs fc-linea-cancelar">✕</button>
+            </div>` : `
+            <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:4px 6px;border-radius:4px;background:var(--bg-hover)">
+              <span><strong>${esc(l.codigo)}</strong> — ${esc(l.nombre)}</span>
+              <span style="display:flex;gap:4px">
+                <button class="btn btn-outline btn-xs fc-linea-editar" data-id="${l._id}">✏️</button>
+                <button class="btn btn-outline btn-xs fc-linea-del" data-id="${l._id}">✕</button>
+              </span>
+            </div>`).join('') || '<p class="text-muted" style="font-size:12px">Sin líneas aún.</p>'}
         </div>
         <div style="display:flex;gap:6px">
           <input type="text" id="fc-linea-codigo" class="form-control" placeholder="Código" style="width:90px">
@@ -13418,9 +13429,25 @@ async function fcAdminLineasDetalles(el) {
         <table class="data-table" style="font-size:12px;margin-bottom:10px">
           <thead><tr><th>Código</th><th>Nombre</th><th>Tipo</th><th>Línea</th><th></th></tr></thead>
           <tbody>
-            ${detalles.map(d => `<tr>
+            ${detalles.map(d => editando.detalle === d._id ? `<tr data-id="${d._id}">
+              <td><input type="text" class="form-control fc-detalle-edit-codigo" value="${esc(d.codigo)}" style="width:90px;font-size:12px"></td>
+              <td><input type="text" class="form-control fc-detalle-edit-nombre" value="${esc(d.nombre)}" style="width:140px;font-size:12px"></td>
+              <td><select class="form-control fc-detalle-edit-tipo" style="font-size:12px">
+                ${TIPOS.map(([v, l]) => `<option value="${v}" ${d.tipo === v ? 'selected' : ''}>${l}</option>`).join('')}
+              </select></td>
+              <td><select class="form-control fc-detalle-edit-linea" style="font-size:12px">
+                ${lineas.map(l => `<option value="${esc(l.codigo)}" ${d.lineaCodigo === l.codigo ? 'selected' : ''}>${esc(l.codigo)}</option>`).join('')}
+              </select></td>
+              <td style="white-space:nowrap">
+                <button class="btn btn-primary btn-xs fc-detalle-guardar" data-id="${d._id}">💾</button>
+                <button class="btn btn-outline btn-xs fc-detalle-cancelar">✕</button>
+              </td>
+            </tr>` : `<tr>
               <td>${esc(d.codigo)}</td><td>${esc(d.nombre)}</td><td>${esc(d.tipo)}</td><td>${esc(d.lineaCodigo)}</td>
-              <td><button class="btn btn-outline btn-xs fc-detalle-del" data-id="${d._id}">✕</button></td>
+              <td style="white-space:nowrap">
+                <button class="btn btn-outline btn-xs fc-detalle-editar" data-id="${d._id}">✏️</button>
+                <button class="btn btn-outline btn-xs fc-detalle-del" data-id="${d._id}">✕</button>
+              </td>
             </tr>`).join('') || '<tr><td colspan="5" class="text-muted">Sin detalles aún.</td></tr>'}
           </tbody>
         </table>
@@ -13443,9 +13470,22 @@ async function fcAdminLineasDetalles(el) {
         <table class="data-table" style="font-size:12px;margin-bottom:10px">
           <thead><tr><th>Código</th><th>Nombre</th><th>Detalle</th><th></th></tr></thead>
           <tbody>
-            ${subdetalles.map(s => `<tr>
+            ${subdetalles.map(s => editando.subdetalle === s._id ? `<tr data-id="${s._id}">
+              <td><input type="text" class="form-control fc-subdetalle-edit-codigo" value="${esc(s.codigo)}" style="width:90px;font-size:12px"></td>
+              <td><input type="text" class="form-control fc-subdetalle-edit-nombre" value="${esc(s.nombre)}" style="width:140px;font-size:12px"></td>
+              <td><select class="form-control fc-subdetalle-edit-detalle" style="font-size:12px">
+                ${detalles.map(d => `<option value="${esc(d.codigo)}" ${s.detalleCodigo === d.codigo ? 'selected' : ''}>${esc(d.codigo)} — ${esc(d.nombre)}</option>`).join('')}
+              </select></td>
+              <td style="white-space:nowrap">
+                <button class="btn btn-primary btn-xs fc-subdetalle-guardar" data-id="${s._id}">💾</button>
+                <button class="btn btn-outline btn-xs fc-subdetalle-cancelar">✕</button>
+              </td>
+            </tr>` : `<tr>
               <td>${esc(s.codigo)}</td><td>${esc(s.nombre)}</td><td>${esc(detMap[s.detalleCodigo]?.nombre || s.detalleCodigo)}</td>
-              <td><button class="btn btn-outline btn-xs fc-subdetalle-del" data-id="${s._id}">✕</button></td>
+              <td style="white-space:nowrap">
+                <button class="btn btn-outline btn-xs fc-subdetalle-editar" data-id="${s._id}">✏️</button>
+                <button class="btn btn-outline btn-xs fc-subdetalle-del" data-id="${s._id}">✕</button>
+              </td>
             </tr>`).join('') || '<tr><td colspan="4" class="text-muted">Sin subdetalles aún.</td></tr>'}
           </tbody>
         </table>
@@ -13474,6 +13514,23 @@ async function fcAdminLineasDetalles(el) {
       catch (e) { toast(e.message, 'error'); }
     });
   });
+  el.querySelectorAll('.fc-linea-editar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminLineasDetalles(el, { linea: btn.dataset.id }));
+  });
+  el.querySelectorAll('.fc-linea-cancelar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminLineasDetalles(el));
+  });
+  el.querySelectorAll('.fc-linea-guardar').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('[data-id]');
+      const codigo = row.querySelector('.fc-linea-edit-codigo').value.trim();
+      const nombre = row.querySelector('.fc-linea-edit-nombre').value.trim();
+      if (!codigo || !nombre) return toast('Código y nombre requeridos', 'error');
+      try { await PUT(`/flujo-caja/lineas/${btn.dataset.id}`, { codigo, nombre }); toast('Guardado', 'success'); await fcAdminLineasDetalles(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  });
+
   document.getElementById('fc-detalle-add').addEventListener('click', async () => {
     const codigo = document.getElementById('fc-detalle-codigo').value.trim();
     const nombre = document.getElementById('fc-detalle-nombre').value.trim();
@@ -13490,6 +13547,25 @@ async function fcAdminLineasDetalles(el) {
       catch (e) { toast(e.message, 'error'); }
     });
   });
+  el.querySelectorAll('.fc-detalle-editar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminLineasDetalles(el, { detalle: btn.dataset.id }));
+  });
+  el.querySelectorAll('.fc-detalle-cancelar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminLineasDetalles(el));
+  });
+  el.querySelectorAll('.fc-detalle-guardar').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('[data-id]');
+      const codigo = row.querySelector('.fc-detalle-edit-codigo').value.trim();
+      const nombre = row.querySelector('.fc-detalle-edit-nombre').value.trim();
+      const tipo = row.querySelector('.fc-detalle-edit-tipo').value;
+      const lineaCodigo = row.querySelector('.fc-detalle-edit-linea').value;
+      if (!codigo || !nombre) return toast('Código y nombre requeridos', 'error');
+      try { await PUT(`/flujo-caja/detalles/${btn.dataset.id}`, { codigo, nombre, tipo, lineaCodigo }); toast('Guardado', 'success'); await fcAdminLineasDetalles(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  });
+
   document.getElementById('fc-subdetalle-add').addEventListener('click', async () => {
     const codigo = document.getElementById('fc-subdetalle-codigo').value.trim();
     const nombre = document.getElementById('fc-subdetalle-nombre').value.trim();
@@ -13502,6 +13578,23 @@ async function fcAdminLineasDetalles(el) {
     btn.addEventListener('click', async () => {
       if (!confirm('¿Eliminar este subdetalle?')) return;
       try { await DEL(`/flujo-caja/subdetalles/${btn.dataset.id}`); await fcAdminLineasDetalles(el); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  });
+  el.querySelectorAll('.fc-subdetalle-editar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminLineasDetalles(el, { subdetalle: btn.dataset.id }));
+  });
+  el.querySelectorAll('.fc-subdetalle-cancelar').forEach(btn => {
+    btn.addEventListener('click', () => fcAdminLineasDetalles(el));
+  });
+  el.querySelectorAll('.fc-subdetalle-guardar').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('[data-id]');
+      const codigo = row.querySelector('.fc-subdetalle-edit-codigo').value.trim();
+      const nombre = row.querySelector('.fc-subdetalle-edit-nombre').value.trim();
+      const detalleCodigo = row.querySelector('.fc-subdetalle-edit-detalle').value;
+      if (!codigo || !nombre) return toast('Código y nombre requeridos', 'error');
+      try { await PUT(`/flujo-caja/subdetalles/${btn.dataset.id}`, { codigo, nombre, detalleCodigo }); toast('Guardado', 'success'); await fcAdminLineasDetalles(el); }
       catch (e) { toast(e.message, 'error'); }
     });
   });

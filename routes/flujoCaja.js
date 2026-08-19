@@ -79,9 +79,20 @@ router.post('/lineas', async (req, res) => {
 router.put('/lineas/:id', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { nombre } = req.body;
-    const l = await FlujoLinea.findByIdAndUpdate(req.params.id, { nombre }, { new: true });
-    res.json(l);
+    const linea = await FlujoLinea.findById(req.params.id);
+    if (!linea) return res.status(404).json({ error: 'No encontrada' });
+    const { codigo, nombre } = req.body;
+    if (!codigo || !nombre) return res.status(400).json({ error: 'Código y nombre requeridos' });
+
+    if (codigo !== linea.codigo) {
+      const dup = await FlujoLinea.findOne({ codigo, _id: { $ne: linea._id } }).lean();
+      if (dup) return res.status(400).json({ error: `Ya existe una línea con código ${codigo}` });
+      await FlujoDetalle.updateMany({ lineaCodigo: linea.codigo }, { lineaCodigo: codigo });
+    }
+    linea.codigo = codigo;
+    linea.nombre = nombre;
+    await linea.save();
+    res.json(linea);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.delete('/lineas/:id', async (req, res) => {
@@ -107,9 +118,22 @@ router.post('/detalles', async (req, res) => {
 router.put('/detalles/:id', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { nombre, tipo, lineaCodigo } = req.body;
-    const d = await FlujoDetalle.findByIdAndUpdate(req.params.id, { nombre, tipo, lineaCodigo }, { new: true });
-    res.json(d);
+    const detalle = await FlujoDetalle.findById(req.params.id);
+    if (!detalle) return res.status(404).json({ error: 'No encontrado' });
+    const { codigo, nombre, tipo, lineaCodigo } = req.body;
+    if (!codigo || !nombre || !tipo || !lineaCodigo) return res.status(400).json({ error: 'Datos incompletos' });
+
+    if (codigo !== detalle.codigo) {
+      const dup = await FlujoDetalle.findOne({ codigo, _id: { $ne: detalle._id } }).lean();
+      if (dup) return res.status(400).json({ error: `Ya existe un detalle con código ${codigo}` });
+      await FlujoSubdetalle.updateMany({ detalleCodigo: detalle.codigo }, { detalleCodigo: codigo });
+    }
+    detalle.codigo = codigo;
+    detalle.nombre = nombre;
+    detalle.tipo = tipo;
+    detalle.lineaCodigo = lineaCodigo;
+    await detalle.save();
+    res.json(detalle);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.delete('/detalles/:id', async (req, res) => {
@@ -135,9 +159,25 @@ router.post('/subdetalles', async (req, res) => {
 router.put('/subdetalles/:id', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { nombre, detalleCodigo } = req.body;
-    const s = await FlujoSubdetalle.findByIdAndUpdate(req.params.id, { nombre, detalleCodigo }, { new: true });
-    res.json(s);
+    const sub = await FlujoSubdetalle.findById(req.params.id);
+    if (!sub) return res.status(404).json({ error: 'No encontrado' });
+    const { codigo, nombre, detalleCodigo } = req.body;
+    if (!codigo || !nombre || !detalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
+
+    if (codigo !== sub.codigo) {
+      const dup = await FlujoSubdetalle.findOne({ codigo, _id: { $ne: sub._id } }).lean();
+      if (dup) return res.status(400).json({ error: `Ya existe un subdetalle con código ${codigo}` });
+      await Promise.all([
+        FlujoGlosaRegla.updateMany({ subdetalleCodigo: sub.codigo }, { subdetalleCodigo: codigo }),
+        FlujoProveedorDetalle.updateMany({ subdetalleCodigo: sub.codigo }, { subdetalleCodigo: codigo }),
+        FlujoMovimientoBancario.updateMany({ subdetalleCodigo: sub.codigo }, { subdetalleCodigo: codigo }),
+      ]);
+    }
+    sub.codigo = codigo;
+    sub.nombre = nombre;
+    sub.detalleCodigo = detalleCodigo;
+    await sub.save();
+    res.json(sub);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.delete('/subdetalles/:id', async (req, res) => {
