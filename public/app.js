@@ -9053,7 +9053,7 @@ async function viewFlujoCaja(container) {
     try {
       const r = await POST(`/flujo-caja/reconciliar?sociedad=${encodeURIComponent(sociedadActual)}`, {});
       toast(`✅ ${r.porGlosa} por glosa, ${r.porERP} por ERP — quedan ${r.sinAsignar} sin asignar`, 'success');
-      await cargar();
+      await Promise.all([cargar(), cargarSinAsignar()]);
     } catch (e) { toast(e.message, 'error'); }
     btn.disabled = false; btn.textContent = '🔄 Reconciliar';
   }
