@@ -285,24 +285,31 @@ router.delete('/tipo-cambio/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Saldo Inicial (ancla del saldo corrido, un valor por sociedad) ─────────────
+// ── Saldo Inicial (ancla del saldo corrido, una por cuenta bancaria: banco+moneda) ──
 router.get('/saldo-inicial', async (req, res) => {
   try {
     const { sociedad } = req.query;
     if (!sociedad) return res.status(400).json({ error: 'Sociedad requerida' });
     if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
-    res.json(await FlujoSaldoInicial.findOne({ sociedad }).lean());
+    res.json(await FlujoSaldoInicial.find({ sociedad }).sort({ banco: 1, moneda: 1 }).lean());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.put('/saldo-inicial', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { sociedad, fecha, monto } = req.body;
-    if (!sociedad || !fecha || monto === undefined || monto === null) return res.status(400).json({ error: 'Datos incompletos' });
+    const { sociedad, banco, moneda, fecha, monto } = req.body;
+    if (!sociedad || !banco || !moneda || !fecha || monto === undefined || monto === null) return res.status(400).json({ error: 'Datos incompletos' });
     const doc = await FlujoSaldoInicial.findOneAndUpdate(
-      { sociedad }, { fecha: new Date(fecha), monto }, { upsert: true, new: true }
+      { sociedad, banco, moneda }, { fecha: new Date(fecha), monto }, { upsert: true, new: true }
     );
     res.json(doc);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.delete('/saldo-inicial/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
+    await FlujoSaldoInicial.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -383,13 +390,13 @@ router.get('/resumen', async (req, res) => {
     const d1 = new Date(desde);
     const d2 = new Date(hasta); d2.setUTCHours(23, 59, 59, 999);
 
-    const [movs, lineas, detalles, subdetalles, tcRows, saldoInicialDoc] = await Promise.all([
+    const [movs, lineas, detalles, subdetalles, tcRows, saldoDocs] = await Promise.all([
       FlujoMovimientoBancario.find({ sociedad, fecha: { $gte: d1, $lte: d2 } }).lean(),
       FlujoLinea.find({}).sort({ codigo: 1 }).lean(),
       FlujoDetalle.find({}).lean(),
       FlujoSubdetalle.find({}).lean(),
       modo === 'soles' ? TipoCambio.find({ fecha: { $lte: d2 } }).sort({ fecha: 1 }).lean() : Promise.resolve([]),
-      FlujoSaldoInicial.findOne({ sociedad }).lean(),
+      FlujoSaldoInicial.find({ sociedad }).lean(),
     ]);
 
     const tcPorFecha = k => {
@@ -415,14 +422,18 @@ router.get('/resumen', async (req, res) => {
     // subdetalleCodigo -> glosa -> { valores:{fecha:monto}, movimientos:[] } — drill-down MOVIMIENTO
     const glosasPorSub = {};
     const fechasSet = new Set();
-    const totalMovDia = {}; // fecha -> monto (TODOS los movimientos, asignados o no — para el saldo corrido real)
+    // "banco|moneda" -> fecha -> monto (TODOS los movimientos de esa cuenta, asignados o
+    // no — para el saldo corrido real, que no distingue si el movimiento fue clasificado)
+    const totalMovDiaCuenta = {};
     let sinAsignar = 0;
 
     for (const m of movs) {
       const fkey = ymd(m.fecha);
       fechasSet.add(fkey);
       const importe = convertir(m);
-      totalMovDia[fkey] = (totalMovDia[fkey] || 0) + importe;
+      const cuentaKey = `${m.banco}|${m.moneda}`;
+      if (!totalMovDiaCuenta[cuentaKey]) totalMovDiaCuenta[cuentaKey] = {};
+      totalMovDiaCuenta[cuentaKey][fkey] = (totalMovDiaCuenta[cuentaKey][fkey] || 0) + importe;
 
       const sub = m.subdetalleCodigo ? subMap[m.subdetalleCodigo] : null;
       if (!sub) { sinAsignar++; continue; }
@@ -464,30 +475,47 @@ router.get('/resumen', async (req, res) => {
       return { codigo: linea.codigo, nombre: linea.nombre, detalles: dets };
     });
 
-    // Saldo corrido: si hay un saldo inicial registrado en o antes de "desde", se
-    // arrastra sumando los movimientos día a día (incluye los sin asignar, ya que
-    // el saldo real del banco no distingue si el movimiento fue clasificado).
-    let saldoInicial = null;
-    let saldoPorFecha = null;
-    if (saldoInicialDoc && new Date(saldoInicialDoc.fecha) <= d1) {
-      const anchorDate = new Date(saldoInicialDoc.fecha);
-      let baseSaldo = saldoInicialDoc.monto;
+    // Saldo corrido por cuenta bancaria (banco+moneda): para cada cuenta con saldo
+    // inicial registrado en o antes de "desde", se arrastra sumando los movimientos
+    // de esa cuenta día a día (incluye los sin asignar, ya que el saldo real del
+    // banco no distingue si el movimiento fue clasificado). El combinado (todas las
+    // cuentas juntas) es lo que se muestra por defecto; el detalle por cuenta queda
+    // disponible para el drill-down.
+    const cuentasSaldo = [];
+    for (const doc of saldoDocs) {
+      const anchorDate = new Date(doc.fecha);
+      if (anchorDate > d1) continue; // ancla posterior al rango consultado — fuera de alcance
+      let baseSaldo = doc.monto;
       if (anchorDate < d1) {
-        const gapMovs = await FlujoMovimientoBancario.find({ sociedad, fecha: { $gte: anchorDate, $lt: d1 } }).lean();
+        const gapMovs = await FlujoMovimientoBancario.find({
+          sociedad, banco: doc.banco, moneda: doc.moneda, fecha: { $gte: anchorDate, $lt: d1 },
+        }).lean();
         for (const m of gapMovs) baseSaldo += convertir(m);
       }
-      saldoInicial = { fecha: ymd(anchorDate), monto: saldoInicialDoc.monto };
-      saldoPorFecha = {};
+      const cuentaKey = `${doc.banco}|${doc.moneda}`;
+      const porFecha = {};
       let corrido = baseSaldo;
       for (const f of fechas) {
         const inicial = corrido;
-        const final = inicial + (totalMovDia[f] || 0);
-        saldoPorFecha[f] = { inicial, final };
+        const final = inicial + (totalMovDiaCuenta[cuentaKey]?.[f] || 0);
+        porFecha[f] = { inicial, final };
         corrido = final;
+      }
+      cuentasSaldo.push({ banco: doc.banco, moneda: doc.moneda, fechaAncla: ymd(anchorDate), montoAncla: doc.monto, porFecha });
+    }
+
+    let saldoPorFecha = null;
+    if (cuentasSaldo.length) {
+      saldoPorFecha = {};
+      for (const f of fechas) {
+        saldoPorFecha[f] = {
+          inicial: cuentasSaldo.reduce((s, c) => s + c.porFecha[f].inicial, 0),
+          final: cuentasSaldo.reduce((s, c) => s + c.porFecha[f].final, 0),
+        };
       }
     }
 
-    res.json({ sociedad, fechas, filas, sinAsignar, saldoInicial, saldoPorFecha });
+    res.json({ sociedad, fechas, filas, sinAsignar, cuentasSaldo, saldoPorFecha });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
