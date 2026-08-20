@@ -9370,13 +9370,41 @@ async function viewFlujoCaja(container) {
     let insertAfter = tr;
     g.movimientos.forEach(m => {
       const movRow = document.createElement('tr');
+      movRow.id = parentId + '-' + sanId(String(m._id));
       movRow.setAttribute('data-drill-parent', parentId);
+      const esMasivo = m.pagosErp && m.pagosErp.length > 1;
+      const infoExtra = esMasivo
+        ? ` · ▸ Pago masivo (${m.pagosErp.length} beneficiarios)`
+        : (m.proveedor ? ' · ' + esc(m.proveedor) : '');
+      if (esMasivo) movRow.style.cursor = 'pointer';
       movRow.innerHTML = `
-        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}${m.proveedor ? ' · ' + esc(m.proveedor) : ''}</td>
+        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}${infoExtra}</td>
         ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
         <td class="text-right">${fmtMoney(m.importe)}</td>`;
+      if (esMasivo) movRow.addEventListener('click', () => toggleDetallePagos(movRow, m, fechas));
       insertAfter.after(movRow);
       insertAfter = movRow;
+    });
+  }
+
+  function toggleDetallePagos(tr, m, fechas) {
+    const parentId = tr.id;
+    const tbody = tr.parentElement;
+    const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
+    if (existing.length) { existing.forEach(r => r.remove()); return; }
+
+    let insertAfter = tr;
+    m.pagosErp.forEach(p => {
+      const montoAbs = m.moneda === 'USD' ? p.montoExtranjero : p.montoLocal;
+      const monto = m.importe < 0 ? -Math.abs(montoAbs || 0) : Math.abs(montoAbs || 0);
+      const row = document.createElement('tr');
+      row.setAttribute('data-drill-parent', parentId);
+      row.innerHTML = `
+        <td style="padding-left:108px;color:var(--text-muted);font-size:11px">${esc(p.pagarA)}${p.voucherPago ? ' · ' + esc(p.voucherPago) : ''}</td>
+        ${fechas.map(f => `<td class="text-right" style="${monto < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(monto) : ''}</td>`).join('')}
+        <td class="text-right">${fmtMoney(monto)}</td>`;
+      insertAfter.after(row);
+      insertAfter = row;
     });
   }
 

@@ -9,6 +9,7 @@ const FlujoMovimientoBancario = require('../models/FlujoMovimientoBancario');
 const FlujoGlosaRegla         = require('../models/FlujoGlosaRegla');
 const FlujoProveedorDetalle   = require('../models/FlujoProveedorDetalle');
 const FlujoSaldoInicial       = require('../models/FlujoSaldoInicial');
+const FlujoPagoERP            = require('../models/FlujoPagoERP');
 const TipoCambio              = require('../models/TipoCambio');
 
 const { obtenerRutas, guardarRutas, reconciliar } = require('../utils/flujoCajaSync');
@@ -396,13 +397,15 @@ router.get('/resumen', async (req, res) => {
     if (banco) saldoFilter.banco = banco;
     if (moneda) saldoFilter.moneda = moneda;
 
-    const [movs, lineas, detalles, subdetalles, tcRows, saldoDocs] = await Promise.all([
+    const [movs, lineas, detalles, subdetalles, tcRows, saldoDocs, cuentasBanco, pagosErpAll] = await Promise.all([
       FlujoMovimientoBancario.find(movFilter).lean(),
       FlujoLinea.find({}).sort({ codigo: 1 }).lean(),
       FlujoDetalle.find({}).lean(),
       FlujoSubdetalle.find({}).lean(),
       modo === 'soles' ? TipoCambio.find({ fecha: { $lte: d2 } }).sort({ fecha: 1 }).lean() : Promise.resolve([]),
       FlujoSaldoInicial.find(saldoFilter).lean(),
+      FlujoCuentaBanco.find({ sociedad }).lean(),
+      FlujoPagoERP.find({ sociedad }).lean(),
     ]);
 
     const tcPorFecha = k => {
@@ -418,6 +421,25 @@ router.get('/resumen', async (req, res) => {
         importe = tc ? importe * tc : importe;
       }
       return importe;
+    };
+
+    // Detalle de un pago ERP "masivo": varias filas del ERP con el mismo
+    // (cuentaBancaria, numeroPago) se agrupan en un solo movimiento bancario —
+    // se arma aquí el desglose por beneficiario para el drill-down del método 2.
+    const cuentaBancoMap = Object.fromEntries(cuentasBanco.map(c => [`${c.banco}|${c.moneda}`, c.cuentaBancaria]));
+    const pagosPorGrupo = {};
+    for (const p of pagosErpAll) {
+      const key = `${p.cuentaBancaria}|${p.numeroPago}`;
+      if (!pagosPorGrupo[key]) pagosPorGrupo[key] = [];
+      pagosPorGrupo[key].push(p);
+    }
+    const pagosErpDe = m => {
+      if (m.metodoAsignacion !== 'erp' || !m.numeroOperacion) return [];
+      const cuentaBancaria = cuentaBancoMap[`${m.banco}|${m.moneda}`];
+      const numOp = parseInt(m.numeroOperacion, 10);
+      if (!cuentaBancaria || !Number.isFinite(numOp)) return [];
+      const grupo = pagosPorGrupo[`${cuentaBancaria}|${numOp}`] || [];
+      return grupo.map(p => ({ pagarA: p.pagarA, montoLocal: p.montoLocal, montoExtranjero: p.montoExtranjero, tipoPago: p.tipoPago, voucherPago: p.voucherPago }));
     };
 
     const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
@@ -468,6 +490,7 @@ router.get('/resumen', async (req, res) => {
       g.movimientos.push({
         _id: m._id, fecha: fkey, fechaReal: ymd(m.fecha), banco: m.banco, moneda: m.moneda,
         numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', proveedor: m.proveedor || '', importe,
+        pagosErp: pagosErpDe(m),
       });
     }
 
