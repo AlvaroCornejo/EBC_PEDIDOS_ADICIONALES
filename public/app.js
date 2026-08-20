@@ -9032,6 +9032,7 @@ async function viewFlujoCaja(container) {
             </select>
           </div>
           ${puedeAsignar ? `<button class="btn btn-outline btn-sm" id="fc-reconciliar">🔄 Reconciliar</button>` : ''}
+          ${esAdmin ? `<button class="btn btn-outline btn-sm" id="fc-saldo-inicial">⚙ Saldo Inicial</button>` : ''}
         </div>
       </div>
       <div id="fc-sin-asignar"></div>
@@ -9046,6 +9047,42 @@ async function viewFlujoCaja(container) {
   document.getElementById('fc-hasta').addEventListener('change', cargar);
   document.getElementById('fc-modo').addEventListener('change', e => { modo = e.target.value; cargar(); });
   document.getElementById('fc-reconciliar')?.addEventListener('click', reconciliar);
+  document.getElementById('fc-saldo-inicial')?.addEventListener('click', abrirModalSaldoInicial);
+
+  async function abrirModalSaldoInicial() {
+    if (!sociedadActual) return;
+    let actual = null;
+    try { actual = await GET(`/flujo-caja/saldo-inicial?sociedad=${encodeURIComponent(sociedadActual)}`); }
+    catch (e) { toast(e.message, 'error'); return; }
+    openModal(`Saldo Inicial — ${sociedadActual}`, `
+      <p class="text-muted" style="font-size:13px;margin-bottom:14px">
+        Saldo real de la cuenta justo antes de la fecha indicada. A partir de ahí se
+        arrastra sumando los movimientos día a día.
+      </p>
+      <div class="form-group">
+        <label>Fecha</label>
+        <input type="date" id="fc-si-fecha" class="form-control" value="${actual ? esc(actual.fecha.slice(0, 10)) : ''}">
+      </div>
+      <div class="form-group" style="margin-top:10px">
+        <label>Monto</label>
+        <input type="number" step="0.01" id="fc-si-monto" class="form-control" value="${actual != null ? actual.monto : ''}">
+      </div>
+      <div style="margin-top:16px;text-align:right">
+        <button class="btn btn-primary" id="fc-si-guardar">Guardar</button>
+      </div>
+    `);
+    document.getElementById('fc-si-guardar').addEventListener('click', async () => {
+      const fecha = document.getElementById('fc-si-fecha').value;
+      const monto = parseFloat(document.getElementById('fc-si-monto').value);
+      if (!fecha || isNaN(monto)) return toast('Datos incompletos', 'error');
+      try {
+        await PUT('/flujo-caja/saldo-inicial', { sociedad: sociedadActual, fecha, monto });
+        toast('Saldo inicial guardado', 'success');
+        document.getElementById('modal-close').click();
+        await cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
 
   async function reconciliar() {
     const btn = document.getElementById('fc-reconciliar');
@@ -9130,8 +9167,10 @@ async function viewFlujoCaja(container) {
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
+  const sanId = s => String(s).replace(/[^A-Za-z0-9_-]/g, '_');
+
   function render() {
-    const { fechas, filas } = resumenData;
+    const { fechas, filas, saldoInicial, saldoPorFecha } = resumenData;
     if (!fechas.length) { root.innerHTML = '<div class="empty-state"><p>Sin movimientos en el rango seleccionado.</p></div>'; return; }
 
     const sumaSubs = (subs, f) => subs.reduce((s, sub) => s + (sub.valores[f] || 0), 0);
@@ -9141,8 +9180,20 @@ async function viewFlujoCaja(container) {
     const totalDetalle = det => fechas.reduce((s, f) => s + sumaSubs(det.subdetalles, f), 0);
     const totalSub = sub => fechas.reduce((s, f) => s + (sub.valores[f] || 0), 0);
 
+    // Mapa plano subdetalleCodigo -> objeto sub (para el drill-down por glosa/movimiento tras insertar el HTML)
+    const subByCodigo = {};
+    filas.forEach(l => l.detalles.forEach(d => d.subdetalles.forEach(s => { subByCodigo[s.codigo] = s; })));
+
+    const filaSaldo = (label, valores, bold) => `
+      <tr style="${bold ? 'font-weight:700;background:var(--bg-hover)' : 'font-weight:600'}">
+        <td>${esc(label)}</td>
+        ${fechas.map(f => `<td class="text-right">${fmtMoney(valores[f])}</td>`).join('')}
+        <td class="text-right">—</td>
+      </tr>`;
+
     root.innerHTML = `
       <div class="card" style="overflow:hidden">
+        ${!saldoPorFecha ? `<div style="padding:8px 14px;font-size:12px;color:#b45309;background:#fffbeb">⚠ Saldo inicial no configurado${esAdmin ? ' — usa el botón "⚙ Saldo Inicial" arriba' : ''}.</div>` : ''}
         <div class="table-wrap" style="max-height:calc(100vh - 420px);overflow-y:auto">
           <table class="data-table" style="font-size:12px;white-space:nowrap">
             <thead><tr>
@@ -9151,6 +9202,7 @@ async function viewFlujoCaja(container) {
               <th class="text-right" style="font-weight:700">TOTAL</th>
             </tr></thead>
             <tbody>
+              ${saldoPorFecha ? filaSaldo('SALDO INICIAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f].inicial])), true) : ''}
               ${filas.map(linea => `
                 <tr style="background:var(--bg-hover);font-weight:700">
                   <td>${esc(linea.nombre)}</td>
@@ -9164,15 +9216,16 @@ async function viewFlujoCaja(container) {
                     <td class="text-right">${fmtMoney(totalDetalle(det))}</td>
                   </tr>
                   ${det.subdetalles.map(sub => `
-                    <tr>
-                      <td style="padding-left:48px;color:var(--text-muted)">${esc(sub.nombre)}</td>
+                    <tr class="fc-sub-row" data-sub="${esc(sub.codigo)}" style="${sub.glosas.length ? 'cursor:pointer' : ''}">
+                      <td style="padding-left:48px;color:var(--text-muted)">${sub.glosas.length ? '▸ ' : ''}${esc(sub.nombre)}</td>
                       ${fechas.map(f => `<td class="text-right">${sub.valores[f] ? fmtMoney(sub.valores[f]) : ''}</td>`).join('')}
                       <td class="text-right">${fmtMoney(totalSub(sub))}</td>
                     </tr>`).join('')}
                 `).join('')}
               `).join('')}
+              ${saldoPorFecha ? filaSaldo('SALDO FINAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f].final])), true) : ''}
               <tr style="border-top:2px solid var(--border);font-weight:700">
-                <td>TOTAL</td>
+                <td>TOTAL MOVIMIENTOS</td>
                 ${fechas.map(f => `<td class="text-right">${fmtMoney(totalPorFecha(f))}</td>`).join('')}
                 <td class="text-right">${fmtMoney(fechas.reduce((s, f) => s + totalPorFecha(f), 0))}</td>
               </tr>
@@ -9180,6 +9233,53 @@ async function viewFlujoCaja(container) {
           </table>
         </div>
       </div>`;
+
+    root.querySelectorAll('.fc-sub-row').forEach(tr => {
+      const sub = subByCodigo[tr.dataset.sub];
+      if (!sub || !sub.glosas.length) return;
+      tr.addEventListener('click', () => toggleGlosas(tr, sub, fechas));
+    });
+  }
+
+  function toggleGlosas(tr, sub, fechas) {
+    const parentId = 'fc-glosas-' + sanId(sub.codigo);
+    const tbody = tr.parentElement;
+    const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
+    if (existing.length) { existing.forEach(r => r.remove()); return; }
+
+    let insertAfter = tr;
+    sub.glosas.forEach(g => {
+      const glosaRowId = parentId + '-' + sanId(g.glosa);
+      const totalGlosa = fechas.reduce((s, f) => s + (g.valores[f] || 0), 0);
+      const glosaRow = document.createElement('tr');
+      glosaRow.setAttribute('data-drill-parent', parentId);
+      glosaRow.style.cursor = 'pointer';
+      glosaRow.innerHTML = `
+        <td style="padding-left:68px;color:var(--text-muted)">▸ ${esc(g.glosa)}</td>
+        ${fechas.map(f => `<td class="text-right">${g.valores[f] ? fmtMoney(g.valores[f]) : ''}</td>`).join('')}
+        <td class="text-right">${fmtMoney(totalGlosa)}</td>`;
+      glosaRow.addEventListener('click', (ev) => { ev.stopPropagation(); toggleMovimientos(glosaRow, glosaRowId, g, fechas); });
+      insertAfter.after(glosaRow);
+      insertAfter = glosaRow;
+    });
+  }
+
+  function toggleMovimientos(tr, glosaRowId, g, fechas) {
+    const tbody = tr.parentElement;
+    const existing = tbody.querySelectorAll(`tr[data-drill-parent="${glosaRowId}"]`);
+    if (existing.length) { existing.forEach(r => r.remove()); return; }
+
+    let insertAfter = tr;
+    g.movimientos.forEach(m => {
+      const movRow = document.createElement('tr');
+      movRow.setAttribute('data-drill-parent', glosaRowId);
+      movRow.innerHTML = `
+        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}</td>
+        ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
+        <td class="text-right">${fmtMoney(m.importe)}</td>`;
+      insertAfter.after(movRow);
+      insertAfter = movRow;
+    });
   }
 
   await Promise.all([cargar(), cargarSinAsignar()]);

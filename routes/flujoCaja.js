@@ -8,6 +8,7 @@ const FlujoCuentaBanco        = require('../models/FlujoCuentaBanco');
 const FlujoMovimientoBancario = require('../models/FlujoMovimientoBancario');
 const FlujoGlosaRegla         = require('../models/FlujoGlosaRegla');
 const FlujoProveedorDetalle   = require('../models/FlujoProveedorDetalle');
+const FlujoSaldoInicial       = require('../models/FlujoSaldoInicial');
 const TipoCambio              = require('../models/TipoCambio');
 
 const { obtenerRutas, guardarRutas, reconciliar } = require('../utils/flujoCajaSync');
@@ -284,6 +285,27 @@ router.delete('/tipo-cambio/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Saldo Inicial (ancla del saldo corrido, un valor por sociedad) ─────────────
+router.get('/saldo-inicial', async (req, res) => {
+  try {
+    const { sociedad } = req.query;
+    if (!sociedad) return res.status(400).json({ error: 'Sociedad requerida' });
+    if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
+    res.json(await FlujoSaldoInicial.findOne({ sociedad }).lean());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.put('/saldo-inicial', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
+    const { sociedad, fecha, monto } = req.body;
+    if (!sociedad || !fecha || monto === undefined || monto === null) return res.status(400).json({ error: 'Datos incompletos' });
+    const doc = await FlujoSaldoInicial.findOneAndUpdate(
+      { sociedad }, { fecha: new Date(fecha), monto }, { upsert: true, new: true }
+    );
+    res.json(doc);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Reconciliación ────────────────────────────────────────────────────────────
 router.post('/reconciliar', async (req, res) => {
   try {
@@ -361,12 +383,13 @@ router.get('/resumen', async (req, res) => {
     const d1 = new Date(desde);
     const d2 = new Date(hasta); d2.setUTCHours(23, 59, 59, 999);
 
-    const [movs, lineas, detalles, subdetalles, tcRows] = await Promise.all([
+    const [movs, lineas, detalles, subdetalles, tcRows, saldoInicialDoc] = await Promise.all([
       FlujoMovimientoBancario.find({ sociedad, fecha: { $gte: d1, $lte: d2 } }).lean(),
       FlujoLinea.find({}).sort({ codigo: 1 }).lean(),
       FlujoDetalle.find({}).lean(),
       FlujoSubdetalle.find({}).lean(),
       modo === 'soles' ? TipoCambio.find({ fecha: { $lte: d2 } }).sort({ fecha: 1 }).lean() : Promise.resolve([]),
+      FlujoSaldoInicial.findOne({ sociedad }).lean(),
     ]);
 
     const tcPorFecha = k => {
@@ -375,44 +398,96 @@ router.get('/resumen', async (req, res) => {
       for (const t of tcRows) { if (t.fecha <= k) mejor = t; else break; }
       return mejor?.valor || null;
     };
+    const convertir = m => {
+      let importe = m.importe;
+      if (modo === 'soles' && m.moneda === 'USD') {
+        const tc = tcPorFecha(m.fecha);
+        importe = tc ? importe * tc : importe;
+      }
+      return importe;
+    };
 
     const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
     const ymd = f => f.toISOString().slice(0, 10);
 
     // clave: lineaCodigo|detalleCodigo|subdetalleCodigo|fecha -> monto
     const grid = {};
+    // subdetalleCodigo -> glosa -> { valores:{fecha:monto}, movimientos:[] } — drill-down MOVIMIENTO
+    const glosasPorSub = {};
     const fechasSet = new Set();
+    const totalMovDia = {}; // fecha -> monto (TODOS los movimientos, asignados o no — para el saldo corrido real)
     let sinAsignar = 0;
 
     for (const m of movs) {
       const fkey = ymd(m.fecha);
       fechasSet.add(fkey);
+      const importe = convertir(m);
+      totalMovDia[fkey] = (totalMovDia[fkey] || 0) + importe;
+
       const sub = m.subdetalleCodigo ? subMap[m.subdetalleCodigo] : null;
       if (!sub) { sinAsignar++; continue; }
       const det = detalles.find(d => d.codigo === sub.detalleCodigo);
       if (!det) continue;
-      let importe = m.importe;
-      if (modo === 'soles' && m.moneda === 'USD') {
-        const tc = tcPorFecha(m.fecha);
-        importe = tc ? importe * tc : importe;
-      }
       const key = `${det.lineaCodigo}|${det.codigo}|${sub.codigo}|${fkey}`;
       grid[key] = (grid[key] || 0) + importe;
+
+      const glosaKey = (m.glosa || '').trim() || '(sin glosa)';
+      if (!glosasPorSub[sub.codigo]) glosasPorSub[sub.codigo] = {};
+      if (!glosasPorSub[sub.codigo][glosaKey]) glosasPorSub[sub.codigo][glosaKey] = { valores: {}, movimientos: [] };
+      const g = glosasPorSub[sub.codigo][glosaKey];
+      g.valores[fkey] = (g.valores[fkey] || 0) + importe;
+      g.movimientos.push({
+        _id: m._id, fecha: fkey, banco: m.banco, moneda: m.moneda,
+        numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', importe,
+      });
     }
 
     const fechas = [...fechasSet].sort();
     const filas = lineas.map(linea => {
       const dets = detalles.filter(d => d.lineaCodigo === linea.codigo).map(det => {
-        const subs = subdetalles.filter(s => s.detalleCodigo === det.codigo).map(sub => ({
-          codigo: sub.codigo, nombre: sub.nombre,
-          valores: Object.fromEntries(fechas.map(f => [f, grid[`${linea.codigo}|${det.codigo}|${sub.codigo}|${f}`] || 0])),
-        }));
+        const subs = subdetalles.filter(s => s.detalleCodigo === det.codigo).map(sub => {
+          const gmap = glosasPorSub[sub.codigo] || {};
+          const glosas = Object.entries(gmap)
+            .map(([glosa, g]) => ({
+              glosa, valores: g.valores,
+              movimientos: g.movimientos.sort((a, b) => a.fecha.localeCompare(b.fecha)),
+            }))
+            .sort((a, b) => a.glosa.localeCompare(b.glosa));
+          return {
+            codigo: sub.codigo, nombre: sub.nombre,
+            valores: Object.fromEntries(fechas.map(f => [f, grid[`${linea.codigo}|${det.codigo}|${sub.codigo}|${f}`] || 0])),
+            glosas,
+          };
+        });
         return { codigo: det.codigo, nombre: det.nombre, tipo: det.tipo, subdetalles: subs };
       });
       return { codigo: linea.codigo, nombre: linea.nombre, detalles: dets };
     });
 
-    res.json({ sociedad, fechas, filas, sinAsignar });
+    // Saldo corrido: si hay un saldo inicial registrado en o antes de "desde", se
+    // arrastra sumando los movimientos día a día (incluye los sin asignar, ya que
+    // el saldo real del banco no distingue si el movimiento fue clasificado).
+    let saldoInicial = null;
+    let saldoPorFecha = null;
+    if (saldoInicialDoc && new Date(saldoInicialDoc.fecha) <= d1) {
+      const anchorDate = new Date(saldoInicialDoc.fecha);
+      let baseSaldo = saldoInicialDoc.monto;
+      if (anchorDate < d1) {
+        const gapMovs = await FlujoMovimientoBancario.find({ sociedad, fecha: { $gte: anchorDate, $lt: d1 } }).lean();
+        for (const m of gapMovs) baseSaldo += convertir(m);
+      }
+      saldoInicial = { fecha: ymd(anchorDate), monto: saldoInicialDoc.monto };
+      saldoPorFecha = {};
+      let corrido = baseSaldo;
+      for (const f of fechas) {
+        const inicial = corrido;
+        const final = inicial + (totalMovDia[f] || 0);
+        saldoPorFecha[f] = { inicial, final };
+        corrido = final;
+      }
+    }
+
+    res.json({ sociedad, fechas, filas, sinAsignar, saldoInicial, saldoPorFecha });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
