@@ -8995,6 +8995,10 @@ async function viewFlujoCaja(container) {
 
   let sociedadActual = sociedades[0] || '';
   let modo = 'nativa'; // nativa | soles
+  let agrupacion = 'dia'; // dia | semana | mes
+  let cuenta = ''; // '' (todas) | "BANCO|MONEDA"
+  const FC_BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
+  const FC_MONEDAS = ['PEN', 'USD'];
   let resumenData = null;
 
   const fmtMoney = n => (n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -9031,6 +9035,21 @@ async function viewFlujoCaja(container) {
               <option value="soles">Todo en Soles (TC del día)</option>
             </select>
           </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Ver por</label>
+            <select id="fc-agrupacion" class="form-control" style="width:110px">
+              <option value="dia">Día</option>
+              <option value="semana">Semana</option>
+              <option value="mes">Mes</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Cuenta</label>
+            <select id="fc-cuenta" class="form-control" style="width:150px">
+              <option value="">Todas</option>
+              ${FC_BANCOS.flatMap(b => FC_MONEDAS.map(m => `<option value="${b}|${m}">${b} ${m}</option>`)).join('')}
+            </select>
+          </div>
           ${puedeAsignar ? `<button class="btn btn-outline btn-sm" id="fc-reconciliar">🔄 Reconciliar</button>` : ''}
           ${esAdmin ? `<button class="btn btn-outline btn-sm" id="fc-saldo-inicial">⚙ Saldo Inicial</button>` : ''}
         </div>
@@ -9046,11 +9065,10 @@ async function viewFlujoCaja(container) {
   document.getElementById('fc-desde').addEventListener('change', cargar);
   document.getElementById('fc-hasta').addEventListener('change', cargar);
   document.getElementById('fc-modo').addEventListener('change', e => { modo = e.target.value; cargar(); });
+  document.getElementById('fc-agrupacion').addEventListener('change', e => { agrupacion = e.target.value; cargar(); });
+  document.getElementById('fc-cuenta').addEventListener('change', e => { cuenta = e.target.value; cargar(); });
   document.getElementById('fc-reconciliar')?.addEventListener('click', reconciliar);
   document.getElementById('fc-saldo-inicial')?.addEventListener('click', abrirModalSaldoInicial);
-
-  const FC_BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
-  const FC_MONEDAS = ['PEN', 'USD'];
 
   async function abrirModalSaldoInicial() {
     if (!sociedadActual) return;
@@ -9212,7 +9230,9 @@ async function viewFlujoCaja(container) {
     const hasta = document.getElementById('fc-hasta').value;
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
-      resumenData = await GET(`/flujo-caja/resumen?sociedad=${encodeURIComponent(sociedadActual)}&desde=${desde}&hasta=${hasta}&modo=${modo}`);
+      const params = new URLSearchParams({ sociedad: sociedadActual, desde, hasta, modo, agrupacion });
+      if (cuenta) { const [b, m] = cuenta.split('|'); params.set('banco', b); params.set('moneda', m); }
+      resumenData = await GET(`/flujo-caja/resumen?${params}`);
       render();
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
@@ -9225,7 +9245,6 @@ async function viewFlujoCaja(container) {
 
     const sumaSubs = (subs, f) => subs.reduce((s, sub) => s + (sub.valores[f] || 0), 0);
     const sumaDets = (dets, f) => dets.reduce((s, d) => s + sumaSubs(d.subdetalles, f), 0);
-    const totalPorFecha = f => filas.reduce((s, l) => s + sumaDets(l.detalles, f), 0);
     const totalLinea = l => fechas.reduce((s, f) => s + sumaDets(l.detalles, f), 0);
 
     // Fila genérica: id fijo (para poder engancharle hijos vía data-drill-parent),
@@ -9251,11 +9270,6 @@ async function viewFlujoCaja(container) {
               ${saldoPorFecha ? rowHtml('fc-saldo-inicial', 'SALDO INICIAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f].inicial])), null, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
               ${filas.map(linea => rowHtml('fc-linea-' + sanId(linea.codigo), linea.nombre, Object.fromEntries(fechas.map(f => [f, sumaDets(linea.detalles, f)])), totalLinea(linea), { bold: true, showZero: true, clickable: linea.detalles.length > 0 })).join('')}
               ${saldoPorFecha ? rowHtml('fc-saldo-final', 'SALDO FINAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f].final])), null, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
-              <tr style="border-top:2px solid var(--border);font-weight:700">
-                <td>TOTAL MOVIMIENTOS</td>
-                ${fechas.map(f => `<td class="text-right">${fmtMoney(totalPorFecha(f))}</td>`).join('')}
-                <td class="text-right">${fmtMoney(fechas.reduce((s, f) => s + totalPorFecha(f), 0))}</td>
-              </tr>
             </tbody>
           </table>
         </div>
@@ -9358,7 +9372,7 @@ async function viewFlujoCaja(container) {
       const movRow = document.createElement('tr');
       movRow.setAttribute('data-drill-parent', parentId);
       movRow.innerHTML = `
-        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}</td>
+        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}</td>
         ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
         <td class="text-right">${fmtMoney(m.importe)}</td>`;
       insertAfter.after(movRow);

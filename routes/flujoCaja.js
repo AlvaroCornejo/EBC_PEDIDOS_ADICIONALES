@@ -380,23 +380,29 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Resumen LINEA -> DETALLE -> SUBDETALLE por día ─────────────────────────────
+// ── Resumen LINEA -> DETALLE -> SUBDETALLE por día/semana/mes ──────────────────
 router.get('/resumen', async (req, res) => {
   try {
-    const { sociedad, desde, hasta, modo } = req.query;
+    const { sociedad, desde, hasta, modo, agrupacion, banco, moneda } = req.query;
     if (!sociedad || !desde || !hasta) return res.status(400).json({ error: 'Sociedad, desde y hasta requeridos' });
     if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
 
     const d1 = new Date(desde);
     const d2 = new Date(hasta); d2.setUTCHours(23, 59, 59, 999);
+    const movFilter = { sociedad, fecha: { $gte: d1, $lte: d2 } };
+    if (banco) movFilter.banco = banco;
+    if (moneda) movFilter.moneda = moneda;
+    const saldoFilter = { sociedad };
+    if (banco) saldoFilter.banco = banco;
+    if (moneda) saldoFilter.moneda = moneda;
 
     const [movs, lineas, detalles, subdetalles, tcRows, saldoDocs] = await Promise.all([
-      FlujoMovimientoBancario.find({ sociedad, fecha: { $gte: d1, $lte: d2 } }).lean(),
+      FlujoMovimientoBancario.find(movFilter).lean(),
       FlujoLinea.find({}).sort({ codigo: 1 }).lean(),
       FlujoDetalle.find({}).lean(),
       FlujoSubdetalle.find({}).lean(),
       modo === 'soles' ? TipoCambio.find({ fecha: { $lte: d2 } }).sort({ fecha: 1 }).lean() : Promise.resolve([]),
-      FlujoSaldoInicial.find({ sociedad }).lean(),
+      FlujoSaldoInicial.find(saldoFilter).lean(),
     ]);
 
     const tcPorFecha = k => {
@@ -416,6 +422,18 @@ router.get('/resumen', async (req, res) => {
 
     const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
     const ymd = f => f.toISOString().slice(0, 10);
+    // Clave de agrupación de columnas: día (exacta), lunes de la semana ISO, o día 1 del mes.
+    // Siempre una fecha ISO válida (para que fmtFechaCorta del frontend siga funcionando igual).
+    const periodKey = f => {
+      if (agrupacion === 'mes') return new Date(Date.UTC(f.getUTCFullYear(), f.getUTCMonth(), 1)).toISOString().slice(0, 10);
+      if (agrupacion === 'semana') {
+        const d = new Date(Date.UTC(f.getUTCFullYear(), f.getUTCMonth(), f.getUTCDate()));
+        const dow = d.getUTCDay() || 7; // domingo(0) -> 7
+        if (dow !== 1) d.setUTCDate(d.getUTCDate() - (dow - 1));
+        return d.toISOString().slice(0, 10);
+      }
+      return ymd(f);
+    };
 
     // clave: lineaCodigo|detalleCodigo|subdetalleCodigo|fecha -> monto
     const grid = {};
@@ -428,7 +446,7 @@ router.get('/resumen', async (req, res) => {
     let sinAsignar = 0;
 
     for (const m of movs) {
-      const fkey = ymd(m.fecha);
+      const fkey = periodKey(m.fecha);
       fechasSet.add(fkey);
       const importe = convertir(m);
       const cuentaKey = `${m.banco}|${m.moneda}`;
@@ -448,7 +466,7 @@ router.get('/resumen', async (req, res) => {
       const g = glosasPorSub[sub.codigo][glosaKey];
       g.valores[fkey] = (g.valores[fkey] || 0) + importe;
       g.movimientos.push({
-        _id: m._id, fecha: fkey, banco: m.banco, moneda: m.moneda,
+        _id: m._id, fecha: fkey, fechaReal: ymd(m.fecha), banco: m.banco, moneda: m.moneda,
         numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', importe,
       });
     }
