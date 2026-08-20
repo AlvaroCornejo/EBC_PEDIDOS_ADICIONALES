@@ -9239,6 +9239,16 @@ async function viewFlujoCaja(container) {
 
   const sanId = s => String(s).replace(/[^A-Za-z0-9_-]/g, '_');
 
+  // Al colapsar una fila hay que borrar TODOS sus descendientes ya expandidos
+  // (nietos, bisnietos...), no solo los hijos directos — si no, quedan huérfanos
+  // visibles con data-drill-parent apuntando a un id que ya no existe.
+  function removeDrillDescendants(tbody, parentId) {
+    tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`).forEach(child => {
+      if (child.id) removeDrillDescendants(tbody, child.id);
+      child.remove();
+    });
+  }
+
   function render() {
     const { fechas, filas, saldoPorFecha, cuentasSaldo } = resumenData;
     if (!fechas.length) { root.innerHTML = '<div class="empty-state"><p>Sin movimientos en el rango seleccionado.</p></div>'; return; }
@@ -9292,7 +9302,7 @@ async function viewFlujoCaja(container) {
     const parentId = tr.id;
     const tbody = tr.parentElement;
     const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
-    if (existing.length) { existing.forEach(r => r.remove()); return; }
+    if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
 
     const sumaSubs = (subs, f) => subs.reduce((s, sub) => s + (sub.valores[f] || 0), 0);
     let insertAfter = tr;
@@ -9317,7 +9327,7 @@ async function viewFlujoCaja(container) {
     const parentId = tr.id;
     const tbody = tr.parentElement;
     const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
-    if (existing.length) { existing.forEach(r => r.remove()); return; }
+    if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
 
     let insertAfter = tr;
     det.subdetalles.forEach(sub => {
@@ -9341,7 +9351,7 @@ async function viewFlujoCaja(container) {
     const parentId = tr.id;
     const tbody = tr.parentElement;
     const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
-    if (existing.length) { existing.forEach(r => r.remove()); return; }
+    if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
 
     let insertAfter = tr;
     sub.glosas.forEach(g => {
@@ -9365,7 +9375,7 @@ async function viewFlujoCaja(container) {
     const parentId = tr.id;
     const tbody = tr.parentElement;
     const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
-    if (existing.length) { existing.forEach(r => r.remove()); return; }
+    if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
 
     let insertAfter = tr;
     g.movimientos.forEach(m => {
@@ -9391,7 +9401,7 @@ async function viewFlujoCaja(container) {
     const parentId = tr.id;
     const tbody = tr.parentElement;
     const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
-    if (existing.length) { existing.forEach(r => r.remove()); return; }
+    if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
 
     let insertAfter = tr;
     m.pagosErp.forEach(p => {
@@ -9412,7 +9422,7 @@ async function viewFlujoCaja(container) {
     const parentId = tr.id;
     const tbody = tr.parentElement;
     const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
-    if (existing.length) { existing.forEach(r => r.remove()); return; }
+    if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
 
     let insertAfter = tr;
     cuentasSaldo.forEach(c => {
