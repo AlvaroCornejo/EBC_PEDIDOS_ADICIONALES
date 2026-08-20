@@ -224,8 +224,8 @@ td.col-num { text-align: right; font-variant-numeric: tabular-nums; }
 .estado-select:focus { outline: none; border-color: var(--accent); }
 
 /* ─── Admin tabs ─────────────────────────────────────────────── */
-.tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
-.tab-btn { padding: 10px 20px; border: none; background: none; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; color: var(--text-muted); border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color .15s; }
+.tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 20px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tab-btn { padding: 10px 20px; border: none; background: none; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; color: var(--text-muted); border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color .15s; white-space: nowrap; flex-shrink: 0; }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
@@ -299,6 +299,9 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 /* ─── Bottom Nav (mobile only) ───────────────────────────────── */
 .bottom-nav { display: none; }
 
+/* ─── Footer fijo de resúmenes (Gestión de Pagos, Paso 1) ──────── */
+.pg-resumenes-footer { grid-template-columns: 1fr 1fr; }
+
 /* ─── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 768px) {
   :root { --sidebar-w: 0px; }
@@ -364,4 +367,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
   .bn-item.active .bn-icon { color: var(--sidebar-active); }
   .bn-icon { font-size: 20px; line-height: 1; }
   .bn-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64px; }
+
+  .pg-resumenes-footer { grid-template-columns: 1fr; max-height: 60vh !important; overflow-y: auto; }
+  .pg-resumenes-footer > div { border-right: none !important; border-bottom: 1px solid #e2e8f0; }
 }

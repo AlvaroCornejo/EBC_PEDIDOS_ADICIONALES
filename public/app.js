@@ -4991,20 +4991,21 @@ async function renderPaso1(container) {
   if (!pgFooter) {
     pgFooter = document.createElement('div');
     pgFooter.id = 'pg-resumenes-footer';
+    pgFooter.className = 'pg-resumenes-footer';
     pgFooter.style.cssText = `
-      position:fixed; bottom:0; left:220px; right:0; z-index:100;
+      position:fixed; bottom:0; left:var(--sidebar-w); right:0; z-index:100;
       background:#fff; border-top:2px solid #e2e8f0;
       box-shadow:0 -4px 12px rgba(0,0,0,.08);
-      display:grid; grid-template-columns:1fr 1fr; gap:0;
+      gap:0; max-height:45vh;
     `;
     pgFooter.innerHTML = `
-      <div style="border-right:1px solid #e2e8f0">
+      <div style="border-right:1px solid #e2e8f0;overflow-x:auto">
         <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
           Resumen por Beneficiario
         </div>
         <div id="pg-res-benef" style="overflow-y:auto;max-height:228px"></div>
       </div>
-      <div>
+      <div style="overflow-x:auto">
         <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
           Resumen por Grupo
         </div>
@@ -5751,7 +5752,7 @@ async function renderPaso2(container) {
     ap2Footer = document.createElement('div');
     ap2Footer.id = 'ap2-footer';
     ap2Footer.style.cssText = `
-      position:fixed;bottom:0;left:220px;right:0;z-index:100;
+      position:fixed;bottom:0;left:var(--sidebar-w);right:0;z-index:100;
       background:#fff;border-top:2px solid #e2e8f0;
       box-shadow:0 -4px 12px rgba(0,0,0,.08);
       display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap;
@@ -6313,7 +6314,7 @@ async function renderPaso3(container) {
     p3Footer = document.createElement('div');
     p3Footer.id = 'ap3-footer';
     p3Footer.style.cssText = `
-      position:fixed;bottom:0;left:220px;right:0;z-index:100;
+      position:fixed;bottom:0;left:var(--sidebar-w);right:0;z-index:100;
       background:#fff;border-top:2px solid #e2e8f0;
       box-shadow:0 -4px 12px rgba(0,0,0,.08);
       display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap;
@@ -7211,7 +7212,7 @@ async function renderPaso4(container) {
     p4Footer = document.createElement('div');
     p4Footer.id = 'ap4-footer';
     p4Footer.style.cssText = `
-      position:fixed;bottom:0;left:220px;right:0;z-index:100;
+      position:fixed;bottom:0;left:var(--sidebar-w);right:0;z-index:100;
       background:#fff;border-top:2px solid #e2e8f0;
       box-shadow:0 -4px 12px rgba(0,0,0,.08);
       display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap;
@@ -7896,7 +7897,7 @@ async function renderPaso5(container) {
     p5Footer = document.createElement('div');
     p5Footer.id = 'ap5-footer';
     p5Footer.style.cssText = `
-      position:fixed;bottom:0;left:220px;right:0;z-index:100;
+      position:fixed;bottom:0;left:var(--sidebar-w);right:0;z-index:100;
       background:#fff;border-top:2px solid #e2e8f0;
       box-shadow:0 -4px 12px rgba(0,0,0,.08);
       display:none;align-items:center;gap:12px;padding:10px 20px;min-height:56px`;
