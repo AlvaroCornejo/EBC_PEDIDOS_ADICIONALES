@@ -101,7 +101,7 @@ async function asignarPorERP(sociedad) {
     ops.push({
       updateOne: {
         filter: { _id: mov._id },
-        update: { subdetalleCodigo, metodoAsignacion: 'erp', asignadoEn: new Date() },
+        update: { subdetalleCodigo, metodoAsignacion: 'erp', asignadoEn: new Date(), proveedor: g.pagarA || '' },
       },
     });
     asignados++;

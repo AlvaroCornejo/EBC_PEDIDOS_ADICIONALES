@@ -467,7 +467,7 @@ router.get('/resumen', async (req, res) => {
       g.valores[fkey] = (g.valores[fkey] || 0) + importe;
       g.movimientos.push({
         _id: m._id, fecha: fkey, fechaReal: ymd(m.fecha), banco: m.banco, moneda: m.moneda,
-        numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', importe,
+        numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', proveedor: m.proveedor || '', importe,
       });
     }
 

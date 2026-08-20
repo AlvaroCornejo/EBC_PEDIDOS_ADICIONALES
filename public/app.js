@@ -9372,7 +9372,7 @@ async function viewFlujoCaja(container) {
       const movRow = document.createElement('tr');
       movRow.setAttribute('data-drill-parent', parentId);
       movRow.innerHTML = `
-        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}</td>
+        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}${m.proveedor ? ' · ' + esc(m.proveedor) : ''}</td>
         ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
         <td class="text-right">${fmtMoney(m.importe)}</td>`;
       insertAfter.after(movRow);

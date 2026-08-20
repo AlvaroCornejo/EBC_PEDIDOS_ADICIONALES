@@ -17,6 +17,7 @@ const schema = new mongoose.Schema({
   // guardan por separado para no desincronizar si cambia el catálogo.
   subdetalleCodigo: { type: String, default: null },
   metodoAsignacion: { type: String, default: null, enum: [null, 'glosa', 'erp', 'manual'] },
+  proveedor:        { type: String, default: '' }, // beneficiario (PAGARA) resuelto por el método 2 (cruce ERP)
   asignadoPor:      { type: String, default: '' },
   asignadoEn:       { type: Date, default: null },
 });
