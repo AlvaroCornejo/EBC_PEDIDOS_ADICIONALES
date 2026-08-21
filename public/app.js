@@ -9179,8 +9179,10 @@ async function viewFlujoCaja(container) {
     const wrap = document.getElementById('fc-sin-asignar');
     if (!sociedadActual) { wrap.innerHTML = ''; return; }
     try {
+      const params = new URLSearchParams({ sociedad: sociedadActual, sinAsignar: 'true' });
+      if (cuenta) { const [b, m] = cuenta.split('|'); params.set('banco', b); params.set('moneda', m); }
       const [movs, subdetalles, detalles, lineas] = await Promise.all([
-        GET(`/flujo-caja/movimientos?sociedad=${encodeURIComponent(sociedadActual)}&sinAsignar=true`),
+        GET(`/flujo-caja/movimientos?${params}`),
         GET('/flujo-caja/subdetalles'),
         GET('/flujo-caja/detalles'),
         GET('/flujo-caja/lineas'),
@@ -9199,7 +9201,7 @@ async function viewFlujoCaja(container) {
         .join('');
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:0;border-left:3px solid #f59e0b">
-          <div style="padding:10px 14px;font-weight:600;background:#fffbeb">⚠ ${movs.length} movimiento${movs.length !== 1 ? 's' : ''} sin asignar</div>
+          <div style="padding:10px 14px;font-weight:600;background:#fffbeb">⚠ ${movs.length} movimiento${movs.length !== 1 ? 's' : ''} sin asignar${cuenta ? ` — ${esc(cuenta.replace('|', ' '))}` : ''}</div>
           <div class="table-wrap" style="max-height:320px;overflow-y:auto">
             <table class="data-table" style="font-size:12px">
               <thead><tr><th>Fecha</th><th>Banco</th><th>Mon.</th><th>N° Op.</th><th>Glosa</th><th class="text-right">Importe</th>${puedeAsignar ? '<th>Asignar a</th>' : ''}</tr></thead>
