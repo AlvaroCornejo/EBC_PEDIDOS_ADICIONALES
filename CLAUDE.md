@@ -101,6 +101,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | RecetaCosteo / RecetaCosteoDetalle | `scripts/importRecetasCosteo.js` (vía `sync-recetas-costeo.bat`) | EBC RECETAS.xlsx | diario |
 | SeguimientoCompraMovimiento / SeguimientoCompraOC | `scripts/importSeguimientoCompras.js` (vía `sync-seguimiento-compras.bat`) | EBC BASE SEGUIMIENTO DE COMPRAS.xlsx (hojas MOVIMIENTOS/OC) | diario |
 | FlujoMovimientoBancario / FlujoPagoERP | `scripts/importFlujoCaja.js` (vía `sync-flujo-caja.bat`) | Carpeta "EBC ESTADO DE CUENTA" (un .xlsx por sociedad+banco+moneda) + carpeta "EBC PAGOS ERP" (.csv, todas las sociedades), rutas globales en `Config` | diario |
+| TipoCambio | `scripts/syncTipoCambio.js` (vía `sync-tipo-cambio.bat`, paso 17/17 de `sync-master.bat`) | API pública SUNAT `https://api.apis.net.pe/v1/tipo-cambio-sunat?fecha=YYYY-MM-DD` (sin API key), campo `venta`. Rellena desde la fecha del movimiento más antiguo en `FlujoMovimientoBancario` hasta hoy, saltando fechas ya cargadas (idempotente) — usado por Flujo de Caja para "Todo en Soles". Sensible a rate-limit 429; reintenta con backoff. | diario |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,

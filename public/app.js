@@ -8996,7 +8996,7 @@ async function viewFlujoCaja(container) {
 
   let sociedadActual = sociedades[0] || '';
   let modo = 'nativa'; // nativa | soles
-  let agrupacion = 'dia'; // dia | semana | mes
+  let agrupacion = 'mes'; // dia | semana | mes
   let cuenta = ''; // '' (todas) | "BANCO|MONEDA"
   let metodo = ''; // '' (todos) | glosa | erp | manual
   const FC_BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
@@ -9006,7 +9006,7 @@ async function viewFlujoCaja(container) {
   const fmtMoney = n => (n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtFechaCorta = f => { const [, m, d] = f.split('-'); return `${d}/${m}`; };
   const hoy = new Date();
-  const hace30 = new Date(hoy); hace30.setDate(hace30.getDate() - 30);
+  const desdeDefault = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1); // 1° de dos meses antes
   const iso = d => d.toISOString().slice(0, 10);
 
   container.innerHTML = `
@@ -9024,7 +9024,7 @@ async function viewFlujoCaja(container) {
           </div>
           <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Desde</label>
-            <input type="date" id="fc-desde" class="form-control" value="${iso(hace30)}">
+            <input type="date" id="fc-desde" class="form-control" value="${iso(desdeDefault)}">
           </div>
           <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Hasta</label>
@@ -9042,7 +9042,7 @@ async function viewFlujoCaja(container) {
             <select id="fc-agrupacion" class="form-control" style="width:110px">
               <option value="dia">Día</option>
               <option value="semana">Semana</option>
-              <option value="mes">Mes</option>
+              <option value="mes" selected>Mes</option>
             </select>
           </div>
           <div>

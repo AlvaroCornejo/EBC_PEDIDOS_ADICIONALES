@@ -192,7 +192,10 @@ function parseIBK(ws) {
       fechaValor: null,
       numeroOperacion: numOp || null,
       glosa: glosaTxt,
-      importe: num(cellVal(v[COL.abono])) - num(cellVal(v[COL.cargo])),
+      // Math.abs en ambas: el archivo real trae CARGO ya en negativo, y
+      // "abono - cargo" con cargo negativo termina SUMANDO (todo positivo)
+      // en vez de restar — bug real encontrado con datos de producción.
+      importe: Math.abs(num(cellVal(v[COL.abono]))) - Math.abs(num(cellVal(v[COL.cargo]))),
     });
   });
   return movs;
