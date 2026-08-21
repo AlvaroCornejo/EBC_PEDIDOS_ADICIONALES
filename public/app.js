@@ -8998,6 +8998,7 @@ async function viewFlujoCaja(container) {
   let modo = 'nativa'; // nativa | soles
   let agrupacion = 'dia'; // dia | semana | mes
   let cuenta = ''; // '' (todas) | "BANCO|MONEDA"
+  let metodo = ''; // '' (todos) | glosa | erp | manual
   const FC_BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
   const FC_MONEDAS = ['PEN', 'USD'];
   let resumenData = null;
@@ -9051,6 +9052,15 @@ async function viewFlujoCaja(container) {
               ${FC_BANCOS.flatMap(b => FC_MONEDAS.map(m => `<option value="${b}|${m}">${b} ${m}</option>`)).join('')}
             </select>
           </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Asignado por</label>
+            <select id="fc-metodo" class="form-control" style="width:170px">
+              <option value="">Todos</option>
+              <option value="glosa">Por Glosa</option>
+              <option value="erp">Por Proveedor (ERP)</option>
+              <option value="manual">Manual</option>
+            </select>
+          </div>
           ${puedeAsignar ? `<button class="btn btn-outline btn-sm" id="fc-reconciliar">🔄 Reconciliar</button>` : ''}
           ${esAdmin ? `<button class="btn btn-outline btn-sm" id="fc-saldo-inicial">⚙ Saldo Inicial</button>` : ''}
         </div>
@@ -9068,6 +9078,7 @@ async function viewFlujoCaja(container) {
   document.getElementById('fc-modo').addEventListener('change', e => { modo = e.target.value; cargar(); });
   document.getElementById('fc-agrupacion').addEventListener('change', e => { agrupacion = e.target.value; cargar(); });
   document.getElementById('fc-cuenta').addEventListener('change', e => { cuenta = e.target.value; cargar(); });
+  document.getElementById('fc-metodo').addEventListener('change', e => { metodo = e.target.value; cargar(); });
   document.getElementById('fc-reconciliar')?.addEventListener('click', reconciliar);
   document.getElementById('fc-saldo-inicial')?.addEventListener('click', abrirModalSaldoInicial);
 
@@ -9332,6 +9343,7 @@ async function viewFlujoCaja(container) {
     try {
       const params = new URLSearchParams({ sociedad: sociedadActual, desde, hasta, modo, agrupacion });
       if (cuenta) { const [b, m] = cuenta.split('|'); params.set('banco', b); params.set('moneda', m); }
+      if (metodo) params.set('metodo', metodo);
       resumenData = await GET(`/flujo-caja/resumen?${params}`);
       render();
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
@@ -9362,7 +9374,7 @@ async function viewFlujoCaja(container) {
     const rowHtml = (id, label, valores, total, opts = {}) => `
       <tr id="${id}" style="${opts.bold ? 'font-weight:700;background:var(--bg-hover)' : ''};${opts.clickable ? 'cursor:pointer' : ''}">
         <td style="${opts.muted ? 'color:var(--text-muted)' : ''}">${opts.clickable ? '▸ ' : ''}${esc(label)}</td>
-        ${fechas.map(f => `<td class="text-right">${(opts.showZero || valores[f]) ? fmtMoney(valores[f] || 0) : ''}</td>`).join('')}
+        ${fechas.map(f => { const v = valores[f]; return v == null ? '<td class="text-right" style="color:var(--text-muted)">—</td>' : `<td class="text-right">${(opts.showZero || v) ? fmtMoney(v) : ''}</td>`; }).join('')}
         <td class="text-right">${total === null ? '—' : fmtMoney(total)}</td>
       </tr>`;
 
@@ -9377,9 +9389,9 @@ async function viewFlujoCaja(container) {
               <th class="text-right" style="font-weight:700">TOTAL</th>
             </tr></thead>
             <tbody id="fc-tbody">
-              ${saldoPorFecha ? rowHtml('fc-saldo-inicial', 'SALDO INICIAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f].inicial])), null, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
+              ${saldoPorFecha ? rowHtml('fc-saldo-inicial', 'SALDO INICIAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f]?.inicial ?? null])), null, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
               ${filas.map(linea => rowHtml('fc-linea-' + sanId(linea.codigo), linea.nombre, Object.fromEntries(fechas.map(f => [f, sumaDets(linea.detalles, f)])), totalLinea(linea), { bold: true, showZero: true, clickable: linea.detalles.length > 0 })).join('')}
-              ${saldoPorFecha ? rowHtml('fc-saldo-final', 'SALDO FINAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f].final])), null, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
+              ${saldoPorFecha ? rowHtml('fc-saldo-final', 'SALDO FINAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f]?.final ?? null])), null, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
             </tbody>
           </table>
         </div>

@@ -408,7 +408,7 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
 // ── Resumen LINEA -> DETALLE -> SUBDETALLE por día/semana/mes ──────────────────
 router.get('/resumen', async (req, res) => {
   try {
-    const { sociedad, desde, hasta, modo, agrupacion, banco, moneda } = req.query;
+    const { sociedad, desde, hasta, modo, agrupacion, banco, moneda, metodo } = req.query;
     if (!sociedad || !desde || !hasta) return res.status(400).json({ error: 'Sociedad, desde y hasta requeridos' });
     if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
 
@@ -506,6 +506,10 @@ router.get('/resumen', async (req, res) => {
         ? m.splits.map(s => ({ subdetalleCodigo: s.subdetalleCodigo, monto: s.monto }))
         : (m.subdetalleCodigo ? [{ subdetalleCodigo: m.subdetalleCodigo, monto: m.importe }] : []);
       if (!partes.length) { sinAsignar++; continue; }
+      // El filtro "Asignado por" solo oculta del desglose los movimientos que no
+      // vinieron de ese método — el saldo corrido (arriba) sigue contando todo,
+      // ya que el saldo real del banco no depende de este filtro.
+      if (metodo && m.metodoAsignacion !== metodo) continue;
 
       for (const parte of partes) {
         const sub = subMap[parte.subdetalleCodigo];
@@ -552,16 +556,18 @@ router.get('/resumen', async (req, res) => {
       return { codigo: linea.codigo, nombre: linea.nombre, detalles: dets };
     });
 
-    // Saldo corrido por cuenta bancaria (banco+moneda): para cada cuenta con saldo
-    // inicial registrado en o antes de "desde", se arrastra sumando los movimientos
-    // de esa cuenta día a día (incluye los sin asignar, ya que el saldo real del
-    // banco no distingue si el movimiento fue clasificado). El combinado (todas las
-    // cuentas juntas) es lo que se muestra por defecto; el detalle por cuenta queda
-    // disponible para el drill-down.
+    // Saldo corrido por cuenta bancaria (banco+moneda): se arrastra sumando los
+    // movimientos de esa cuenta día a día desde el ancla (incluye los sin asignar,
+    // ya que el saldo real del banco no distingue si el movimiento fue clasificado).
+    // El ancla puede caer antes del rango consultado (se acumula el hueco hasta
+    // "desde") o DENTRO del rango — en ese caso las fechas anteriores al ancla
+    // simplemente no tienen saldo conocido para esa cuenta. El combinado (todas
+    // las cuentas juntas) solo se calcula a partir de la fecha en que TODAS las
+    // cuentas con ancla ya tienen dato, para no mostrar un total parcial.
     const cuentasSaldo = [];
     for (const doc of saldoDocs) {
       const anchorDate = new Date(doc.fecha);
-      if (anchorDate > d1) continue; // ancla posterior al rango consultado — fuera de alcance
+      if (anchorDate > d2) continue; // ancla posterior a todo el rango — no aporta nada visible
       let baseSaldo = doc.monto;
       if (anchorDate < d1) {
         const gapMovs = await FlujoMovimientoBancario.find({
@@ -569,27 +575,32 @@ router.get('/resumen', async (req, res) => {
         }).lean();
         for (const m of gapMovs) baseSaldo += convertir(m);
       }
+      const anchorYmd = ymd(anchorDate);
       const cuentaKey = `${doc.banco}|${doc.moneda}`;
       const porFecha = {};
       let corrido = baseSaldo;
       for (const f of fechas) {
+        if (f < anchorYmd) continue; // esta cuenta aún no tiene saldo conocido en esa fecha
         const inicial = corrido;
         const final = inicial + (totalMovDiaCuenta[cuentaKey]?.[f] || 0);
         porFecha[f] = { inicial, final };
         corrido = final;
       }
-      cuentasSaldo.push({ banco: doc.banco, moneda: doc.moneda, fechaAncla: ymd(anchorDate), montoAncla: doc.monto, porFecha });
+      cuentasSaldo.push({ banco: doc.banco, moneda: doc.moneda, fechaAncla: anchorYmd, montoAncla: doc.monto, porFecha });
     }
 
     let saldoPorFecha = null;
     if (cuentasSaldo.length) {
+      const anclaMasTardia = cuentasSaldo.map(c => c.fechaAncla).sort().slice(-1)[0];
       saldoPorFecha = {};
       for (const f of fechas) {
+        if (f < anclaMasTardia) continue; // todavía no todas las cuentas tienen dato para esta fecha
         saldoPorFecha[f] = {
-          inicial: cuentasSaldo.reduce((s, c) => s + c.porFecha[f].inicial, 0),
-          final: cuentasSaldo.reduce((s, c) => s + c.porFecha[f].final, 0),
+          inicial: cuentasSaldo.reduce((s, c) => s + (c.porFecha[f]?.inicial || 0), 0),
+          final: cuentasSaldo.reduce((s, c) => s + (c.porFecha[f]?.final || 0), 0),
         };
       }
+      if (!Object.keys(saldoPorFecha).length) saldoPorFecha = null;
     }
 
     res.json({ sociedad, fechas, filas, sinAsignar, cuentasSaldo, saldoPorFecha });
