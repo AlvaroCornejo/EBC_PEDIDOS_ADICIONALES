@@ -15,7 +15,15 @@ const schema = new mongoose.Schema({
   // Nivel más granular de asignación — LINEA y DETALLE se derivan de aquí
   // (FlujoSubdetalle.detalleCodigo -> FlujoDetalle.lineaCodigo), no se
   // guardan por separado para no desincronizar si cambia el catálogo.
+  // Un movimiento se asigna de una de dos formas, mutuamente excluyentes:
+  // - subdetalleCodigo: asignación simple (todo el importe a un solo subdetalle).
+  // - splits: desglose manual en 2+ subdetalles (la suma debe igualar `importe`);
+  //   cuando hay splits, subdetalleCodigo queda en null.
   subdetalleCodigo: { type: String, default: null },
+  splits: [{
+    subdetalleCodigo: { type: String, required: true },
+    monto:            { type: Number, required: true },
+  }],
   metodoAsignacion: { type: String, default: null, enum: [null, 'glosa', 'erp', 'manual'] },
   proveedor:        { type: String, default: '' }, // beneficiario (PAGARA) resuelto por el método 2 (cruce ERP)
   asignadoPor:      { type: String, default: '' },

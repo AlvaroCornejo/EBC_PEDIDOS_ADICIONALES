@@ -23,10 +23,14 @@ function normBeneficiario(s) { return String(s || '').trim().toUpperCase(); }
 // se normalizan ambos a entero antes de comparar.
 function normNumOp(v) { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; }
 
+// Un movimiento ya desglosado manualmente (splits) no debe ser tocado por los
+// métodos automáticos, aunque subdetalleCodigo quede en null para ese caso.
+const SIN_ASIGNAR = { subdetalleCodigo: null, $or: [{ splits: { $exists: false } }, { splits: { $size: 0 } }] };
+
 async function asignarPorGlosa(sociedad) {
   const reglas = await FlujoGlosaRegla.find({}).lean();
   if (!reglas.length) return 0;
-  const pendientes = await FlujoMovimientoBancario.find({ sociedad, subdetalleCodigo: null }).lean();
+  const pendientes = await FlujoMovimientoBancario.find({ sociedad, ...SIN_ASIGNAR }).lean();
 
   let asignados = 0;
   const ops = [];
@@ -50,7 +54,7 @@ async function asignarPorERP(sociedad) {
   const [cuentas, proveedores, pendientes] = await Promise.all([
     FlujoCuentaBanco.find({ sociedad }).lean(),
     FlujoProveedorDetalle.find({}).lean(),
-    FlujoMovimientoBancario.find({ sociedad, subdetalleCodigo: null }).lean(),
+    FlujoMovimientoBancario.find({ sociedad, ...SIN_ASIGNAR }).lean(),
   ]);
   if (!pendientes.length || !cuentas.length) return 0;
 

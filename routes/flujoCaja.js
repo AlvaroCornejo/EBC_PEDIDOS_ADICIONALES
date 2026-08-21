@@ -334,7 +334,9 @@ router.get('/movimientos', async (req, res) => {
     const filter = { sociedad };
     if (banco) filter.banco = banco;
     if (moneda) filter.moneda = moneda;
-    if (sinAsignar === 'true') filter.subdetalleCodigo = null;
+    // Un movimiento con splits (desglosado a mano) no cuenta como "sin asignar"
+    // aunque subdetalleCodigo quede en null.
+    if (sinAsignar === 'true') { filter.subdetalleCodigo = null; filter.$or = [{ splits: { $exists: false } }, { splits: { $size: 0 } }]; }
     if (desde || hasta) {
       filter.fecha = {};
       if (desde) filter.fecha.$gte = new Date(desde);
@@ -365,14 +367,36 @@ router.get('/movimientos', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.get('/movimientos/:id', async (req, res) => {
+  try {
+    const mov = await FlujoMovimientoBancario.findById(req.params.id).lean();
+    if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    if (!checkSocAccess(req.user, mov.sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
+    res.json(mov);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.put('/movimientos/:id/asignar', async (req, res) => {
   try {
     const mov = await FlujoMovimientoBancario.findById(req.params.id);
     if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
     if (!checkSocAccess(req.user, mov.sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
-    const { subdetalleCodigo } = req.body;
-    if (!subdetalleCodigo) return res.status(400).json({ error: 'subdetalleCodigo requerido' });
-    mov.subdetalleCodigo = subdetalleCodigo;
+    const { subdetalleCodigo, splits } = req.body;
+    if (Array.isArray(splits) && splits.length) {
+      if (splits.some(s => !s.subdetalleCodigo || typeof s.monto !== 'number')) {
+        return res.status(400).json({ error: 'Cada línea del desglose necesita subdetalle y monto' });
+      }
+      const suma = splits.reduce((s, x) => s + x.monto, 0);
+      if (Math.abs(suma - mov.importe) > 0.01) {
+        return res.status(400).json({ error: `La suma del desglose (${suma.toFixed(2)}) no coincide con el importe del movimiento (${mov.importe.toFixed(2)})` });
+      }
+      mov.splits = splits.map(s => ({ subdetalleCodigo: s.subdetalleCodigo, monto: s.monto }));
+      mov.subdetalleCodigo = null;
+    } else {
+      if (!subdetalleCodigo) return res.status(400).json({ error: 'subdetalleCodigo requerido' });
+      mov.subdetalleCodigo = subdetalleCodigo;
+      mov.splits = [];
+    }
     mov.metodoAsignacion = 'manual';
     mov.asignadoPor = req.user.username;
     mov.asignadoEn = new Date();
@@ -470,28 +494,40 @@ router.get('/resumen', async (req, res) => {
     for (const m of movs) {
       const fkey = periodKey(m.fecha);
       fechasSet.add(fkey);
-      const importe = convertir(m);
+      const importeTotal = convertir(m);
       const cuentaKey = `${m.banco}|${m.moneda}`;
       if (!totalMovDiaCuenta[cuentaKey]) totalMovDiaCuenta[cuentaKey] = {};
-      totalMovDiaCuenta[cuentaKey][fkey] = (totalMovDiaCuenta[cuentaKey][fkey] || 0) + importe;
+      totalMovDiaCuenta[cuentaKey][fkey] = (totalMovDiaCuenta[cuentaKey][fkey] || 0) + importeTotal;
 
-      const sub = m.subdetalleCodigo ? subMap[m.subdetalleCodigo] : null;
-      if (!sub) { sinAsignar++; continue; }
-      const det = detalles.find(d => d.codigo === sub.detalleCodigo);
-      if (!det) continue;
-      const key = `${det.lineaCodigo}|${det.codigo}|${sub.codigo}|${fkey}`;
-      grid[key] = (grid[key] || 0) + importe;
+      // Asignación simple (1 subdetalle) o desglosada a mano (splits, 2+ subdetalles) —
+      // cada "parte" aporta su propio monto a su propio subdetalle.
+      const esSplit = Array.isArray(m.splits) && m.splits.length > 0;
+      const partes = esSplit
+        ? m.splits.map(s => ({ subdetalleCodigo: s.subdetalleCodigo, monto: s.monto }))
+        : (m.subdetalleCodigo ? [{ subdetalleCodigo: m.subdetalleCodigo, monto: m.importe }] : []);
+      if (!partes.length) { sinAsignar++; continue; }
 
-      const glosaKey = (m.glosa || '').trim() || '(sin glosa)';
-      if (!glosasPorSub[sub.codigo]) glosasPorSub[sub.codigo] = {};
-      if (!glosasPorSub[sub.codigo][glosaKey]) glosasPorSub[sub.codigo][glosaKey] = { valores: {}, movimientos: [] };
-      const g = glosasPorSub[sub.codigo][glosaKey];
-      g.valores[fkey] = (g.valores[fkey] || 0) + importe;
-      g.movimientos.push({
-        _id: m._id, fecha: fkey, fechaReal: ymd(m.fecha), banco: m.banco, moneda: m.moneda,
-        numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', proveedor: m.proveedor || '', importe,
-        pagosErp: pagosErpDe(m),
-      });
+      for (const parte of partes) {
+        const sub = subMap[parte.subdetalleCodigo];
+        if (!sub) continue;
+        const det = detalles.find(d => d.codigo === sub.detalleCodigo);
+        if (!det) continue;
+        const importeParte = convertir({ moneda: m.moneda, fecha: m.fecha, importe: parte.monto });
+        const key = `${det.lineaCodigo}|${det.codigo}|${sub.codigo}|${fkey}`;
+        grid[key] = (grid[key] || 0) + importeParte;
+
+        const glosaKey = (m.glosa || '').trim() || '(sin glosa)';
+        if (!glosasPorSub[sub.codigo]) glosasPorSub[sub.codigo] = {};
+        if (!glosasPorSub[sub.codigo][glosaKey]) glosasPorSub[sub.codigo][glosaKey] = { valores: {}, movimientos: [] };
+        const g = glosasPorSub[sub.codigo][glosaKey];
+        g.valores[fkey] = (g.valores[fkey] || 0) + importeParte;
+        g.movimientos.push({
+          _id: m._id, fecha: fkey, fechaReal: ymd(m.fecha), banco: m.banco, moneda: m.moneda,
+          numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', proveedor: m.proveedor || '',
+          importe: importeParte, esSplit, importeTotal: esSplit ? importeTotal : undefined,
+          pagosErp: esSplit ? [] : pagosErpDe(m),
+        });
+      }
     }
 
     const fechas = [...fechasSet].sort();

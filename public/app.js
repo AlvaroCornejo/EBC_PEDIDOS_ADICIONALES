@@ -9201,11 +9201,12 @@ async function viewFlujoCaja(container) {
                     <td>${esc(m.numeroOperacion || '—')}</td>
                     <td>${esc(m.glosa)}</td>
                     <td class="text-right" style="${m.importe < 0 ? 'color:#dc2626' : ''}">${fmtMoney(m.importe)}</td>
-                    ${puedeAsignar ? `<td>
+                    ${puedeAsignar ? `<td style="white-space:nowrap">
                       <select class="fc-asignar-sel" data-id="${m._id}" style="font-size:12px;padding:2px 4px">
                         <option value="">— Elegir —</option>
                         ${detOpts}
                       </select>
+                      <button class="btn btn-outline btn-xs fc-asignar-desglosar" data-id="${m._id}" title="Desglosar en varias líneas">🔀</button>
                     </td>` : ''}
                   </tr>`).join('')}
               </tbody>
@@ -9222,7 +9223,105 @@ async function viewFlujoCaja(container) {
           } catch (e) { toast(e.message, 'error'); }
         });
       });
+      wrap.querySelectorAll('.fc-asignar-desglosar').forEach(btn => {
+        btn.addEventListener('click', () => abrirModalAsignarMovimiento(btn.dataset.id));
+      });
     } catch (e) { wrap.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  async function abrirModalAsignarMovimiento(movId) {
+    let mov;
+    try { mov = await GET(`/flujo-caja/movimientos/${movId}`); }
+    catch (e) { toast(e.message, 'error'); return; }
+
+    const [subdetalles, detalles, lineas] = await Promise.all([
+      GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'), GET('/flujo-caja/lineas'),
+    ]);
+    const lineaMap = Object.fromEntries(lineas.map(l => [l.codigo, l.nombre]));
+    const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
+    const etiqueta = sub => {
+      const det = detMap[sub.detalleCodigo];
+      const lineaNombre = det ? (lineaMap[det.lineaCodigo] || det.lineaCodigo) : '';
+      return `${lineaNombre} — ${det?.nombre || sub.detalleCodigo} — ${sub.nombre}`;
+    };
+    const subsOrdenados = [...subdetalles].sort((a, b) => etiqueta(a).localeCompare(etiqueta(b)));
+    const subOpts = sel => '<option value="">— Elegir —</option>' + subsOrdenados.map(s => `<option value="${esc(s.codigo)}" ${s.codigo === sel ? 'selected' : ''}>${esc(etiqueta(s))}</option>`).join('');
+
+    const esSplitInicial = Array.isArray(mov.splits) && mov.splits.length > 0;
+
+    openModal('Reclasificar movimiento', `
+      <p class="text-muted" style="font-size:13px;margin-bottom:10px">
+        ${fmtDate(mov.fecha)} · ${esc(mov.banco)} ${esc(mov.moneda)}${mov.numeroOperacion ? ' · Op ' + esc(mov.numeroOperacion) : ''} · ${esc(mov.glosa || '')}<br>
+        Importe: <strong>${fmtMoney(mov.importe)}</strong>
+      </p>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px">
+        <input type="checkbox" id="fca-desglosar" ${esSplitInicial ? 'checked' : ''}>
+        Desglosar en varias líneas
+      </label>
+      <div id="fca-simple" style="${esSplitInicial ? 'display:none' : ''}">
+        <select id="fca-subdetalle" class="form-control">${subOpts(mov.subdetalleCodigo)}</select>
+      </div>
+      <div id="fca-splits" style="${esSplitInicial ? '' : 'display:none'}">
+        <div id="fca-splits-rows"></div>
+        <button class="btn btn-outline btn-sm" id="fca-split-add" style="margin-top:8px">＋ Agregar línea</button>
+        <div id="fca-split-total" style="margin-top:8px;font-size:12px;color:var(--text-muted)"></div>
+      </div>
+      <div style="margin-top:16px;text-align:right">
+        <button class="btn btn-primary" id="fca-guardar">Guardar</button>
+      </div>
+    `);
+
+    const filaSplitHtml = (sub, monto) => `
+      <div class="fca-split-row" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+        <select class="form-control fca-split-sub" style="flex:1">${subOpts(sub)}</select>
+        <input type="number" step="0.01" class="form-control fca-split-monto" style="width:120px" value="${monto != null ? monto : ''}">
+        <button class="btn btn-outline btn-xs fca-split-del">✕</button>
+      </div>`;
+
+    const rowsWrap = document.getElementById('fca-splits-rows');
+    function actualizarTotal() {
+      const suma = [...rowsWrap.querySelectorAll('.fca-split-monto')].reduce((s, i) => s + (parseFloat(i.value) || 0), 0);
+      const dif = mov.importe - suma;
+      document.getElementById('fca-split-total').innerHTML =
+        `Suma: ${fmtMoney(suma)} — Importe: ${fmtMoney(mov.importe)} — ${Math.abs(dif) < 0.01 ? '<span style="color:#16a34a">✓ cuadra</span>' : `<span style="color:#dc2626">Diferencia: ${fmtMoney(dif)}</span>`}`;
+    }
+    const agregarFila = (sub = '', monto = null) => {
+      rowsWrap.insertAdjacentHTML('beforeend', filaSplitHtml(sub, monto));
+      const nuevaFila = rowsWrap.lastElementChild;
+      nuevaFila.querySelector('.fca-split-del').addEventListener('click', () => { nuevaFila.remove(); actualizarTotal(); });
+      nuevaFila.querySelector('.fca-split-monto').addEventListener('input', actualizarTotal);
+      actualizarTotal();
+    };
+
+    if (esSplitInicial) mov.splits.forEach(s => agregarFila(s.subdetalleCodigo, s.monto));
+    else agregarFila('', mov.importe);
+
+    document.getElementById('fca-split-add').addEventListener('click', () => agregarFila());
+    document.getElementById('fca-desglosar').addEventListener('change', e => {
+      document.getElementById('fca-simple').style.display = e.target.checked ? 'none' : '';
+      document.getElementById('fca-splits').style.display = e.target.checked ? '' : 'none';
+    });
+
+    document.getElementById('fca-guardar').addEventListener('click', async () => {
+      const desglosar = document.getElementById('fca-desglosar').checked;
+      try {
+        if (desglosar) {
+          const splits = [...rowsWrap.querySelectorAll('.fca-split-row')].map(row => ({
+            subdetalleCodigo: row.querySelector('.fca-split-sub').value,
+            monto: parseFloat(row.querySelector('.fca-split-monto').value),
+          }));
+          if (splits.some(s => !s.subdetalleCodigo || isNaN(s.monto))) return toast('Completa subdetalle y monto en cada línea', 'error');
+          await PUT(`/flujo-caja/movimientos/${movId}/asignar`, { splits });
+        } else {
+          const subdetalleCodigo = document.getElementById('fca-subdetalle').value;
+          if (!subdetalleCodigo) return toast('Elige un subdetalle', 'error');
+          await PUT(`/flujo-caja/movimientos/${movId}/asignar`, { subdetalleCodigo });
+        }
+        toast('Guardado', 'success');
+        document.getElementById('modal-close').click();
+        await Promise.all([cargarSinAsignar(), cargar()]);
+      } catch (e) { toast(e.message, 'error'); }
+    });
   }
 
   async function cargar() {
@@ -9381,17 +9480,25 @@ async function viewFlujoCaja(container) {
     let insertAfter = tr;
     g.movimientos.forEach(m => {
       const movRow = document.createElement('tr');
-      movRow.id = parentId + '-' + sanId(String(m._id));
+      movRow.id = parentId + '-' + sanId(String(m._id)) + (m.esSplit ? '-' + sanId(g.glosa) : '');
       movRow.setAttribute('data-drill-parent', parentId);
       const esMasivo = m.pagosErp && m.pagosErp.length > 1;
       const infoExtra = esMasivo
         ? ` · ▸ Pago masivo (${m.pagosErp.length} beneficiarios)`
         : (m.proveedor ? ' · ' + esc(m.proveedor) : '');
+      const infoSplit = m.esSplit ? ` · <span style="color:#7c3aed">desglosado, ${fmtMoney(m.importe)} de ${fmtMoney(m.importeTotal)}</span>` : '';
       if (esMasivo) movRow.style.cursor = 'pointer';
       movRow.innerHTML = `
-        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}${infoExtra}</td>
+        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">
+          ${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}${infoExtra}${infoSplit}
+          <button class="btn-icon fc-mov-reclasificar" data-id="${m._id}" title="Reclasificar" style="border:none;background:none;cursor:pointer;padding:0 0 0 6px;font-size:11px">✏️</button>
+        </td>
         ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
         <td class="text-right">${fmtMoney(m.importe)}</td>`;
+      movRow.querySelector('.fc-mov-reclasificar').addEventListener('click', ev => {
+        ev.stopPropagation();
+        abrirModalAsignarMovimiento(m._id);
+      });
       if (esMasivo) movRow.addEventListener('click', () => toggleDetallePagos(movRow, m, fechas));
       insertAfter.after(movRow);
       insertAfter = movRow;
