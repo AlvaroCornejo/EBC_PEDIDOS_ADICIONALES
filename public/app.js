@@ -9049,7 +9049,6 @@ async function viewFlujoCaja(container) {
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Cuenta</label>
             <select id="fc-cuenta" class="form-control" style="width:150px">
               <option value="">Todas</option>
-              ${FC_BANCOS.flatMap(b => FC_MONEDAS.map(m => `<option value="${b}|${m}">${b} ${m}</option>`)).join('')}
             </select>
           </div>
           <div>
@@ -9072,7 +9071,19 @@ async function viewFlujoCaja(container) {
   const root = document.getElementById('fc-content');
   if (!sociedades.length) { root.innerHTML = '<div class="empty-state"><p>No tienes sociedades autorizadas.</p></div>'; return; }
 
-  document.getElementById('fc-sociedad').addEventListener('change', e => { sociedadActual = e.target.value; cargar(); });
+  async function poblarCuentaSelect() {
+    const sel = document.getElementById('fc-cuenta');
+    if (!sociedadActual) { sel.innerHTML = '<option value="">Todas</option>'; return; }
+    let cuentasBanco = [];
+    try { cuentasBanco = await GET(`/flujo-caja/cuentas-banco?sociedad=${encodeURIComponent(sociedadActual)}`); }
+    catch (e) { /* silencioso — el selector queda solo con "Todas" */ }
+    sel.innerHTML = '<option value="">Todas</option>' +
+      cuentasBanco.map(c => `<option value="${esc(c.banco)}|${esc(c.moneda)}" ${cuenta === `${c.banco}|${c.moneda}` ? 'selected' : ''}>${esc(c.banco)} ${esc(c.moneda)}</option>`).join('');
+    // Si la cuenta previamente elegida ya no aplica a esta sociedad, limpiar el filtro.
+    if (cuenta && !cuentasBanco.some(c => `${c.banco}|${c.moneda}` === cuenta)) { cuenta = ''; sel.value = ''; }
+  }
+
+  document.getElementById('fc-sociedad').addEventListener('change', async e => { sociedadActual = e.target.value; await poblarCuentaSelect(); cargar(); });
   document.getElementById('fc-desde').addEventListener('change', cargar);
   document.getElementById('fc-hasta').addEventListener('change', cargar);
   document.getElementById('fc-modo').addEventListener('change', e => { modo = e.target.value; cargar(); });
@@ -9169,7 +9180,7 @@ async function viewFlujoCaja(container) {
     btn.disabled = true; btn.textContent = '⏳ Reconciliando...';
     try {
       const r = await POST(`/flujo-caja/reconciliar?sociedad=${encodeURIComponent(sociedadActual)}`, {});
-      toast(`✅ ${r.porGlosa} por glosa, ${r.porERP} por ERP — quedan ${r.sinAsignar} sin asignar`, 'success');
+      toast(`✅ ${r.porGlosa} por glosa, ${r.porERP} por ERP — quedan ${r.sinAsignar} sin asignar en toda la sociedad${cuenta ? ' (puede que ninguno sea de la cuenta filtrada)' : ''}`, 'success');
       await Promise.all([cargar(), cargarSinAsignar()]);
     } catch (e) { toast(e.message, 'error'); }
     btn.disabled = false; btn.textContent = '🔄 Reconciliar';
@@ -9187,7 +9198,12 @@ async function viewFlujoCaja(container) {
         GET('/flujo-caja/detalles'),
         GET('/flujo-caja/lineas'),
       ]);
-      if (!movs.length) { wrap.innerHTML = ''; return; }
+      if (!movs.length) {
+        wrap.innerHTML = cuenta
+          ? `<div class="card mb-16" style="padding:10px 14px;font-size:13px;color:var(--text-muted)">✓ Sin movimientos pendientes en ${esc(cuenta.replace('|', ' '))} (puede haber pendientes en otras cuentas).</div>`
+          : '';
+        return;
+      }
       const lineaMap = Object.fromEntries(lineas.map(l => [l.codigo, l.nombre]));
       const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
       const etiqueta = sub => {
@@ -9560,6 +9576,7 @@ async function viewFlujoCaja(container) {
     });
   }
 
+  await poblarCuentaSelect();
   await Promise.all([cargar(), cargarSinAsignar()]);
 }
 

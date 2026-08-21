@@ -424,8 +424,8 @@ router.get('/resumen', async (req, res) => {
     const [movs, lineas, detalles, subdetalles, tcRows, saldoDocs, cuentasBanco, pagosErpAll] = await Promise.all([
       FlujoMovimientoBancario.find(movFilter).lean(),
       FlujoLinea.find({}).sort({ codigo: 1 }).lean(),
-      FlujoDetalle.find({}).lean(),
-      FlujoSubdetalle.find({}).lean(),
+      FlujoDetalle.find({}).sort({ lineaCodigo: 1, codigo: 1 }).lean(),
+      FlujoSubdetalle.find({}).sort({ detalleCodigo: 1, codigo: 1 }).lean(),
       modo === 'soles' ? TipoCambio.find({ fecha: { $lte: d2 } }).sort({ fecha: 1 }).lean() : Promise.resolve([]),
       FlujoSaldoInicial.find(saldoFilter).lean(),
       FlujoCuentaBanco.find({ sociedad }).lean(),
@@ -568,7 +568,10 @@ router.get('/resumen', async (req, res) => {
     for (const doc of saldoDocs) {
       const anchorDate = new Date(doc.fecha);
       if (anchorDate > d2) continue; // ancla posterior a todo el rango — no aporta nada visible
-      let baseSaldo = doc.monto;
+      // El saldo inicial se registra en la moneda nativa de la cuenta — hay que
+      // convertirlo igual que los movimientos, si no, en modo "soles" se mezclaban
+      // dólares sin convertir con montos ya convertidos.
+      let baseSaldo = convertir({ moneda: doc.moneda, fecha: doc.fecha, importe: doc.monto });
       if (anchorDate < d1) {
         const gapMovs = await FlujoMovimientoBancario.find({
           sociedad, banco: doc.banco, moneda: doc.moneda, fecha: { $gte: anchorDate, $lt: d1 },
