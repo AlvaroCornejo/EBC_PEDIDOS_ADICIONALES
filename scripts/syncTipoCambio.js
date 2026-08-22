@@ -11,6 +11,7 @@ const mongoose = require('mongoose');
 const connectDB = require('../db');
 const TipoCambio = require('../models/TipoCambio');
 const FlujoMovimientoBancario = require('../models/FlujoMovimientoBancario');
+const FlujoSaldoInicial = require('../models/FlujoSaldoInicial');
 
 const API_URL = 'https://api.apis.net.pe/v1/tipo-cambio-sunat';
 const PAUSA_MS = 1500; // ritmo normal entre fechas
@@ -38,8 +39,16 @@ async function obtenerTC(fechaStr) {
 async function main() {
   await connectDB();
 
-  const primerMov = await FlujoMovimientoBancario.findOne({}).sort({ fecha: 1 }).lean();
-  const desde = primerMov ? new Date(primerMov.fecha) : new Date();
+  // La fecha de arranque es la más antigua entre el primer movimiento y el
+  // ancla de saldo inicial más antigua (el ancla puede ser 1 día anterior al
+  // primer movimiento, y sin TC para esa fecha exacta la conversión a soles
+  // del saldo inicial se salta silenciosamente).
+  const [primerMov, primerSaldo] = await Promise.all([
+    FlujoMovimientoBancario.findOne({}).sort({ fecha: 1 }).lean(),
+    FlujoSaldoInicial.findOne({}).sort({ fecha: 1 }).lean(),
+  ]);
+  const candidatas = [primerMov?.fecha, primerSaldo?.fecha].filter(Boolean).map(f => new Date(f));
+  const desde = candidatas.length ? new Date(Math.min(...candidatas)) : new Date();
   desde.setUTCHours(0, 0, 0, 0);
   const hoy = new Date();
   hoy.setUTCHours(0, 0, 0, 0);
