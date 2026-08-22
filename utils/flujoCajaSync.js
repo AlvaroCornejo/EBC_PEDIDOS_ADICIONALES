@@ -41,11 +41,41 @@ async function listarDisponibles() {
   };
 }
 
+// Clave estable para "reconocer" el mismo movimiento entre una importación y
+// la siguiente — el _id cambia siempre (reemplazo completo), así que no sirve
+// para eso. fecha+numeroOperación+glosa+importe es lo más cercano a un
+// identificador natural que trae el propio banco.
+function claveMovimiento(m) {
+  const fecha = m.fecha instanceof Date ? m.fecha.toISOString().slice(0, 10) : String(m.fecha || '');
+  const importe = typeof m.importe === 'number' ? m.importe.toFixed(2) : '';
+  return `${fecha}|${m.numeroOperacion || ''}|${m.glosa || ''}|${importe}`;
+}
+
 /** Importa un archivo de Estado de Cuenta ya identificado (sociedad/banco/moneda/archivo). */
 async function importarArchivoEstadoCuenta({ sociedad, banco, moneda, archivo }) {
   const movs = await leerMovimientoBanco(banco, archivo);
+
+  // La clasificación por glosa/ERP se puede recalcular sola (reconciliar()
+  // corre después de cada import), pero la manual (reclasificación o
+  // desglose) no tiene forma de recalcularse — se preserva "reconociendo"
+  // el mismo movimiento en la nueva carga por fecha+n°op+glosa+importe.
+  const manuales = await FlujoMovimientoBancario.find({ sociedad, banco, moneda, metodoAsignacion: 'manual' }).lean();
+  const manualesPorClave = new Map(manuales.map(m => [claveMovimiento(m), m]));
+
   await FlujoMovimientoBancario.deleteMany({ sociedad, banco, moneda });
-  const docs = movs.map(m => ({ sociedad, banco, moneda, ...m }));
+  const docs = movs.map(m => {
+    const doc = { sociedad, banco, moneda, ...m };
+    const previo = manualesPorClave.get(claveMovimiento(doc));
+    if (previo) {
+      doc.subdetalleCodigo = previo.subdetalleCodigo;
+      doc.splits = previo.splits || [];
+      doc.metodoAsignacion = 'manual';
+      doc.proveedor = previo.proveedor || '';
+      doc.asignadoPor = previo.asignadoPor || '';
+      doc.asignadoEn = previo.asignadoEn || null;
+    }
+    return doc;
+  });
   for (let i = 0; i < docs.length; i += BATCH) {
     await FlujoMovimientoBancario.insertMany(docs.slice(i, i + BATCH), { ordered: false });
   }
