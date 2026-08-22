@@ -12,7 +12,7 @@ const FlujoSaldoInicial       = require('../models/FlujoSaldoInicial');
 const FlujoPagoERP            = require('../models/FlujoPagoERP');
 const TipoCambio              = require('../models/TipoCambio');
 
-const { obtenerRutas, guardarRutas, reconciliar } = require('../utils/flujoCajaSync');
+const { obtenerRutas, guardarRutas, reconciliar, diagnosticar } = require('../utils/flujoCajaSync');
 
 const router = express.Router();
 router.use(auth);
@@ -343,12 +343,15 @@ router.get('/movimientos', async (req, res) => {
       if (hasta) { const h = new Date(hasta); h.setUTCHours(23, 59, 59, 999); filter.fecha.$lte = h; }
     }
 
-    const [movs, subdetalles, detalles, lineas] = await Promise.all([
+    const [movsRaw, subdetalles, detalles, lineas] = await Promise.all([
       FlujoMovimientoBancario.find(filter).sort({ fecha: -1 }).limit(2000).lean(),
       FlujoSubdetalle.find({}).lean(),
       FlujoDetalle.find({}).lean(),
       FlujoLinea.find({}).lean(),
     ]);
+    // Sin asignar: explicar por qué falló cada método (glosa / ERP / proveedor),
+    // sin modificar nada — mismo cálculo que reconciliar pero solo diagnóstico.
+    const movs = sinAsignar === 'true' ? await diagnosticar(sociedad, movsRaw) : movsRaw;
     const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
     const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
     const lineaMap = Object.fromEntries(lineas.map(l => [l.codigo, l]));

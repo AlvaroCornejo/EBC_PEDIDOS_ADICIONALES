@@ -9220,7 +9220,7 @@ async function viewFlujoCaja(container) {
           <div style="padding:10px 14px;font-weight:600;background:#fffbeb">⚠ ${movs.length} movimiento${movs.length !== 1 ? 's' : ''} sin asignar${cuenta ? ` — ${esc(cuenta.replace('|', ' '))}` : ''}</div>
           <div class="table-wrap" style="max-height:320px;overflow-y:auto">
             <table class="data-table" style="font-size:12px">
-              <thead><tr><th>Fecha</th><th>Banco</th><th>Mon.</th><th>N° Op.</th><th>Glosa</th><th class="text-right">Importe</th>${puedeAsignar ? '<th>Asignar a</th>' : ''}</tr></thead>
+              <thead><tr><th>Fecha</th><th>Banco</th><th>Mon.</th><th>N° Op.</th><th>Glosa</th><th class="text-right">Importe</th><th>Motivo</th>${puedeAsignar ? '<th>Asignar a</th>' : ''}</tr></thead>
               <tbody>
                 ${movs.map(m => `
                   <tr>
@@ -9230,6 +9230,7 @@ async function viewFlujoCaja(container) {
                     <td>${esc(m.numeroOperacion || '—')}</td>
                     <td>${esc(m.glosa)}</td>
                     <td class="text-right" style="${m.importe < 0 ? 'color:#dc2626' : ''}">${fmtMoney(m.importe)}</td>
+                    <td style="font-size:11px;color:var(--text-muted);max-width:260px">${(m.motivos || []).map(mo => esc(mo)).join('<br>')}</td>
                     ${puedeAsignar ? `<td style="white-space:nowrap">
                       <select class="fc-asignar-sel" data-id="${m._id}" style="font-size:12px;padding:2px 4px">
                         <option value="">— Elegir —</option>

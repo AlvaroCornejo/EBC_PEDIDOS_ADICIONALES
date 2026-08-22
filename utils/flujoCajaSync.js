@@ -8,7 +8,7 @@ const CompaniaCodigo  = require('../models/CompaniaCodigo');
 const FlujoMovimientoBancario = require('../models/FlujoMovimientoBancario');
 const FlujoPagoERP            = require('../models/FlujoPagoERP');
 const { leerMovimientoBanco, leerPagosERP, listarArchivosEstadoCuenta, listarArchivosPagosERP } = require('./flujoCajaImport');
-const { reconciliar } = require('./flujoCajaReconciliar');
+const { reconciliar, diagnosticar } = require('./flujoCajaReconciliar');
 
 const BATCH = 2000;
 const KEY_EECC = 'flujoCajaRutaEstadoCuenta';
@@ -83,5 +83,5 @@ async function importarArchivoPagosERP(archivo, mapaCias) {
 
 module.exports = {
   obtenerRutas, guardarRutas, obtenerMapaCias, listarDisponibles,
-  importarArchivoEstadoCuenta, importarArchivoPagosERP, reconciliar,
+  importarArchivoEstadoCuenta, importarArchivoPagosERP, reconciliar, diagnosticar,
 };

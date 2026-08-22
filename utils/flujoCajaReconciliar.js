@@ -122,4 +122,82 @@ async function reconciliar(sociedad) {
   return { porGlosa, porERP, sinAsignar };
 }
 
-module.exports = { reconciliar };
+/**
+ * Explica, sin modificar nada, por qué cada movimiento de `pendientes` no
+ * quedó asignado — replica la misma lógica de asignarPorGlosa/asignarPorERP
+ * pero devolviendo el motivo de cada fallo en vez de aplicar el resultado.
+ * Usado por GET /movimientos?sinAsignar=true para mostrarle al usuario si
+ * falló por glosa, por el cruce ERP (sin pago / importe no coincide) o por
+ * proveedor sin mapear.
+ */
+async function diagnosticar(sociedad, pendientes) {
+  if (!pendientes.length) return pendientes;
+
+  const [reglas, cuentas, proveedores, pagos] = await Promise.all([
+    FlujoGlosaRegla.find({}).lean(),
+    FlujoCuentaBanco.find({ sociedad }).lean(),
+    FlujoProveedorDetalle.find({}).lean(),
+    FlujoPagoERP.find({ sociedad }).lean(),
+  ]);
+
+  const provExactos = new Map(
+    proveedores.filter(p => (p.criterio || 'exacta') === 'exacta')
+      .map(p => [normBeneficiario(p.beneficiario), p.subdetalleCodigo])
+  );
+  const provContiene = proveedores.filter(p => p.criterio === 'contiene');
+  function resolverProveedor(pagarA) {
+    const norm = normBeneficiario(pagarA);
+    if (provExactos.has(norm)) return provExactos.get(norm);
+    const match = provContiene.find(p => norm.includes(normBeneficiario(p.beneficiario)));
+    return match ? match.subdetalleCodigo : null;
+  }
+
+  const grupos = new Map();
+  for (const p of pagos) {
+    const cuenta = cuentas.find(c => c.cuentaBancaria === p.cuentaBancaria);
+    if (!cuenta) continue;
+    const key = `${cuenta.banco}|${cuenta.moneda}|${p.numeroPago}`;
+    if (!grupos.has(key)) grupos.set(key, { montoLocal: 0, montoExtranjero: 0, pagarA: p.pagarA });
+    const g = grupos.get(key);
+    g.montoLocal += p.montoLocal || 0;
+    g.montoExtranjero += p.montoExtranjero || 0;
+  }
+
+  return pendientes.map(mov => {
+    const motivos = [];
+    const glosa = mov.glosa || '';
+
+    if (!reglas.length) motivos.push('Glosa: no hay reglas configuradas');
+    else if (!glosa) motivos.push('Glosa: el movimiento no trae texto de glosa');
+    else {
+      const regla = reglas.find(r => r.criterio === 'exacta' ? glosa === r.texto : glosa.includes(r.texto));
+      if (!regla) motivos.push('Glosa: ninguna regla coincide con el texto');
+    }
+
+    const numOp = normNumOp(mov.numeroOperacion);
+    if (numOp === null) {
+      motivos.push('ERP: sin número de operación legible');
+    } else if (!cuentas.length) {
+      motivos.push('ERP: la sociedad no tiene cuentas bancarias mapeadas (Cuentas ERP↔Banco)');
+    } else {
+      const key = `${mov.banco}|${mov.moneda}|${numOp}`;
+      const g = grupos.get(key);
+      if (!g) {
+        motivos.push('ERP: no hay ningún pago con ese número de operación');
+      } else {
+        const montoErp = mov.moneda === 'USD' ? g.montoExtranjero : g.montoLocal;
+        if (Math.abs(montoErp - Math.abs(mov.importe)) > TOL_IMPORTE) {
+          motivos.push(`ERP: el importe no coincide (pago ERP: ${montoErp.toFixed(2)}, banco: ${Math.abs(mov.importe).toFixed(2)})`);
+        } else {
+          const subdetalleCodigo = resolverProveedor(g.pagarA);
+          if (!subdetalleCodigo) motivos.push(`Proveedor: "${g.pagarA}" no está mapeado a un subdetalle`);
+        }
+      }
+    }
+
+    if (!motivos.length) motivos.push('Sin motivo determinado');
+    return { ...mov, motivos };
+  });
+}
+
+module.exports = { reconciliar, diagnosticar };
