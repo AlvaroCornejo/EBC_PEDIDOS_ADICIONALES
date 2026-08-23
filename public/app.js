@@ -14055,12 +14055,13 @@ async function fcAdminGlosas(el, editandoId = null, filtro = null) {
     const lineaCodigo = detMap[detalleCodigo]?.lineaCodigo || '';
     return { detalleCodigo, lineaCodigo };
   };
+  const socOpts = sel => `<option value="">Todas</option>` + ALL_SOCS_COMPRA.map(s => `<option value="${esc(s)}" ${s === sel ? 'selected' : ''}>${esc(s)}</option>`).join('');
 
   el.innerHTML = `
-    <p class="mb-8 text-muted" style="font-size:13px">Método 1 de asignación: si la glosa del movimiento bancario coincide con la regla, se asigna automáticamente al subdetalle indicado.</p>
+    <p class="mb-8 text-muted" style="font-size:13px">Método 1 de asignación: si la glosa del movimiento bancario coincide con la regla, se asigna automáticamente al subdetalle indicado. "Sociedad" es opcional — en blanco (Todas) la regla aplica a cualquier sociedad; si se especifica, solo aplica (y tiene prioridad) para esa sociedad.</p>
     ${fcFiltroCascadaHtml('fc-glosa-f', lineas, filtro)}
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
-      <thead><tr><th>Texto</th><th>Criterio</th><th>Subdetalle</th><th></th></tr></thead>
+      <thead><tr><th>Texto</th><th>Criterio</th><th>Subdetalle</th><th>Sociedad</th><th></th></tr></thead>
       <tbody id="fc-glosa-tbody">
         ${glosas.map(g => {
           if (editandoId === g._id) return `<tr data-id="${g._id}">
@@ -14070,20 +14071,21 @@ async function fcAdminGlosas(el, editandoId = null, filtro = null) {
               <option value="exacta" ${g.criterio === 'exacta' ? 'selected' : ''}>Exacta</option>
             </select></td>
             <td><select class="form-control fc-glosa-edit-subdetalle" style="font-size:12px">${subOpts(g.subdetalleCodigo)}</select></td>
+            <td><select class="form-control fc-glosa-edit-sociedad" style="font-size:12px">${socOpts(g.sociedad)}</select></td>
             <td style="white-space:nowrap">
               <button class="btn btn-primary btn-xs fc-glosa-guardar" data-id="${g._id}">💾</button>
               <button class="btn btn-outline btn-xs fc-glosa-cancelar">✕</button>
             </td>
           </tr>`;
           const { detalleCodigo, lineaCodigo } = codigosPadre(g.subdetalleCodigo);
-          return `<tr data-linea="${esc(lineaCodigo)}" data-detalle="${esc(detalleCodigo)}" data-sub="${esc(g.subdetalleCodigo || '')}" data-filtro="${esc((g.texto + ' ' + etiquetaDe(g.subdetalleCodigo)).toLowerCase())}">
-            <td>${esc(g.texto)}</td><td>${g.criterio === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(g.subdetalleCodigo))}</td>
+          return `<tr data-linea="${esc(lineaCodigo)}" data-detalle="${esc(detalleCodigo)}" data-sub="${esc(g.subdetalleCodigo || '')}" data-filtro="${esc((g.texto + ' ' + etiquetaDe(g.subdetalleCodigo) + ' ' + (g.sociedad || '')).toLowerCase())}">
+            <td>${esc(g.texto)}</td><td>${g.criterio === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(g.subdetalleCodigo))}</td><td>${g.sociedad ? esc(g.sociedad) : '<span class="text-muted">Todas</span>'}</td>
             <td style="white-space:nowrap">
               <button class="btn btn-outline btn-xs fc-glosa-editar" data-id="${g._id}">✏️</button>
               <button class="btn btn-outline btn-xs fc-glosa-del" data-id="${g._id}">✕</button>
             </td>
           </tr>`;
-        }).join('') || '<tr><td colspan="4" class="text-muted">Sin reglas aún.</td></tr>'}
+        }).join('') || '<tr><td colspan="5" class="text-muted">Sin reglas aún.</td></tr>'}
       </tbody>
     </table>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -14093,6 +14095,7 @@ async function fcAdminGlosas(el, editandoId = null, filtro = null) {
         <option value="exacta">Exacta</option>
       </select>
       <select id="fc-glosa-subdetalle" class="form-control" style="width:260px">${subOpts()}</select>
+      <select id="fc-glosa-sociedad" class="form-control" style="width:140px">${socOpts()}</select>
       <button class="btn btn-primary btn-sm" id="fc-glosa-add">＋</button>
     </div>`;
 
@@ -14101,8 +14104,9 @@ async function fcAdminGlosas(el, editandoId = null, filtro = null) {
     const texto = document.getElementById('fc-glosa-texto').value.trim();
     const criterio = document.getElementById('fc-glosa-criterio').value;
     const subdetalleCodigo = document.getElementById('fc-glosa-subdetalle').value;
+    const sociedad = document.getElementById('fc-glosa-sociedad').value;
     if (!texto || !subdetalleCodigo) return toast('Datos incompletos', 'error');
-    try { await POST('/flujo-caja/glosas', { texto, criterio, subdetalleCodigo }); await fcAdminGlosas(el, null, fcLeerFiltro('fc-glosa-f')); }
+    try { await POST('/flujo-caja/glosas', { texto, criterio, subdetalleCodigo, sociedad }); await fcAdminGlosas(el, null, fcLeerFiltro('fc-glosa-f')); }
     catch (e) { toast(e.message, 'error'); }
   });
   el.querySelectorAll('.fc-glosa-del').forEach(btn => {
@@ -14124,8 +14128,9 @@ async function fcAdminGlosas(el, editandoId = null, filtro = null) {
       const texto = row.querySelector('.fc-glosa-edit-texto').value.trim();
       const criterio = row.querySelector('.fc-glosa-edit-criterio').value;
       const subdetalleCodigo = row.querySelector('.fc-glosa-edit-subdetalle').value;
+      const sociedad = row.querySelector('.fc-glosa-edit-sociedad').value;
       if (!texto) return toast('Texto requerido', 'error');
-      try { await PUT(`/flujo-caja/glosas/${btn.dataset.id}`, { texto, criterio, subdetalleCodigo }); toast('Guardado', 'success'); await fcAdminGlosas(el, null, fcLeerFiltro('fc-glosa-f')); }
+      try { await PUT(`/flujo-caja/glosas/${btn.dataset.id}`, { texto, criterio, subdetalleCodigo, sociedad }); toast('Guardado', 'success'); await fcAdminGlosas(el, null, fcLeerFiltro('fc-glosa-f')); }
       catch (e) { toast(e.message, 'error'); }
     });
   });

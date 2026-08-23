@@ -27,6 +27,21 @@ function normNumOp(v) { const n = parseInt(v, 10); return Number.isFinite(n) ? n
 // métodos automáticos, aunque subdetalleCodigo quede en null para ese caso.
 const SIN_ASIGNAR = { subdetalleCodigo: null, $or: [{ splits: { $exists: false } }, { splits: { $size: 0 } }] };
 
+// Prioridad, de mayor a menor: exacta+específica de la sociedad, exacta
+// global (sin sociedad), contiene+específica, contiene global. Una regla
+// con sociedad solo se evalúa para movimientos de esa sociedad; sin
+// sociedad (vacío) aplica a todas. Entre varias reglas del mismo nivel de
+// prioridad, gana la primera en el orden que devuelve Mongo.
+function resolverReglaGlosa(reglas, glosa, sociedad) {
+  const aplica = r => !r.sociedad || r.sociedad === sociedad;
+  const candidatas = reglas.filter(aplica);
+  return candidatas.find(r => r.criterio === 'exacta' && r.sociedad && glosa === r.texto)
+    || candidatas.find(r => r.criterio === 'exacta' && !r.sociedad && glosa === r.texto)
+    || candidatas.find(r => r.criterio === 'contiene' && r.sociedad && glosa.includes(r.texto))
+    || candidatas.find(r => r.criterio === 'contiene' && !r.sociedad && glosa.includes(r.texto))
+    || null;
+}
+
 async function asignarPorGlosa(sociedad) {
   const reglas = await FlujoGlosaRegla.find({}).lean();
   if (!reglas.length) return 0;
@@ -36,7 +51,7 @@ async function asignarPorGlosa(sociedad) {
   const ops = [];
   for (const mov of pendientes) {
     const glosa = mov.glosa || '';
-    const regla = reglas.find(r => r.criterio === 'exacta' ? glosa === r.texto : glosa.includes(r.texto));
+    const regla = resolverReglaGlosa(reglas, glosa, sociedad);
     if (!regla) continue;
     ops.push({
       updateOne: {
@@ -170,7 +185,7 @@ async function diagnosticar(sociedad, pendientes) {
     if (!reglas.length) motivos.push('Glosa: no hay reglas configuradas');
     else if (!glosa) motivos.push('Glosa: el movimiento no trae texto de glosa');
     else {
-      const regla = reglas.find(r => r.criterio === 'exacta' ? glosa === r.texto : glosa.includes(r.texto));
+      const regla = resolverReglaGlosa(reglas, glosa, sociedad);
       if (!regla) motivos.push('Glosa: ninguna regla coincide con el texto');
     }
 

@@ -183,16 +183,16 @@ router.get('/glosas', async (req, res) => {
 router.post('/glosas', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { texto, criterio, subdetalleCodigo } = req.body;
+    const { texto, criterio, subdetalleCodigo, sociedad } = req.body;
     if (!texto || !criterio || !subdetalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
-    res.json(await FlujoGlosaRegla.create({ texto, criterio, subdetalleCodigo }));
+    res.json(await FlujoGlosaRegla.create({ texto, criterio, subdetalleCodigo, sociedad: sociedad || '' }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.put('/glosas/:id', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { texto, criterio, subdetalleCodigo } = req.body;
-    const g = await FlujoGlosaRegla.findByIdAndUpdate(req.params.id, { texto, criterio, subdetalleCodigo }, { new: true });
+    const { texto, criterio, subdetalleCodigo, sociedad } = req.body;
+    const g = await FlujoGlosaRegla.findByIdAndUpdate(req.params.id, { texto, criterio, subdetalleCodigo, sociedad: sociedad || '' }, { new: true });
     res.json(g);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
