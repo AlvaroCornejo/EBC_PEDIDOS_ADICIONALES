@@ -8988,6 +8988,29 @@ async function renderPaso5(container) {
   p5RenderFooter();
 }
 
+// Helper compartido por todos los desplegables de Subdetalle de Flujo de
+// Caja: etiqueta "LÍNEA — DETALLE — SUBDETALLE" (nombres) y orden por código
+// (línea → detalle → subdetalle), no alfabético por el texto de la etiqueta.
+function fcSubdetallesOrdenados(lineas, detalles, subdetalles) {
+  const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
+  const lineaMap = Object.fromEntries(lineas.map(l => [l.codigo, l.nombre]));
+  const lineaPos = Object.fromEntries(lineas.map((l, i) => [l.codigo, i])); // `lineas` ya viene ordenada por código desde el backend
+  const etiqueta = sub => {
+    const det = detMap[sub.detalleCodigo];
+    const lineaNombre = det ? (lineaMap[det.lineaCodigo] || det.lineaCodigo) : '';
+    return `${lineaNombre} — ${det?.nombre || sub.detalleCodigo} — ${sub.nombre}`;
+  };
+  const ordenados = [...subdetalles].sort((a, b) => {
+    const da = detMap[a.detalleCodigo], db = detMap[b.detalleCodigo];
+    const pa = lineaPos[da?.lineaCodigo] ?? 999999, pb = lineaPos[db?.lineaCodigo] ?? 999999;
+    if (pa !== pb) return pa - pb;
+    const cmpDet = String(a.detalleCodigo || '').localeCompare(String(b.detalleCodigo || ''), undefined, { numeric: true });
+    if (cmpDet !== 0) return cmpDet;
+    return String(a.codigo).localeCompare(String(b.codigo), undefined, { numeric: true });
+  });
+  return { etiqueta, ordenados };
+}
+
 // ─── View: Flujo de Caja ─────────────────────────────────────────
 async function viewFlujoCaja(container) {
   const esAdmin = S.user.role === 'ADMIN' || S.user.rolPago === 'admin';
@@ -9204,17 +9227,8 @@ async function viewFlujoCaja(container) {
           : '';
         return;
       }
-      const lineaMap = Object.fromEntries(lineas.map(l => [l.codigo, l.nombre]));
-      const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
-      const etiqueta = sub => {
-        const det = detMap[sub.detalleCodigo];
-        const lineaNombre = det ? (lineaMap[det.lineaCodigo] || det.lineaCodigo) : '';
-        return `${lineaNombre} — ${det?.nombre || sub.detalleCodigo} — ${sub.nombre}`;
-      };
-      const detOpts = subdetalles
-        .sort((a, b) => etiqueta(a).localeCompare(etiqueta(b)))
-        .map(s => `<option value="${esc(s.codigo)}">${esc(etiqueta(s))}</option>`)
-        .join('');
+      const { etiqueta, ordenados } = fcSubdetallesOrdenados(lineas, detalles, subdetalles);
+      const detOpts = ordenados.map(s => `<option value="${esc(s.codigo)}">${esc(etiqueta(s))}</option>`).join('');
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:0;border-left:3px solid #f59e0b">
           <div style="padding:10px 14px;font-weight:600;background:#fffbeb">⚠ ${movs.length} movimiento${movs.length !== 1 ? 's' : ''} sin asignar${cuenta ? ` — ${esc(cuenta.replace('|', ' '))}` : ''}</div>
@@ -9267,14 +9281,7 @@ async function viewFlujoCaja(container) {
     const [subdetalles, detalles, lineas] = await Promise.all([
       GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'), GET('/flujo-caja/lineas'),
     ]);
-    const lineaMap = Object.fromEntries(lineas.map(l => [l.codigo, l.nombre]));
-    const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
-    const etiqueta = sub => {
-      const det = detMap[sub.detalleCodigo];
-      const lineaNombre = det ? (lineaMap[det.lineaCodigo] || det.lineaCodigo) : '';
-      return `${lineaNombre} — ${det?.nombre || sub.detalleCodigo} — ${sub.nombre}`;
-    };
-    const subsOrdenados = [...subdetalles].sort((a, b) => etiqueta(a).localeCompare(etiqueta(b)));
+    const { etiqueta, ordenados: subsOrdenados } = fcSubdetallesOrdenados(lineas, detalles, subdetalles);
     const subOpts = sel => '<option value="">— Elegir —</option>' + subsOrdenados.map(s => `<option value="${esc(s.codigo)}" ${s.codigo === sel ? 'selected' : ''}>${esc(etiqueta(s))}</option>`).join('');
 
     const esSplitInicial = Array.isArray(mov.splits) && mov.splits.length > 0;
@@ -14045,8 +14052,8 @@ async function fcAdminGlosas(el, editandoId = null, filtro = null) {
     GET('/flujo-caja/glosas'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'), GET('/flujo-caja/lineas'),
   ]);
   const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
-  const etiqueta = s => `${detMap[s.detalleCodigo]?.lineaCodigo || ''} — ${detMap[s.detalleCodigo]?.nombre || s.detalleCodigo} — ${s.nombre}`;
-  const subOpts = (sel) => subdetalles.map(s => `<option value="${esc(s.codigo)}" ${s.codigo === sel ? 'selected' : ''}>${esc(etiqueta(s))}</option>`).join('');
+  const { etiqueta, ordenados: subsOrdenados } = fcSubdetallesOrdenados(lineas, detalles, subdetalles);
+  const subOpts = (sel) => subsOrdenados.map(s => `<option value="${esc(s.codigo)}" ${s.codigo === sel ? 'selected' : ''}>${esc(etiqueta(s))}</option>`).join('');
   const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
   const etiquetaDe = codigo => subMap[codigo] ? etiqueta(subMap[codigo]) : codigo;
   // Para los data-* de filtro: dado un subdetalleCodigo, resuelve sus códigos de detalle/línea padres.
@@ -14143,8 +14150,8 @@ async function fcAdminProveedores(el, editandoId = null, filtro = null) {
     GET('/flujo-caja/proveedores'), GET('/flujo-caja/subdetalles'), GET('/flujo-caja/detalles'), GET('/flujo-caja/lineas'),
   ]);
   const detMap = Object.fromEntries(detalles.map(d => [d.codigo, d]));
-  const etiqueta = s => `${detMap[s.detalleCodigo]?.lineaCodigo || ''} — ${detMap[s.detalleCodigo]?.nombre || s.detalleCodigo} — ${s.nombre}`;
-  const subOpts = (sel) => subdetalles.map(s => `<option value="${esc(s.codigo)}" ${s.codigo === sel ? 'selected' : ''}>${esc(etiqueta(s))}</option>`).join('');
+  const { etiqueta, ordenados: subsOrdenados } = fcSubdetallesOrdenados(lineas, detalles, subdetalles);
+  const subOpts = (sel) => subsOrdenados.map(s => `<option value="${esc(s.codigo)}" ${s.codigo === sel ? 'selected' : ''}>${esc(etiqueta(s))}</option>`).join('');
   const subMap = Object.fromEntries(subdetalles.map(s => [s.codigo, s]));
   const etiquetaDe = codigo => subMap[codigo] ? etiqueta(subMap[codigo]) : codigo;
   const codigosPadre = subdetalleCodigo => {
