@@ -9452,8 +9452,8 @@ async function viewFlujoCaja(container) {
     const rowHtml = (id, label, valores, total, opts = {}) => `
       <tr id="${id}" style="${opts.bold ? 'font-weight:700;background:var(--bg-hover)' : ''};${opts.clickable ? 'cursor:pointer' : ''}">
         <td style="${opts.muted ? 'color:var(--text-muted)' : ''}">${opts.clickable ? '▸ ' : ''}${esc(label)}</td>
-        ${fechas.map(f => { const v = valores[f]; return v == null ? '<td class="text-right" style="color:var(--text-muted)">—</td>' : `<td class="text-right">${(opts.showZero || v) ? fmtMoney(v) : ''}</td>`; }).join('')}
-        <td class="text-right">${total === null ? '—' : fmtMoney(total)}</td>
+        ${fechas.map(f => { const v = valores[f]; return v == null ? '<td class="text-right" style="color:var(--text-muted)">—</td>' : `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${(opts.showZero || v) ? fmtMoney(v) : ''}</td>`; }).join('')}
+        <td class="text-right" style="${total != null && total < 0 ? 'color:#dc2626' : ''}">${total === null ? '—' : fmtMoney(total)}</td>
       </tr>`;
 
     root.innerHTML = `
@@ -9507,8 +9507,8 @@ async function viewFlujoCaja(container) {
       detRow.style.cssText = 'font-weight:600;' + (det.subdetalles.length ? 'cursor:pointer' : '');
       detRow.innerHTML = `
         <td style="padding-left:28px;color:var(--text-muted)">${det.subdetalles.length ? '▸ ' : ''}${esc(det.nombre)}</td>
-        ${fechas.map(f => { const v = sumaSubs(det.subdetalles, f); return `<td class="text-right">${v ? fmtMoney(v) : ''}</td>`; }).join('')}
-        <td class="text-right">${fmtMoney(total)}</td>`;
+        ${fechas.map(f => { const v = sumaSubs(det.subdetalles, f); return `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${v ? fmtMoney(v) : ''}</td>`; }).join('')}
+        <td class="text-right" style="${total < 0 ? 'color:#dc2626' : ''}">${fmtMoney(total)}</td>`;
       if (det.subdetalles.length) detRow.addEventListener('click', () => toggleSubdetalles(detRow, det, fechas));
       insertAfter.after(detRow);
       insertAfter = detRow;
@@ -9531,8 +9531,8 @@ async function viewFlujoCaja(container) {
       subRow.style.cssText = sub.glosas.length ? 'cursor:pointer' : '';
       subRow.innerHTML = `
         <td style="padding-left:48px;color:var(--text-muted)">${sub.glosas.length ? '▸ ' : ''}${esc(sub.nombre)}</td>
-        ${fechas.map(f => `<td class="text-right">${sub.valores[f] ? fmtMoney(sub.valores[f]) : ''}</td>`).join('')}
-        <td class="text-right">${fmtMoney(totalSub)}</td>`;
+        ${fechas.map(f => { const v = sub.valores[f] || 0; return `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${v ? fmtMoney(v) : ''}</td>`; }).join('')}
+        <td class="text-right" style="${totalSub < 0 ? 'color:#dc2626' : ''}">${fmtMoney(totalSub)}</td>`;
       if (sub.glosas.length) subRow.addEventListener('click', () => toggleGlosas(subRow, sub, fechas));
       insertAfter.after(subRow);
       insertAfter = subRow;
@@ -9555,8 +9555,8 @@ async function viewFlujoCaja(container) {
       glosaRow.style.cursor = 'pointer';
       glosaRow.innerHTML = `
         <td style="padding-left:68px;color:var(--text-muted)">▸ ${esc(g.glosa)}</td>
-        ${fechas.map(f => `<td class="text-right">${g.valores[f] ? fmtMoney(g.valores[f]) : ''}</td>`).join('')}
-        <td class="text-right">${fmtMoney(totalGlosa)}</td>`;
+        ${fechas.map(f => { const v = g.valores[f] || 0; return `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${v ? fmtMoney(v) : ''}</td>`; }).join('')}
+        <td class="text-right" style="${totalGlosa < 0 ? 'color:#dc2626' : ''}">${fmtMoney(totalGlosa)}</td>`;
       glosaRow.addEventListener('click', (ev) => { ev.stopPropagation(); toggleMovimientos(glosaRow, g, fechas); });
       insertAfter.after(glosaRow);
       insertAfter = glosaRow;
@@ -9587,7 +9587,7 @@ async function viewFlujoCaja(container) {
           <button class="btn-icon fc-mov-reclasificar" data-id="${m._id}" title="Reclasificar" style="border:none;background:none;cursor:pointer;padding:0 0 0 6px;font-size:11px">✏️</button>${infoComentario}
         </td>
         ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
-        <td class="text-right">${fmtMoney(m.importe)}</td>`;
+        <td class="text-right" style="${m.importe < 0 ? 'color:#dc2626' : ''}">${fmtMoney(m.importe)}</td>`;
       movRow.querySelector('.fc-mov-reclasificar').addEventListener('click', ev => {
         ev.stopPropagation();
         abrirModalAsignarMovimiento(m._id);
@@ -9613,7 +9613,7 @@ async function viewFlujoCaja(container) {
       row.innerHTML = `
         <td style="padding-left:108px;color:var(--text-muted);font-size:11px">${esc(p.pagarA)}${p.voucherPago ? ' · ' + esc(p.voucherPago) : ''}</td>
         ${fechas.map(f => `<td class="text-right" style="${monto < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(monto) : ''}</td>`).join('')}
-        <td class="text-right">${fmtMoney(monto)}</td>`;
+        <td class="text-right" style="${monto < 0 ? 'color:#dc2626' : ''}">${fmtMoney(monto)}</td>`;
       insertAfter.after(row);
       insertAfter = row;
     });
@@ -9632,7 +9632,7 @@ async function viewFlujoCaja(container) {
       row.setAttribute('data-drill-parent', parentId);
       row.innerHTML = `
         <td style="padding-left:28px;color:var(--text-muted)">${esc(c.banco)} ${esc(c.moneda)}</td>
-        ${fechas.map(f => `<td class="text-right">${vals[f] ? fmtMoney(vals[f]) : ''}</td>`).join('')}
+        ${fechas.map(f => { const v = vals[f] || 0; return `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${v ? fmtMoney(v) : ''}</td>`; }).join('')}
         <td class="text-right">—</td>`;
       insertAfter.after(row);
       insertAfter = row;
