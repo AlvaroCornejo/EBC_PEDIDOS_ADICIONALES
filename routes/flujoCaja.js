@@ -513,6 +513,11 @@ router.get('/resumen', async (req, res) => {
     // "banco|moneda" -> fecha -> monto (TODOS los movimientos de esa cuenta, asignados o
     // no — para el saldo corrido real, que no distingue si el movimiento fue clasificado)
     const totalMovDiaCuenta = {};
+    // fecha -> monto de movimientos SIN clasificar (ni subdetalleCodigo ni splits) —
+    // cuentan igual en el saldo corrido pero no aparecen en ninguna fila de la
+    // grilla; se muestran aparte para que el desglose siempre cuadre contra el
+    // Saldo Final.
+    const sinClasificarPorFecha = {};
     let sinAsignar = 0;
 
     for (const m of movs) {
@@ -529,7 +534,11 @@ router.get('/resumen', async (req, res) => {
       const partes = esSplit
         ? m.splits.map(s => ({ subdetalleCodigo: s.subdetalleCodigo, monto: s.monto }))
         : (m.subdetalleCodigo ? [{ subdetalleCodigo: m.subdetalleCodigo, monto: m.importe }] : []);
-      if (!partes.length) { sinAsignar++; continue; }
+      if (!partes.length) {
+        sinAsignar++;
+        sinClasificarPorFecha[fkey] = (sinClasificarPorFecha[fkey] || 0) + importeTotal;
+        continue;
+      }
       // El filtro "Asignado por" solo oculta del desglose los movimientos que no
       // vinieron de ese método — el saldo corrido (arriba) sigue contando todo,
       // ya que el saldo real del banco no depende de este filtro.
@@ -631,7 +640,7 @@ router.get('/resumen', async (req, res) => {
       if (!Object.keys(saldoPorFecha).length) saldoPorFecha = null;
     }
 
-    res.json({ sociedad, fechas, filas, sinAsignar, cuentasSaldo, saldoPorFecha });
+    res.json({ sociedad, fechas, filas, sinAsignar, sinClasificarPorFecha, cuentasSaldo, saldoPorFecha });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

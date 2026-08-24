@@ -9432,7 +9432,7 @@ async function viewFlujoCaja(container) {
   }
 
   function render() {
-    const { fechas, filas, saldoPorFecha, cuentasSaldo } = resumenData;
+    const { fechas, filas, saldoPorFecha, cuentasSaldo, sinClasificarPorFecha } = resumenData;
     if (!fechas.length) { root.innerHTML = '<div class="empty-state"><p>Sin movimientos en el rango seleccionado.</p></div>'; return; }
 
     const sumaSubs = (subs, f) => subs.reduce((s, sub) => s + (sub.valores[f] || 0), 0);
@@ -9445,6 +9445,7 @@ async function viewFlujoCaja(container) {
     const totalSaldoInicial = fechasConSaldo.length ? saldoPorFecha[fechasConSaldo[0]].inicial : null;
     const totalSaldoFinal = fechasConSaldo.length ? saldoPorFecha[fechasConSaldo[fechasConSaldo.length - 1]].final : null;
     const totalMovCaja = fechasConSaldo.length ? totalSaldoFinal - totalSaldoInicial : null;
+    const totalSinClasificar = fechas.reduce((s, f) => s + (sinClasificarPorFecha?.[f] || 0), 0);
 
     // Fila genérica: id fijo (para poder engancharle hijos vía data-drill-parent),
     // valores por fecha y un total ya calculado (null = "—", usado en SALDO).
@@ -9468,6 +9469,7 @@ async function viewFlujoCaja(container) {
             <tbody id="fc-tbody">
               ${saldoPorFecha ? rowHtml('fc-saldo-inicial', 'SALDO INICIAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f]?.inicial ?? null])), totalSaldoInicial, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
               ${filas.map(linea => rowHtml('fc-linea-' + sanId(linea.codigo), linea.nombre, Object.fromEntries(fechas.map(f => [f, sumaDets(linea.detalles, f)])), totalLinea(linea), { bold: true, showZero: true, clickable: linea.detalles.length > 0 })).join('')}
+              ${totalSinClasificar !== 0 || Object.keys(sinClasificarPorFecha || {}).length ? rowHtml('fc-sin-clasificar', 'SIN CLASIFICAR', Object.fromEntries(fechas.map(f => [f, sinClasificarPorFecha?.[f] || 0])), totalSinClasificar, { muted: true, showZero: true }) : ''}
               ${saldoPorFecha ? rowHtml('fc-saldo-final', 'SALDO FINAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f]?.final ?? null])), totalSaldoFinal, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
               ${saldoPorFecha ? rowHtml('fc-mov-caja', 'MOVIMIENTO DE CAJA DEL PERÍODO', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f] ? saldoPorFecha[f].final - saldoPorFecha[f].inicial : null])), totalMovCaja, { muted: true, showZero: true }) : ''}
             </tbody>
