@@ -403,7 +403,9 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
     mov.metodoAsignacion = 'manual';
     mov.asignadoPor = req.user.username;
     mov.asignadoEn = new Date();
-    if (comentario !== undefined) mov.comentario = comentario || '';
+    // Siempre se fija (no solo cuando viene explícito) — si no, un comentario
+    // dejado en "Por Asignar" quedaba pegado al reclasificar a otro subdetalle.
+    mov.comentario = comentario || '';
     await mov.save();
     res.json(mov);
   } catch (err) { res.status(500).json({ error: err.message }); }
