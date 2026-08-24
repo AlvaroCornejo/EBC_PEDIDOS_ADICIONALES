@@ -384,7 +384,7 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
     const mov = await FlujoMovimientoBancario.findById(req.params.id);
     if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
     if (!checkSocAccess(req.user, mov.sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
-    const { subdetalleCodigo, splits } = req.body;
+    const { subdetalleCodigo, splits, comentario } = req.body;
     if (Array.isArray(splits) && splits.length) {
       if (splits.some(s => !s.subdetalleCodigo || typeof s.monto !== 'number')) {
         return res.status(400).json({ error: 'Cada línea del desglose necesita subdetalle y monto' });
@@ -403,6 +403,7 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
     mov.metodoAsignacion = 'manual';
     mov.asignadoPor = req.user.username;
     mov.asignadoEn = new Date();
+    if (comentario !== undefined) mov.comentario = comentario || '';
     await mov.save();
     res.json(mov);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -531,6 +532,7 @@ router.get('/resumen', async (req, res) => {
         g.movimientos.push({
           _id: m._id, fecha: fkey, fechaReal: ymd(m.fecha), banco: m.banco, moneda: m.moneda,
           numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', proveedor: m.proveedor || '',
+          comentario: m.comentario || '',
           importe: importeParte, esSplit, importeTotal: esSplit ? importeTotal : undefined,
           pagosErp: esSplit ? [] : pagosErpDe(m),
         });

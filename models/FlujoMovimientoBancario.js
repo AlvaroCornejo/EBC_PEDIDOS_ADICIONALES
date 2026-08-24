@@ -26,6 +26,7 @@ const schema = new mongoose.Schema({
   }],
   metodoAsignacion: { type: String, default: null, enum: [null, 'glosa', 'erp', 'manual'] },
   proveedor:        { type: String, default: '' }, // beneficiario (PAGARA) resuelto por el método 2 (cruce ERP)
+  comentario:       { type: String, default: '' }, // nota libre, típicamente al asignar a POR ASIGNAR (60110) para explicar el pendiente
   asignadoPor:      { type: String, default: '' },
   asignadoEn:       { type: Date, default: null },
 });

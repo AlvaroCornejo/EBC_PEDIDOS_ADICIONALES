@@ -9024,6 +9024,7 @@ async function viewFlujoCaja(container) {
   let metodo = ''; // '' (todos) | glosa | erp | manual
   const FC_BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
   const FC_MONEDAS = ['PEN', 'USD'];
+  const FC_SUBDET_POR_ASIGNAR = '60110'; // catálogo fijo: LÍNEA/DETALLE/SUBDETALLE "POR ASIGNAR"
   let resumenData = null;
 
   const fmtMoney = n => (n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -9260,8 +9261,15 @@ async function viewFlujoCaja(container) {
       wrap.querySelectorAll('.fc-asignar-sel').forEach(sel => {
         sel.addEventListener('change', async () => {
           if (!sel.value) return;
+          let comentario;
+          if (sel.value === FC_SUBDET_POR_ASIGNAR) {
+            comentario = await pedirComentarioPorAsignar();
+            if (comentario === undefined) { sel.value = ''; return; } // canceló el modal
+          }
           try {
-            await PUT(`/flujo-caja/movimientos/${sel.dataset.id}/asignar`, { subdetalleCodigo: sel.value });
+            const body = { subdetalleCodigo: sel.value };
+            if (comentario !== undefined) body.comentario = comentario;
+            await PUT(`/flujo-caja/movimientos/${sel.dataset.id}/asignar`, body);
             toast('Asignado', 'success');
             await Promise.all([cargarSinAsignar(), cargar()]);
           } catch (e) { toast(e.message, 'error'); }
@@ -9271,6 +9279,25 @@ async function viewFlujoCaja(container) {
         btn.addEventListener('click', () => abrirModalAsignarMovimiento(btn.dataset.id));
       });
     } catch (e) { wrap.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function pedirComentarioPorAsignar(actual = '') {
+    return new Promise(resolve => {
+      openModal('Comentario — Por Asignar', `
+        <p class="text-muted" style="font-size:13px;margin-bottom:10px">
+          Este movimiento queda como "Por Asignar" — puedes dejar un comentario explicando el pendiente (opcional).
+        </p>
+        <textarea id="fc-comentario-txt" class="form-control" rows="3" style="width:100%;box-sizing:border-box">${esc(actual)}</textarea>
+        <div style="margin-top:14px;text-align:right">
+          <button class="btn btn-primary" id="fc-comentario-guardar">Guardar</button>
+        </div>
+      `, () => resolve(undefined));
+      document.getElementById('fc-comentario-guardar').addEventListener('click', () => {
+        const val = document.getElementById('fc-comentario-txt').value.trim();
+        resolve(val);
+        document.getElementById('modal-close').click();
+      });
+    });
   }
 
   async function abrirModalAsignarMovimiento(movId) {
@@ -9352,7 +9379,13 @@ async function viewFlujoCaja(container) {
         } else {
           const subdetalleCodigo = document.getElementById('fca-subdetalle').value;
           if (!subdetalleCodigo) return toast('Elige un subdetalle', 'error');
-          await PUT(`/flujo-caja/movimientos/${movId}/asignar`, { subdetalleCodigo });
+          const body = { subdetalleCodigo };
+          if (subdetalleCodigo === FC_SUBDET_POR_ASIGNAR) {
+            const comentario = await pedirComentarioPorAsignar(mov.comentario || '');
+            if (comentario === undefined) return; // canceló el comentario — no guarda nada
+            body.comentario = comentario;
+          }
+          await PUT(`/flujo-caja/movimientos/${movId}/asignar`, body);
         }
         toast('Guardado', 'success');
         document.getElementById('modal-close').click();
@@ -9533,11 +9566,12 @@ async function viewFlujoCaja(container) {
         ? ` · ▸ Pago masivo (${m.pagosErp.length} beneficiarios)`
         : (m.proveedor ? ' · ' + esc(m.proveedor) : '');
       const infoSplit = m.esSplit ? ` · <span style="color:#7c3aed">desglosado, ${fmtMoney(m.importe)} de ${fmtMoney(m.importeTotal)}</span>` : '';
+      const infoComentario = m.comentario ? `<br><span style="color:#b45309">💬 ${esc(m.comentario)}</span>` : '';
       if (esMasivo) movRow.style.cursor = 'pointer';
       movRow.innerHTML = `
         <td style="padding-left:88px;color:var(--text-muted);font-size:11px">
           ${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}${infoExtra}${infoSplit}
-          <button class="btn-icon fc-mov-reclasificar" data-id="${m._id}" title="Reclasificar" style="border:none;background:none;cursor:pointer;padding:0 0 0 6px;font-size:11px">✏️</button>
+          <button class="btn-icon fc-mov-reclasificar" data-id="${m._id}" title="Reclasificar" style="border:none;background:none;cursor:pointer;padding:0 0 0 6px;font-size:11px">✏️</button>${infoComentario}
         </td>
         ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
         <td class="text-right">${fmtMoney(m.importe)}</td>`;
