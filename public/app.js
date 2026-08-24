@@ -9330,10 +9330,21 @@ async function viewFlujoCaja(container) {
         <button class="btn btn-outline btn-sm" id="fca-split-add" style="margin-top:8px">＋ Agregar línea</button>
         <div id="fca-split-total" style="margin-top:8px;font-size:12px;color:var(--text-muted)"></div>
       </div>
-      <div style="margin-top:16px;text-align:right">
+      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+        ${mov.subdetalleCodigo === FC_SUBDET_POR_ASIGNAR ? '<button class="btn btn-outline btn-sm" id="fca-quitar" style="color:#dc2626;border-color:#dc2626">🗑️ Quitar asignación</button>' : '<span></span>'}
         <button class="btn btn-primary" id="fca-guardar">Guardar</button>
       </div>
     `);
+
+    document.getElementById('fca-quitar')?.addEventListener('click', async () => {
+      if (!confirm('¿Quitar la asignación de este movimiento? Vuelve a "sin asignar" para que la próxima reconciliación lo intente de nuevo.')) return;
+      try {
+        await DEL(`/flujo-caja/movimientos/${movId}/asignar`);
+        toast('Asignación quitada', 'success');
+        document.getElementById('modal-close').click();
+        await Promise.all([cargarSinAsignar(), cargar()]);
+      } catch (e) { toast(e.message, 'error'); }
+    });
 
     const filaSplitHtml = (sub, monto) => `
       <div class="fca-split-row" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">

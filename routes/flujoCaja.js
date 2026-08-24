@@ -409,6 +409,26 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Quita la asignación de un movimiento (típicamente uno que quedó en "POR
+// ASIGNAR") y lo devuelve a sin asignar, para que la próxima reconciliación
+// (glosa/ERP) lo vuelva a intentar clasificar automáticamente.
+router.delete('/movimientos/:id/asignar', async (req, res) => {
+  try {
+    const mov = await FlujoMovimientoBancario.findById(req.params.id);
+    if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    if (!checkSocAccess(req.user, mov.sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
+    mov.subdetalleCodigo = null;
+    mov.splits = [];
+    mov.metodoAsignacion = null;
+    mov.proveedor = '';
+    mov.comentario = '';
+    mov.asignadoPor = '';
+    mov.asignadoEn = null;
+    await mov.save();
+    res.json(mov);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Resumen LINEA -> DETALLE -> SUBDETALLE por día/semana/mes ──────────────────
 router.get('/resumen', async (req, res) => {
   try {
