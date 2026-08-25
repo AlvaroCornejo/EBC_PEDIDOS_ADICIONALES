@@ -299,9 +299,6 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 /* ─── Bottom Nav (mobile only) ───────────────────────────────── */
 .bottom-nav { display: none; }
 
-/* ─── Footer fijo de resúmenes (Gestión de Pagos, Paso 1) ──────── */
-.pg-resumenes-footer { grid-template-columns: 1fr 1fr; }
-
 /* ─── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 768px) {
   :root { --sidebar-w: 0px; }
@@ -368,6 +365,5 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
   .bn-icon { font-size: 20px; line-height: 1; }
   .bn-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64px; }
 
-  .pg-resumenes-footer { grid-template-columns: 1fr; max-height: 60vh !important; overflow-y: auto; }
-  .pg-resumenes-footer > div { border-right: none !important; border-bottom: 1px solid #e2e8f0; }
+  .pg-resumenes-footer { max-height: 60vh !important; }
 }

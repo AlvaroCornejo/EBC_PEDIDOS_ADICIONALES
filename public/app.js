@@ -4996,22 +4996,25 @@ async function renderPaso1(container) {
       position:fixed; bottom:0; left:var(--sidebar-w); right:0; z-index:100;
       background:#fff; border-top:2px solid #e2e8f0;
       box-shadow:0 -4px 12px rgba(0,0,0,.08);
-      gap:0; max-height:45vh;
+      display:block; max-height:45vh; overflow:hidden;
     `;
     pgFooter.innerHTML = `
-      <div style="border-right:1px solid #e2e8f0;overflow-x:auto">
-        <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
-          Resumen por Beneficiario
-        </div>
-        <div id="pg-res-benef" style="overflow-y:auto;max-height:228px"></div>
-      </div>
       <div style="overflow-x:auto">
-        <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0">
-          Resumen por Grupo
+        <div style="padding:6px 14px;font-weight:600;font-size:12px;background:var(--bg-secondary);border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center">
+          <span>Resumen por Grupo / Beneficiario</span>
+          <button type="button" id="pg-res-toggle" title="Minimizar/Maximizar" style="border:none;background:none;cursor:pointer;font-size:13px;padding:0 2px">▾</button>
         </div>
-        <div id="pg-res-grupo" style="overflow-y:auto;max-height:228px"></div>
+        <div id="pg-res-fusion" style="overflow-y:auto;max-height:38vh"></div>
       </div>`;
     document.body.appendChild(pgFooter);
+
+    document.getElementById('pg-res-toggle').addEventListener('click', () => {
+      const body = document.getElementById('pg-res-fusion');
+      const btn = document.getElementById('pg-res-toggle');
+      const minimizado = body.style.display === 'none';
+      body.style.display = minimizado ? '' : 'none';
+      btn.textContent = minimizado ? '▾' : '▸';
+    });
   }
 
   // Mostrar nombre del archivo seleccionado
@@ -5118,8 +5121,7 @@ async function renderPaso1(container) {
     document.getElementById('pg-tabla-wrap').innerHTML = '';
     document.getElementById('pg-filtros').style.display = 'none';
     document.getElementById('pg-footer-btns').style.display = 'none';
-    document.getElementById('pg-res-benef').innerHTML = '';
-    document.getElementById('pg-res-grupo').innerHTML  = '';
+    document.getElementById('pg-res-fusion').innerHTML = '';
     await pgCargarListaProgs(comp);
   });
 
@@ -5490,22 +5492,16 @@ async function renderPaso1(container) {
     const sumF = (arr, fn) => arr.reduce((s, o) => s + fn(o), 0);
 
     const hasProm = Object.keys(pagosPromedios).length > 0;
-    const THEAD_B = `<thead><tr>
-      <th style="width:24px"></th><th>Nombre</th>
+    const THEAD = `<thead><tr>
+      <th style="width:24px"></th><th style="width:16px"></th><th>Grupo / Beneficiario</th>
       <th class="text-right">USD</th>
       <th class="text-right">S/</th>
       <th class="text-right">Total S/</th>
       ${hasProm ? '<th class="text-right" style="color:#8b5cf6" title="Promedio últimas 4 semanas (Q Pagos)">Prom. S/</th>' : ''}
     </tr></thead>`;
-    const THEAD_G = `<thead><tr>
-      <th style="width:24px"></th><th>Grupo</th>
-      <th class="text-right">USD</th>
-      <th class="text-right">S/</th>
-      <th class="text-right">Total S/</th>
-    </tr></thead>`;
     const TFOOT = (arr, extraCols = 0) => `<tfoot style="border-top:2px solid var(--border);background:var(--bg-secondary);font-weight:700">
       <tr>
-        <td colspan="2" style="padding:4px 8px">TOTAL</td>
+        <td colspan="3" style="padding:4px 8px">TOTAL</td>
         <td class="text-right" style="padding:4px 8px">${fmtMonto(sumF(arr, usd))}</td>
         <td class="text-right" style="padding:4px 8px">${fmtMonto(sumF(arr, sol))}</td>
         <td class="text-right" style="padding:4px 8px;color:var(--primary)">${fmtMonto(sumF(arr, tot))}</td>
@@ -5513,57 +5509,65 @@ async function renderPaso1(container) {
       </tr>
     </tfoot>`;
 
-    // ── Por Beneficiario ──────────────────────────────────────────────
-    const byBenef = {};
+    // ── Fusionado: Grupo (fila expandible) → Beneficiarios (sub-filas) ──
+    const byGrupo = {};
     obs.forEach(o => {
-      if (!byBenef[o.pagarA]) byBenef[o.pagarA] = { obs: [], grupo: o.grupo };
-      byBenef[o.pagarA].obs.push(o);
+      const g = o.grupo || '(Sin grupo)';
+      if (!byGrupo[g]) byGrupo[g] = {};
+      if (!byGrupo[g][o.pagarA]) byGrupo[g][o.pagarA] = [];
+      byGrupo[g][o.pagarA].push(o);
     });
-    const benefRows = Object.entries(byBenef).sort(([,a],[,b]) => sumF(b.obs,tot) - sumF(a.obs,tot));
-    document.getElementById('pg-res-benef').innerHTML = `
+    const grupoEntries = Object.entries(byGrupo)
+      .map(([grupo, porBenef]) => ({ grupo, porBenef, obsGrupo: Object.values(porBenef).flat() }))
+      .sort((a, b) => sumF(b.obsGrupo, tot) - sumF(a.obsGrupo, tot));
+
+    const filasHtml = grupoEntries.map(({ grupo, porBenef, obsGrupo }, gi) => {
+      const grupoClass = `pg-grp-${gi}`;
+      const benefEntries = Object.entries(porBenef).sort(([, a], [, b]) => sumF(b, tot) - sumF(a, tot));
+      const filaGrupo = `<tr class="pg-grupo-row" data-target="${grupoClass}" style="cursor:pointer;font-weight:600;background:var(--bg-hover)">
+        <td><input type="checkbox" onclick="event.stopPropagation()" onchange="pgFiltrarDesdeResumen('grupo','${esc(grupo)}',this.checked)"
+             ${fGrpFilt===grupo?'checked':''}></td>
+        <td class="pg-grupo-arrow" style="text-align:center">▸</td>
+        <td>${esc(grupo)}</td>
+        <td class="text-right">${sumF(obsGrupo,usd)?fmtMonto(sumF(obsGrupo,usd)):'—'}</td>
+        <td class="text-right">${sumF(obsGrupo,sol)?fmtMonto(sumF(obsGrupo,sol)):'—'}</td>
+        <td class="text-right">${fmtMonto(sumF(obsGrupo,tot))}</td>
+        ${hasProm ? '<td></td>' : ''}
+      </tr>`;
+      const filasBenef = benefEntries.map(([nombre, oList]) => {
+        const prom = pagosPromedios[nombre.toUpperCase()];
+        return `<tr class="pg-benef-subrow ${grupoClass}" style="display:none">
+          <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('benef','${esc(nombre)}',this.checked)"
+               ${fBenefFilt===nombre.toLowerCase()?'checked':''}></td>
+          <td></td>
+          <td style="padding-left:20px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted)" title="${esc(nombre)}">${esc(nombre)}</td>
+          <td class="text-right">${sumF(oList,usd)?fmtMonto(sumF(oList,usd)):'—'}</td>
+          <td class="text-right">${sumF(oList,sol)?fmtMonto(sumF(oList,sol)):'—'}</td>
+          <td class="text-right fw-semibold">${fmtMonto(sumF(oList,tot))}</td>
+          ${hasProm?`<td class="text-right" style="color:#8b5cf6">${prom?fmtMonto(prom.promedio):'—'}</td>`:''}
+        </tr>`;
+      }).join('');
+      return filaGrupo + filasBenef;
+    }).join('');
+
+    document.getElementById('pg-res-fusion').innerHTML = `
       <table class="data-table" style="font-size:11px">
-        ${THEAD_B}
+        ${THEAD}
         <tbody>
-          ${benefRows.length ? benefRows.map(([nombre, d]) => {
-            const prom = pagosPromedios[nombre.toUpperCase()];
-            return `<tr>
-              <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('benef','${esc(nombre)}',this.checked)"
-                   ${fBenefFilt===nombre.toLowerCase()?'checked':''}></td>
-              <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(nombre)}">${esc(nombre)}</td>
-              <td class="text-right">${sumF(d.obs,usd)?fmtMonto(sumF(d.obs,usd)):'—'}</td>
-              <td class="text-right">${sumF(d.obs,sol)?fmtMonto(sumF(d.obs,sol)):'—'}</td>
-              <td class="text-right fw-semibold">${fmtMonto(sumF(d.obs,tot))}</td>
-              ${hasProm?`<td class="text-right" style="color:#8b5cf6">${prom?fmtMonto(prom.promedio):'—'}</td>`:''}
-            </tr>`;
-          }).join('') : `<tr><td colspan="${hasProm?6:5}" class="text-center text-muted py-8" style="font-size:11px">Sin obligaciones seleccionadas</td></tr>`}
+          ${grupoEntries.length ? filasHtml : `<tr><td colspan="${hasProm?7:6}" class="text-center text-muted py-8" style="font-size:11px">Sin obligaciones seleccionadas</td></tr>`}
         </tbody>
         ${TFOOT(obs, hasProm?1:0)}
       </table>`;
 
-    // ── Por Grupo ─────────────────────────────────────────────────────
-    const byGrupo = {};
-    obs.forEach(o => {
-      const g = o.grupo || '(Sin grupo)';
-      if (!byGrupo[g]) byGrupo[g] = { obs: [], beneficiarios: new Set() };
-      byGrupo[g].obs.push(o);
-      byGrupo[g].beneficiarios.add(o.pagarA);
+    document.querySelectorAll('.pg-grupo-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const cls = row.dataset.target;
+        const subrows = document.querySelectorAll(`.pg-benef-subrow.${cls}`);
+        const abierto = subrows.length && subrows[0].style.display !== 'none';
+        subrows.forEach(r => { r.style.display = abierto ? 'none' : ''; });
+        row.querySelector('.pg-grupo-arrow').textContent = abierto ? '▸' : '▾';
+      });
     });
-    const grupoRows = Object.entries(byGrupo).sort(([,a],[,b]) => sumF(b.obs,tot) - sumF(a.obs,tot));
-    document.getElementById('pg-res-grupo').innerHTML = `
-      <table class="data-table" style="font-size:11px">
-        ${THEAD_G}
-        <tbody>
-          ${grupoRows.length ? grupoRows.map(([grupo, d]) => `<tr>
-            <td><input type="checkbox" onchange="pgFiltrarDesdeResumen('grupo','${esc(grupo)}',this.checked)"
-                 ${fGrpFilt===grupo?'checked':''}></td>
-            <td class="fw-semibold">${esc(grupo)}</td>
-            <td class="text-right">${sumF(d.obs,usd)?fmtMonto(sumF(d.obs,usd)):'—'}</td>
-            <td class="text-right">${sumF(d.obs,sol)?fmtMonto(sumF(d.obs,sol)):'—'}</td>
-            <td class="text-right fw-semibold">${fmtMonto(sumF(d.obs,tot))}</td>
-          </tr>`).join('') : '<tr><td colspan="5" class="text-center text-muted py-8" style="font-size:11px">Sin obligaciones seleccionadas</td></tr>'}
-        </tbody>
-        ${TFOOT(obs, 0)}
-      </table>`;
   }
 
   // ── Funciones globales ─────────────────────────────────────────────
