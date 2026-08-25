@@ -17,7 +17,10 @@ const FlujoCuentaBanco        = require('../models/FlujoCuentaBanco');
 
 const TOL_IMPORTE = 1; // soles/dólares de tolerancia por comisiones/ITF del banco
 
-function normBeneficiario(s) { return String(s || '').trim().toUpperCase(); }
+// El ERP a veces trae espacios dobles/múltiples entre palabras (ej. "MINCHAN  APARICIO"
+// con doble espacio) — se colapsan a uno solo para que el criterio "contiene" no falle
+// por un problema de formato del dato de origen, no del beneficiario en sí.
+function normBeneficiario(s) { return String(s || '').trim().toUpperCase().replace(/\s+/g, ' '); }
 // El número de operación del banco puede venir con ceros a la izquierda
 // (ej. BBVA: "0000004569") mientras que NumeroPago del ERP es numérico —
 // se normalizan ambos a entero antes de comparar.
