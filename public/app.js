@@ -9024,8 +9024,12 @@ async function viewFlujoCaja(container) {
   let metodo = ''; // '' (todos) | glosa | erp | manual
   const FC_BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
   const FC_MONEDAS = ['PEN', 'USD'];
-  const FC_SUBDET_POR_ASIGNAR = '60110'; // catálogo fijo: LÍNEA/DETALLE/SUBDETALLE "POR ASIGNAR"
   let resumenData = null;
+
+  // Un subdetalle pide comentario (y habilita "Quitar asignación") según el
+  // flag `pedirComentario` de su catálogo — configurable en Admin → Flujo de
+  // Caja → Líneas/Detalles/Subdetalles, ya no fijo a un código en el código.
+  const fcPideComentario = (subdetalles, codigo) => !!subdetalles.find(s => s.codigo === codigo)?.pedirComentario;
 
   const fmtMoney = n => (n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtFechaCorta = f => { const [, m, d] = f.split('-'); return `${d}/${m}`; };
@@ -9262,7 +9266,7 @@ async function viewFlujoCaja(container) {
         sel.addEventListener('change', async () => {
           if (!sel.value) return;
           let comentario;
-          if (sel.value === FC_SUBDET_POR_ASIGNAR) {
+          if (fcPideComentario(subdetalles, sel.value)) {
             comentario = await pedirComentarioPorAsignar();
             if (comentario === undefined) { sel.value = ''; return; } // canceló el modal
           }
@@ -9331,7 +9335,7 @@ async function viewFlujoCaja(container) {
         <div id="fca-split-total" style="margin-top:8px;font-size:12px;color:var(--text-muted)"></div>
       </div>
       <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
-        ${mov.subdetalleCodigo === FC_SUBDET_POR_ASIGNAR ? '<button class="btn btn-outline btn-sm" id="fca-quitar" style="color:#dc2626;border-color:#dc2626">🗑️ Quitar asignación</button>' : '<span></span>'}
+        ${fcPideComentario(subdetalles, mov.subdetalleCodigo) ? '<button class="btn btn-outline btn-sm" id="fca-quitar" style="color:#dc2626;border-color:#dc2626">🗑️ Quitar asignación</button>' : '<span></span>'}
         <button class="btn btn-primary" id="fca-guardar">Guardar</button>
       </div>
     `);
@@ -9391,7 +9395,7 @@ async function viewFlujoCaja(container) {
           const subdetalleCodigo = document.getElementById('fca-subdetalle').value;
           if (!subdetalleCodigo) return toast('Elige un subdetalle', 'error');
           const body = { subdetalleCodigo };
-          if (subdetalleCodigo === FC_SUBDET_POR_ASIGNAR) {
+          if (fcPideComentario(subdetalles, subdetalleCodigo)) {
             const comentario = await pedirComentarioPorAsignar(mov.comentario || '');
             if (comentario === undefined) return; // canceló el comentario — no guarda nada
             body.comentario = comentario;
@@ -13889,7 +13893,7 @@ async function fcAdminLineasDetalles(el, editando = {}) {
       <div class="card" style="padding:14px;flex:1;min-width:380px">
         <div style="font-weight:700;margin-bottom:8px">Subdetalles</div>
         <table class="data-table" style="font-size:12px;margin-bottom:10px">
-          <thead><tr><th>Código</th><th>Nombre</th><th>Detalle</th><th></th></tr></thead>
+          <thead><tr><th>Código</th><th>Nombre</th><th>Detalle</th><th title="Pedir comentario al asignar">💬</th><th></th></tr></thead>
           <tbody>
             ${subdetalles.map(s => editando.subdetalle === s._id ? `<tr data-id="${s._id}">
               <td><input type="text" class="form-control fc-subdetalle-edit-codigo" value="${esc(s.codigo)}" style="width:90px;font-size:12px"></td>
@@ -13897,25 +13901,30 @@ async function fcAdminLineasDetalles(el, editando = {}) {
               <td><select class="form-control fc-subdetalle-edit-detalle" style="font-size:12px">
                 ${detalles.map(d => `<option value="${esc(d.codigo)}" ${s.detalleCodigo === d.codigo ? 'selected' : ''}>${esc(d.codigo)} — ${esc(d.nombre)}</option>`).join('')}
               </select></td>
+              <td style="text-align:center"><input type="checkbox" class="fc-subdetalle-edit-comentario" ${s.pedirComentario ? 'checked' : ''} title="Pedir comentario al asignar"></td>
               <td style="white-space:nowrap">
                 <button class="btn btn-primary btn-xs fc-subdetalle-guardar" data-id="${s._id}">💾</button>
                 <button class="btn btn-outline btn-xs fc-subdetalle-cancelar">✕</button>
               </td>
             </tr>` : `<tr>
               <td>${esc(s.codigo)}</td><td>${esc(s.nombre)}</td><td>${esc(detMap[s.detalleCodigo]?.nombre || s.detalleCodigo)}</td>
+              <td style="text-align:center">${s.pedirComentario ? '💬' : ''}</td>
               <td style="white-space:nowrap">
                 <button class="btn btn-outline btn-xs fc-subdetalle-editar" data-id="${s._id}">✏️</button>
                 <button class="btn btn-outline btn-xs fc-subdetalle-del" data-id="${s._id}">✕</button>
               </td>
-            </tr>`).join('') || '<tr><td colspan="4" class="text-muted">Sin subdetalles aún.</td></tr>'}
+            </tr>`).join('') || '<tr><td colspan="5" class="text-muted">Sin subdetalles aún.</td></tr>'}
           </tbody>
         </table>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <input type="text" id="fc-subdetalle-codigo" class="form-control" placeholder="Código" style="width:100px">
           <input type="text" id="fc-subdetalle-nombre" class="form-control" placeholder="Nombre" style="width:180px">
           <select id="fc-subdetalle-detalle" class="form-control" style="width:180px">
             ${detalles.map(d => `<option value="${esc(d.codigo)}">${esc(d.codigo)} — ${esc(d.nombre)}</option>`).join('')}
           </select>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:normal">
+            <input type="checkbox" id="fc-subdetalle-comentario"> Pedir comentario
+          </label>
           <button class="btn btn-primary btn-sm" id="fc-subdetalle-add">＋</button>
         </div>
       </div>
@@ -13991,8 +14000,9 @@ async function fcAdminLineasDetalles(el, editando = {}) {
     const codigo = document.getElementById('fc-subdetalle-codigo').value.trim();
     const nombre = document.getElementById('fc-subdetalle-nombre').value.trim();
     const detalleCodigo = document.getElementById('fc-subdetalle-detalle').value;
+    const pedirComentario = document.getElementById('fc-subdetalle-comentario').checked;
     if (!codigo || !nombre || !detalleCodigo) return toast('Datos incompletos', 'error');
-    try { await POST('/flujo-caja/subdetalles', { codigo, nombre, detalleCodigo }); await fcAdminLineasDetalles(el); }
+    try { await POST('/flujo-caja/subdetalles', { codigo, nombre, detalleCodigo, pedirComentario }); await fcAdminLineasDetalles(el); }
     catch (e) { toast(e.message, 'error'); }
   });
   el.querySelectorAll('.fc-subdetalle-del').forEach(btn => {
@@ -14014,8 +14024,9 @@ async function fcAdminLineasDetalles(el, editando = {}) {
       const codigo = row.querySelector('.fc-subdetalle-edit-codigo').value.trim();
       const nombre = row.querySelector('.fc-subdetalle-edit-nombre').value.trim();
       const detalleCodigo = row.querySelector('.fc-subdetalle-edit-detalle').value;
+      const pedirComentario = row.querySelector('.fc-subdetalle-edit-comentario').checked;
       if (!codigo || !nombre) return toast('Código y nombre requeridos', 'error');
-      try { await PUT(`/flujo-caja/subdetalles/${btn.dataset.id}`, { codigo, nombre, detalleCodigo }); toast('Guardado', 'success'); await fcAdminLineasDetalles(el); }
+      try { await PUT(`/flujo-caja/subdetalles/${btn.dataset.id}`, { codigo, nombre, detalleCodigo, pedirComentario }); toast('Guardado', 'success'); await fcAdminLineasDetalles(el); }
       catch (e) { toast(e.message, 'error'); }
     });
   });

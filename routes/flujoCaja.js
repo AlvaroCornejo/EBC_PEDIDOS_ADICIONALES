@@ -138,9 +138,9 @@ router.get('/subdetalles', async (req, res) => {
 router.post('/subdetalles', async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
-    const { codigo, nombre, detalleCodigo } = req.body;
+    const { codigo, nombre, detalleCodigo, pedirComentario } = req.body;
     if (!codigo || !nombre || !detalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
-    res.json(await FlujoSubdetalle.create({ codigo, nombre, detalleCodigo }));
+    res.json(await FlujoSubdetalle.create({ codigo, nombre, detalleCodigo, pedirComentario: !!pedirComentario }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 router.put('/subdetalles/:id', async (req, res) => {
@@ -148,7 +148,7 @@ router.put('/subdetalles/:id', async (req, res) => {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
     const sub = await FlujoSubdetalle.findById(req.params.id);
     if (!sub) return res.status(404).json({ error: 'No encontrado' });
-    const { codigo, nombre, detalleCodigo } = req.body;
+    const { codigo, nombre, detalleCodigo, pedirComentario } = req.body;
     if (!codigo || !nombre || !detalleCodigo) return res.status(400).json({ error: 'Datos incompletos' });
 
     if (codigo !== sub.codigo) {
@@ -163,6 +163,7 @@ router.put('/subdetalles/:id', async (req, res) => {
     sub.codigo = codigo;
     sub.nombre = nombre;
     sub.detalleCodigo = detalleCodigo;
+    sub.pedirComentario = !!pedirComentario;
     await sub.save();
     res.json(sub);
   } catch (err) { res.status(500).json({ error: err.message }); }
