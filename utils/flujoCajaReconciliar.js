@@ -92,16 +92,17 @@ async function asignarPorERP(sociedad) {
 
   // Agrupar pagos ERP por cuenta bancaria + numeroPago, resolviendo cada
   // cuenta a su banco/moneda para saber contra qué movimientos comparar.
+  // Se guarda el arreglo completo de pagos del grupo (no solo el primero) —
+  // un pago masivo trae varios beneficiarios bajo el mismo número de
+  // operación, y cada uno debe ir a su propio subdetalle.
   const pagos = await FlujoPagoERP.find({ sociedad }).lean();
-  const grupos = new Map(); // "banco|moneda|numeroPago" -> { montoLocal, montoExtranjero, pagarA }
+  const grupos = new Map(); // "banco|moneda|numeroPago" -> [pagos...]
   for (const p of pagos) {
     const cuenta = cuentas.find(c => c.cuentaBancaria === p.cuentaBancaria);
     if (!cuenta) continue; // cuenta ERP sin mapear a banco/moneda todavía
     const key = `${cuenta.banco}|${cuenta.moneda}|${p.numeroPago}`;
-    if (!grupos.has(key)) grupos.set(key, { montoLocal: 0, montoExtranjero: 0, pagarA: p.pagarA });
-    const g = grupos.get(key);
-    g.montoLocal += p.montoLocal || 0;
-    g.montoExtranjero += p.montoExtranjero || 0;
+    if (!grupos.has(key)) grupos.set(key, []);
+    grupos.get(key).push(p);
   }
 
   let asignados = 0;
@@ -111,18 +112,54 @@ async function asignarPorERP(sociedad) {
     const numOp = normNumOp(mov.numeroOperacion);
     if (numOp === null) continue;
     const key = `${mov.banco}|${mov.moneda}|${numOp}`;
-    const g = grupos.get(key);
-    if (!g) continue;
-    const montoErp = mov.moneda === 'USD' ? g.montoExtranjero : g.montoLocal;
+    const grupo = grupos.get(key);
+    if (!grupo || !grupo.length) continue;
+    const montoLocalTotal = grupo.reduce((s, p) => s + (p.montoLocal || 0), 0);
+    const montoExtTotal = grupo.reduce((s, p) => s + (p.montoExtranjero || 0), 0);
+    const montoErp = mov.moneda === 'USD' ? montoExtTotal : montoLocalTotal;
     if (Math.abs(montoErp - Math.abs(mov.importe)) > TOL_IMPORTE) continue;
-    const subdetalleCodigo = resolverProveedor(proveedores, g.pagarA, sociedad);
-    if (!subdetalleCodigo) continue; // el proveedor existe pero no está mapeado a un subdetalle
     if (usados.has(String(mov._id))) continue;
+
+    if (grupo.length === 1) {
+      const subdetalleCodigo = resolverProveedor(proveedores, grupo[0].pagarA, sociedad);
+      if (!subdetalleCodigo) continue; // el proveedor existe pero no está mapeado a un subdetalle
+      usados.add(String(mov._id));
+      ops.push({
+        updateOne: {
+          filter: { _id: mov._id },
+          update: { subdetalleCodigo, metodoAsignacion: 'erp', asignadoEn: new Date(), proveedor: grupo[0].pagarA || '' },
+        },
+      });
+      asignados++;
+      continue;
+    }
+
+    // Pago masivo: resolver cada beneficiario a su propio subdetalle. Si
+    // alguno no está mapeado, no se asigna nada — mejor dejarlo pendiente
+    // (visible en "sin asignar", con motivo) que repartir mal el importe.
+    const signo = mov.importe < 0 ? -1 : 1;
+    const porSubdetalle = new Map(); // subdetalleCodigo -> monto acumulado
+    let faltante = false;
+    for (const p of grupo) {
+      const subdetalleCodigo = resolverProveedor(proveedores, p.pagarA, sociedad);
+      if (!subdetalleCodigo) { faltante = true; break; }
+      const montoAbs = mov.moneda === 'USD' ? (p.montoExtranjero || 0) : (p.montoLocal || 0);
+      porSubdetalle.set(subdetalleCodigo, (porSubdetalle.get(subdetalleCodigo) || 0) + signo * montoAbs);
+    }
+    if (faltante || !porSubdetalle.size) continue;
+
+    const splits = [...porSubdetalle.entries()].map(([subdetalleCodigo, monto]) => ({ subdetalleCodigo, monto }));
+    // La suma exacta de los pagos individuales puede diferir del importe real
+    // del banco por centavos (comisiones/redondeo) — se ajusta en la última
+    // línea para que splits siempre sume exactamente el importe del movimiento.
+    const diff = mov.importe - splits.reduce((s, x) => s + x.monto, 0);
+    if (Math.abs(diff) > 0.001) splits[splits.length - 1].monto += diff;
+
     usados.add(String(mov._id));
     ops.push({
       updateOne: {
         filter: { _id: mov._id },
-        update: { subdetalleCodigo, metodoAsignacion: 'erp', asignadoEn: new Date(), proveedor: g.pagarA || '' },
+        update: { subdetalleCodigo: null, splits, metodoAsignacion: 'erp', asignadoEn: new Date(), proveedor: '' },
       },
     });
     asignados++;
@@ -157,15 +194,13 @@ async function diagnosticar(sociedad, pendientes) {
     FlujoPagoERP.find({ sociedad }).lean(),
   ]);
 
-  const grupos = new Map();
+  const grupos = new Map(); // "banco|moneda|numeroPago" -> [pagos...]
   for (const p of pagos) {
     const cuenta = cuentas.find(c => c.cuentaBancaria === p.cuentaBancaria);
     if (!cuenta) continue;
     const key = `${cuenta.banco}|${cuenta.moneda}|${p.numeroPago}`;
-    if (!grupos.has(key)) grupos.set(key, { montoLocal: 0, montoExtranjero: 0, pagarA: p.pagarA });
-    const g = grupos.get(key);
-    g.montoLocal += p.montoLocal || 0;
-    g.montoExtranjero += p.montoExtranjero || 0;
+    if (!grupos.has(key)) grupos.set(key, []);
+    grupos.get(key).push(p);
   }
 
   return pendientes.map(mov => {
@@ -186,16 +221,24 @@ async function diagnosticar(sociedad, pendientes) {
       motivos.push('ERP: la sociedad no tiene cuentas bancarias mapeadas (Cuentas ERP↔Banco)');
     } else {
       const key = `${mov.banco}|${mov.moneda}|${numOp}`;
-      const g = grupos.get(key);
-      if (!g) {
+      const grupo = grupos.get(key);
+      if (!grupo || !grupo.length) {
         motivos.push('ERP: no hay ningún pago con ese número de operación');
       } else {
-        const montoErp = mov.moneda === 'USD' ? g.montoExtranjero : g.montoLocal;
+        const montoLocalTotal = grupo.reduce((s, p) => s + (p.montoLocal || 0), 0);
+        const montoExtTotal = grupo.reduce((s, p) => s + (p.montoExtranjero || 0), 0);
+        const montoErp = mov.moneda === 'USD' ? montoExtTotal : montoLocalTotal;
         if (Math.abs(montoErp - Math.abs(mov.importe)) > TOL_IMPORTE) {
           motivos.push(`ERP: el importe no coincide (pago ERP: ${montoErp.toFixed(2)}, banco: ${Math.abs(mov.importe).toFixed(2)})`);
+        } else if (grupo.length === 1) {
+          const subdetalleCodigo = resolverProveedor(proveedores, grupo[0].pagarA, sociedad);
+          if (!subdetalleCodigo) motivos.push(`Proveedor: "${grupo[0].pagarA}" no está mapeado a un subdetalle`);
         } else {
-          const subdetalleCodigo = resolverProveedor(proveedores, g.pagarA, sociedad);
-          if (!subdetalleCodigo) motivos.push(`Proveedor: "${g.pagarA}" no está mapeado a un subdetalle`);
+          const faltantes = grupo.filter(p => !resolverProveedor(proveedores, p.pagarA, sociedad));
+          if (faltantes.length) {
+            const nombres = [...new Set(faltantes.map(p => p.pagarA))];
+            motivos.push(`Pago masivo (${grupo.length} beneficiarios): ${faltantes.length} sin mapear — ${nombres.slice(0, 3).map(n => `"${n}"`).join(', ')}${nombres.length > 3 ? `, +${nombres.length - 3} más` : ''}`);
+          }
         }
       }
     }
