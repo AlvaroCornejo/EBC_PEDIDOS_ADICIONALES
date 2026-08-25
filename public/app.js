@@ -14221,12 +14221,13 @@ async function fcAdminProveedores(el, editandoId = null, filtro = null) {
     const lineaCodigo = detMap[detalleCodigo]?.lineaCodigo || '';
     return { detalleCodigo, lineaCodigo };
   };
+  const socOpts = sel => `<option value="">Todas</option>` + ALL_SOCS_COMPRA.map(s => `<option value="${esc(s)}" ${s === sel ? 'selected' : ''}>${esc(s)}</option>`).join('');
 
   el.innerHTML = `
-    <p class="mb-8 text-muted" style="font-size:13px">Método 2 de asignación: cuando un pago del ERP calza con el banco (mismo número + importe), se usa el beneficiario (PAGARA) para resolver el subdetalle aquí. "Exacta" compara el PAGARA completo; "Contiene" resuelve si el texto configurado aparece dentro del PAGARA.</p>
+    <p class="mb-8 text-muted" style="font-size:13px">Método 2 de asignación: cuando un pago del ERP calza con el banco (mismo número + importe), se usa el beneficiario (PAGARA) para resolver el subdetalle aquí. "Exacta" compara el PAGARA completo; "Contiene" resuelve si el texto configurado aparece dentro del PAGARA. "Sociedad" es opcional — en blanco (Todas) la regla aplica a cualquier sociedad; si se especifica, solo aplica (y tiene prioridad) para esa sociedad.</p>
     ${fcFiltroCascadaHtml('fc-prov-f', lineas, filtro)}
     <table class="data-table" style="font-size:12px;margin-bottom:10px">
-      <thead><tr><th>Beneficiario</th><th>Criterio</th><th>Subdetalle</th><th></th></tr></thead>
+      <thead><tr><th>Beneficiario</th><th>Criterio</th><th>Subdetalle</th><th>Sociedad</th><th></th></tr></thead>
       <tbody id="fc-prov-tbody">
         ${proveedores.map(p => {
           if (editandoId === p._id) return `<tr data-id="${p._id}">
@@ -14236,20 +14237,21 @@ async function fcAdminProveedores(el, editandoId = null, filtro = null) {
               <option value="contiene" ${p.criterio === 'contiene' ? 'selected' : ''}>Contiene</option>
             </select></td>
             <td><select class="form-control fc-prov-edit-subdetalle" style="font-size:12px">${subOpts(p.subdetalleCodigo)}</select></td>
+            <td><select class="form-control fc-prov-edit-sociedad" style="font-size:12px">${socOpts(p.sociedad)}</select></td>
             <td style="white-space:nowrap">
               <button class="btn btn-primary btn-xs fc-prov-guardar" data-id="${p._id}">💾</button>
               <button class="btn btn-outline btn-xs fc-prov-cancelar">✕</button>
             </td>
           </tr>`;
           const { detalleCodigo, lineaCodigo } = codigosPadre(p.subdetalleCodigo);
-          return `<tr data-linea="${esc(lineaCodigo)}" data-detalle="${esc(detalleCodigo)}" data-sub="${esc(p.subdetalleCodigo || '')}" data-filtro="${esc((p.beneficiario + ' ' + etiquetaDe(p.subdetalleCodigo)).toLowerCase())}">
-            <td>${esc(p.beneficiario)}</td><td>${(p.criterio || 'exacta') === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(p.subdetalleCodigo))}</td>
+          return `<tr data-linea="${esc(lineaCodigo)}" data-detalle="${esc(detalleCodigo)}" data-sub="${esc(p.subdetalleCodigo || '')}" data-filtro="${esc((p.beneficiario + ' ' + etiquetaDe(p.subdetalleCodigo) + ' ' + (p.sociedad || '')).toLowerCase())}">
+            <td>${esc(p.beneficiario)}</td><td>${(p.criterio || 'exacta') === 'exacta' ? 'Exacta' : 'Contiene'}</td><td>${esc(etiquetaDe(p.subdetalleCodigo))}</td><td>${p.sociedad ? esc(p.sociedad) : '<span class="text-muted">Todas</span>'}</td>
             <td style="white-space:nowrap">
               <button class="btn btn-outline btn-xs fc-prov-editar" data-id="${p._id}">✏️</button>
               <button class="btn btn-outline btn-xs fc-prov-del" data-id="${p._id}">✕</button>
             </td>
           </tr>`;
-        }).join('') || '<tr><td colspan="4" class="text-muted">Sin proveedores aún.</td></tr>'}
+        }).join('') || '<tr><td colspan="5" class="text-muted">Sin proveedores aún.</td></tr>'}
       </tbody>
     </table>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -14259,6 +14261,7 @@ async function fcAdminProveedores(el, editandoId = null, filtro = null) {
         <option value="contiene">Contiene</option>
       </select>
       <select id="fc-prov-subdetalle" class="form-control" style="width:260px">${subOpts()}</select>
+      <select id="fc-prov-sociedad" class="form-control" style="width:140px">${socOpts()}</select>
       <button class="btn btn-primary btn-sm" id="fc-prov-add">＋</button>
     </div>`;
 
@@ -14267,8 +14270,9 @@ async function fcAdminProveedores(el, editandoId = null, filtro = null) {
     const beneficiario = document.getElementById('fc-prov-benef').value.trim();
     const criterio = document.getElementById('fc-prov-criterio').value;
     const subdetalleCodigo = document.getElementById('fc-prov-subdetalle').value;
+    const sociedad = document.getElementById('fc-prov-sociedad').value;
     if (!beneficiario || !subdetalleCodigo) return toast('Datos incompletos', 'error');
-    try { await POST('/flujo-caja/proveedores', { beneficiario, criterio, subdetalleCodigo }); await fcAdminProveedores(el, null, fcLeerFiltro('fc-prov-f')); }
+    try { await POST('/flujo-caja/proveedores', { beneficiario, criterio, subdetalleCodigo, sociedad }); await fcAdminProveedores(el, null, fcLeerFiltro('fc-prov-f')); }
     catch (e) { toast(e.message, 'error'); }
   });
   el.querySelectorAll('.fc-prov-del').forEach(btn => {
@@ -14290,8 +14294,9 @@ async function fcAdminProveedores(el, editandoId = null, filtro = null) {
       const beneficiario = row.querySelector('.fc-prov-edit-benef').value.trim();
       const criterio = row.querySelector('.fc-prov-edit-criterio').value;
       const subdetalleCodigo = row.querySelector('.fc-prov-edit-subdetalle').value;
+      const sociedad = row.querySelector('.fc-prov-edit-sociedad').value;
       if (!beneficiario) return toast('Beneficiario requerido', 'error');
-      try { await PUT(`/flujo-caja/proveedores/${btn.dataset.id}`, { beneficiario, criterio, subdetalleCodigo }); toast('Guardado', 'success'); await fcAdminProveedores(el, null, fcLeerFiltro('fc-prov-f')); }
+      try { await PUT(`/flujo-caja/proveedores/${btn.dataset.id}`, { beneficiario, criterio, subdetalleCodigo, sociedad }); toast('Guardado', 'success'); await fcAdminProveedores(el, null, fcLeerFiltro('fc-prov-f')); }
       catch (e) { toast(e.message, 'error'); }
     });
   });

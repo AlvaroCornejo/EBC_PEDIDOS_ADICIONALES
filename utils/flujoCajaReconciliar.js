@@ -45,6 +45,20 @@ function resolverReglaGlosa(reglas, glosa, sociedad) {
     || null;
 }
 
+// Mismo patrón de prioridad que resolverReglaGlosa, aplicado a Proveedores
+// (beneficiario -> subdetalle). Devuelve el subdetalleCodigo o null.
+function resolverProveedor(proveedores, pagarA, sociedad) {
+  const norm = normBeneficiario(pagarA);
+  const aplica = p => !p.sociedad || p.sociedad === sociedad;
+  const candidatos = proveedores.filter(aplica);
+  const match = candidatos.find(p => (p.criterio || 'exacta') === 'exacta' && p.sociedad && normBeneficiario(p.beneficiario) === norm)
+    || candidatos.find(p => (p.criterio || 'exacta') === 'exacta' && !p.sociedad && normBeneficiario(p.beneficiario) === norm)
+    || candidatos.find(p => p.criterio === 'contiene' && p.sociedad && norm.includes(normBeneficiario(p.beneficiario)))
+    || candidatos.find(p => p.criterio === 'contiene' && !p.sociedad && norm.includes(normBeneficiario(p.beneficiario)))
+    || null;
+  return match ? match.subdetalleCodigo : null;
+}
+
 async function asignarPorGlosa(sociedad) {
   const reglas = await FlujoGlosaRegla.find({}).lean();
   if (!reglas.length) return 0;
@@ -76,21 +90,6 @@ async function asignarPorERP(sociedad) {
   ]);
   if (!pendientes.length || !cuentas.length) return 0;
 
-  // Igual que las reglas de glosa: 'exacta' se resuelve por Map (O(1)),
-  // 'contiene' requiere recorrer la lista buscando si el texto configurado
-  // está contenido en el PAGARA del pago.
-  const provExactos = new Map(
-    proveedores.filter(p => (p.criterio || 'exacta') === 'exacta')
-      .map(p => [normBeneficiario(p.beneficiario), p.subdetalleCodigo])
-  );
-  const provContiene = proveedores.filter(p => p.criterio === 'contiene');
-  function resolverProveedor(pagarA) {
-    const norm = normBeneficiario(pagarA);
-    if (provExactos.has(norm)) return provExactos.get(norm);
-    const match = provContiene.find(p => norm.includes(normBeneficiario(p.beneficiario)));
-    return match ? match.subdetalleCodigo : null;
-  }
-
   // Agrupar pagos ERP por cuenta bancaria + numeroPago, resolviendo cada
   // cuenta a su banco/moneda para saber contra qué movimientos comparar.
   const pagos = await FlujoPagoERP.find({ sociedad }).lean();
@@ -116,7 +115,7 @@ async function asignarPorERP(sociedad) {
     if (!g) continue;
     const montoErp = mov.moneda === 'USD' ? g.montoExtranjero : g.montoLocal;
     if (Math.abs(montoErp - Math.abs(mov.importe)) > TOL_IMPORTE) continue;
-    const subdetalleCodigo = resolverProveedor(g.pagarA);
+    const subdetalleCodigo = resolverProveedor(proveedores, g.pagarA, sociedad);
     if (!subdetalleCodigo) continue; // el proveedor existe pero no está mapeado a un subdetalle
     if (usados.has(String(mov._id))) continue;
     usados.add(String(mov._id));
@@ -158,18 +157,6 @@ async function diagnosticar(sociedad, pendientes) {
     FlujoPagoERP.find({ sociedad }).lean(),
   ]);
 
-  const provExactos = new Map(
-    proveedores.filter(p => (p.criterio || 'exacta') === 'exacta')
-      .map(p => [normBeneficiario(p.beneficiario), p.subdetalleCodigo])
-  );
-  const provContiene = proveedores.filter(p => p.criterio === 'contiene');
-  function resolverProveedor(pagarA) {
-    const norm = normBeneficiario(pagarA);
-    if (provExactos.has(norm)) return provExactos.get(norm);
-    const match = provContiene.find(p => norm.includes(normBeneficiario(p.beneficiario)));
-    return match ? match.subdetalleCodigo : null;
-  }
-
   const grupos = new Map();
   for (const p of pagos) {
     const cuenta = cuentas.find(c => c.cuentaBancaria === p.cuentaBancaria);
@@ -207,7 +194,7 @@ async function diagnosticar(sociedad, pendientes) {
         if (Math.abs(montoErp - Math.abs(mov.importe)) > TOL_IMPORTE) {
           motivos.push(`ERP: el importe no coincide (pago ERP: ${montoErp.toFixed(2)}, banco: ${Math.abs(mov.importe).toFixed(2)})`);
         } else {
-          const subdetalleCodigo = resolverProveedor(g.pagarA);
+          const subdetalleCodigo = resolverProveedor(proveedores, g.pagarA, sociedad);
           if (!subdetalleCodigo) motivos.push(`Proveedor: "${g.pagarA}" no está mapeado a un subdetalle`);
         }
       }
