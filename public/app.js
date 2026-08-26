@@ -9308,7 +9308,7 @@ async function viewFlujoCaja(container) {
     });
   }
 
-  async function abrirModalAsignarMovimiento(movId) {
+  async function abrirModalAsignarMovimiento(movId, subdetalleContexto) {
     let mov;
     try { mov = await GET(`/flujo-caja/movimientos/${movId}`); }
     catch (e) { toast(e.message, 'error'); return; }
@@ -9323,20 +9323,35 @@ async function viewFlujoCaja(container) {
     const sugerencia = !esSplitInicial && Array.isArray(mov.desgloseErp) && mov.desgloseErp.length ? mov.desgloseErp : null;
     const desglosarPorDefecto = esSplitInicial || !!sugerencia;
 
+    // Si se abrió desde una línea de subdetalle específica dentro de un
+    // desglose con varios subdetalles distintos, solo se muestran (y se
+    // pueden editar) las líneas de ese subdetalle — el resto queda oculto
+    // pero se conserva intacto y se reincorpora al guardar.
+    let lineasVisibles = esSplitInicial ? mov.splits : [];
+    let lineasOcultas = [];
+    if (esSplitInicial && subdetalleContexto) {
+      const visibles = mov.splits.filter(s => s.subdetalleCodigo === subdetalleContexto);
+      const ocultas = mov.splits.filter(s => s.subdetalleCodigo !== subdetalleContexto);
+      if (visibles.length && ocultas.length) { lineasVisibles = visibles; lineasOcultas = ocultas; }
+    }
+    const filtrado = lineasOcultas.length > 0;
+    const totalOculto = lineasOcultas.reduce((s, x) => s + x.monto, 0);
+
     openModal('Reclasificar movimiento', `
       <p class="text-muted" style="font-size:13px;margin-bottom:10px">
         ${fmtDate(mov.fecha)} · ${esc(mov.banco)} ${esc(mov.moneda)}${mov.numeroOperacion ? ' · Op ' + esc(mov.numeroOperacion) : ''} · ${esc(mov.glosa || '')}<br>
         Importe: <strong>${fmtMoney(mov.importe)}</strong>
       </p>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px">
+      ${filtrado ? `<p class="text-muted" style="font-size:12px;margin-bottom:10px">Mostrando ${lineasVisibles.length} de ${mov.splits.length} líneas de este movimiento (las de este subdetalle) — el resto (${fmtMoney(totalOculto)}) no se toca. <a href="#" id="fca-ver-todas">Ver todas las líneas</a></p>`
+        : `<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:10px">
         <input type="checkbox" id="fca-desglosar" ${desglosarPorDefecto ? 'checked' : ''}>
         Desglosar en varias líneas
-      </label>
+      </label>`}
       ${sugerencia ? '<p class="text-muted" style="font-size:12px;margin:-4px 0 10px">Desglose sugerido según el cruce con Pagos ERP — revisa y completa el/los beneficiario(s) sin mapear.</p>' : ''}
-      <div id="fca-simple" style="${desglosarPorDefecto ? 'display:none' : ''}">
+      <div id="fca-simple" style="${desglosarPorDefecto || filtrado ? 'display:none' : ''}">
         <select id="fca-subdetalle" class="form-control">${subOpts(mov.subdetalleCodigo)}</select>
       </div>
-      <div id="fca-splits" style="${desglosarPorDefecto ? '' : 'display:none'}">
+      <div id="fca-splits" style="${desglosarPorDefecto || filtrado ? '' : 'display:none'}">
         <div id="fca-splits-rows"></div>
         <button class="btn btn-outline btn-sm" id="fca-split-add" style="margin-top:8px">＋ Agregar línea</button>
         <div id="fca-split-total" style="margin-top:8px;font-size:12px;color:var(--text-muted)"></div>
@@ -9346,6 +9361,11 @@ async function viewFlujoCaja(container) {
         <button class="btn btn-primary" id="fca-guardar">Guardar</button>
       </div>
     `);
+
+    document.getElementById('fca-ver-todas')?.addEventListener('click', ev => {
+      ev.preventDefault();
+      abrirModalAsignarMovimiento(movId);
+    });
 
     document.getElementById('fca-quitar')?.addEventListener('click', async () => {
       if (!confirm('¿Quitar la asignación de este movimiento? Vuelve a "sin asignar" para que la próxima reconciliación lo intente de nuevo.')) return;
@@ -9362,6 +9382,7 @@ async function viewFlujoCaja(container) {
         <div style="display:flex;gap:6px;align-items:center">
           <select class="form-control fca-split-sub" style="flex:1">${subOpts(sub)}</select>
           <input type="number" step="0.01" class="form-control fca-split-monto" style="width:120px" value="${monto != null ? monto : ''}">
+          <button class="btn btn-outline btn-xs fca-split-dividir" title="Dividir esta línea en 2">🔀</button>
           <button class="btn btn-outline btn-xs fca-split-del">✕</button>
         </div>
         <input type="text" class="form-control fca-split-proveedor" placeholder="Proveedor / beneficiario (opcional)" style="font-size:11px;padding:3px 6px;margin-top:2px" value="${esc(proveedor || '')}">
@@ -9369,38 +9390,55 @@ async function viewFlujoCaja(container) {
 
     const rowsWrap = document.getElementById('fca-splits-rows');
     function actualizarTotal() {
-      const suma = [...rowsWrap.querySelectorAll('.fca-split-monto')].reduce((s, i) => s + (parseFloat(i.value) || 0), 0);
+      const suma = [...rowsWrap.querySelectorAll('.fca-split-monto')].reduce((s, i) => s + (parseFloat(i.value) || 0), 0) + totalOculto;
       const dif = mov.importe - suma;
       document.getElementById('fca-split-total').innerHTML =
-        `Suma: ${fmtMoney(suma)} — Importe: ${fmtMoney(mov.importe)} — ${Math.abs(dif) < 0.01 ? '<span style="color:#16a34a">✓ cuadra</span>' : `<span style="color:#dc2626">Diferencia: ${fmtMoney(dif)}</span>`}`;
+        `Suma: ${fmtMoney(suma)}${filtrado ? ` (incl. ${fmtMoney(totalOculto)} no mostrado)` : ''} — Importe: ${fmtMoney(mov.importe)} — ${Math.abs(dif) < 0.01 ? '<span style="color:#16a34a">✓ cuadra</span>' : `<span style="color:#dc2626">Diferencia: ${fmtMoney(dif)}</span>`}`;
     }
-    const agregarFila = (sub = '', monto = null, proveedor = '') => {
-      rowsWrap.insertAdjacentHTML('beforeend', filaSplitHtml(sub, monto, proveedor));
-      const nuevaFila = rowsWrap.lastElementChild;
+    // `despues`: nodo tras el cual insertar (null = al final). Sirve tanto para
+    // "+ Agregar línea" (al final) como para dividir una línea puntual (justo
+    // después de ella, para redistribuir su monto entre las dos).
+    const agregarFila = (sub = '', monto = null, proveedor = '', despues = null) => {
+      const html = filaSplitHtml(sub, monto, proveedor);
+      if (despues) despues.insertAdjacentHTML('afterend', html);
+      else rowsWrap.insertAdjacentHTML('beforeend', html);
+      const nuevaFila = despues ? despues.nextElementSibling : rowsWrap.lastElementChild;
       nuevaFila.querySelector('.fca-split-del').addEventListener('click', () => { nuevaFila.remove(); actualizarTotal(); });
       nuevaFila.querySelector('.fca-split-monto').addEventListener('input', actualizarTotal);
+      nuevaFila.querySelector('.fca-split-dividir').addEventListener('click', () => dividirFila(nuevaFila));
       actualizarTotal();
     };
+    // Divide una línea existente en 2: la original se queda con la mitad de
+    // su monto (subdetalle y proveedor intactos) y se inserta una nueva línea
+    // en blanco justo debajo con la otra mitad, lista para reclasificar.
+    function dividirFila(fila) {
+      const subInput = fila.querySelector('.fca-split-sub').value;
+      const montoInput = fila.querySelector('.fca-split-monto');
+      const montoActual = parseFloat(montoInput.value) || 0;
+      const mitad = Math.round((montoActual / 2) * 100) / 100;
+      montoInput.value = montoActual - mitad;
+      agregarFila(subInput, mitad, '', fila);
+    }
 
-    if (esSplitInicial) mov.splits.forEach(s => agregarFila(s.subdetalleCodigo, s.monto, s.proveedor));
+    if (esSplitInicial) lineasVisibles.forEach(s => agregarFila(s.subdetalleCodigo, s.monto, s.proveedor));
     else if (sugerencia) sugerencia.forEach(f => agregarFila(f.subdetalleCodigo || '', f.monto, (f.beneficiarios || []).join(', ')));
     else agregarFila('', mov.importe);
 
     document.getElementById('fca-split-add').addEventListener('click', () => agregarFila());
-    document.getElementById('fca-desglosar').addEventListener('change', e => {
+    document.getElementById('fca-desglosar')?.addEventListener('change', e => {
       document.getElementById('fca-simple').style.display = e.target.checked ? 'none' : '';
       document.getElementById('fca-splits').style.display = e.target.checked ? '' : 'none';
     });
 
     document.getElementById('fca-guardar').addEventListener('click', async () => {
-      const desglosar = document.getElementById('fca-desglosar').checked;
+      const desglosar = filtrado || document.getElementById('fca-desglosar').checked;
       try {
         if (desglosar) {
           const splits = [...rowsWrap.querySelectorAll('.fca-split-row')].map(row => ({
             subdetalleCodigo: row.querySelector('.fca-split-sub').value,
             monto: parseFloat(row.querySelector('.fca-split-monto').value),
             proveedor: row.querySelector('.fca-split-proveedor').value.trim(),
-          }));
+          })).concat(lineasOcultas);
           if (splits.some(s => !s.subdetalleCodigo || isNaN(s.monto))) return toast('Completa subdetalle y monto en cada línea', 'error');
           await PUT(`/flujo-caja/movimientos/${movId}/asignar`, { splits });
         } else {
@@ -9573,13 +9611,13 @@ async function viewFlujoCaja(container) {
         <td style="padding-left:68px;color:var(--text-muted)">▸ ${esc(g.glosa)}</td>
         ${fechas.map(f => { const v = g.valores[f] || 0; return `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${v ? fmtMoney(v) : ''}</td>`; }).join('')}
         <td class="text-right" style="${totalGlosa < 0 ? 'color:#dc2626' : ''}">${fmtMoney(totalGlosa)}</td>`;
-      glosaRow.addEventListener('click', (ev) => { ev.stopPropagation(); toggleMovimientos(glosaRow, g, fechas); });
+      glosaRow.addEventListener('click', (ev) => { ev.stopPropagation(); toggleMovimientos(glosaRow, g, fechas, sub.codigo); });
       insertAfter.after(glosaRow);
       insertAfter = glosaRow;
     });
   }
 
-  function toggleMovimientos(tr, g, fechas) {
+  function toggleMovimientos(tr, g, fechas, subdetalleCodigo) {
     const parentId = tr.id;
     const tbody = tr.parentElement;
     const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
@@ -9606,7 +9644,7 @@ async function viewFlujoCaja(container) {
         <td class="text-right" style="${m.importe < 0 ? 'color:#dc2626' : ''}">${fmtMoney(m.importe)}</td>`;
       movRow.querySelector('.fc-mov-reclasificar').addEventListener('click', ev => {
         ev.stopPropagation();
-        abrirModalAsignarMovimiento(m._id);
+        abrirModalAsignarMovimiento(m._id, m.esSplit ? subdetalleCodigo : null);
       });
       if (esMasivo) movRow.addEventListener('click', () => toggleDetallePagos(movRow, m, fechas));
       insertAfter.after(movRow);
