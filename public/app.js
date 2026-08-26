@@ -9022,7 +9022,7 @@ async function viewFlujoCaja(container) {
   const puedeAsignar = esAdmin || ['programador', 'admin'].includes(S.user.rolPago);
 
   let sociedadActual = sociedades[0] || '';
-  let modo = 'nativa'; // nativa | soles
+  let modo = 'soles'; // nativa | soles
   let agrupacion = 'mes'; // dia | semana | mes
   let cuenta = ''; // '' (todas) | "BANCO|MONEDA"
   let metodo = ''; // '' (todos) | glosa | erp | manual
@@ -9066,7 +9066,7 @@ async function viewFlujoCaja(container) {
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
             <select id="fc-modo" class="form-control" style="width:170px">
               <option value="nativa">Nativa (PEN/USD)</option>
-              <option value="soles">Todo en Soles (TC del día)</option>
+              <option value="soles" selected>Todo en Soles (TC del día)</option>
             </select>
           </div>
           <div>
