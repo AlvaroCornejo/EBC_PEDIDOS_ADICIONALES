@@ -134,25 +134,23 @@ async function asignarPorERP(sociedad) {
       continue;
     }
 
-    // Pago masivo: resolver cada beneficiario a su propio subdetalle. Si
-    // alguno no está mapeado, no se asigna nada — mejor dejarlo pendiente
-    // (visible en "sin asignar", con motivo) que repartir mal el importe.
+    // Pago masivo: resolver cada beneficiario a su propio subdetalle, en su
+    // propia línea — aunque dos beneficiarios distintos resuelvan al mismo
+    // subdetalle (ej. POR ASIGNAR) no se juntan en una sola línea, para no
+    // perder trazabilidad de que son pendientes distintos. Si alguno no está
+    // mapeado, no se asigna nada — mejor dejarlo pendiente (visible en "sin
+    // asignar", con motivo) que repartir mal el importe.
     const signo = mov.importe < 0 ? -1 : 1;
-    const porSubdetalle = new Map(); // subdetalleCodigo -> { monto, beneficiarios:Set }
+    const splits = [];
     let faltante = false;
     for (const p of grupo) {
       const subdetalleCodigo = resolverProveedor(proveedores, p.pagarA, sociedad);
       if (!subdetalleCodigo) { faltante = true; break; }
       const montoAbs = mov.moneda === 'USD' ? (p.montoExtranjero || 0) : (p.montoLocal || 0);
-      if (!porSubdetalle.has(subdetalleCodigo)) porSubdetalle.set(subdetalleCodigo, { monto: 0, beneficiarios: new Set() });
-      const acc = porSubdetalle.get(subdetalleCodigo);
-      acc.monto += signo * montoAbs;
-      acc.beneficiarios.add(p.pagarA);
+      splits.push({ subdetalleCodigo, monto: signo * montoAbs, proveedor: p.pagarA || '' });
     }
-    if (faltante || !porSubdetalle.size) continue;
+    if (faltante || !splits.length) continue;
 
-    const splits = [...porSubdetalle.entries()].map(([subdetalleCodigo, { monto, beneficiarios }]) =>
-      ({ subdetalleCodigo, monto, proveedor: [...beneficiarios].join(', ') }));
     // La suma exacta de los pagos individuales puede diferir del importe real
     // del banco por centavos (comisiones/redondeo) — se ajusta en la última
     // línea para que splits siempre sume exactamente el importe del movimiento.
@@ -255,9 +253,9 @@ async function diagnosticar(sociedad, pendientes) {
 /**
  * Arma el desglose por beneficiario de un movimiento que corresponde a un
  * pago masivo del ERP (mismo numeroPago, varios PagoERP), para precargar el
- * modal de reclasificación manual. Agrupa los beneficiarios que sí resuelven
- * a un subdetalle (sumando su monto), y deja una fila aparte por cada
- * beneficiario sin mapear, para que el usuario solo tenga que completar esas.
+ * modal de reclasificación manual. Una línea por beneficiario siempre —
+ * aunque dos resuelvan al mismo subdetalle (ej. POR ASIGNAR) no se juntan,
+ * para no perder trazabilidad de que son pendientes distintos.
  * Devuelve null si no aplica (sin numeroOperacion, o no es un pago masivo).
  */
 async function desgloseErpMovimiento(mov) {
@@ -284,24 +282,11 @@ async function desgloseErpMovimiento(mov) {
   if (!grupo || grupo.length <= 1) return null;
 
   const signo = mov.importe < 0 ? -1 : 1;
-  const resueltos = new Map(); // subdetalleCodigo -> { monto, beneficiarios:Set }
-  const filas = [];
-  for (const p of grupo) {
+  const filas = grupo.map(p => {
     const montoAbs = mov.moneda === 'USD' ? (p.montoExtranjero || 0) : (p.montoLocal || 0);
-    const monto = signo * montoAbs;
     const subdetalleCodigo = resolverProveedor(proveedores, p.pagarA, mov.sociedad);
-    if (subdetalleCodigo) {
-      if (!resueltos.has(subdetalleCodigo)) resueltos.set(subdetalleCodigo, { monto: 0, beneficiarios: new Set() });
-      const acc = resueltos.get(subdetalleCodigo);
-      acc.monto += monto;
-      acc.beneficiarios.add(p.pagarA);
-    } else {
-      filas.push({ subdetalleCodigo: null, monto, beneficiarios: [p.pagarA] });
-    }
-  }
-  for (const [subdetalleCodigo, { monto, beneficiarios }] of resueltos) {
-    filas.unshift({ subdetalleCodigo, monto, beneficiarios: [...beneficiarios] });
-  }
+    return { subdetalleCodigo, monto: signo * montoAbs, beneficiarios: [p.pagarA] };
+  });
 
   // Ajuste de redondeo (centavos de comisión) a la última fila, igual que en asignarPorERP.
   const diff = mov.importe - filas.reduce((s, f) => s + f.monto, 0);
