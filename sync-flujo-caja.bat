@@ -7,6 +7,10 @@ set APP=C:\pedidos-app
 
 cd /d "%APP%"
 
+echo Actualizando codigo (git pull)...
+git checkout -- . 2>nul
+git pull
+
 echo Importando a MongoDB...
 node scripts\importFlujoCaja.js
 if %errorlevel%==0 (
