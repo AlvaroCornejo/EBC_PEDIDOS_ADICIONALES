@@ -9044,6 +9044,7 @@ async function viewFlujoCaja(container) {
   container.innerHTML = `
     <div class="page-header">
       <div class="page-title">💵 Flujo de Caja</div>
+      <div id="fc-ultima-fecha" class="text-muted" style="font-size:12px"></div>
     </div>
     <div class="page-body">
       <div class="card mb-16" style="padding:14px">
@@ -9115,7 +9116,16 @@ async function viewFlujoCaja(container) {
     if (cuenta && !cuentasBanco.some(c => `${c.banco}|${c.moneda}` === cuenta)) { cuenta = ''; sel.value = ''; }
   }
 
-  document.getElementById('fc-sociedad').addEventListener('change', async e => { sociedadActual = e.target.value; await poblarCuentaSelect(); cargar(); });
+  async function cargarUltimaFecha() {
+    const el = document.getElementById('fc-ultima-fecha');
+    if (!sociedadActual) { el.textContent = ''; return; }
+    try {
+      const { fecha } = await GET(`/flujo-caja/ultima-fecha?sociedad=${encodeURIComponent(sociedadActual)}`);
+      el.textContent = fecha ? `Actualizado hasta el ${fmtDate(fecha)}` : 'Sin movimientos cargados';
+    } catch (e) { el.textContent = ''; }
+  }
+
+  document.getElementById('fc-sociedad').addEventListener('change', async e => { sociedadActual = e.target.value; await poblarCuentaSelect(); cargar(); cargarUltimaFecha(); });
   document.getElementById('fc-desde').addEventListener('change', cargar);
   document.getElementById('fc-hasta').addEventListener('change', cargar);
   document.getElementById('fc-modo').addEventListener('change', e => { modo = e.target.value; cargar(); });
@@ -9522,7 +9532,7 @@ async function viewFlujoCaja(container) {
             </tr></thead>
             <tbody id="fc-tbody">
               ${saldoPorFecha ? rowHtml('fc-saldo-inicial', 'SALDO INICIAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f]?.inicial ?? null])), totalSaldoInicial, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
-              ${filas.map(linea => rowHtml('fc-linea-' + sanId(linea.codigo), linea.nombre, Object.fromEntries(fechas.map(f => [f, sumaDets(linea.detalles, f)])), totalLinea(linea), { bold: true, showZero: true, clickable: linea.detalles.length > 0 })).join('')}
+              ${filas.filter(linea => totalLinea(linea) !== 0).map(linea => rowHtml('fc-linea-' + sanId(linea.codigo), linea.nombre, Object.fromEntries(fechas.map(f => [f, sumaDets(linea.detalles, f)])), totalLinea(linea), { bold: true, showZero: true, clickable: linea.detalles.length > 0 })).join('')}
               ${totalSinClasificar !== 0 || Object.keys(sinClasificarPorFecha || {}).length ? rowHtml('fc-sin-clasificar', 'SIN CLASIFICAR', Object.fromEntries(fechas.map(f => [f, sinClasificarPorFecha?.[f] || 0])), totalSinClasificar, { muted: true, showZero: true }) : ''}
               ${saldoPorFecha ? rowHtml('fc-saldo-final', 'SALDO FINAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f]?.final ?? null])), totalSaldoFinal, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
               ${saldoPorFecha ? rowHtml('fc-mov-caja', 'MOVIMIENTO DE CAJA DEL PERÍODO', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f] ? saldoPorFecha[f].final - saldoPorFecha[f].inicial : null])), totalMovCaja, { muted: true, showZero: true }) : ''}
@@ -9531,7 +9541,7 @@ async function viewFlujoCaja(container) {
         </div>
       </div>`;
 
-    filas.forEach(linea => {
+    filas.filter(linea => totalLinea(linea) !== 0).forEach(linea => {
       if (!linea.detalles.length) return;
       const tr = document.getElementById('fc-linea-' + sanId(linea.codigo));
       tr?.addEventListener('click', () => toggleDetalles(tr, linea, fechas));
@@ -9551,10 +9561,11 @@ async function viewFlujoCaja(container) {
     if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
 
     const sumaSubs = (subs, f) => subs.reduce((s, sub) => s + (sub.valores[f] || 0), 0);
+    const totalDet = det => fechas.reduce((s, f) => s + sumaSubs(det.subdetalles, f), 0);
     let insertAfter = tr;
-    linea.detalles.forEach(det => {
+    linea.detalles.filter(det => totalDet(det) !== 0).forEach(det => {
       const detId = parentId + '-' + sanId(det.codigo);
-      const total = fechas.reduce((s, f) => s + sumaSubs(det.subdetalles, f), 0);
+      const total = totalDet(det);
       const detRow = document.createElement('tr');
       detRow.id = detId;
       detRow.setAttribute('data-drill-parent', parentId);
@@ -9575,10 +9586,11 @@ async function viewFlujoCaja(container) {
     const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
     if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
 
+    const totalSubOf = sub => fechas.reduce((s, f) => s + (sub.valores[f] || 0), 0);
     let insertAfter = tr;
-    det.subdetalles.forEach(sub => {
+    det.subdetalles.filter(sub => totalSubOf(sub) !== 0).forEach(sub => {
       const subId = parentId + '-' + sanId(sub.codigo);
-      const totalSub = fechas.reduce((s, f) => s + (sub.valores[f] || 0), 0);
+      const totalSub = totalSubOf(sub);
       const subRow = document.createElement('tr');
       subRow.id = subId;
       subRow.setAttribute('data-drill-parent', parentId);
@@ -9694,7 +9706,7 @@ async function viewFlujoCaja(container) {
   }
 
   await poblarCuentaSelect();
-  await Promise.all([cargar(), cargarSinAsignar()]);
+  await Promise.all([cargar(), cargarSinAsignar(), cargarUltimaFecha()]);
 }
 
 async function viewPagosRecurrentes(container) {

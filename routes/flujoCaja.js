@@ -435,6 +435,19 @@ router.delete('/movimientos/:id/asignar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Fecha del movimiento bancario más reciente cargado para la sociedad — para
+// que el usuario sepa hasta cuándo está actualizado el Estado de Cuenta,
+// independiente del rango de fechas que esté viendo en el resumen.
+router.get('/ultima-fecha', async (req, res) => {
+  try {
+    const { sociedad } = req.query;
+    if (!sociedad) return res.status(400).json({ error: 'Sociedad requerida' });
+    if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
+    const ultimo = await FlujoMovimientoBancario.findOne({ sociedad }).sort({ fecha: -1 }).select('fecha').lean();
+    res.json({ fecha: ultimo ? ultimo.fecha : null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Resumen LINEA -> DETALLE -> SUBDETALLE por día/semana/mes ──────────────────
 router.get('/resumen', async (req, res) => {
   try {
