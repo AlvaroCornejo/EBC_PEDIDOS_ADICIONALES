@@ -9037,6 +9037,22 @@ async function viewFlujoCaja(container) {
 
   const fmtMoney = n => (n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtFechaCorta = f => { const [, m, d] = f.split('-'); return `${d}/${m}`; };
+  // Número de semana ISO-8601 (lunes a domingo, semana 1 = la que contiene el
+  // primer jueves del año) de una fecha "YYYY-MM-DD".
+  function isoWeekNumber(f) {
+    const d = new Date(f + 'T00:00:00Z');
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const inicioAño = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return { año: d.getUTCFullYear(), semana: Math.ceil(((d - inicioAño) / 86400000 + 1) / 7) };
+  }
+  // Cabecera de columna del periodo — según "Ver por": Año/Mes, Año/Semana o
+  // día corto (DD/MM, como antes).
+  const fmtPeriodoCabecera = f => {
+    if (agrupacion === 'mes') { const [año, mes] = f.split('-'); return `${año}/${mes}`; }
+    if (agrupacion === 'semana') { const { año, semana } = isoWeekNumber(f); return `${año}/${String(semana).padStart(2, '0')}`; }
+    return fmtFechaCorta(f);
+  };
   const hoy = new Date();
   const desdeDefault = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1); // 1° de dos meses antes
   const iso = d => d.toISOString().slice(0, 10);
@@ -9527,7 +9543,7 @@ async function viewFlujoCaja(container) {
           <table class="data-table" style="font-size:12px;white-space:nowrap">
             <thead><tr>
               <th style="min-width:280px;position:sticky;left:0;background:var(--bg-card)">Línea / Detalle / Subdetalle / Glosa / Movimiento</th>
-              ${fechas.map(f => `<th class="text-right">${fmtFechaCorta(f)}</th>`).join('')}
+              ${fechas.map(f => `<th class="text-right">${fmtPeriodoCabecera(f)}</th>`).join('')}
               <th class="text-right" style="font-weight:700">TOTAL</th>
             </tr></thead>
             <tbody id="fc-tbody">
