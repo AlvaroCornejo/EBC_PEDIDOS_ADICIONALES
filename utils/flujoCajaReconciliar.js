@@ -248,4 +248,62 @@ async function diagnosticar(sociedad, pendientes) {
   });
 }
 
-module.exports = { reconciliar, diagnosticar };
+/**
+ * Arma el desglose por beneficiario de un movimiento que corresponde a un
+ * pago masivo del ERP (mismo numeroPago, varios PagoERP), para precargar el
+ * modal de reclasificación manual. Agrupa los beneficiarios que sí resuelven
+ * a un subdetalle (sumando su monto), y deja una fila aparte por cada
+ * beneficiario sin mapear, para que el usuario solo tenga que completar esas.
+ * Devuelve null si no aplica (sin numeroOperacion, o no es un pago masivo).
+ */
+async function desgloseErpMovimiento(mov) {
+  const numOp = normNumOp(mov.numeroOperacion);
+  if (numOp === null) return null;
+
+  const [cuentas, pagos, proveedores] = await Promise.all([
+    FlujoCuentaBanco.find({ sociedad: mov.sociedad }).lean(),
+    FlujoPagoERP.find({ sociedad: mov.sociedad }).lean(),
+    FlujoProveedorDetalle.find({}).lean(),
+  ]);
+
+  const grupos = new Map();
+  for (const p of pagos) {
+    const cuenta = cuentas.find(c => c.cuentaBancaria === p.cuentaBancaria);
+    if (!cuenta) continue;
+    const key = `${cuenta.banco}|${cuenta.moneda}|${p.numeroPago}`;
+    if (!grupos.has(key)) grupos.set(key, []);
+    grupos.get(key).push(p);
+  }
+
+  const key = `${mov.banco}|${mov.moneda}|${numOp}`;
+  const grupo = grupos.get(key);
+  if (!grupo || grupo.length <= 1) return null;
+
+  const signo = mov.importe < 0 ? -1 : 1;
+  const resueltos = new Map(); // subdetalleCodigo -> { monto, beneficiarios:Set }
+  const filas = [];
+  for (const p of grupo) {
+    const montoAbs = mov.moneda === 'USD' ? (p.montoExtranjero || 0) : (p.montoLocal || 0);
+    const monto = signo * montoAbs;
+    const subdetalleCodigo = resolverProveedor(proveedores, p.pagarA, mov.sociedad);
+    if (subdetalleCodigo) {
+      if (!resueltos.has(subdetalleCodigo)) resueltos.set(subdetalleCodigo, { monto: 0, beneficiarios: new Set() });
+      const acc = resueltos.get(subdetalleCodigo);
+      acc.monto += monto;
+      acc.beneficiarios.add(p.pagarA);
+    } else {
+      filas.push({ subdetalleCodigo: null, monto, beneficiarios: [p.pagarA] });
+    }
+  }
+  for (const [subdetalleCodigo, { monto, beneficiarios }] of resueltos) {
+    filas.unshift({ subdetalleCodigo, monto, beneficiarios: [...beneficiarios] });
+  }
+
+  // Ajuste de redondeo (centavos de comisión) a la última fila, igual que en asignarPorERP.
+  const diff = mov.importe - filas.reduce((s, f) => s + f.monto, 0);
+  if (filas.length && Math.abs(diff) > 0.001) filas[filas.length - 1].monto += diff;
+
+  return filas;
+}
+
+module.exports = { reconciliar, diagnosticar, desgloseErpMovimiento };

@@ -12,7 +12,7 @@ const FlujoSaldoInicial       = require('../models/FlujoSaldoInicial');
 const FlujoPagoERP            = require('../models/FlujoPagoERP');
 const TipoCambio              = require('../models/TipoCambio');
 
-const { obtenerRutas, guardarRutas, reconciliar, diagnosticar } = require('../utils/flujoCajaSync');
+const { obtenerRutas, guardarRutas, reconciliar, diagnosticar, desgloseErpMovimiento } = require('../utils/flujoCajaSync');
 
 const router = express.Router();
 router.use(auth);
@@ -376,7 +376,10 @@ router.get('/movimientos/:id', async (req, res) => {
     const mov = await FlujoMovimientoBancario.findById(req.params.id).lean();
     if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
     if (!checkSocAccess(req.user, mov.sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
-    res.json(mov);
+    // Si aún no tiene un desglose manual propio, se ofrece uno sugerido a
+    // partir del cruce ERP (pago masivo), para precargar el modal.
+    const desgloseErp = (Array.isArray(mov.splits) && mov.splits.length) ? null : await desgloseErpMovimiento(mov);
+    res.json({ ...mov, desgloseErp });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
