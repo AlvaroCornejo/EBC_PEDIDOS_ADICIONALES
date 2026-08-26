@@ -9357,14 +9357,14 @@ async function viewFlujoCaja(container) {
       } catch (e) { toast(e.message, 'error'); }
     });
 
-    const filaSplitHtml = (sub, monto, beneficiarios) => `
+    const filaSplitHtml = (sub, monto, proveedor) => `
       <div class="fca-split-row" style="margin-bottom:6px">
         <div style="display:flex;gap:6px;align-items:center">
           <select class="form-control fca-split-sub" style="flex:1">${subOpts(sub)}</select>
           <input type="number" step="0.01" class="form-control fca-split-monto" style="width:120px" value="${monto != null ? monto : ''}">
           <button class="btn btn-outline btn-xs fca-split-del">✕</button>
         </div>
-        ${beneficiarios && beneficiarios.length ? `<div style="font-size:11px;color:var(--text-muted);margin:2px 0 0 2px">${esc(beneficiarios.join(', '))}</div>` : ''}
+        <input type="text" class="form-control fca-split-proveedor" placeholder="Proveedor / beneficiario (opcional)" style="font-size:11px;padding:3px 6px;margin-top:2px" value="${esc(proveedor || '')}">
       </div>`;
 
     const rowsWrap = document.getElementById('fca-splits-rows');
@@ -9374,16 +9374,16 @@ async function viewFlujoCaja(container) {
       document.getElementById('fca-split-total').innerHTML =
         `Suma: ${fmtMoney(suma)} — Importe: ${fmtMoney(mov.importe)} — ${Math.abs(dif) < 0.01 ? '<span style="color:#16a34a">✓ cuadra</span>' : `<span style="color:#dc2626">Diferencia: ${fmtMoney(dif)}</span>`}`;
     }
-    const agregarFila = (sub = '', monto = null, beneficiarios = null) => {
-      rowsWrap.insertAdjacentHTML('beforeend', filaSplitHtml(sub, monto, beneficiarios));
+    const agregarFila = (sub = '', monto = null, proveedor = '') => {
+      rowsWrap.insertAdjacentHTML('beforeend', filaSplitHtml(sub, monto, proveedor));
       const nuevaFila = rowsWrap.lastElementChild;
       nuevaFila.querySelector('.fca-split-del').addEventListener('click', () => { nuevaFila.remove(); actualizarTotal(); });
       nuevaFila.querySelector('.fca-split-monto').addEventListener('input', actualizarTotal);
       actualizarTotal();
     };
 
-    if (esSplitInicial) mov.splits.forEach(s => agregarFila(s.subdetalleCodigo, s.monto));
-    else if (sugerencia) sugerencia.forEach(f => agregarFila(f.subdetalleCodigo || '', f.monto, f.beneficiarios));
+    if (esSplitInicial) mov.splits.forEach(s => agregarFila(s.subdetalleCodigo, s.monto, s.proveedor));
+    else if (sugerencia) sugerencia.forEach(f => agregarFila(f.subdetalleCodigo || '', f.monto, (f.beneficiarios || []).join(', ')));
     else agregarFila('', mov.importe);
 
     document.getElementById('fca-split-add').addEventListener('click', () => agregarFila());
@@ -9399,6 +9399,7 @@ async function viewFlujoCaja(container) {
           const splits = [...rowsWrap.querySelectorAll('.fca-split-row')].map(row => ({
             subdetalleCodigo: row.querySelector('.fca-split-sub').value,
             monto: parseFloat(row.querySelector('.fca-split-monto').value),
+            proveedor: row.querySelector('.fca-split-proveedor').value.trim(),
           }));
           if (splits.some(s => !s.subdetalleCodigo || isNaN(s.monto))) return toast('Completa subdetalle y monto en cada línea', 'error');
           await PUT(`/flujo-caja/movimientos/${movId}/asignar`, { splits });

@@ -23,6 +23,7 @@ const schema = new mongoose.Schema({
   splits: [{
     subdetalleCodigo: { type: String, required: true },
     monto:            { type: Number, required: true },
+    proveedor:        { type: String, default: '' }, // beneficiario(s) que componen esta línea del desglose, informativo
   }],
   metodoAsignacion: { type: String, default: null, enum: [null, 'glosa', 'erp', 'manual'] },
   proveedor:        { type: String, default: '' }, // beneficiario (PAGARA) resuelto por el método 2 (cruce ERP)

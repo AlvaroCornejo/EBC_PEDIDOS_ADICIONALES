@@ -397,7 +397,7 @@ router.put('/movimientos/:id/asignar', async (req, res) => {
       if (Math.abs(suma - mov.importe) > 0.01) {
         return res.status(400).json({ error: `La suma del desglose (${suma.toFixed(2)}) no coincide con el importe del movimiento (${mov.importe.toFixed(2)})` });
       }
-      mov.splits = splits.map(s => ({ subdetalleCodigo: s.subdetalleCodigo, monto: s.monto }));
+      mov.splits = splits.map(s => ({ subdetalleCodigo: s.subdetalleCodigo, monto: s.monto, proveedor: s.proveedor || '' }));
       mov.subdetalleCodigo = null;
     } else {
       if (!subdetalleCodigo) return res.status(400).json({ error: 'subdetalleCodigo requerido' });
@@ -538,8 +538,8 @@ router.get('/resumen', async (req, res) => {
       // cada "parte" aporta su propio monto a su propio subdetalle.
       const esSplit = Array.isArray(m.splits) && m.splits.length > 0;
       const partes = esSplit
-        ? m.splits.map(s => ({ subdetalleCodigo: s.subdetalleCodigo, monto: s.monto }))
-        : (m.subdetalleCodigo ? [{ subdetalleCodigo: m.subdetalleCodigo, monto: m.importe }] : []);
+        ? m.splits.map(s => ({ subdetalleCodigo: s.subdetalleCodigo, monto: s.monto, proveedor: s.proveedor || '' }))
+        : (m.subdetalleCodigo ? [{ subdetalleCodigo: m.subdetalleCodigo, monto: m.importe, proveedor: m.proveedor || '' }] : []);
       if (!partes.length) {
         sinAsignar++;
         sinClasificarPorFecha[fkey] = (sinClasificarPorFecha[fkey] || 0) + importeTotal;
@@ -566,7 +566,7 @@ router.get('/resumen', async (req, res) => {
         g.valores[fkey] = (g.valores[fkey] || 0) + importeParte;
         g.movimientos.push({
           _id: m._id, fecha: fkey, fechaReal: ymd(m.fecha), banco: m.banco, moneda: m.moneda,
-          numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', proveedor: m.proveedor || '',
+          numeroOperacion: m.numeroOperacion || null, glosa: m.glosa || '', proveedor: parte.proveedor || '',
           comentario: m.comentario || '',
           importe: importeParte, esSplit, importeTotal: esSplit ? importeTotal : undefined,
           pagosErp: esSplit ? [] : pagosErpDe(m),

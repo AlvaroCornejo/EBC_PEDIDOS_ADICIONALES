@@ -138,17 +138,21 @@ async function asignarPorERP(sociedad) {
     // alguno no está mapeado, no se asigna nada — mejor dejarlo pendiente
     // (visible en "sin asignar", con motivo) que repartir mal el importe.
     const signo = mov.importe < 0 ? -1 : 1;
-    const porSubdetalle = new Map(); // subdetalleCodigo -> monto acumulado
+    const porSubdetalle = new Map(); // subdetalleCodigo -> { monto, beneficiarios:Set }
     let faltante = false;
     for (const p of grupo) {
       const subdetalleCodigo = resolverProveedor(proveedores, p.pagarA, sociedad);
       if (!subdetalleCodigo) { faltante = true; break; }
       const montoAbs = mov.moneda === 'USD' ? (p.montoExtranjero || 0) : (p.montoLocal || 0);
-      porSubdetalle.set(subdetalleCodigo, (porSubdetalle.get(subdetalleCodigo) || 0) + signo * montoAbs);
+      if (!porSubdetalle.has(subdetalleCodigo)) porSubdetalle.set(subdetalleCodigo, { monto: 0, beneficiarios: new Set() });
+      const acc = porSubdetalle.get(subdetalleCodigo);
+      acc.monto += signo * montoAbs;
+      acc.beneficiarios.add(p.pagarA);
     }
     if (faltante || !porSubdetalle.size) continue;
 
-    const splits = [...porSubdetalle.entries()].map(([subdetalleCodigo, monto]) => ({ subdetalleCodigo, monto }));
+    const splits = [...porSubdetalle.entries()].map(([subdetalleCodigo, { monto, beneficiarios }]) =>
+      ({ subdetalleCodigo, monto, proveedor: [...beneficiarios].join(', ') }));
     // La suma exacta de los pagos individuales puede diferir del importe real
     // del banco por centavos (comisiones/redondeo) — se ajusta en la última
     // línea para que splits siempre sume exactamente el importe del movimiento.
