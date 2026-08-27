@@ -114,6 +114,8 @@ router.get('/eficiencia', async (req, res) => {
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
 
     const nSem = Math.min(Math.max(parseInt(req.query.nSemanas) || 8, 1), 104);
+    // Nº de semanas para el % acumulado (variable) — se muestra junto al % semanal.
+    const nSemPct = Math.min(Math.max(parseInt(req.query.nSemanasPct) || 4, 1), 52);
     // Por omisión se incluyen (comportamiento actual); "0"/"false" los excluye.
     const incluirEspeciales = req.query.incluirEspeciales !== '0' && req.query.incluirEspeciales !== 'false';
 
@@ -122,8 +124,13 @@ router.get('/eficiencia', async (req, res) => {
     if (semQ && /^\d{6}$/.test(semQ)) objetivo = { año: +semQ.slice(0, 4), semana: +semQ.slice(4) };
     else { const hoy = new Date(); objetivo = { año: isoYear(hoy), semana: isoWeek(hoy) }; }
 
+    // Rango extendido: nSem semanas a mostrar + (nSemPct-1) semanas previas
+    // extra, para que la primera fila mostrada también tenga su ventana de
+    // %-acumulado completa (mismo patrón que el Cuadro 2 anterior, pero con
+    // nSemPct variable en vez de fijo en 4).
+    const EXTRA = nSemPct - 1;
     const rango = [];
-    for (let i = nSem - 1; i >= 0; i--) rango.push(addSemanas(objetivo.año, objetivo.semana, -i));
+    for (let i = nSem - 1 + EXTRA; i >= 0; i--) rango.push(addSemanas(objetivo.año, objetivo.semana, -i));
 
     const primeraSemana = rango[0];
     const claveInicio = claveSemana(primeraSemana.año, primeraSemana.semana);
@@ -178,7 +185,7 @@ router.get('/eficiencia', async (req, res) => {
     });
 
     let saldoInicial = saldoInicialBase;
-    const filas = rango.map(h => {
+    const filasExtendidas = rango.map(h => {
       const k = claveSemana(h.año, h.semana);
       const docs = movPorSemana[k] || [];
       const calc = calcularSemanaEficiencia(docs);
@@ -211,7 +218,23 @@ router.get('/eficiencia', async (req, res) => {
       };
     });
 
-    res.json({ operacion, objetivo, filas });
+    // % acumulado de nSemPct semanas (semana actual + las nSemPct-1 anteriores),
+    // sumando numerador y denominador antes de dividir (no promedio de %) —
+    // calculado sobre el rango extendido para que las primeras filas mostradas
+    // también tengan su ventana completa, aunque esas semanas previas no se
+    // devuelvan como fila propia.
+    filasExtendidas.forEach((fila, idx) => {
+      const desde = Math.max(0, idx - (nSemPct - 1));
+      const grupo = filasExtendidas.slice(desde, idx + 1);
+      const denAcum = grupo.reduce((s, f) => s + f.ventaNetaAyB, 0);
+      fila.pctIngresosAlmacenNSem = pct(grupo.reduce((s, f) => s + f.ingresosAlmacen, 0), denAcum);
+      fila.pctFcTeoricoNSem = pct(grupo.reduce((s, f) => s + f.fcTeorico, 0), denAcum);
+      fila.pctConsumoTotalNSem = pct(grupo.reduce((s, f) => s + f.consumoTotal, 0), denAcum);
+    });
+
+    const filas = filasExtendidas.slice(EXTRA);
+
+    res.json({ operacion, objetivo, nSemPct, filas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

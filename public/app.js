@@ -10136,7 +10136,8 @@ async function viewSeguimientoCompras(container) {
   const fmtN = v => v == null ? '—' : Math.round(Number(v)).toLocaleString('es-PE');
   const fmtPct = v => v == null ? '—' : (Number(v) * 100).toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
   const tdN = v => `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${fmtN(v)}</td>`;
-  const tdP = v => `<td class="text-center" style="${v < 0 ? 'color:#dc2626' : ''}">${fmtPct(v)}</td>`;
+  const spanPct = v => `<span style="${v < 0 ? 'color:#dc2626' : ''}">${fmtPct(v)}</span>`;
+  const tdP2 = (sem, nsem) => `<td class="text-center">${spanPct(sem)} / ${spanPct(nsem)}</td>`;
 
   function isoYearCli(date) {
     const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -10192,6 +10193,10 @@ async function viewSeguimientoCompras(container) {
             </div>
           </div>
           <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">N° semanas p/ %</label>
+            <input type="number" id="sc-nsemanas-pct" class="form-control" style="width:70px" value="4" min="1" max="52">
+          </div>
+          <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">&nbsp;</label>
             <label style="display:flex;align-items:center;gap:6px;font-size:13px;height:34px">
               <input type="checkbox" id="sc-incluir-especiales" checked>
@@ -10227,6 +10232,7 @@ async function viewSeguimientoCompras(container) {
   document.getElementById('sc-nsemanas-mas1').addEventListener('click', () => setNSemanas(nSemanas + 1));
   document.getElementById('sc-nsemanas-menos1').addEventListener('click', () => setNSemanas(nSemanas - 1));
   document.getElementById('sc-incluir-especiales').addEventListener('change', () => cargar());
+  document.getElementById('sc-nsemanas-pct').addEventListener('change', () => cargar());
   document.getElementById('sc-ver-especiales').addEventListener('click', verGruposEspeciales);
 
   async function verGruposEspeciales() {
@@ -10259,7 +10265,8 @@ async function viewSeguimientoCompras(container) {
       const hoy = new Date();
       poblarSelectorSemanas({ año: isoYearCli(hoy), semana: isoWeekCli(hoy) });
       const incluirEspeciales = document.getElementById('sc-incluir-especiales').checked;
-      const params = new URLSearchParams({ operacion: operacionActual, nSemanas, incluirEspeciales: incluirEspeciales ? '1' : '0' });
+      const nSemanasPct = Math.min(Math.max(parseInt(document.getElementById('sc-nsemanas-pct').value) || 4, 1), 52);
+      const params = new URLSearchParams({ operacion: operacionActual, nSemanas, nSemanasPct, incluirEspeciales: incluirEspeciales ? '1' : '0' });
       const semSel = document.getElementById('sc-semana-sel').value;
       if (semSel) params.set('semanaObjetivo', semSel);
 
@@ -10299,11 +10306,11 @@ async function viewSeguimientoCompras(container) {
           </tr>
           <tr>
             ${detalleIngresos ? '<th class="text-right">Compra</th><th class="text-right">Transferencia</th>' : ''}
-            <th class="text-right">Importe</th><th class="text-center">%</th>
-            <th class="text-right">Importe</th><th class="text-center">%</th>
+            <th class="text-right">Importe</th><th class="text-center">% sem / ${data.nSemPct} sem</th>
+            <th class="text-right">Importe</th><th class="text-center">% sem / ${data.nSemPct} sem</th>
             ${detalleOtros ? otrosKeys.map(k => `<th class="text-right">${esc(k)}</th>`).join('') : ''}
             <th class="text-right">Importe</th>
-            <th class="text-right">Importe</th><th class="text-center">%</th>
+            <th class="text-right">Importe</th><th class="text-center">% sem / ${data.nSemPct} sem</th>
           </tr>
         </thead>
         <tbody>
@@ -10314,12 +10321,12 @@ async function viewSeguimientoCompras(container) {
               ${tdN(f.ventaNeta)}
               ${tdN(f.saldoInicial)}
               ${detalleIngresos ? tdN(f.compra) + tdN(f.transferencia) : ''}
-              ${tdN(f.ingresosAlmacen)}${tdP(f.pctIngresosAlmacen)}
-              ${tdN(f.fcTeorico)}${tdP(f.pctFcTeorico)}
+              ${tdN(f.ingresosAlmacen)}${tdP2(f.pctIngresosAlmacen, f.pctIngresosAlmacenNSem)}
+              ${tdN(f.fcTeorico)}${tdP2(f.pctFcTeorico, f.pctFcTeoricoNSem)}
               ${detalleOtros ? otrosKeys.map(k => tdN(f.otrosDetalle[k] ?? 0)).join('') : ''}
               ${tdN(f.otrosTotal)}
               ${tdN(f.inventarioFinal)}
-              ${tdN(f.consumoTotal)}${tdP(f.pctConsumoTotal)}
+              ${tdN(f.consumoTotal)}${tdP2(f.pctConsumoTotal, f.pctConsumoTotalNSem)}
             </tr>`).join('')}
         </tbody>
       </table>`;
