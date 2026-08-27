@@ -2,9 +2,6 @@ const express = require('express');
 const auth = require('../middleware/auth');
 
 const SeguimientoCompraMovimiento = require('../models/SeguimientoCompraMovimiento');
-const SeguimientoCompraOC         = require('../models/SeguimientoCompraOC');
-const SeguimientoCompraPedidoTienda = require('../models/SeguimientoCompraPedidoTienda');
-const SeguimientoCompraAprobacion   = require('../models/SeguimientoCompraAprobacion');
 const VentaCanalDiaria = require('../models/VentaCanalDiaria');
 
 const router = express.Router();
@@ -15,13 +12,6 @@ function requireAccess(req, res, next) {
   return res.status(403).json({ error: 'Sin acceso a Aprobación y Seguimiento de Compras' });
 }
 router.use(requireAccess);
-
-function puedeCargar(user) {
-  return user.role === 'ADMIN' || user.rolSeguimientoCompras === 'carga' || user.rolSeguimientoCompras === 'admin';
-}
-function puedeAprobar(user) {
-  return user.role === 'ADMIN' || user.rolSeguimientoCompras === 'aprobacion' || user.rolSeguimientoCompras === 'admin';
-}
 
 /** Operaciones autorizadas del usuario (null = todas) */
 function opsFilter(user) {
@@ -71,160 +61,39 @@ router.get('/operaciones', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /familias?operacion= ───────────────────────────────────────────────────
-router.get('/familias', async (req, res) => {
-  try {
-    const { operacion } = req.query;
-    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-    const familias = await SeguimientoCompraOC.distinct('grupoCompra', { operacion });
-    res.json(familias.filter(Boolean).sort());
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── GET /compras?operacion=&año=&semana= — Cuadro 1: Compras/OC por Familia ──
-router.get('/compras', async (req, res) => {
-  try {
-    const { operacion } = req.query;
-    const año = parseInt(req.query.año), semana = parseInt(req.query.semana);
-    if (!operacion || !año || !semana) return res.status(400).json({ error: 'Operación, año y semana requeridos' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-
-    const semAnt = addSemanas(año, semana, -1);
-
-    const [ocSel, ocAnt, movAnt, pedidosSel, aprobAnt] = await Promise.all([
-      SeguimientoCompraOC.find({ operacion, año, semana }).lean(),
-      SeguimientoCompraOC.find({ operacion, año: semAnt.año, semana: semAnt.semana }).lean(),
-      SeguimientoCompraMovimiento.find({
-        operacion, año: semAnt.año, semana: semAnt.semana,
-        movimiento: { $in: ['COMPRA', 'TRANSFERENCIA'] },
-      }).lean(),
-      SeguimientoCompraPedidoTienda.find({ operacion, año, semana }).lean(),
-      SeguimientoCompraAprobacion.find({ operacion, año: semAnt.año, semana: semAnt.semana }).lean(),
-    ]);
-
-    const familias = new Set([
-      ...ocSel.map(d => d.grupoCompra),
-      ...ocAnt.map(d => d.grupoCompra),
-      ...movAnt.map(d => d.grupoCompra),
-      ...pedidosSel.map(d => d.grupoCompra),
-    ]);
-
-    const pedidoPorFamilia = Object.fromEntries(pedidosSel.map(p => [p.grupoCompra, p.monto]));
-    const aprobPorFamilia = Object.fromEntries(aprobAnt.map(a => [a.grupoCompra, a.montoAprobado]));
-
-    const filas = [...familias].sort().map(familia => {
-      const ocSelFam = ocSel.filter(d => d.grupoCompra === familia);
-      const ocAntFam = ocAnt.filter(d => d.grupoCompra === familia);
-      const movAntFam = movAnt.filter(d => d.grupoCompra === familia);
-
-      const pedidoTienda = pedidoPorFamilia[familia] || 0;
-      const ocAprobadaSel = ocSelFam.reduce((s, d) => s + d.importeOC, 0);
-      const ocPedido = ocAprobadaSel - pedidoTienda;
-
-      const ocNormal   = ocAntFam.filter(d => d.claseOC === 'NORMAL').reduce((s, d) => s + d.importeOC, 0);
-      const ocAdicional = ocAntFam.filter(d => d.claseOC === 'ADICIONAL').reduce((s, d) => s + d.importeOC, 0);
-      const ocOtros     = ocAntFam.filter(d => d.claseOC === 'OTRA').reduce((s, d) => s + d.importeOC, 0);
-      const ocTotal = ocNormal + ocAdicional + ocOtros;
-      const compraReal = movAntFam.reduce((s, d) => s + d.importe, 0);
-      const diferencia = compraReal - ocTotal;
-
-      return {
-        grupoCompra: familia,
-        semanaSeleccionada: { año, semana, pedidoTienda, ocAprobada: ocAprobadaSel, ocPedido },
-        semanaAnterior: {
-          año: semAnt.año, semana: semAnt.semana,
-          ocAprobada: familia in aprobPorFamilia ? aprobPorFamilia[familia] : null,
-          ocNormal, ocAdicional, ocOtros, ocTotal, compraReal, diferencia,
-        },
-      };
-    });
-
-    res.json({ operacion, semanaSeleccionada: { año, semana }, semanaAnterior: semAnt, filas });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── PUT /pedido-tienda — registro manual (upsert) ─────────────────────────────
-router.put('/pedido-tienda', async (req, res) => {
-  try {
-    if (!puedeCargar(req.user)) return res.status(403).json({ error: 'Sin permiso para registrar Pedido Tienda' });
-    const { operacion, grupoCompra, año, semana, monto } = req.body;
-    if (!operacion || !grupoCompra || !año || !semana) {
-      return res.status(400).json({ error: 'Operación, familia, año y semana requeridos' });
-    }
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-
-    const doc = await SeguimientoCompraPedidoTienda.findOneAndUpdate(
-      { operacion, grupoCompra, año, semana },
-      { operacion, grupoCompra, año, semana, monto: Number(monto) || 0, registradoPor: req.user.username, registradoEn: new Date() },
-      { upsert: true, new: true }
-    );
-    res.json(doc);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── POST /aprobar {operacion, año, semana} — congela TODAS las familias ──────
-router.post('/aprobar', async (req, res) => {
-  try {
-    if (!puedeAprobar(req.user)) return res.status(403).json({ error: 'Sin permiso para aprobar' });
-    const { operacion } = req.body;
-    const año = parseInt(req.body.año), semana = parseInt(req.body.semana);
-    if (!operacion || !año || !semana) return res.status(400).json({ error: 'Operación, año y semana requeridos' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-
-    const ocDocs = await SeguimientoCompraOC.find({ operacion, año, semana }).lean();
-    const porFamilia = {};
-    ocDocs.forEach(d => { porFamilia[d.grupoCompra] = (porFamilia[d.grupoCompra] || 0) + d.importeOC; });
-
-    const familias = Object.keys(porFamilia);
-    if (!familias.length) return res.status(400).json({ error: 'No hay datos de OC para esa operación/semana' });
-
-    await Promise.all(familias.map(grupoCompra => SeguimientoCompraAprobacion.findOneAndUpdate(
-      { operacion, grupoCompra, año, semana },
-      { operacion, grupoCompra, año, semana, montoAprobado: porFamilia[grupoCompra], aprobadoPor: req.user.username, aprobadoEn: new Date() },
-      { upsert: true, new: true }
-    )));
-
-    res.json({ ok: true, familiasAprobadas: familias.length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── Helpers de cálculo del Cuadro 2 ─────────────────────────────────────────
-
-const MOV_VENTA = 'VENTA', MOV_CONSUMOS = 'CONSUMOS', MOV_FALTANTE = 'FALTANTE',
-      MOV_SOBRANTE = 'SOBRANTE', MOV_COMPRA = 'COMPRA', MOV_TRANSFERENCIA = 'TRANSFERENCIA',
-      MOV_BAJA = 'BAJA', MOV_MERMA = 'MERMA', MOV_INICIAL = 'INICIAL';
-const MOV_PROD_TRANSFER = ['PRODUCCION', 'TRANSFORMACION', 'CONSUMO PRODUCCION', 'CONSUMO TRANSFORMACION'];
-
-function calcularSemanaMovimientos(docs) {
-  const sum = (pred) => docs.filter(pred).reduce((s, d) => s + d.importe, 0);
+// ── Cálculo por semana: desglose de movimientos del kardex ──────────────────
+// Ingresos al Almacén = COMPRA + TRANSFERENCIA (con signo).
+// FC Teórico = |VENTA| (magnitud, la venta ya viene negativa en la fuente).
+// Otros movimientos = todo lo demás EXCEPTO COMPRA/TRANSFERENCIA/VENTA/INICIAL
+// (INICIAL son ajustes de apertura, no actividad de la semana — igual suman
+// al saldo corrido pero no se listan como "movimiento").
+function calcularSemanaEficiencia(docs) {
+  const porTipo = {};
+  docs.forEach(d => { porTipo[d.movimiento] = (porTipo[d.movimiento] || 0) + d.importe; });
   const totalTodos = docs.reduce((s, d) => s + d.importe, 0);
-  const totalNoInicial = sum(d => d.movimiento !== MOV_INICIAL);
 
-  const compra = sum(d => d.movimiento === MOV_COMPRA);
-  const transferencias = sum(d => d.movimiento === MOV_TRANSFERENCIA);
-  const compraTotal = compra + transferencias;
-  const ventaSigned = sum(d => d.movimiento === MOV_VENTA);
-  const consumosSigned = sum(d => d.movimiento === MOV_CONSUMOS);
-  const faltanteSigned = sum(d => d.movimiento === MOV_FALTANTE);
-  const sobrante = sum(d => d.movimiento === MOV_SOBRANTE);
-  const bajasYMermasSigned = sum(d => d.movimiento === MOV_BAJA || d.movimiento === MOV_MERMA);
-  const prodYTransfer = sum(d => MOV_PROD_TRANSFER.includes(d.movimiento));
+  const compra = porTipo['COMPRA'] || 0;
+  const transferencia = porTipo['TRANSFERENCIA'] || 0;
+  const ingresosAlmacen = compra + transferencia;
+  const fcTeorico = Math.abs(porTipo['VENTA'] || 0);
 
-  const fcTeorico = Math.abs(ventaSigned);
-  const consumos = Math.abs(consumosSigned);
-  const faltantes = Math.abs(faltanteSigned);
-  const bajasYMermas = Math.abs(bajasYMermasSigned);
+  const otrosDetalle = {};
+  let otrosTotal = 0;
+  Object.entries(porTipo).forEach(([mov, importe]) => {
+    if (['COMPRA', 'TRANSFERENCIA', 'VENTA', 'INICIAL'].includes(mov)) return;
+    otrosDetalle[mov] = importe;
+    otrosTotal += importe;
+  });
 
-  const otrosMovim = totalNoInicial - (compra + transferencias + ventaSigned + consumosSigned + faltanteSigned + sobrante + bajasYMermasSigned + prodYTransfer);
-
-  return { totalTodos, compra, transferencias, compraTotal, fcTeorico, consumos, faltantes, sobrante, bajasYMermas, prodYTransfer, otrosMovim };
+  return { totalTodos, compra, transferencia, ingresosAlmacen, fcTeorico, otrosTotal, otrosDetalle };
 }
 
 function pct(num, den) { return den ? num / den : null; }
 
-// ── GET /resumen-semanal?operacion=&semanaObjetivo=YYYYWW&nSemanas= — Cuadro 2 ──
-router.get('/resumen-semanal', async (req, res) => {
+// ── GET /eficiencia?operacion=&semanaObjetivo=YYYYWW&nSemanas= ──────────────
+// Eficiencia de consumo y compra de materiales: compara la compra/consumo
+// teórico y real contra la Venta Neta AyB, semana a semana.
+router.get('/eficiencia', async (req, res) => {
   try {
     const { operacion } = req.query;
     if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
@@ -237,15 +106,13 @@ router.get('/resumen-semanal', async (req, res) => {
     if (semQ && /^\d{6}$/.test(semQ)) objetivo = { año: +semQ.slice(0, 4), semana: +semQ.slice(4) };
     else { const hoy = new Date(); objetivo = { año: isoYear(hoy), semana: isoWeek(hoy) }; }
 
-    // Semanas a mostrar + 3 previas extra (para el acumulado de "4 semanas" de la primera fila mostrada)
-    const EXTRA = 3;
-    const rango = []; // extendido: incluye las EXTRA semanas previas + las nSem a mostrar
-    for (let i = nSem - 1 + EXTRA; i >= 0; i--) rango.push(addSemanas(objetivo.año, objetivo.semana, -i));
+    const rango = [];
+    for (let i = nSem - 1; i >= 0; i--) rango.push(addSemanas(objetivo.año, objetivo.semana, -i));
 
     const primeraSemana = rango[0];
     const claveInicio = claveSemana(primeraSemana.año, primeraSemana.semana);
 
-    // Venta (VentaCanalDiaria)
+    // Venta (VentaCanalDiaria) — todos los canales suman como AyB.
     const rangoDesde = mondayOfIsoWeek(primeraSemana.año, primeraSemana.semana);
     const ultimaSemana = rango[rango.length - 1];
     const rangoHasta = new Date(mondayOfIsoWeek(ultimaSemana.año, ultimaSemana.semana));
@@ -255,16 +122,16 @@ router.get('/resumen-semanal', async (req, res) => {
     const ventaDocs = await VentaCanalDiaria.find({
       operacion, fecha: { $gte: rangoDesde, $lte: rangoHasta },
     }).lean();
-    const ventaPorSemana = {}; // claveSemana -> { ventaBrutaMasRedencion, ventaNetaMasRedencion }
+    const ventaPorSemana = {};
     ventaDocs.forEach(d => {
-      const iy = isoYear(d.fecha), iw = isoWeek(d.fecha);
-      const k = claveSemana(iy, iw);
-      if (!ventaPorSemana[k]) ventaPorSemana[k] = { ventaBrutaMasRedencion: 0, ventaNetaMasRedencion: 0 };
-      ventaPorSemana[k].ventaBrutaMasRedencion += d.ventaBrutaMasRedencion || 0;
-      ventaPorSemana[k].ventaNetaMasRedencion += d.ventaNetaMasRedencion || 0;
+      const k = claveSemana(isoYear(d.fecha), isoWeek(d.fecha));
+      if (!ventaPorSemana[k]) ventaPorSemana[k] = { ventaBruta: 0, ventaNeta: 0 };
+      ventaPorSemana[k].ventaBruta += d.ventaBrutaMasRedencion || 0;
+      ventaPorSemana[k].ventaNeta += d.ventaNetaMasRedencion || 0;
     });
 
-    // Movimientos: todo lo anterior a la primera semana del rango extendido (para Inv. Inicial base) + semanas del rango
+    // Movimientos: todo lo anterior a la primera semana del rango (para el
+    // Saldo Inicial base) + las semanas del rango.
     const [previosDocs, semanaDocs] = await Promise.all([
       SeguimientoCompraMovimiento.find({
         operacion,
@@ -276,68 +143,48 @@ router.get('/resumen-semanal', async (req, res) => {
       }).lean(),
     ]);
 
-    const invInicialBase = previosDocs.reduce((s, d) => s + d.importe, 0);
+    const saldoInicialBase = previosDocs.reduce((s, d) => s + d.importe, 0);
 
-    const movPorSemana = {}; // claveSemana -> docs[]
+    const movPorSemana = {};
     semanaDocs.forEach(d => {
       const k = claveSemana(d.año, d.semana);
       if (!movPorSemana[k]) movPorSemana[k] = [];
       movPorSemana[k].push(d);
     });
 
-    let invInicial = invInicialBase;
-    const filasExtendidas = rango.map(h => {
+    let saldoInicial = saldoInicialBase;
+    const filas = rango.map(h => {
       const k = claveSemana(h.año, h.semana);
       const docs = movPorSemana[k] || [];
-      const calc = calcularSemanaMovimientos(docs);
+      const calc = calcularSemanaEficiencia(docs);
 
-      const invInicialSemana = invInicial;
-      const invFinal = invInicialSemana + calc.totalTodos;
-      const varInv = invFinal - invInicialSemana;
-      const costoDeVenta = invInicialSemana + calc.compraTotal - invFinal;
-      invInicial = invFinal;
+      const saldoInicialSemana = saldoInicial;
+      const inventarioFinal = saldoInicialSemana + calc.totalTodos;
+      const consumoTotal = saldoInicialSemana + calc.ingresosAlmacen - inventarioFinal;
+      saldoInicial = inventarioFinal;
 
-      const venta = ventaPorSemana[k] || { ventaBrutaMasRedencion: 0, ventaNetaMasRedencion: 0 };
-      const ventaNeta = venta.ventaNetaMasRedencion;
+      const venta = ventaPorSemana[k] || { ventaBruta: 0, ventaNeta: 0 };
+      const ventaNetaAyB = venta.ventaNeta;
 
       return {
         año: h.año, semana: h.semana,
-        ventaBruta: venta.ventaBrutaMasRedencion,
-        ventaNeta,
-        vnAyB: ventaNeta,
+        ventaBruta: venta.ventaBruta,
+        ventaNeta: venta.ventaNeta,
+        ventaNetaAyB,
+        saldoInicial: saldoInicialSemana,
         compra: calc.compra,
-        transferencias: calc.transferencias,
-        compraTotal: calc.compraTotal,
+        transferencia: calc.transferencia,
+        ingresosAlmacen: calc.ingresosAlmacen,
+        pctIngresosAlmacen: pct(calc.ingresosAlmacen, ventaNetaAyB),
         fcTeorico: calc.fcTeorico,
-        consumos: calc.consumos,
-        faltantes: calc.faltantes,
-        sobrante: calc.sobrante,
-        bajasYMermas: calc.bajasYMermas,
-        prodYTransfer: calc.prodYTransfer,
-        otrosMovim: calc.otrosMovim,
-        invInicial: invInicialSemana,
-        invFinal,
-        varInv,
-        costoDeVenta,
+        pctFcTeorico: pct(calc.fcTeorico, ventaNetaAyB),
+        otrosTotal: calc.otrosTotal,
+        otrosDetalle: calc.otrosDetalle,
+        inventarioFinal,
+        consumoTotal,
+        pctConsumoTotal: pct(consumoTotal, ventaNetaAyB),
       };
     });
-
-    // % acumulado 4 semanas (semana actual + 3 anteriores), sumando numerador y denominador —
-    // calculado sobre el rango extendido para que las primeras filas mostradas también tengan
-    // sus 3 semanas previas disponibles, aunque no se muestren como fila propia.
-    filasExtendidas.forEach((fila, idx) => {
-      const desde = Math.max(0, idx - 3);
-      const grupo = filasExtendidas.slice(desde, idx + 1);
-      const denAcum = grupo.reduce((s, f) => s + f.ventaNeta, 0);
-      fila.pctIngresoAlmacenSemana = pct(fila.compraTotal, fila.ventaNeta);
-      fila.pctFcTeoricoSemana = pct(fila.fcTeorico, fila.ventaNeta);
-      fila.pctCvRealSemana = pct(fila.costoDeVenta, fila.ventaNeta);
-      fila.pctIngresoAlmacen4Sem = pct(grupo.reduce((s, f) => s + f.compraTotal, 0), denAcum);
-      fila.pctFcTeorico4Sem = pct(grupo.reduce((s, f) => s + f.fcTeorico, 0), denAcum);
-      fila.pctCvReal4Sem = pct(grupo.reduce((s, f) => s + f.costoDeVenta, 0), denAcum);
-    });
-
-    const filas = filasExtendidas.slice(EXTRA);
 
     res.json({ operacion, objetivo, filas });
   } catch (err) { res.status(500).json({ error: err.message }); }

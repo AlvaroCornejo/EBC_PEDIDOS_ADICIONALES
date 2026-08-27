@@ -269,7 +269,7 @@ const NAV_ITEMS = [
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'pagos-recurrentes', label: 'Pagos Recurrentes', icon: '🔁', roles: [ROLES.ADMIN], extraPerm: 'rolPagoRecurrente' },
-  { id: 'seguimiento-compras', label: 'Aprob. y Seg. de Compras', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'rolSeguimientoCompras' },
+  { id: 'seguimiento-compras', label: 'Eficiencia Consumo/Compra', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'rolSeguimientoCompras' },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
   { id: 'autorizaciones', label: 'Incluir Pagos', icon: '📋', roles: [ROLES.ADMIN], extraPermAny: ['rolObligaciones', 'rolPago'] },
@@ -10097,19 +10097,19 @@ async function viewPagosRecurrentes(container) {
 
 // ─── View: Aprobación y Seguimiento de Compras ────────────────────
 async function viewSeguimientoCompras(container) {
-  const esAdmin = S.user.role === 'ADMIN';
-  const rol = S.user.rolSeguimientoCompras || '';
-  const puedeCargar = esAdmin || rol === 'carga' || rol === 'admin';
-  const puedeAprobar = esAdmin || rol === 'aprobacion' || rol === 'admin';
-  const misOperaciones = esAdmin ? null : (S.user.operations || []);
+  const misOperaciones = S.user.role === 'ADMIN' ? null : (S.user.operations || []);
 
   let operacionActual = '';
-  let semanaSelElegida = ''; // 'YYYYWW', vacío = semana actual + 1
-  let nSemanasCuadro2 = 8;
+  let semanaSelElegida = ''; // 'YYYYWW', vacío = semana actual
+  let nSemanas = 8;
+  let detalleIngresos = false; // mostrar Compra/Transferencia por separado
+  let detalleOtros = false;    // mostrar cada tipo de "otros movimientos" por separado
+  let data = null;
 
-  const fmtN = (v, dec = 0) => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-  const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtN = v => v == null ? '—' : Math.round(Number(v)).toLocaleString('es-PE');
   const fmtPct = v => v == null ? '—' : (Number(v) * 100).toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+  const tdN = v => `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${fmtN(v)}</td>`;
+  const tdP = v => `<td class="text-center" style="${v < 0 ? 'color:#dc2626' : ''}">${fmtPct(v)}</td>`;
 
   function isoYearCli(date) {
     const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -10139,7 +10139,7 @@ async function viewSeguimientoCompras(container) {
 
   container.innerHTML = `
     <div class="page-header">
-      <div class="page-title">📦 Aprobación y Seguimiento de Compras</div>
+      <div class="page-title">📦 Eficiencia de Consumo y Compra de Materiales</div>
     </div>
     <div class="page-body">
       <div class="card mb-16" style="padding:14px">
@@ -10151,11 +10151,11 @@ async function viewSeguimientoCompras(container) {
             </select>
           </div>
           <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semana seleccionada</label>
-            <select id="sc-semana-sel" class="form-control" style="width:170px"><option value="">Semana actual + 1</option></select>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Hasta la semana</label>
+            <select id="sc-semana-sel" class="form-control" style="width:170px"><option value="">Semana actual</option></select>
           </div>
           <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semanas en Cuadro 2</label>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">N° de semanas</label>
             <div style="display:flex;gap:6px;align-items:center">
               <strong id="sc-nsemanas-lbl">8</strong>
               <button class="btn btn-outline btn-sm" id="sc-mas-semanas">+8 semanas</button>
@@ -10178,162 +10178,96 @@ async function viewSeguimientoCompras(container) {
 
   document.getElementById('sc-operacion').addEventListener('change', (e) => { operacionActual = e.target.value; semanaSelElegida = ''; cargar(); });
   document.getElementById('sc-semana-sel').addEventListener('change', (e) => { semanaSelElegida = e.target.value; cargar(); });
-  document.getElementById('sc-mas-semanas').addEventListener('click', () => { nSemanasCuadro2 += 8; document.getElementById('sc-nsemanas-lbl').textContent = nSemanasCuadro2; cargarCuadro2(); });
+  document.getElementById('sc-mas-semanas').addEventListener('click', () => { nSemanas += 8; document.getElementById('sc-nsemanas-lbl').textContent = nSemanas; cargar(); });
 
   function poblarSelectorSemanas(actual) {
     const sel = document.getElementById('sc-semana-sel');
     const valorPrevio = semanaSelElegida;
     const opciones = [];
-    for (let i = -4; i <= 12; i++) {
+    for (let i = -12; i <= 4; i++) {
       const s = addSemanasCli(actual.año, actual.semana, i);
       const val = `${s.año}${String(s.semana).padStart(2, '0')}`;
-      opciones.push(`<option value="${val}">SEM ${s.semana}/${s.año}${i === 1 ? ' (siguiente)' : i === 0 ? ' (actual)' : ''}</option>`);
+      opciones.push(`<option value="${val}">SEM ${s.semana}/${s.año}${i === 0 ? ' (actual)' : ''}</option>`);
     }
-    sel.innerHTML = '<option value="">Semana actual + 1</option>' + opciones.join('');
-    sel.value = valorPrevio || '';
+    sel.innerHTML = opciones.join('');
+    sel.value = valorPrevio || `${actual.año}${String(actual.semana).padStart(2, '0')}`;
   }
-
-  let objetivoActual = null;
 
   async function cargar() {
     if (!operacionActual) { root.innerHTML = ''; return; }
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
-      const params = new URLSearchParams({ operacion: operacionActual });
       const hoy = new Date();
-      let objetivo;
-      if (semanaSelElegida) objetivo = { año: +semanaSelElegida.slice(0, 4), semana: +semanaSelElegida.slice(4) };
-      else objetivo = addSemanasCli(isoYearCli(hoy), isoWeekCli(hoy), 1);
       poblarSelectorSemanas({ año: isoYearCli(hoy), semana: isoWeekCli(hoy) });
-      objetivoActual = objetivo;
-      params.set('año', objetivo.año); params.set('semana', objetivo.semana);
+      const params = new URLSearchParams({ operacion: operacionActual, nSemanas });
+      const semSel = document.getElementById('sc-semana-sel').value;
+      if (semSel) params.set('semanaObjetivo', semSel);
 
-      root.innerHTML = `
-        <div class="card mb-16" style="padding:14px;overflow-x:auto">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <h3 style="margin:0">Cuadro 1 · Compras / OC por Familia</h3>
-            ${puedeAprobar ? `<button class="btn btn-primary btn-sm" id="sc-aprobar">✅ Aprobar semana</button>` : ''}
-          </div>
-          <div id="sc-cuadro1"></div>
-        </div>
-        <div class="card" style="padding:14px;overflow-x:auto">
-          <h3 style="margin:0 0 10px 0">Cuadro 2 · Venta / Costo semanal</h3>
-          <div id="sc-cuadro2"></div>
-        </div>`;
-
-      if (puedeAprobar) {
-        document.getElementById('sc-aprobar').addEventListener('click', aprobarSemana);
-      }
-
-      await cargarCuadro1(params);
-      await cargarCuadro2();
+      data = await GET(`/seguimiento-compras/eficiencia?${params}`);
+      root.innerHTML = `<div class="card" style="padding:14px;overflow-x:auto"><div id="sc-tabla"></div></div>`;
+      renderTabla();
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
-  async function cargarCuadro1(params) {
-    const el = document.getElementById('sc-cuadro1');
-    el.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
-    try {
-      const data = await GET(`/seguimiento-compras/compras?${params}`);
-      if (!data.filas.length) { el.innerHTML = '<p class="text-muted">Sin datos de compras para esta operación/semana.</p>'; return; }
-      el.innerHTML = `
-        <table class="table" style="min-width:1200px">
-          <thead>
-            <tr>
-              <th rowspan="2">Familia</th>
-              <th colspan="3" style="text-align:center;border-bottom:2px solid var(--border)">Semana Sel. (SEM ${data.semanaSeleccionada.semana}/${data.semanaSeleccionada.año})</th>
-              <th colspan="7" style="text-align:center;border-bottom:2px solid var(--border)">Semana Anterior (SEM ${data.semanaAnterior.semana}/${data.semanaAnterior.año})</th>
-            </tr>
-            <tr>
-              <th>Pedido Tienda</th><th>OC Aprobada</th><th>OC - Pedido</th>
-              <th>OC Aprobada</th><th>OC Normal</th><th>OC Adicional</th><th>OC Otros</th><th>OC Total</th><th>Compra Real</th><th>Diferencia</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.filas.map(f => `
-              <tr>
-                <td>${esc(f.grupoCompra)}</td>
-                <td>${puedeCargar
-                  ? `<input type="number" step="0.01" class="form-control sc-pedido-input" data-familia="${esc(f.grupoCompra)}" value="${f.semanaSeleccionada.pedidoTienda}" style="width:110px">`
-                  : fmtMoney(f.semanaSeleccionada.pedidoTienda)}</td>
-                <td>${fmtMoney(f.semanaSeleccionada.ocAprobada)}</td>
-                <td>${fmtMoney(f.semanaSeleccionada.ocPedido)}</td>
-                <td>${f.semanaAnterior.ocAprobada == null ? '—' : fmtMoney(f.semanaAnterior.ocAprobada)}</td>
-                <td>${fmtMoney(f.semanaAnterior.ocNormal)}</td>
-                <td>${fmtMoney(f.semanaAnterior.ocAdicional)}</td>
-                <td>${fmtMoney(f.semanaAnterior.ocOtros)}</td>
-                <td>${fmtMoney(f.semanaAnterior.ocTotal)}</td>
-                <td>${fmtMoney(f.semanaAnterior.compraReal)}</td>
-                <td>${fmtMoney(f.semanaAnterior.diferencia)}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>`;
+  function renderTabla() {
+    const el = document.getElementById('sc-tabla');
+    if (!el || !data) return;
+    if (!data.filas.length) { el.innerHTML = '<p class="text-muted">Sin datos para esta operación.</p>'; return; }
 
-      if (puedeCargar) {
-        el.querySelectorAll('.sc-pedido-input').forEach(input => {
-          input.addEventListener('blur', async () => {
-            const familia = input.dataset.familia;
-            const monto = parseFloat(input.value) || 0;
-            try {
-              await PUT('/seguimiento-compras/pedido-tienda', {
-                operacion: operacionActual, grupoCompra: familia,
-                año: data.semanaSeleccionada.año, semana: data.semanaSeleccionada.semana, monto,
-              });
-              toast('Pedido Tienda guardado', 'success');
-            } catch (e) { toast(e.message, 'error'); }
-          });
-        });
-      }
-    } catch (e) { el.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
-  }
+    // Unión de tipos de "otros movimientos" presentes en el rango, para que
+    // las columnas de detalle sean consistentes en todas las filas.
+    const otrosKeys = [...new Set(data.filas.flatMap(f => Object.keys(f.otrosDetalle)))].sort();
 
-  async function cargarCuadro2() {
-    const el = document.getElementById('sc-cuadro2');
-    if (!el || !objetivoActual) return;
-    el.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
-    try {
-      const params = new URLSearchParams({
-        operacion: operacionActual, nSemanas: nSemanasCuadro2,
-        semanaObjetivo: `${objetivoActual.año}${String(objetivoActual.semana).padStart(2, '0')}`,
-      });
-      const data = await GET(`/seguimiento-compras/resumen-semanal?${params}`);
-      el.innerHTML = `
-        <table class="table" style="min-width:1900px;font-size:12px">
-          <thead>
+    const arrIngresos = detalleIngresos ? '▾' : '▸';
+    const arrOtros = detalleOtros ? '▾' : '▸';
+    const colsIngresos = detalleIngresos ? 4 : 2; // + Compra/Transferencia (solo importe) cuando está abierto
+    const colsOtros = detalleOtros ? otrosKeys.length + 1 : 1; // + un importe por tipo cuando está abierto
+
+    el.innerHTML = `
+      <table class="data-table" style="font-size:12px;white-space:nowrap">
+        <thead>
+          <tr>
+            <th rowspan="2">Semana</th>
+            <th rowspan="2" class="text-right">Venta Bruta</th>
+            <th rowspan="2" class="text-right">Venta Neta</th>
+            <th rowspan="2" class="text-right">Venta Neta AyB</th>
+            <th rowspan="2" class="text-right">Saldo Inicial</th>
+            <th colspan="${colsIngresos}" class="text-center sc-th-toggle" id="sc-th-ingresos" style="cursor:pointer">${arrIngresos} Ingresos al Almacén</th>
+            <th colspan="2" class="text-center">FC Teórico</th>
+            <th colspan="${colsOtros}" class="text-center sc-th-toggle" id="sc-th-otros" style="cursor:pointer">${arrOtros} Otros Movimientos</th>
+            <th rowspan="2" class="text-right">Inventario Final</th>
+            <th colspan="2" class="text-center">Consumo Total</th>
+          </tr>
+          <tr>
+            ${detalleIngresos ? '<th class="text-right">Compra</th><th class="text-right">Transferencia</th>' : ''}
+            <th class="text-right">Importe</th><th class="text-center">%</th>
+            <th class="text-right">Importe</th><th class="text-center">%</th>
+            ${detalleOtros ? otrosKeys.map(k => `<th class="text-right">${esc(k)}</th>`).join('') : ''}
+            <th class="text-right">Importe</th>
+            <th class="text-right">Importe</th><th class="text-center">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.filas.map(f => `
             <tr>
-              <th>Semana</th><th>Venta Bruta</th><th>Venta Neta</th><th>VN AyB</th>
-              <th>% Ing. Almacén (sem)</th><th>% Ing. Almacén (4sem)</th>
-              <th>Compra</th><th>Transferencias</th><th>Compra Total</th>
-              <th>% FC Teórico (sem)</th><th>% FC Teórico (4sem)</th><th>FC Teórico</th>
-              <th>% CV Real (sem)</th><th>% CV Real (4sem)</th><th>Costo de Venta</th>
-              <th>Inv. Inicial</th><th>Inv. Final</th><th>Var. Inv</th>
-              <th>Consumos</th><th>Faltantes</th><th>Sobrante</th><th>Bajas &amp; Mermas</th><th>Prod &amp; Transfer</th><th>Otros Movim</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.filas.map(f => `
-              <tr>
-                <td>SEM ${f.semana}/${f.año}</td>
-                <td>${fmtMoney(f.ventaBruta)}</td><td>${fmtMoney(f.ventaNeta)}</td><td>${fmtMoney(f.vnAyB)}</td>
-                <td>${fmtPct(f.pctIngresoAlmacenSemana)}</td><td>${fmtPct(f.pctIngresoAlmacen4Sem)}</td>
-                <td>${fmtMoney(f.compra)}</td><td>${fmtMoney(f.transferencias)}</td><td>${fmtMoney(f.compraTotal)}</td>
-                <td>${fmtPct(f.pctFcTeoricoSemana)}</td><td>${fmtPct(f.pctFcTeorico4Sem)}</td><td>${fmtMoney(f.fcTeorico)}</td>
-                <td>${fmtPct(f.pctCvRealSemana)}</td><td>${fmtPct(f.pctCvReal4Sem)}</td><td>${fmtMoney(f.costoDeVenta)}</td>
-                <td>${fmtMoney(f.invInicial)}</td><td>${fmtMoney(f.invFinal)}</td><td>${fmtMoney(f.varInv)}</td>
-                <td>${fmtMoney(f.consumos)}</td><td>${fmtMoney(f.faltantes)}</td><td>${fmtMoney(f.sobrante)}</td><td>${fmtMoney(f.bajasYMermas)}</td><td>${fmtMoney(f.prodYTransfer)}</td><td>${fmtMoney(f.otrosMovim)}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>`;
-    } catch (e) { el.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
-  }
+              <td>SEM ${f.semana}/${f.año}</td>
+              ${tdN(f.ventaBruta)}
+              ${tdN(f.ventaNeta)}
+              ${tdN(f.ventaNetaAyB)}
+              ${tdN(f.saldoInicial)}
+              ${detalleIngresos ? tdN(f.compra) + tdN(f.transferencia) : ''}
+              ${tdN(f.ingresosAlmacen)}${tdP(f.pctIngresosAlmacen)}
+              ${tdN(f.fcTeorico)}${tdP(f.pctFcTeorico)}
+              ${detalleOtros ? otrosKeys.map(k => tdN(f.otrosDetalle[k] ?? 0)).join('') : ''}
+              ${tdN(f.otrosTotal)}
+              ${tdN(f.inventarioFinal)}
+              ${tdN(f.consumoTotal)}${tdP(f.pctConsumoTotal)}
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
 
-  async function aprobarSemana() {
-    if (!objetivoActual) return;
-    if (!confirm(`¿Aprobar la OC de la semana SEM ${objetivoActual.semana}/${objetivoActual.año} para todas las familias? Esta acción congela el monto actual de OC Aprobada de cada familia.`)) return;
-    try {
-      const r = await POST('/seguimiento-compras/aprobar', { operacion: operacionActual, año: objetivoActual.año, semana: objetivoActual.semana });
-      toast(`Aprobado: ${r.familiasAprobadas} familia(s)`, 'success');
-    } catch (e) { toast(e.message, 'error'); }
+    document.getElementById('sc-th-ingresos').addEventListener('click', () => { detalleIngresos = !detalleIngresos; renderTabla(); });
+    document.getElementById('sc-th-otros').addEventListener('click', () => { detalleOtros = !detalleOtros; renderTabla(); });
   }
 
   cargar();

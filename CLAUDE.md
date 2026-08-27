@@ -490,67 +490,13 @@ botón "💰 Pagar" (`programador`/`registrador`) y "✕ Anular" (`programador`)
 "＋ Nueva regla" (modal con creación de tipo de pago al vuelo) y "📋 Reglas" (listar/
 pausar/reactivar reglas existentes), ambos solo para `programador`.
 
-### Sesión 8 — Aprobación y Seguimiento de Compras
+### Sesión 8 — Aprobación y Seguimiento de Compras (v1, reemplazada en Sesión 10)
 
-Migra a la app un seguimiento semanal (venta vs. compras vs. inventario vs. costo de
-venta, por operación) más un flujo de aprobación de órdenes de compra por familia, que
-antes se llevaba en Excel manual.
-
-**Fuentes de datos**:
-- `EBC VENTAS CABECERA.xlsx` (la misma de Pronóstico de Venta) — se le agregaron las
-  columnas `VENTA NETA` y `VENTA NETA MAS REDENCION` a `VentaCanalDiaria`/
-  `importVentaCanalDiaria.js` (columnas opcionales, no rompen si el Excel del servidor
-  aún no las trae).
-- `EBC BASE SEGUIMIENTO DE COMPRAS.xlsx` (`C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI
-  BASES\EBC SEGUIMIENTO DE COMPRAS\`), hojas `MOVIMIENTOS` y `OC` (la 3ra, `TABLAS`, es
-  solo documentación, no se importa). **Solo se importan filas con `GRUPO='FC'`** (se
-  descartan las `SD`). Reemplazo completo por corrida (snapshot, no serie histórica
-  incremental).
-- Pedido Tienda: manual, se ingresa desde la app.
-- OC Aprobada (snapshot): se congela al presionar "Aprobar semana" en la app.
-
-**Modelos** (`models/`): `SeguimientoCompraMovimiento` (`{grupo, grupoGeneral,
-grupoCompra, operacion, movimiento, año, semana, cantidad, importe}`, `importe` ya con
-signo aplicado en la fuente), `SeguimientoCompraOC` (`{..., claseOC: NORMAL|ADICIONAL|
-OTRA, cantidadOC, importeOC}`), `SeguimientoCompraPedidoTienda` y
-`SeguimientoCompraAprobacion` (ambos `{operacion, grupoCompra, año, semana, monto(...)}`,
-únicos por esa combinación).
-
-**Backend** (`routes/seguimiento-compras.js`, montado en `/api/seguimiento-compras`).
-Acceso por `rolSeguimientoCompras` (`'' | carga | aprobacion | consulta | admin`), scoped
-por `operations` (mismo patrón que Pronóstico de Venta / Recetas / Pagos Recurrentes).
-- `GET /compras?operacion=&año=&semana=` — **Cuadro 1** (una fila por familia): de la
-  semana seleccionada muestra Pedido Tienda (manual) y OC Aprobada en vivo (todas las
-  clases); de la semana anterior muestra el snapshot de OC Aprobada (si se aprobó en su
-  momento), OC Normal/Adicional/Otros en vivo, OC Total, Compra Real (suma `IMPORTE` de
-  `MOVIMIENTOS` con `MOVIMIENTO ∈ {COMPRA, TRANSFERENCIA}`) y la Diferencia.
-- `PUT /pedido-tienda` — upsert manual (solo `carga`/`admin`).
-- `POST /aprobar {operacion,año,semana}` — **una sola acción por semana**: congela TODAS
-  las familias con OC de esa semana a la vez (solo `aprobacion`/`admin`).
-- `GET /resumen-semanal?operacion=&semanaObjetivo=&nSemanas=` — **Cuadro 2** (una fila
-  por semana, a nivel operación): Venta Bruta/Neta (de `VentaCanalDiaria`), Compra,
-  Transferencias, Compra Total, FC Teórico (`|VENTA|`), Consumos, Faltantes, Sobrante,
-  Bajas&Mermas, Prod&Transfer, **Otros Movim** (residuo de control matemático — en teoría
-  0 si los 12 tipos de movimiento conocidos cubren todo; si no da 0 es señal de un tipo
-  de movimiento nuevo sin mapear), Inv. Inicial/Final (balance acumulado **encadenado**
-  semana a semana desde el inicio del dataset), Var. Inv, Costo de Venta (`InvInicial +
-  CompraTotal − InvFinal`), y 3 %'s con `Venta Neta` de denominador (columna semana +
-  columna 4 semanas, sumando numerador/denominador antes de dividir, no promedio de %).
-  El endpoint calcula 3 semanas extra antes del rango pedido para que la primera fila
-  mostrada también tenga sus 4 semanas completas en el acumulado.
-- **Validado contra datos reales** (Sesión 8): para CDLAO semana 31/2026 (el número de
-  semana ISO de la base viene desfasado en 1 respecto al que muestra el Excel de origen),
-  Inv. Inicial y Inv. Final calculados coincidieron **exactos** contra el pantallazo real
-  del usuario (S/30,851 y S/25,252). Una comparación adicional que el usuario mencionó
-  ("%FC Teórico proyectado vs. FC Teórico real", S/35,244 vs S/36,252) es un cálculo
-  distinto, fuera del alcance de Cuadro 1/Cuadro 2 — **pendiente, no implementado**, se
-  dejó fuera a propósito por decisión del usuario.
-
-**Frontend**: nav `seguimiento-compras` → `viewSeguimientoCompras` — selector Operación +
-Semana seleccionada + cantidad de semanas del Cuadro 2 (botón "+8 semanas"). Cuadro 1 con
-input editable de Pedido Tienda (si `carga`/`admin`) y botón "✅ Aprobar semana" (si
-`aprobacion`/`admin`, con `confirm()` ya que congela todas las familias de una vez).
-Cuadro 2 es una tabla histórica de solo lectura.
+Primera versión: Cuadro 1 (aprobación de OC por familia, con Pedido Tienda manual y
+snapshot de OC Aprobada) + Cuadro 2 (resumen semanal venta/costo). **Se borró por
+completo en la Sesión 10** — ver esa sección para el diseño actual. Los modelos
+`SeguimientoCompraOC`, `SeguimientoCompraPedidoTienda` y `SeguimientoCompraAprobacion`
+(y sus colecciones en Mongo) ya no existen.
 
 ### Sesión 9 — Flujo de Caja (reconstrucción completa)
 
@@ -676,3 +622,67 @@ con datos nuevos (7/12 pagos de un proveedor real, confirma que el
 mecanismo sigue funcionando con el CSV — la tasa varía por sociedad/rango
 de fechas, no es motivo de alarma). Catálogo de
 Líneas/Detalles/Glosas/Proveedores sigue vacío a propósito.
+
+### Sesión 10 — Eficiencia de Consumo y Compra de Materiales (reemplaza Sesión 8)
+
+A pedido del usuario, se borró el Cuadro 1 (aprobación de OC por familia) y el Cuadro 2
+(resumen semanal) — código, rutas y las 3 colecciones de datos que le eran propias
+(`SeguimientoCompraOC`/`PedidoTienda`/`Aprobacion`, 10,351 docs borrados de OC) — y se
+reemplazaron por **una sola consulta**: eficiencia de consumo/compra de materiales
+contra la Venta Neta AyB, por semana. Las 2 fuentes de datos originales
+(`VentaCanalDiaria` y `SeguimientoCompraMovimiento`) se mantienen sin cambios — el
+import (`scripts/importSeguimientoCompras.js`, hoja `MOVIMIENTOS` únicamente, ya no
+importa la hoja `OC`) y `sync-seguimiento-compras.bat` siguen igual.
+
+**Venta Neta AyB**: se definió, a pedido explícito del usuario, como la suma de **todos**
+los canales de `VentaCanalDiaria` (no hay separación AyB vs. no-AyB en la fuente) —
+campo `ventaNetaMasRedencion`. Venta Bruta usa `ventaBrutaMasRedencion`. Venta Neta y
+Venta Neta AyB son el mismo número (dos columnas iguales a propósito, para que el % use
+siempre "Venta Neta AyB" como denominador aunque coincida con Venta Neta).
+
+**Fórmula de Consumo Total** — validada con el usuario con un ejemplo numérico tras
+varias rondas de confusión (la lectura literal de "Inv.Inicial + todos los movimientos −
+Inv.Final" da 0 siempre, por construcción, ya que Inventario Final YA es Inv.Inicial +
+todos los movimientos): **Consumo Total = Inv.Inicial + Ingresos al Almacén − Inv.Final**
+(la fórmula clásica de costo de venta, igual que en la v1). Ejemplo confirmado:
+Inv.Inicial=100, Compra=50, Inv.Final=103 (100+50−40−5−2 con Venta=−40,Consumos=−5,
+Merma=−2) → Consumo Total = 100+50−103 = 47.
+
+**Backend** (`routes/seguimiento-compras.js`, sin cambios de acceso: `rolSeguimientoCompras`,
+scoped por `operations`):
+- `GET /operaciones` — igual que antes, ahora sobre `SeguimientoCompraMovimiento` únicamente.
+- `GET /eficiencia?operacion=&semanaObjetivo=YYYYWW&nSemanas=` — única consulta. Por cada
+  semana del rango (`nSemanas`, default 8, hasta `semanaObjetivo` — default semana ISO
+  actual): `calcularSemanaEficiencia(docs)` agrupa los movimientos de esa semana por tipo
+  (`porTipo`) y calcula:
+  - `ingresosAlmacen` = COMPRA + TRANSFERENCIA (con signo).
+  - `fcTeorico` = `|VENTA|` (magnitud, la venta viene negativa en la fuente).
+  - `otrosDetalle`/`otrosTotal` = todo lo demás **excepto** COMPRA/TRANSFERENCIA/VENTA/
+    INICIAL (BAJA, CONSUMOS, CONSUMO TRANSFORMACION, FALTANTE, PRODUCCION, SOBRANTE,
+    TRANSFORMACION en los datos reales — el set exacto varía por operación, se calcula
+    dinámicamente, no está hardcodeado).
+  - `inventarioFinal` = saldo corrido real = `saldoInicialSemana + totalTodos` (TODOS los
+    movimientos de la semana, incluido cualquier INICIAL que caiga dentro de ella — mismo
+    patrón que la v1: INICIAL no se lista como "movimiento" pero sí afecta el saldo).
+  - `consumoTotal` = `saldoInicialSemana + ingresosAlmacen − inventarioFinal`.
+  - `%` (solo en Ingresos al Almacén, FC Teórico y Consumo Total) = importe / Venta Neta
+    AyB de esa semana. Sin acumulado de 4 semanas esta vez (no se pidió).
+  - El saldo inicial de la primera semana mostrada (`saldoInicialBase`) se calcula sumando
+    **todo** movimiento anterior a esa semana (mismo patrón de balance encadenado que la
+    v1), no solo `nSemanas` — necesita el historial completo para no arrastrar un saldo
+    inicial incorrecto.
+- **Validado contra datos reales** (CDLAO, 4 semanas): Consumo Total ~28% de Venta Neta
+  AyB en semanas completas, valores negativos coherentes en la semana en curso (parcial,
+  con Compra ya registrada pero sin Venta/Consumo todavía).
+
+**Frontend**: nav `seguimiento-compras` (relabeleado "Eficiencia Consumo/Compra") →
+`viewSeguimientoCompras` — selector Operación + "Hasta la semana" (default semana ISO
+actual) + "N° de semanas" (default 8, botón "+8 semanas"). Una sola tabla, **filas =
+semanas** (no columnas, a diferencia de Flujo de Caja), columnas fijas: Venta Bruta,
+Venta Neta, Venta Neta AyB, Saldo Inicial, Ingresos al Almacén (Importe+%, con header
+clickeable `▸/▾` que expande 2 columnas extra Compra/Transferencia solo-importe), FC
+Teórico (Importe+%), Otros Movimientos (Importe, header clickeable que expande una
+columna por cada tipo presente en el rango — unión dinámica, no fija, para que las
+columnas sean consistentes en todas las filas mostradas), Inventario Final, Consumo
+Total (Importe+%). Formato: importes sin decimales alineados a la derecha (`fmtN`
+redondea con `Math.round`), % a 1 decimal centrado, negativos en rojo.

@@ -1,6 +1,6 @@
 /**
- * Importación de EBC BASE SEGUIMIENTO DE COMPRAS.xlsx a MongoDB (hojas MOVIMIENTOS y OC,
- * fuente del módulo Aprobación y Seguimiento de Compras).
+ * Importación de EBC BASE SEGUIMIENTO DE COMPRAS.xlsx a MongoDB (hoja MOVIMIENTOS,
+ * fuente del módulo Aprobación y Seguimiento de Compras — Eficiencia de Consumo y Compra).
  *
  * Solo se importan filas con GRUPO === 'FC' (se descartan las 'SD').
  *
@@ -17,7 +17,6 @@ const mongoose = require('mongoose');
 const ExcelJS  = require('exceljs');
 
 const SeguimientoCompraMovimiento = require('../models/SeguimientoCompraMovimiento');
-const SeguimientoCompraOC         = require('../models/SeguimientoCompraOC');
 
 const FILE_PATH = process.argv[2]
   || 'C:\\Users\\CORP.PROCESOS\\Box\\EBC\\EBC AI\\EBC AI BASES\\EBC SEGUIMIENTO DE COMPRAS\\EBC BASE SEGUIMIENTO DE COMPRAS.xlsx';
@@ -89,58 +88,13 @@ async function main() {
   });
   console.log(`"MOVIMIENTOS": ${movDocs.length} filas FC válidas, ${movSD} filas SD descartadas, ${movRechazadas} rechazadas (datos incompletos).`);
 
-  // ── Hoja OC ──────────────────────────────────────────────────────────────────
-  const wsOC = wb.getWorksheet('OC');
-  if (!wsOC) throw new Error('No se encontró la hoja "OC"');
-  const hOC = leerEncabezado(wsOC);
-  const colO = colFn(hOC);
-  const COLO = {
-    grupo:        colO('GRUPO'),
-    grupoGeneral: colO('GRUPO GENERAL'),
-    grupoCompra:  colO('GRUPO COMPRA'),
-    operacion:    colO('OPERACION', 'OPERACIÓN'),
-    año:          colO('AÑO', 'ANO'),
-    semana:       colO('SEMANA'),
-    claseOC:      colO('CLASE OC'),
-    cantidadOC:   colO('CANTIDAD OC'),
-    importeOC:    colO('IMPORTE OC'),
-  };
-  const faltantesO = Object.entries(COLO).filter(([, c]) => c === undefined).map(([k]) => k);
-  if (faltantesO.length) throw new Error(`"OC": no se encontraron las columnas: ${faltantesO.join(', ')}`);
-
-  const ocDocs = [];
-  let ocRechazadas = 0, ocSD = 0;
-  wsOC.eachRow((row, i) => {
-    if (i === 1) return;
-    const v = row.values;
-    const grupo = str(v[COLO.grupo]);
-    if (grupo !== 'FC') { ocSD++; return; }
-    const operacion = str(v[COLO.operacion]);
-    const claseOC = str(v[COLO.claseOC]);
-    const año = num(v[COLO.año]);
-    const semana = num(v[COLO.semana]);
-    if (!operacion || !claseOC || !año || !semana) { ocRechazadas++; return; }
-    ocDocs.push({
-      grupo, grupoGeneral: str(v[COLO.grupoGeneral]), grupoCompra: str(v[COLO.grupoCompra]),
-      operacion, año, semana, claseOC,
-      cantidadOC: num(v[COLO.cantidadOC]), importeOC: num(v[COLO.importeOC]),
-    });
-  });
-  console.log(`"OC": ${ocDocs.length} filas FC válidas, ${ocSD} filas SD descartadas, ${ocRechazadas} rechazadas (datos incompletos).`);
-
   // ── Reemplazo completo (snapshot del estado actual, no serie histórica) ────
   console.log('\nImportando a MongoDB...');
   await SeguimientoCompraMovimiento.deleteMany({});
   for (let i = 0; i < movDocs.length; i += BATCH) {
     await SeguimientoCompraMovimiento.insertMany(movDocs.slice(i, i + BATCH), { ordered: false });
   }
-  console.log(`  ✓ ${movDocs.length.toLocaleString()} filas en SeguimientoCompraMovimiento.`);
-
-  await SeguimientoCompraOC.deleteMany({});
-  for (let i = 0; i < ocDocs.length; i += BATCH) {
-    await SeguimientoCompraOC.insertMany(ocDocs.slice(i, i + BATCH), { ordered: false });
-  }
-  console.log(`  ✓ ${ocDocs.length.toLocaleString()} filas en SeguimientoCompraOC.\n`);
+  console.log(`  ✓ ${movDocs.length.toLocaleString()} filas en SeguimientoCompraMovimiento.\n`);
 
   await mongoose.disconnect();
   console.log('✅ Importación completada.\n');
