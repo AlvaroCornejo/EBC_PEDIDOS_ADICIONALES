@@ -10129,6 +10129,7 @@ async function viewSeguimientoCompras(container) {
   let operacionActual = '';
   let semanaSelElegida = ''; // 'YYYYWW', vacío = semana actual
   let nSemanas = 8;
+  let nSemanasPct = 4;
   let detalleIngresos = false; // mostrar Compra/Transferencia por separado
   let detalleOtros = false;    // mostrar cada tipo de "otros movimientos" por separado
   let data = null;
@@ -10194,7 +10195,13 @@ async function viewSeguimientoCompras(container) {
           </div>
           <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">N° semanas p/ %</label>
-            <input type="number" id="sc-nsemanas-pct" class="form-control" style="width:70px" value="4" min="1" max="52">
+            <div style="display:flex;gap:6px;align-items:center">
+              <strong id="sc-nsemanaspct-lbl" style="min-width:20px;text-align:center">4</strong>
+              <div style="display:flex;flex-direction:column;line-height:1">
+                <button id="sc-nsemanaspct-mas1" title="+1 semana" style="border:1px solid var(--border);background:#fff;cursor:pointer;padding:0 6px;font-size:10px">▲</button>
+                <button id="sc-nsemanaspct-menos1" title="-1 semana" style="border:1px solid var(--border);border-top:none;background:#fff;cursor:pointer;padding:0 6px;font-size:10px">▼</button>
+              </div>
+            </div>
           </div>
           <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">&nbsp;</label>
@@ -10231,8 +10238,14 @@ async function viewSeguimientoCompras(container) {
   }
   document.getElementById('sc-nsemanas-mas1').addEventListener('click', () => setNSemanas(nSemanas + 1));
   document.getElementById('sc-nsemanas-menos1').addEventListener('click', () => setNSemanas(nSemanas - 1));
+  function setNSemanasPct(n) {
+    nSemanasPct = Math.min(Math.max(n, 1), 52);
+    document.getElementById('sc-nsemanaspct-lbl').textContent = nSemanasPct;
+    cargar();
+  }
+  document.getElementById('sc-nsemanaspct-mas1').addEventListener('click', () => setNSemanasPct(nSemanasPct + 1));
+  document.getElementById('sc-nsemanaspct-menos1').addEventListener('click', () => setNSemanasPct(nSemanasPct - 1));
   document.getElementById('sc-incluir-especiales').addEventListener('change', () => cargar());
-  document.getElementById('sc-nsemanas-pct').addEventListener('change', () => cargar());
   document.getElementById('sc-ver-especiales').addEventListener('click', verGruposEspeciales);
 
   async function verGruposEspeciales() {
@@ -10265,7 +10278,6 @@ async function viewSeguimientoCompras(container) {
       const hoy = new Date();
       poblarSelectorSemanas({ año: isoYearCli(hoy), semana: isoWeekCli(hoy) });
       const incluirEspeciales = document.getElementById('sc-incluir-especiales').checked;
-      const nSemanasPct = Math.min(Math.max(parseInt(document.getElementById('sc-nsemanas-pct').value) || 4, 1), 52);
       const params = new URLSearchParams({ operacion: operacionActual, nSemanas, nSemanasPct, incluirEspeciales: incluirEspeciales ? '1' : '0' });
       const semSel = document.getElementById('sc-semana-sel').value;
       if (semSel) params.set('semanaObjetivo', semSel);
