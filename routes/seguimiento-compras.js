@@ -63,7 +63,8 @@ router.get('/operaciones', async (req, res) => {
 
 // ── Cálculo por semana: desglose de movimientos del kardex ──────────────────
 // Ingresos al Almacén = COMPRA + TRANSFERENCIA (con signo).
-// FC Teórico = |VENTA| (magnitud, la venta ya viene negativa en la fuente).
+// FC Teórico = VENTA tal cual viene en la fuente (con signo, sin invertir —
+// a pedido del usuario no se cambia el signo de ningún movimiento).
 // Otros movimientos = todo lo demás EXCEPTO COMPRA/TRANSFERENCIA/VENTA/INICIAL
 // (INICIAL son ajustes de apertura, no actividad de la semana — igual suman
 // al saldo corrido pero no se listan como "movimiento").
@@ -75,7 +76,7 @@ function calcularSemanaEficiencia(docs) {
   const compra = porTipo['COMPRA'] || 0;
   const transferencia = porTipo['TRANSFERENCIA'] || 0;
   const ingresosAlmacen = compra + transferencia;
-  const fcTeorico = Math.abs(porTipo['VENTA'] || 0);
+  const fcTeorico = porTipo['VENTA'] || 0;
 
   const otrosDetalle = {};
   let otrosTotal = 0;

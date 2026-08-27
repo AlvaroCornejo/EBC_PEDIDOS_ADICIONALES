@@ -442,7 +442,7 @@ const TRX_BOTTOM = ['SOBRANTE','FALTANTE'];
 // Busca en qué recetas (de producción/transformación) se usa este item como
 // insumo, y lo muestra bajo la tabla del Kardex — para saber en qué se
 // transforma un insumo consumido (CONSUMO TRANSFORMACION).
-async function cargarUsadoEnRecetas(item, el) {
+async function cargarUsadoEnRecetas(item, el, operacion) {
   if (!el) return;
   try {
     const usadoEn = await GET(`/recetas/usado-en?item=${encodeURIComponent(item)}`);
@@ -451,7 +451,7 @@ async function cargarUsadoEnRecetas(item, el) {
       <div class="card" style="padding:10px 14px;background:#f8fafc">
         <div style="font-weight:600;font-size:12px;margin-bottom:6px">🍳 Se usa como insumo en las recetas de:</div>
         <ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.6">
-          ${usadoEn.map(r => `<li><a href="#" onclick="event.preventDefault();verDesgloseReceta(${r.item},1)">${esc(r.item)} — ${esc(r.descripcion)}</a>${r.cantidad ? ` <span style="color:var(--text-muted)">(${fmt(r.cantidad, 2)}${r.unidad ? ' ' + esc(r.unidad) : ''} por batch)</span>` : ''}</li>`).join('')}
+          ${usadoEn.map(r => `<li><a href="#" onclick="event.preventDefault();showKardexModal('${esc(r.item)}',${JSON.stringify(r.descripcion)},${JSON.stringify(operacion)})">${esc(r.item)} — ${esc(r.descripcion)}</a>${r.cantidad ? ` <span style="color:var(--text-muted)">(${fmt(r.cantidad, 2)}${r.unidad ? ' ' + esc(r.unidad) : ''} por batch)</span>` : ''}</li>`).join('')}
         </ul>
       </div>`;
   } catch { el.innerHTML = ''; } // silencioso — no todos los items son insumo de una receta
@@ -526,7 +526,7 @@ async function showKardexModal(item, nombre, operacion) {
     <div id="kx-usado-en" style="margin-top:12px"></div>`;
 
   document.getElementById('modal-body').innerHTML = html;
-  cargarUsadoEnRecetas(item, document.getElementById('kx-usado-en'));
+  cargarUsadoEnRecetas(item, document.getElementById('kx-usado-en'), operacion);
 }
 
 // Delegated click para botones de kardex (se registra una sola vez)
@@ -1357,7 +1357,7 @@ async function viewKardex(container) {
           <div id="kx-usado-en" style="margin-top:12px"></div>
         </div>
       </div>`;
-    cargarUsadoEnRecetas(item, document.getElementById('kx-usado-en'));
+    cargarUsadoEnRecetas(item, document.getElementById('kx-usado-en'), activeOp);
   }
 
   async function selectKardexItem(itemCode, itemNombre) {
