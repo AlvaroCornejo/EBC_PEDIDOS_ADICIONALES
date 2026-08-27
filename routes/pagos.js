@@ -951,6 +951,28 @@ router.put('/programaciones/:id/guardar-p3', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── PUT /api/pagos/programaciones/:id/marcar ─────────────────────────────────
+// Persiste el checkbox de trabajo del Paso 4 (Autorización) — selección para
+// Imprimir/Bajar a Excel, sin relación con el estado de la programación (a
+// diferencia de guardar-p3/autorizar, funciona en cualquier estado, incluido
+// "autorizado", ya que solo es un recordatorio visual, no un dato financiero).
+router.put('/programaciones/:id/marcar', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    const { ids, marcado } = req.body;
+    if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids requerido' });
+    const idsSet = new Set(ids.map(String));
+    prog.obligaciones.forEach(ob => {
+      if (idsSet.has(String(ob._id))) ob.marcado = !!marcado;
+    });
+    await prog.save();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── PUT /api/pagos/programaciones/:id/preparar ───────────────────────────────
 router.put('/programaciones/:id/preparar', async (req, res) => {
   try {

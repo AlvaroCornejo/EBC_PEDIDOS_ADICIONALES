@@ -7660,7 +7660,7 @@ async function renderPaso4(container) {
       p4Prog = await GET(`/pagos/programaciones/${id}`);
       await pgAdelantosResumen(p4Prog.compania);
       p4ObsConError  = new Set();
-      p4Marcados     = new Set();
+      p4Marcados     = new Set((p4Prog.obligaciones || []).filter(o => o.marcado).map(o => String(o._id)));
       p4CustomAgrups = [];
       p4RenderGrupos();
       // Expandir todos los bancos por defecto
@@ -7702,13 +7702,22 @@ async function renderPaso4(container) {
     if (arr) arr.textContent = open ? '▸' : '▾';
   };
 
+  // Persiste el checkbox de trabajo (Marcadas) para que no se pierda al
+  // volver a abrir la semana — no bloquea la UI ni depende del estado.
+  function p4PersistMarcados(ids, val) {
+    if (!p4Prog || !ids.length) return;
+    PUT(`/pagos/programaciones/${p4Prog._id}/marcar`, { ids, marcado: val }).catch(e => toast(e.message, 'error'));
+  }
+
   window.p4ToggleMarcadoBenIndiv = function(benKey, val) {
     const body = document.getElementById(`p4-indiv-body-${benKey}`);
     if (!body) return;
+    const ids = [];
     body.querySelectorAll('[onchange*="p4ToggleMarcadoOb"]').forEach(el => {
       const m = el.getAttribute('onchange').match(/'([^']+)'/);
-      if (m) { if (val) p4Marcados.add(m[1]); else p4Marcados.delete(m[1]); }
+      if (m) { ids.push(m[1]); if (val) p4Marcados.add(m[1]); else p4Marcados.delete(m[1]); }
     });
+    p4PersistMarcados(ids, val);
     const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
   };
 
@@ -7716,31 +7725,38 @@ async function renderPaso4(container) {
   window.p4ToggleMarcadoOb = function(obId, val) {
     if (val) p4Marcados.add(String(obId));
     else     p4Marcados.delete(String(obId));
+    p4PersistMarcados([String(obId)], val);
     const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
   };
 
   window.p4ToggleMarcadoBanco = function(bKey, val) {
     if (!p4Prog) return;
+    const ids = [];
     (p4Prog.obligaciones || []).filter(o => o.seleccionado).forEach(ob => {
       const bk = (ob.bancoAsignado || '(sin banco)').replace(/\W/g,'_');
       if (bk === bKey) {
+        ids.push(String(ob._id));
         if (val) p4Marcados.add(String(ob._id));
         else     p4Marcados.delete(String(ob._id));
       }
     });
+    p4PersistMarcados(ids, val);
     const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
   };
 
   window.p4ToggleMarcadoAgrup = function(aKey, val) {
     if (!p4Prog) return;
+    const ids = [];
     (p4Prog.obligaciones || []).filter(o => o.seleccionado).forEach(ob => {
       const bk = (ob.bancoAsignado || '(sin banco)').replace(/\W/g,'_');
       const ak = (ob.agrupadorPago  || 'INDIVIDUAL').replace(/\W/g,'_');
       if (`${bk}__${ak}` === aKey) {
+        ids.push(String(ob._id));
         if (val) p4Marcados.add(String(ob._id));
         else     p4Marcados.delete(String(ob._id));
       }
     });
+    p4PersistMarcados(ids, val);
     const st = p4SaveState(); p4RenderGrupos(); p4RestoreState(st); p4RenderFooter();
   };
 

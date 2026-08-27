@@ -13,6 +13,10 @@ const obligacionSchema = new mongoose.Schema({
   grupo:           { type: String, default: 'OTROS' },
   detalleGrupo:    { type: String, default: 'OTROS' },
   seleccionado:    { type: Boolean, default: false },
+  // Checkbox de trabajo en Paso 4 (Autorización) — selección del usuario para
+  // Imprimir/Bajar a Excel un subconjunto; se persiste para que no se pierda
+  // al volver a abrir la semana (independiente del estado de la programación).
+  marcado:         { type: Boolean, default: false },
   // Paso 3 — Preparación
   bancoAsignado:    { type: String, default: '' },
   agrupadorPago:    { type: String, default: 'INDIVIDUAL' },
