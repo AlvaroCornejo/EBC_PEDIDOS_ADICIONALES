@@ -10189,7 +10189,6 @@ async function viewSeguimientoCompras(container) {
                 <button id="sc-nsemanas-mas1" title="+1 semana" style="border:1px solid var(--border);background:#fff;cursor:pointer;padding:0 6px;font-size:10px">▲</button>
                 <button id="sc-nsemanas-menos1" title="-1 semana" style="border:1px solid var(--border);border-top:none;background:#fff;cursor:pointer;padding:0 6px;font-size:10px">▼</button>
               </div>
-              <button class="btn btn-outline btn-sm" id="sc-mas-semanas">+8 semanas</button>
             </div>
           </div>
           <div>
@@ -10225,7 +10224,6 @@ async function viewSeguimientoCompras(container) {
     document.getElementById('sc-nsemanas-lbl').textContent = nSemanas;
     cargar();
   }
-  document.getElementById('sc-mas-semanas').addEventListener('click', () => setNSemanas(nSemanas + 8));
   document.getElementById('sc-nsemanas-mas1').addEventListener('click', () => setNSemanas(nSemanas + 1));
   document.getElementById('sc-nsemanas-menos1').addEventListener('click', () => setNSemanas(nSemanas - 1));
   document.getElementById('sc-incluir-especiales').addEventListener('change', () => cargar());
