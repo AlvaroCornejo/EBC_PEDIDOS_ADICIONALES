@@ -442,6 +442,11 @@ const TRX_BOTTOM = ['SOBRANTE','FALTANTE'];
 // Busca en qué recetas (de producción/transformación) se usa este item como
 // insumo, y lo muestra bajo la tabla del Kardex — para saber en qué se
 // transforma un insumo consumido (CONSUMO TRANSFORMACION).
+// Literal JS de comillas simples, seguro para meter dentro de un atributo
+// onclick="..." (comillas dobles) — JSON.stringify() no sirve aquí porque
+// produce comillas dobles que cortarían el atributo a la mitad.
+function jsq(s) { return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
+
 async function cargarUsadoEnRecetas(item, el, operacion) {
   if (!el) return;
   try {
@@ -451,7 +456,7 @@ async function cargarUsadoEnRecetas(item, el, operacion) {
       <div class="card" style="padding:10px 14px;background:#f8fafc">
         <div style="font-weight:600;font-size:12px;margin-bottom:6px">🍳 Se usa como insumo en las recetas de:</div>
         <ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.6">
-          ${usadoEn.map(r => `<li><a href="#" onclick="event.preventDefault();showKardexModal('${esc(r.item)}',${JSON.stringify(r.descripcion)},${JSON.stringify(operacion)})">${esc(r.item)} — ${esc(r.descripcion)}</a>${r.cantidad ? ` <span style="color:var(--text-muted)">(${fmt(r.cantidad, 2)}${r.unidad ? ' ' + esc(r.unidad) : ''} por batch)</span>` : ''}</li>`).join('')}
+          ${usadoEn.map(r => `<li><a href="#" onclick="event.preventDefault();showKardexModal(${jsq(r.item)},${jsq(r.descripcion)},${jsq(operacion)})">${esc(r.item)} — ${esc(r.descripcion)}</a>${r.cantidad ? ` <span style="color:var(--text-muted)">(${fmt(r.cantidad, 2)}${r.unidad ? ' ' + esc(r.unidad) : ''} por batch)</span>` : ''}</li>`).join('')}
         </ul>
       </div>`;
   } catch { el.innerHTML = ''; } // silencioso — no todos los items son insumo de una receta
