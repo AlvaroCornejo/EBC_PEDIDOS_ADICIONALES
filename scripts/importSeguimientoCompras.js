@@ -17,6 +17,7 @@ const mongoose = require('mongoose');
 const ExcelJS  = require('exceljs');
 
 const SeguimientoCompraMovimiento = require('../models/SeguimientoCompraMovimiento');
+const GrupoCompraEspecial         = require('../models/GrupoCompraEspecial');
 
 const FILE_PATH = process.argv[2]
   || 'C:\\Users\\CORP.PROCESOS\\Box\\EBC\\EBC AI\\EBC AI BASES\\EBC SEGUIMIENTO DE COMPRAS\\EBC BASE SEGUIMIENTO DE COMPRAS.xlsx';
@@ -27,6 +28,7 @@ const cellVal = c => (c && typeof c === 'object' ? c.result ?? c.text ?? '' : c)
 const str = v => String(cellVal(v) ?? '').trim();
 const num = v => { const n = Number(cellVal(v)); return Number.isFinite(n) ? n : 0; };
 const norm = s => String(s ?? '').trim().toUpperCase();
+const sinTilde = s => norm(s).normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 function leerEncabezado(ws) {
   const header = {};
@@ -88,13 +90,51 @@ async function main() {
   });
   console.log(`"MOVIMIENTOS": ${movDocs.length} filas FC válidas, ${movSD} filas SD descartadas, ${movRechazadas} rechazadas (datos incompletos).`);
 
+  // ── Tabla GRUPO_COMPRA_ESPECIAL (dentro de la hoja "TABLAS", NO es una hoja
+  // propia — hay varias tablas de Excel en esa misma hoja en distintas
+  // columnas). Se ubica buscando la celda "GRUPO COMPRA" seguida a la derecha
+  // por "OPERACION"/"OPERACIÓN", en vez de asumir una columna fija, porque su
+  // posición puede variar si se agregan/quitan las otras tablas de la hoja. ──
+  const wsTablas = wb.getWorksheet('TABLAS');
+  if (!wsTablas) throw new Error('No se encontró la hoja "TABLAS"');
+
+  let colGrupoEsp, colOpEsp, filaHeaderEsp;
+  wsTablas.eachRow((row) => {
+    if (filaHeaderEsp) return;
+    row.eachCell((cell, col) => {
+      if (norm(cellVal(cell.value)) !== 'GRUPO COMPRA') return;
+      const vecino = sinTilde(cellVal(row.getCell(col + 1).value));
+      if (vecino === 'OPERACION') { colGrupoEsp = col; colOpEsp = col + 1; filaHeaderEsp = row.number; }
+    });
+  });
+  if (!filaHeaderEsp) throw new Error('No se encontró la tabla "GRUPO COMPRA ESPECIAL" en la hoja "TABLAS"');
+
+  const especialSet = new Set(); // "OPERACION|GRUPO COMPRA", para descartar duplicados exactos
+  const especialDocs = [];
+  for (let r = filaHeaderEsp + 1; ; r++) {
+    const row = wsTablas.getRow(r);
+    const grupoCompra = str(row.getCell(colGrupoEsp).value);
+    const operacion = str(row.getCell(colOpEsp).value);
+    if (!grupoCompra && !operacion) break; // fin de la tabla
+    if (!grupoCompra || !operacion) continue;
+    const k = `${operacion}|${grupoCompra}`;
+    if (especialSet.has(k)) continue;
+    especialSet.add(k);
+    especialDocs.push({ operacion, grupoCompra });
+  }
+  console.log(`"GRUPO COMPRA ESPECIAL": ${especialDocs.length} combinaciones operación+grupo (fila de encabezado ${filaHeaderEsp}, columnas ${colGrupoEsp}/${colOpEsp}).`);
+
   // ── Reemplazo completo (snapshot del estado actual, no serie histórica) ────
   console.log('\nImportando a MongoDB...');
   await SeguimientoCompraMovimiento.deleteMany({});
   for (let i = 0; i < movDocs.length; i += BATCH) {
     await SeguimientoCompraMovimiento.insertMany(movDocs.slice(i, i + BATCH), { ordered: false });
   }
-  console.log(`  ✓ ${movDocs.length.toLocaleString()} filas en SeguimientoCompraMovimiento.\n`);
+  console.log(`  ✓ ${movDocs.length.toLocaleString()} filas en SeguimientoCompraMovimiento.`);
+
+  await GrupoCompraEspecial.deleteMany({});
+  if (especialDocs.length) await GrupoCompraEspecial.insertMany(especialDocs, { ordered: false });
+  console.log(`  ✓ ${especialDocs.length.toLocaleString()} filas en GrupoCompraEspecial.\n`);
 
   await mongoose.disconnect();
   console.log('✅ Importación completada.\n');

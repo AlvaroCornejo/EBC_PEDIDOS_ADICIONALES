@@ -3,6 +3,7 @@ const auth = require('../middleware/auth');
 
 const SeguimientoCompraMovimiento = require('../models/SeguimientoCompraMovimiento');
 const VentaCanalDiaria = require('../models/VentaCanalDiaria');
+const GrupoCompraEspecial = require('../models/GrupoCompraEspecial');
 
 const router = express.Router();
 router.use(auth);
@@ -61,6 +62,18 @@ router.get('/operaciones', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /grupos-especiales?operacion= — qué GRUPO COMPRA aplican para el
+// checkbox de incluir/excluir de esa operación ───────────────────────────────
+router.get('/grupos-especiales', async (req, res) => {
+  try {
+    const { operacion } = req.query;
+    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
+    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const grupos = await GrupoCompraEspecial.distinct('grupoCompra', { operacion });
+    res.json(grupos.filter(Boolean).sort());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Cálculo por semana: desglose de movimientos del kardex ──────────────────
 // Ingresos al Almacén = COMPRA + TRANSFERENCIA (con signo).
 // FC Teórico = VENTA tal cual viene en la fuente (con signo, sin invertir —
@@ -101,6 +114,8 @@ router.get('/eficiencia', async (req, res) => {
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
 
     const nSem = Math.min(Math.max(parseInt(req.query.nSemanas) || 8, 1), 104);
+    // Por omisión se incluyen (comportamiento actual); "0"/"false" los excluye.
+    const incluirEspeciales = req.query.incluirEspeciales !== '0' && req.query.incluirEspeciales !== 'false';
 
     let objetivo;
     const semQ = req.query.semanaObjetivo;
@@ -131,15 +146,24 @@ router.get('/eficiencia', async (req, res) => {
       ventaPorSemana[k].ventaNeta += d.ventaNetaMasRedencion || 0;
     });
 
+    // Grupos especiales a excluir de esta operación (checkbox "incluir" apagado)
+    // — se aplica tanto al Saldo Inicial base (histórico) como a las semanas
+    // mostradas, para que el saldo corrido siga siendo consistente.
+    const grupoFilter = {};
+    if (!incluirEspeciales) {
+      const excluidos = await GrupoCompraEspecial.distinct('grupoCompra', { operacion });
+      if (excluidos.length) grupoFilter.grupoCompra = { $nin: excluidos };
+    }
+
     // Movimientos: todo lo anterior a la primera semana del rango (para el
     // Saldo Inicial base) + las semanas del rango.
     const [previosDocs, semanaDocs] = await Promise.all([
       SeguimientoCompraMovimiento.find({
-        operacion,
+        operacion, ...grupoFilter,
         $expr: { $lt: [{ $add: [{ $multiply: ['$año', 100] }, '$semana'] }, claveInicio] },
       }).lean(),
       SeguimientoCompraMovimiento.find({
-        operacion,
+        operacion, ...grupoFilter,
         $or: rango.map(h => ({ año: h.año, semana: h.semana })),
       }).lean(),
     ]);

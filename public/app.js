@@ -10192,6 +10192,17 @@ async function viewSeguimientoCompras(container) {
               <button class="btn btn-outline btn-sm" id="sc-mas-semanas">+8 semanas</button>
             </div>
           </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">&nbsp;</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;height:34px">
+              <input type="checkbox" id="sc-incluir-especiales" checked>
+              Incluir Grupo Compra Especial
+            </label>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">&nbsp;</label>
+            <button class="btn btn-outline btn-sm" id="sc-ver-especiales">👁 Ver Grupo Compra Especial</button>
+          </div>
         </div>
       </div>
       <div id="sc-content"></div>
@@ -10217,6 +10228,18 @@ async function viewSeguimientoCompras(container) {
   document.getElementById('sc-mas-semanas').addEventListener('click', () => setNSemanas(nSemanas + 8));
   document.getElementById('sc-nsemanas-mas1').addEventListener('click', () => setNSemanas(nSemanas + 1));
   document.getElementById('sc-nsemanas-menos1').addEventListener('click', () => setNSemanas(nSemanas - 1));
+  document.getElementById('sc-incluir-especiales').addEventListener('change', () => cargar());
+  document.getElementById('sc-ver-especiales').addEventListener('click', verGruposEspeciales);
+
+  async function verGruposEspeciales() {
+    if (!operacionActual) { toast('Elige una operación primero', 'error'); return; }
+    try {
+      const grupos = await GET(`/seguimiento-compras/grupos-especiales?operacion=${encodeURIComponent(operacionActual)}`);
+      openModal(`Grupo Compra Especial — ${esc(operacionActual)}`, grupos.length
+        ? `<ul style="margin:0;padding-left:20px">${grupos.map(g => `<li>${esc(g)}</li>`).join('')}</ul>`
+        : `<p class="text-muted">No hay grupos de compra especiales configurados para ${esc(operacionActual)}.</p>`);
+    } catch (e) { toast(e.message, 'error'); }
+  }
 
   function poblarSelectorSemanas(actual) {
     const sel = document.getElementById('sc-semana-sel');
@@ -10237,7 +10260,8 @@ async function viewSeguimientoCompras(container) {
     try {
       const hoy = new Date();
       poblarSelectorSemanas({ año: isoYearCli(hoy), semana: isoWeekCli(hoy) });
-      const params = new URLSearchParams({ operacion: operacionActual, nSemanas });
+      const incluirEspeciales = document.getElementById('sc-incluir-especiales').checked;
+      const params = new URLSearchParams({ operacion: operacionActual, nSemanas, incluirEspeciales: incluirEspeciales ? '1' : '0' });
       const semSel = document.getElementById('sc-semana-sel').value;
       if (semSel) params.set('semanaObjetivo', semSel);
 

@@ -686,3 +686,27 @@ columna por cada tipo presente en el rango — unión dinámica, no fija, para q
 columnas sean consistentes en todas las filas mostradas), Inventario Final, Consumo
 Total (Importe+%). Formato: importes sin decimales alineados a la derecha (`fmtN`
 redondea con `Math.round`), % a 1 decimal centrado, negativos en rojo.
+
+**Nombre del menú**: relabeleado de nuevo a "Seguimiento de Compras" (el nombre
+"Eficiencia Consumo/Compra" duró poco). **FC Teórico ya no invierte el signo de
+VENTA** — se muestra tal cual viene en la fuente (negativo), a pedido explícito del
+usuario: no se cambia el signo de ningún movimiento en este módulo.
+
+**Grupo Compra Especial** (tabla nueva agregada por el usuario al Excel): **no es una
+hoja propia** — es una tabla de Excel (ListObject `GRUPO_COMPRA_ESPECIAL`) dentro de la
+hoja `TABLAS` ya existente, que también tiene otras 2 tablas (`TABLA_MOVIMIENTOS` en
+B4:E49, `OPERACIONES` en G4:I32) en distintas columnas de la misma hoja — por eso
+`importSeguimientoCompras.js` la ubica dinámicamente buscando la celda "GRUPO COMPRA"
+seguida a la derecha por "OPERACION"/"OPERACIÓN" (comparación sin tildes vía
+`sinTilde()`), en vez de asumir un rango de columnas fijo. Columnas: `GRUPO COMPRA`,
+`OPERACIÓN` (con tilde). Modelo `GrupoCompraEspecial` (`{operacion, grupoCompra}`,
+único por par — el Excel real trae 24 filas con 4 duplicados exactos, el import los
+descarta quedando 20). Uso: en la consulta de Eficiencia hay un checkbox "Incluir Grupo
+Compra Especial" (**marcado por defecto** — comportamiento igual al anterior) que,
+desmarcado, excluye del cálculo todo movimiento cuyo `(operacion, grupoCompra)` matchee
+esa tabla — aplicado tanto al Saldo Inicial base (histórico) como a las semanas
+mostradas, para que el saldo corrido no quede inconsistente. Botón "👁 Ver Grupo Compra
+Especial" junto al checkbox muestra qué grupos de compra aplican para la operación
+seleccionada (`GET /seguimiento-compras/grupos-especiales?operacion=`). Validado con
+datos reales: GBCFR tiene 78 de 571 movimientos (CAFE TOSTADO/CAFÉ VERDE) que se
+excluirían si se desmarca el checkbox.
