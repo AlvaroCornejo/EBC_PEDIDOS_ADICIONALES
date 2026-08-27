@@ -104,6 +104,31 @@ router.get('/item/:item', async (req, res) => {
   }
 });
 
+// GET /api/recetas/usado-en?item=XXXX — recetas donde este item aparece como
+// ingrediente (insumo directo o sub-producto) — la vista inversa de /desglose,
+// para saber "¿en qué se transforma/produce este insumo?" desde el Kardex.
+router.get('/usado-en', async (req, res) => {
+  try {
+    const item = parseInt(req.query.item);
+    if (!item) return res.status(400).json({ error: 'Parámetro item requerido' });
+
+    const recetas = await Receta.find(
+      { 'ingredientes.item': item },
+      { item: 1, descripcion: 1, ingredientes: 1, _id: 0 }
+    ).lean();
+
+    const usadoEn = recetas.map(r => {
+      const ing = r.ingredientes.find(i => i.item === item);
+      return {
+        item: r.item, descripcion: r.descripcion,
+        cantidad: ing?.cantidad || 0, unidad: ing?.unidad || '',
+      };
+    }).sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || ''));
+
+    res.json(usadoEn);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/recetas/stats  — cuántas recetas están cargadas
 router.get('/stats', async (req, res) => {
   try {

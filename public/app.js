@@ -269,7 +269,7 @@ const NAV_ITEMS = [
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'pagos-recurrentes', label: 'Pagos Recurrentes', icon: '🔁', roles: [ROLES.ADMIN], extraPerm: 'rolPagoRecurrente' },
-  { id: 'seguimiento-compras', label: 'Eficiencia Consumo/Compra', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'rolSeguimientoCompras' },
+  { id: 'seguimiento-compras', label: 'Seguimiento de Compras', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'rolSeguimientoCompras' },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
   { id: 'autorizaciones', label: 'Incluir Pagos', icon: '📋', roles: [ROLES.ADMIN], extraPermAny: ['rolObligaciones', 'rolPago'] },
@@ -439,6 +439,24 @@ const TRX_MAIN   = ['COMPRA','PRODUCCION','TRANSFORMACION','TRANSFERENCIA',
                     'CONSUMO PRODUCCION','CONSUMO TRANSFORMACION'];
 const TRX_BOTTOM = ['SOBRANTE','FALTANTE'];
 
+// Busca en qué recetas (de producción/transformación) se usa este item como
+// insumo, y lo muestra bajo la tabla del Kardex — para saber en qué se
+// transforma un insumo consumido (CONSUMO TRANSFORMACION).
+async function cargarUsadoEnRecetas(item, el) {
+  if (!el) return;
+  try {
+    const usadoEn = await GET(`/recetas/usado-en?item=${encodeURIComponent(item)}`);
+    if (!usadoEn.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `
+      <div class="card" style="padding:10px 14px;background:#f8fafc">
+        <div style="font-weight:600;font-size:12px;margin-bottom:6px">🍳 Se usa como insumo en las recetas de:</div>
+        <ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.6">
+          ${usadoEn.map(r => `<li><a href="#" onclick="event.preventDefault();verDesgloseReceta(${r.item},1)">${esc(r.item)} — ${esc(r.descripcion)}</a>${r.cantidad ? ` <span style="color:var(--text-muted)">(${fmt(r.cantidad, 2)}${r.unidad ? ' ' + esc(r.unidad) : ''} por batch)</span>` : ''}</li>`).join('')}
+        </ul>
+      </div>`;
+  } catch { el.innerHTML = ''; } // silencioso — no todos los items son insumo de una receta
+}
+
 async function showKardexModal(item, nombre, operacion) {
   openModal(`📊 Kardex — ${esc(nombre || item)} (${esc(operacion)})`,
     `<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>`,
@@ -504,9 +522,11 @@ async function showKardexModal(item, nombre, operacion) {
           ${buildRow('SALDO FINAL', '__saldoFinal', true)}
         </tbody>
       </table>
-    </div>`;
+    </div>
+    <div id="kx-usado-en" style="margin-top:12px"></div>`;
 
   document.getElementById('modal-body').innerHTML = html;
+  cargarUsadoEnRecetas(item, document.getElementById('kx-usado-en'));
 }
 
 // Delegated click para botones de kardex (se registra una sola vez)
@@ -1334,8 +1354,10 @@ async function viewKardex(container) {
               </tbody>
             </table>
           </div>
+          <div id="kx-usado-en" style="margin-top:12px"></div>
         </div>
       </div>`;
+    cargarUsadoEnRecetas(item, document.getElementById('kx-usado-en'));
   }
 
   async function selectKardexItem(itemCode, itemNombre) {
@@ -10157,7 +10179,11 @@ async function viewSeguimientoCompras(container) {
           <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">N° de semanas</label>
             <div style="display:flex;gap:6px;align-items:center">
-              <strong id="sc-nsemanas-lbl">8</strong>
+              <strong id="sc-nsemanas-lbl" style="min-width:20px;text-align:center">8</strong>
+              <div style="display:flex;flex-direction:column;line-height:1">
+                <button id="sc-nsemanas-mas1" title="+1 semana" style="border:1px solid var(--border);background:#fff;cursor:pointer;padding:0 6px;font-size:10px">▲</button>
+                <button id="sc-nsemanas-menos1" title="-1 semana" style="border:1px solid var(--border);border-top:none;background:#fff;cursor:pointer;padding:0 6px;font-size:10px">▼</button>
+              </div>
               <button class="btn btn-outline btn-sm" id="sc-mas-semanas">+8 semanas</button>
             </div>
           </div>
@@ -10178,7 +10204,14 @@ async function viewSeguimientoCompras(container) {
 
   document.getElementById('sc-operacion').addEventListener('change', (e) => { operacionActual = e.target.value; semanaSelElegida = ''; cargar(); });
   document.getElementById('sc-semana-sel').addEventListener('change', (e) => { semanaSelElegida = e.target.value; cargar(); });
-  document.getElementById('sc-mas-semanas').addEventListener('click', () => { nSemanas += 8; document.getElementById('sc-nsemanas-lbl').textContent = nSemanas; cargar(); });
+  function setNSemanas(n) {
+    nSemanas = Math.min(Math.max(n, 1), 104);
+    document.getElementById('sc-nsemanas-lbl').textContent = nSemanas;
+    cargar();
+  }
+  document.getElementById('sc-mas-semanas').addEventListener('click', () => setNSemanas(nSemanas + 8));
+  document.getElementById('sc-nsemanas-mas1').addEventListener('click', () => setNSemanas(nSemanas + 1));
+  document.getElementById('sc-nsemanas-menos1').addEventListener('click', () => setNSemanas(nSemanas - 1));
 
   function poblarSelectorSemanas(actual) {
     const sel = document.getElementById('sc-semana-sel');
@@ -10230,7 +10263,6 @@ async function viewSeguimientoCompras(container) {
             <th rowspan="2">Semana</th>
             <th rowspan="2" class="text-right">Venta Bruta</th>
             <th rowspan="2" class="text-right">Venta Neta</th>
-            <th rowspan="2" class="text-right">Venta Neta AyB</th>
             <th rowspan="2" class="text-right">Saldo Inicial</th>
             <th colspan="${colsIngresos}" class="text-center sc-th-toggle" id="sc-th-ingresos" style="cursor:pointer">${arrIngresos} Ingresos al Almacén</th>
             <th colspan="2" class="text-center">FC Teórico</th>
@@ -10253,7 +10285,6 @@ async function viewSeguimientoCompras(container) {
               <td>SEM ${f.semana}/${f.año}</td>
               ${tdN(f.ventaBruta)}
               ${tdN(f.ventaNeta)}
-              ${tdN(f.ventaNetaAyB)}
               ${tdN(f.saldoInicial)}
               ${detalleIngresos ? tdN(f.compra) + tdN(f.transferencia) : ''}
               ${tdN(f.ingresosAlmacen)}${tdP(f.pctIngresosAlmacen)}
