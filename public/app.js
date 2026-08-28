@@ -10136,9 +10136,11 @@ async function viewSeguimientoCompras(container) {
 
   const fmtN = v => v == null ? '—' : Math.round(Number(v)).toLocaleString('es-PE');
   const fmtPct = v => v == null ? '—' : (Number(v) * 100).toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
-  const tdN = v => `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${fmtN(v)}</td>`;
-  const spanPct = v => `<span style="${v < 0 ? 'color:#dc2626' : ''}">${fmtPct(v == null ? null : Math.abs(v))}</span>`;
-  const tdP2 = (sem, nsem) => `<td class="text-center">${spanPct(sem)} / ${spanPct(nsem)}</td>`;
+  const tdN = v => `<td class="text-right">${fmtN(v)}</td>`;
+  const tdP2 = (sem, nsem) => `<td class="text-center">${fmtPct(sem == null ? null : Math.abs(sem))} / ${fmtPct(nsem == null ? null : Math.abs(nsem))}</td>`;
+  // Orden fijo de "Otros Movimientos" (a pedido del usuario) — los tipos que
+  // no estén en esta lista (si aparece uno nuevo en la fuente) van al final.
+  const OTROS_ORDEN = ['INGR PRD', 'CONS PRD', 'CONSUM', 'BAJA', 'MERMA', 'SOBRA', 'FALTA'];
 
   function isoYearCli(date) {
     const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -10294,8 +10296,13 @@ async function viewSeguimientoCompras(container) {
     if (!data.filas.length) { el.innerHTML = '<p class="text-muted">Sin datos para esta operación.</p>'; return; }
 
     // Unión de tipos de "otros movimientos" presentes en el rango, para que
-    // las columnas de detalle sean consistentes en todas las filas.
-    const otrosKeys = [...new Set(data.filas.flatMap(f => Object.keys(f.otrosDetalle)))].sort();
+    // las columnas de detalle sean consistentes en todas las filas — ordenados
+    // según OTROS_ORDEN; cualquier tipo nuevo no contemplado va al final.
+    const otrosPresentes = new Set(data.filas.flatMap(f => Object.keys(f.otrosDetalle)));
+    const otrosKeys = [
+      ...OTROS_ORDEN.filter(k => otrosPresentes.has(k)),
+      ...[...otrosPresentes].filter(k => !OTROS_ORDEN.includes(k)).sort(),
+    ];
 
     const arrIngresos = detalleIngresos ? '▾' : '▸';
     const arrOtros = detalleOtros ? '▾' : '▸';
@@ -10328,11 +10335,11 @@ async function viewSeguimientoCompras(container) {
             <th colspan="2" class="text-center" style="${th(C.consumo)}">Consumo Total</th>
           </tr>
           <tr>
-            ${detalleIngresos ? `<th class="text-right" style="${th(C.ingresos)}">Compra</th><th class="text-right" style="${th(C.ingresos)}">Transferencia</th>` : ''}
+            ${detalleIngresos ? `<th class="text-right" style="${th(C.ingresos)}">COMPRA</th><th class="text-right" style="${th(C.ingresos)}">TRANS</th>` : ''}
             <th class="text-right" style="${th(C.ingresos)}">Importe</th><th class="text-center" style="${th(C.ingresos)}">% sem / ${data.nSemPct} sem</th>
             <th class="text-right" style="${th(C.fc)}">Importe</th><th class="text-center" style="${th(C.fc)}">% sem / ${data.nSemPct} sem</th>
             ${detalleOtros ? otrosKeys.map(k => `<th class="text-right" style="${th(C.otros)}">${esc(k)}</th>`).join('') : ''}
-            <th class="text-right" style="${th(C.otros)}">Importe</th>
+            <th class="text-right" style="${th(C.otros)}">TOTAL<br>OTROS</th>
             <th class="text-right" style="${th(C.consumo)}">Importe</th><th class="text-center" style="${th(C.consumo)}">% sem / ${data.nSemPct} sem</th>
           </tr>
         </thead>
