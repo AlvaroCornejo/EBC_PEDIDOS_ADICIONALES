@@ -10385,10 +10385,19 @@ async function viewSeguimientoCompras(container) {
       </div>
       <div id="sc-content"></div>
       <div id="sc-oc-content" class="mt-16"></div>
+      <div class="mt-24" style="border-top:2px solid var(--border);padding-top:16px">
+        <div class="page-title" style="font-size:18px;margin-bottom:12px">🗂️ Ítems SD</div>
+        <div id="sc-content-sd"></div>
+        <div id="sc-oc-content-sd" class="mt-16"></div>
+      </div>
     </div>`;
 
   const root = document.getElementById('sc-content');
   const rootOC = document.getElementById('sc-oc-content');
+  const rootSD = document.getElementById('sc-content-sd');
+  const rootOcSD = document.getElementById('sc-oc-content-sd');
+  let dataSD = null;
+  let detalleOtrosSD = false;
 
   try {
     const ops = await GET('/seguimiento-compras/operaciones');
@@ -10455,6 +10464,7 @@ async function viewSeguimientoCompras(container) {
       root.innerHTML = `<div class="card" style="padding:14px"><div style="overflow:auto;max-height:340px"><div id="sc-tabla"></div></div></div>`;
       renderTabla();
       cargarOC(semSel);
+      cargarSD(semSel);
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
@@ -10464,13 +10474,36 @@ async function viewSeguimientoCompras(container) {
       const params = new URLSearchParams({ operacion: operacionActual });
       if (semSel) params.set('semanaObjetivo', semSel);
       const ocData = await GET(`/seguimiento-compras/oc?${params}`);
-      renderTablaOC(ocData);
+      renderTablaOC(rootOC, ocData);
     } catch (e) { rootOC.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
-  function renderTablaOC(ocData) {
+  async function cargarSD(semSel) {
+    rootSD.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const incluirEspeciales = document.getElementById('sc-incluir-especiales').checked;
+      const params = new URLSearchParams({ operacion: operacionActual, nSemanas, nSemanasPct, incluirEspeciales: incluirEspeciales ? '1' : '0', grupo: 'SD' });
+      if (semSel) params.set('semanaObjetivo', semSel);
+      dataSD = await GET(`/seguimiento-compras/eficiencia?${params}`);
+      rootSD.innerHTML = `<div class="card" style="padding:14px"><div style="overflow:auto;max-height:340px"><div id="sc-tabla-sd"></div></div></div>`;
+      renderTablaSD();
+      cargarOcSD(semSel);
+    } catch (e) { rootSD.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  async function cargarOcSD(semSel) {
+    rootOcSD.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando OC...</div>';
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual, grupo: 'SD' });
+      if (semSel) params.set('semanaObjetivo', semSel);
+      const ocData = await GET(`/seguimiento-compras/oc?${params}`);
+      renderTablaOC(rootOcSD, ocData);
+    } catch (e) { rootOcSD.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function renderTablaOC(root, ocData) {
     if (!ocData.filas.length) {
-      rootOC.innerHTML = `<div class="card" style="padding:14px"><h3 style="margin:0 0 10px 0">OC por Grupo de Compra</h3><p class="text-muted">Sin datos de OC para esta operación.</p></div>`;
+      root.innerHTML = `<div class="card" style="padding:14px"><h3 style="margin:0 0 10px 0">OC por Grupo de Compra</h3><p class="text-muted">Sin datos de OC para esta operación.</p></div>`;
       return;
     }
     const claves = ocData.semanas.map(h => h.año * 100 + h.semana);
@@ -10485,7 +10518,7 @@ async function viewSeguimientoCompras(container) {
     const divisor = (i) => i === 0 ? 'border-left:2px solid var(--border);' : '';
     const wCol = `width:${SC_COL_W}`;
 
-    rootOC.innerHTML = `
+    root.innerHTML = `
       <div class="card" style="padding:14px">
         <h3 style="margin:0 0 10px 0">OC por Grupo de Compra</h3>
         <div style="overflow-x:auto">
@@ -10637,6 +10670,70 @@ async function viewSeguimientoCompras(container) {
 
     document.getElementById('sc-th-ingresos').addEventListener('click', () => { detalleIngresos = !detalleIngresos; renderTabla(); });
     document.getElementById('sc-th-otros').addEventListener('click', () => { detalleOtros = !detalleOtros; renderTabla(); });
+  }
+
+  // Tabla de Eficiencia para SD: solo se separa Compra — todo lo demás
+  // (incluida VENTA y TRANSF) va junto en Otros Movimientos, sin FC Teórico.
+  function renderTablaSD() {
+    const el = document.getElementById('sc-tabla-sd');
+    if (!el || !dataSD) return;
+    if (!dataSD.filas.length) { el.innerHTML = '<p class="text-muted">Sin datos para esta operación.</p>'; return; }
+
+    const otrosPresentes = new Set(dataSD.filas.flatMap(f => Object.keys(f.otrosDetalle)));
+    const otrosKeys = [
+      ...OTROS_ORDEN.filter(k => otrosPresentes.has(k)),
+      ...[...otrosPresentes].filter(k => !OTROS_ORDEN.includes(k)).sort(),
+    ];
+
+    const arrOtros = detalleOtrosSD ? '▾' : '▸';
+    const colsOtros = detalleOtrosSD ? otrosKeys.length + 1 : 1;
+
+    const C = {
+      ventas:  { bg: '#eef2ff', fg: '#4338ca' },
+      inv:     { bg: '#f1f5f9', fg: '#475569' },
+      compra:  { bg: '#ecfdf5', fg: '#059669' },
+      otros:   { bg: '#f5f3ff', fg: '#7c3aed' },
+      consumo: { bg: '#fdf2f8', fg: '#be185d' },
+    };
+    const th = (c, extra = '') => `background:${c.bg};color:${c.fg};${extra}`;
+
+    el.innerHTML = `
+      <table class="data-table" style="font-size:12px;white-space:nowrap">
+        <thead>
+          <tr>
+            <th rowspan="2">Semana</th>
+            <th rowspan="2" class="text-right" style="${th(C.ventas, `width:${SC_COL_W}`)}">VENTA<br>BRUTA</th>
+            <th rowspan="2" class="text-right" style="${th(C.ventas)}">VENTA<br>NETA</th>
+            <th rowspan="2" class="text-right" style="${th(C.inv)}">INV.<br>INICIAL</th>
+            <th colspan="2" class="text-center" style="${th(C.compra)}">Compra</th>
+            <th colspan="${colsOtros}" class="text-center sc-th-toggle" id="sc-th-otros-sd" style="${th(C.otros, 'cursor:pointer')}">${arrOtros} Otros Movimientos</th>
+            <th rowspan="2" class="text-right" style="${th(C.inv)}">INV.<br>FINAL</th>
+            <th colspan="2" class="text-center" style="${th(C.consumo)}">Consumo Total</th>
+          </tr>
+          <tr>
+            <th class="text-right" style="${th(C.compra)}">Importe</th><th class="text-center" style="${th(C.compra)}">% sem / ${dataSD.nSemPct} sem</th>
+            ${detalleOtrosSD ? otrosKeys.map(k => `<th class="text-right" style="${th(C.otros)}">${esc(k)}</th>`).join('') : ''}
+            <th class="text-right" style="${th(C.otros)}">TOTAL<br>OTROS</th>
+            <th class="text-right" style="${th(C.consumo)}">Importe</th><th class="text-center" style="${th(C.consumo)}">% sem / ${dataSD.nSemPct} sem</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dataSD.filas.map(f => `
+            <tr>
+              <td>SEM ${f.semana}/${f.año}</td>
+              ${tdN(f.ventaBruta)}
+              ${tdN(f.ventaNeta)}
+              ${tdN(f.saldoInicial)}
+              ${tdN(f.compra)}${tdP2(f.pctIngresosAlmacen, f.pctIngresosAlmacenNSem)}
+              ${detalleOtrosSD ? otrosKeys.map(k => tdN(f.otrosDetalle[k] ?? 0)).join('') : ''}
+              ${tdN(f.otrosTotal)}
+              ${tdN(f.inventarioFinal)}
+              ${tdN(f.consumoTotal)}${tdP2(f.pctConsumoTotal, f.pctConsumoTotalNSem)}
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+
+    document.getElementById('sc-th-otros-sd').addEventListener('click', () => { detalleOtrosSD = !detalleOtrosSD; renderTablaSD(); });
   }
 
   cargar();

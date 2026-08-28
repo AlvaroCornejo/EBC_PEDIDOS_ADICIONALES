@@ -87,24 +87,32 @@ router.get('/grupos-especiales', async (req, res) => {
 // Otros movimientos = todo lo demás EXCEPTO COMPRA/TRANSF/VENTA/INICIAL
 // (INICIAL son ajustes de apertura, no actividad de la semana — igual suman
 // al saldo corrido pero no se listan como "movimiento").
-function calcularSemanaEficiencia(docs) {
+// Para SD (a diferencia de FC) no se separa Transferencia ni FC Teórico —
+// solo se aparta la Compra, todo lo demás (incluida VENTA y TRANSF) va junto
+// a Otros Movimientos.
+function calcularSemanaEficiencia(docs, esSD) {
   const porTipo = {};
   docs.forEach(d => { porTipo[d.movimiento] = (porTipo[d.movimiento] || 0) + d.importe; });
   const totalTodos = docs.reduce((s, d) => s + d.importe, 0);
 
   const compra = porTipo['COMPRA'] || 0;
-  const transferencia = porTipo['TRANSF'] || 0;
-  const ingresosAlmacen = compra + transferencia;
-  const fcTeorico = porTipo['VENTA'] || 0;
+  const excluidosOtros = esSD ? ['COMPRA', 'INICIAL'] : ['COMPRA', 'TRANSF', 'VENTA', 'INICIAL'];
 
   const otrosDetalle = {};
   let otrosTotal = 0;
   Object.entries(porTipo).forEach(([mov, importe]) => {
-    if (['COMPRA', 'TRANSF', 'VENTA', 'INICIAL'].includes(mov)) return;
+    if (excluidosOtros.includes(mov)) return;
     otrosDetalle[mov] = importe;
     otrosTotal += importe;
   });
 
+  if (esSD) {
+    return { totalTodos, compra, ingresosAlmacen: compra, otrosTotal, otrosDetalle };
+  }
+
+  const transferencia = porTipo['TRANSF'] || 0;
+  const ingresosAlmacen = compra + transferencia;
+  const fcTeorico = porTipo['VENTA'] || 0;
   return { totalTodos, compra, transferencia, ingresosAlmacen, fcTeorico, otrosTotal, otrosDetalle };
 }
 
@@ -124,6 +132,8 @@ router.get('/eficiencia', async (req, res) => {
     const nSemPct = Math.min(Math.max(parseInt(req.query.nSemanasPct) || 4, 1), 52);
     // Por omisión se incluyen (comportamiento actual); "0"/"false" los excluye.
     const incluirEspeciales = req.query.incluirEspeciales !== '0' && req.query.incluirEspeciales !== 'false';
+    const grupoParam = req.query.grupo === 'SD' ? 'SD' : 'FC';
+    const esSD = grupoParam === 'SD';
 
     let objetivo;
     const semQ = req.query.semanaObjetivo;
@@ -162,7 +172,7 @@ router.get('/eficiencia', async (req, res) => {
     // Grupos especiales a excluir de esta operación (checkbox "incluir" apagado)
     // — se aplica tanto al Saldo Inicial base (histórico) como a las semanas
     // mostradas, para que el saldo corrido siga siendo consistente.
-    const grupoFilter = {};
+    const grupoFilter = { grupo: grupoParam };
     if (!incluirEspeciales) {
       const excluidos = await GrupoCompraEspecial.distinct('grupoCompra', { operacion });
       if (excluidos.length) grupoFilter.grupoCompra = { $nin: excluidos };
@@ -194,7 +204,7 @@ router.get('/eficiencia', async (req, res) => {
     const filasExtendidas = rango.map(h => {
       const k = claveSemana(h.año, h.semana);
       const docs = movPorSemana[k] || [];
-      const calc = calcularSemanaEficiencia(docs);
+      const calc = calcularSemanaEficiencia(docs, esSD);
 
       const saldoInicialSemana = saldoInicial;
       const inventarioFinal = saldoInicialSemana + calc.totalTodos;
@@ -211,11 +221,10 @@ router.get('/eficiencia', async (req, res) => {
         ventaNetaAyB,
         saldoInicial: saldoInicialSemana,
         compra: calc.compra,
-        transferencia: calc.transferencia,
+        ...(esSD ? {} : { transferencia: calc.transferencia }),
         ingresosAlmacen: calc.ingresosAlmacen,
         pctIngresosAlmacen: pct(calc.ingresosAlmacen, ventaNetaAyB),
-        fcTeorico: calc.fcTeorico,
-        pctFcTeorico: pct(calc.fcTeorico, ventaNetaAyB),
+        ...(esSD ? {} : { fcTeorico: calc.fcTeorico, pctFcTeorico: pct(calc.fcTeorico, ventaNetaAyB) }),
         otrosTotal: calc.otrosTotal,
         otrosDetalle: calc.otrosDetalle,
         inventarioFinal,
@@ -234,13 +243,13 @@ router.get('/eficiencia', async (req, res) => {
       const grupo = filasExtendidas.slice(desde, idx + 1);
       const denAcum = grupo.reduce((s, f) => s + f.ventaNetaAyB, 0);
       fila.pctIngresosAlmacenNSem = pct(grupo.reduce((s, f) => s + f.ingresosAlmacen, 0), denAcum);
-      fila.pctFcTeoricoNSem = pct(grupo.reduce((s, f) => s + f.fcTeorico, 0), denAcum);
+      if (!esSD) fila.pctFcTeoricoNSem = pct(grupo.reduce((s, f) => s + (f.fcTeorico || 0), 0), denAcum);
       fila.pctConsumoTotalNSem = pct(grupo.reduce((s, f) => s + f.consumoTotal, 0), denAcum);
     });
 
     const filas = filasExtendidas.slice(EXTRA);
 
-    res.json({ operacion, objetivo, nSemPct, filas });
+    res.json({ operacion, objetivo, nSemPct, grupo: grupoParam, filas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -254,6 +263,7 @@ router.get('/oc', async (req, res) => {
     const { operacion } = req.query;
     if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const grupoParam = req.query.grupo === 'SD' ? 'SD' : 'FC';
 
     let objetivo;
     const semQ = req.query.semanaObjetivo;
@@ -272,7 +282,7 @@ router.get('/oc', async (req, res) => {
 
     const [docs, ventaDocs, forecasts, operacionDoc] = await Promise.all([
       SeguimientoCompraOC.find({
-        operacion,
+        operacion, grupo: grupoParam,
         $or: semanas.map(h => ({ año: h.año, semana: h.semana })),
       }).lean(),
       VentaCanalDiaria.find({ operacion, fecha: { $gte: rangoDesde, $lte: rangoHasta } }).lean(),
@@ -331,7 +341,7 @@ router.get('/oc', async (req, res) => {
       return [k, pronosticoPorSemana[k] || 0];
     }));
 
-    res.json({ operacion, semanas, filas, ventaNeta, pronosticoVenta });
+    res.json({ operacion, grupo: grupoParam, semanas, filas, ventaNeta, pronosticoVenta });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

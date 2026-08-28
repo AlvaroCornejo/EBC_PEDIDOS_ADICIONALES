@@ -3,7 +3,8 @@
  * fuente del módulo Aprobación y Seguimiento de Compras — Eficiencia de Consumo y Compra
  * + consulta de OC por Grupo de Compra).
  *
- * Solo se importan filas con GRUPO === 'FC' (se descartan las 'SD').
+ * Se importan filas con GRUPO 'FC' y 'SD' (antes solo se guardaba FC; ambas
+ * quedan en las mismas colecciones, distinguidas por el campo "grupo").
  *
  * Uso:
  *   node scripts/importSeguimientoCompras.js [ruta_excel]
@@ -73,24 +74,25 @@ async function main() {
   if (faltantesM.length) throw new Error(`"MOVIMIENTOS": no se encontraron las columnas: ${faltantesM.join(', ')}`);
 
   const movDocs = [];
-  let movRechazadas = 0, movSD = 0;
+  let movRechazadas = 0, movFC = 0, movSD = 0;
   wsMov.eachRow((row, i) => {
     if (i === 1) return;
     const v = row.values;
     const grupo = str(v[COLM.grupo]);
-    if (grupo !== 'FC') { movSD++; return; }
+    if (grupo !== 'FC' && grupo !== 'SD') { movRechazadas++; return; }
     const operacion = str(v[COLM.operacion]);
     const movimiento = str(v[COLM.movimiento]);
     const año = num(v[COLM.año]);
     const semana = num(v[COLM.semana]);
     if (!operacion || !movimiento || !año || !semana) { movRechazadas++; return; }
+    if (grupo === 'FC') movFC++; else movSD++;
     movDocs.push({
       grupo, grupoGeneral: str(v[COLM.grupoGeneral]), grupoCompra: str(v[COLM.grupoCompra]),
       operacion, movimiento, año, semana,
       cantidad: num(v[COLM.cantidad]), importe: num(v[COLM.importe]),
     });
   });
-  console.log(`"MOVIMIENTOS": ${movDocs.length} filas FC válidas, ${movSD} filas SD descartadas, ${movRechazadas} rechazadas (datos incompletos).`);
+  console.log(`"MOVIMIENTOS": ${movFC} filas FC, ${movSD} filas SD, ${movRechazadas} rechazadas (datos incompletos o GRUPO desconocido).`);
 
   // ── Hoja OC ──────────────────────────────────────────────────────────────────
   const wsOC = wb.getWorksheet('OC');
@@ -112,24 +114,25 @@ async function main() {
   if (faltantesO.length) throw new Error(`"OC": no se encontraron las columnas: ${faltantesO.join(', ')}`);
 
   const ocDocs = [];
-  let ocRechazadas = 0, ocSD = 0;
+  let ocRechazadas = 0, ocFC = 0, ocSD = 0;
   wsOC.eachRow((row, i) => {
     if (i === 1) return;
     const v = row.values;
     const grupo = str(v[COLO.grupo]);
-    if (grupo !== 'FC') { ocSD++; return; }
+    if (grupo !== 'FC' && grupo !== 'SD') { ocRechazadas++; return; }
     const operacion = str(v[COLO.operacion]);
     const claseOC = str(v[COLO.claseOC]);
     const año = num(v[COLO.año]);
     const semana = num(v[COLO.semana]);
     if (!operacion || !claseOC || !año || !semana) { ocRechazadas++; return; }
+    if (grupo === 'FC') ocFC++; else ocSD++;
     ocDocs.push({
       grupo, grupoGeneral: str(v[COLO.grupoGeneral]), grupoCompra: str(v[COLO.grupoCompra]),
       operacion, año, semana, claseOC,
       cantidadOC: num(v[COLO.cantidadOC]), importeOC: num(v[COLO.importeOC]),
     });
   });
-  console.log(`"OC": ${ocDocs.length} filas FC válidas, ${ocSD} filas SD descartadas, ${ocRechazadas} rechazadas (datos incompletos).`);
+  console.log(`"OC": ${ocFC} filas FC, ${ocSD} filas SD, ${ocRechazadas} rechazadas (datos incompletos o GRUPO desconocido).`);
 
   // ── Tabla GRUPO_COMPRA_ESPECIAL (dentro de la hoja "TABLAS", NO es una hoja
   // propia — hay varias tablas de Excel en esa misma hoja en distintas

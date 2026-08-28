@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const schema = new mongoose.Schema({
-  grupo:        { type: String, required: true }, // FC | SD (solo se importa FC)
+  grupo:        { type: String, required: true }, // FC | SD
   grupoGeneral: { type: String, default: '' },
   grupoCompra:  { type: String, required: true }, // Familia
   operacion:    { type: String, required: true },
