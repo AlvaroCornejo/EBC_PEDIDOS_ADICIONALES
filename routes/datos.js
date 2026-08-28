@@ -264,11 +264,15 @@ router.get('/kardex-item', async (req, res) => {
     if (req.user.role !== 'ADMIN' && !req.user.puedeVerKardex) {
       return res.status(403).json({ error: 'Sin acceso al Kardex' });
     }
-    const { item, operacion, semanas: semQ } = req.query;
+    const { item, operacion, semanas: semQ, hasta: hastaQ } = req.query;
     if (!item || !operacion) return res.status(400).json({ error: 'item y operacion requeridos' });
     if (!checkOpAccess(req.user, operacion))
       return res.status(403).json({ error: 'Sin acceso a esa operación' });
     const ultSemanas = Math.max(parseInt(semQ) || 8, 1);
+    // "hasta" (YYYYWW): última semana a mostrar — sin este parámetro, se usa
+    // la semana más reciente que tenga datos en el Kardex (comportamiento
+    // previo, sin cambios).
+    const hasta = /^\d{6}$/.test(hastaQ || '') ? parseInt(hastaQ) : null;
 
     const fp = findFile(operacion);
     if (!fp) return res.status(404).json({ error: `No se encontró archivo para ${operacion}` });
@@ -278,8 +282,11 @@ router.get('/kardex-item', async (req, res) => {
 
     if (!rows.length) return res.json([]);
 
-    // Semanas únicas ordenadas
-    const semanas = [...new Set(rows.map(r => r.añosem))].sort((a, b) => a - b);
+    // Semanas únicas ordenadas — si se pidió "hasta", se descartan las
+    // posteriores (tanto de la ventana mostrada como del saldo acumulado).
+    let semanas = [...new Set(rows.map(r => r.añosem))].sort((a, b) => a - b);
+    if (hasta != null) semanas = semanas.filter(s => s <= hasta);
+    if (!semanas.length) return res.json([]);
 
     // Agrupar cantidades por semana y TRX
     const byWeek = {};

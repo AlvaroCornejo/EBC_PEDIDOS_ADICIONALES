@@ -439,6 +439,88 @@ const TRX_MAIN   = ['COMPRA','PRODUCCION','TRANSFORMACION','TRANSFERENCIA',
                     'CONSUMO PRODUCCION','CONSUMO TRANSFORMACION'];
 const TRX_BOTTOM = ['SOBRANTE','FALTANTE'];
 
+// ─── Helpers de semana ISO para el Kardex (rango de fechas bajo cada columna) ───
+function kxMondayOfAñoSem(añosem) {
+  const año = Math.floor(añosem / 100), semana = añosem % 100;
+  const jan4 = new Date(Date.UTC(año, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const monday1 = new Date(jan4);
+  monday1.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+  const monday = new Date(monday1);
+  monday.setUTCDate(monday1.getUTCDate() + (semana - 1) * 7);
+  return monday;
+}
+function kxRangoFechas(añosem) {
+  const lunes = kxMondayOfAñoSem(añosem);
+  const domingo = new Date(lunes); domingo.setUTCDate(domingo.getUTCDate() + 6);
+  const f = d => `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  return `${f(lunes)}-${f(domingo)}`;
+}
+function kxIsoYear(date) {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  return d.getUTCFullYear();
+}
+function kxIsoWeek(date) {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((d - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
+}
+function kxAddSemanas(añosem, delta) {
+  const d = kxMondayOfAñoSem(añosem);
+  d.setUTCDate(d.getUTCDate() + delta * 7);
+  return kxIsoYear(d) * 100 + kxIsoWeek(d);
+}
+// Controles "N° de semanas" + "Hasta la semana" — mismo look&feel que
+// Seguimiento de Compras. `onChange` se llama sin argumentos al cambiar
+// cualquiera de los dos; el caller lee los valores con los getters devueltos.
+function kxControlesHtml(prefix) {
+  return `
+    <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">N° de semanas</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <strong id="${prefix}-n-lbl" style="min-width:18px;text-align:center;font-size:13px">8</strong>
+          <div style="display:flex;flex-direction:column;line-height:1">
+            <button id="${prefix}-n-mas" type="button" style="border:1px solid var(--border);background:#fff;cursor:pointer;padding:0 5px;font-size:9px">▲</button>
+            <button id="${prefix}-n-menos" type="button" style="border:1px solid var(--border);border-top:none;background:#fff;cursor:pointer;padding:0 5px;font-size:9px">▼</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Hasta la semana</label>
+        <select id="${prefix}-hasta" class="form-control" style="width:150px;font-size:12px;padding:4px 6px"></select>
+      </div>
+    </div>`;
+}
+function kxWireControles(prefix, onChange) {
+  let n = 8;
+  const hastaSel = document.getElementById(`${prefix}-hasta`);
+  const hoy = new Date();
+  const actual = kxIsoYear(hoy) * 100 + kxIsoWeek(hoy);
+  const opciones = [];
+  for (let i = 0; i <= 20; i++) {
+    const s = kxAddSemanas(actual, -i);
+    const yr = Math.floor(s / 100), wk = String(s % 100).padStart(2, '0');
+    opciones.push(`<option value="${s}">SEM ${wk}/${yr}${i === 0 ? ' (actual)' : ''}</option>`);
+  }
+  hastaSel.innerHTML = opciones.join('');
+  hastaSel.value = String(actual);
+  document.getElementById(`${prefix}-n-mas`).addEventListener('click', () => {
+    n = Math.min(n + 1, 104);
+    document.getElementById(`${prefix}-n-lbl`).textContent = n;
+    onChange();
+  });
+  document.getElementById(`${prefix}-n-menos`).addEventListener('click', () => {
+    n = Math.max(n - 1, 1);
+    document.getElementById(`${prefix}-n-lbl`).textContent = n;
+    onChange();
+  });
+  hastaSel.addEventListener('change', onChange);
+  return { getN: () => n, getHasta: () => hastaSel.value };
+}
+
 // Busca en qué recetas (de producción/transformación) se usa este item como
 // insumo, y lo muestra bajo la tabla del Kardex — para saber en qué se
 // transforma un insumo consumido (CONSUMO TRANSFORMACION).
@@ -464,74 +546,82 @@ async function cargarUsadoEnRecetas(item, el, operacion) {
 
 async function showKardexModal(item, nombre, operacion) {
   openModal(`📊 Kardex — ${esc(nombre || item)} (${esc(operacion)})`,
-    `<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>`,
+    `${kxControlesHtml('kxm')}<div id="kxm-body"><div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div></div>`,
     null, { wide: true });
 
-  let data;
-  try {
-    data = await GET(`/datos/kardex-item?item=${encodeURIComponent(item)}&operacion=${encodeURIComponent(operacion)}`);
-  } catch (err) {
-    document.getElementById('modal-body').innerHTML = `<p class="msg-error">${err.message}</p>`;
-    return;
+  const ctrl = kxWireControles('kxm', () => cargarYRenderKx());
+
+  async function cargarYRenderKx() {
+    const bodyEl = document.getElementById('kxm-body');
+    bodyEl.innerHTML = `<div class="loading-overlay" style="position:relative;height:80px"><span class="spinner spinner-dark"></span></div>`;
+
+    let data;
+    try {
+      data = await GET(`/datos/kardex-item?item=${encodeURIComponent(item)}&operacion=${encodeURIComponent(operacion)}&semanas=${ctrl.getN()}&hasta=${ctrl.getHasta()}`);
+    } catch (err) {
+      bodyEl.innerHTML = `<p class="msg-error">${err.message}</p>`;
+      return;
+    }
+
+    if (!data.length) {
+      bodyEl.innerHTML = `<p class="text-muted">Sin movimientos en el kardex para este item.</p>`;
+      return;
+    }
+
+    const semanas = data.map(d => d.semana);
+    // Recopilar todos los TRX que aparecen en los datos
+    const allTrx = new Set();
+    data.forEach(d => Object.keys(d.movimientos).forEach(t => allTrx.add(t)));
+
+    // Ordenar: primero los de TRX_MAIN que existen, luego los desconocidos, luego TRX_BOTTOM
+    const trxMain   = TRX_MAIN.filter(t => allTrx.has(t));
+    const trxExtra  = [...allTrx].filter(t => !TRX_MAIN.includes(t) && !TRX_BOTTOM.includes(t));
+    const trxBottom = TRX_BOTTOM.filter(t => allTrx.has(t));
+
+    const fmtK = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 2);
+
+    function headerLabel(s) {
+      if (s === 'HASTA') return `<span style="font-size:10px;line-height:1.4">Hist.<br>anterior</span>`;
+      const yr = Math.floor(s / 100), wk = String(s % 100).padStart(2, '0');
+      return `Sem<br><small>${yr}-${wk}</small><br><small style="font-size:9px;color:#9ca3af;font-weight:400">${kxRangoFechas(s)}</small>`;
+    }
+
+    function buildRow(label, key, bold = false, color = '') {
+      const cells = data.map(d => {
+        const v = key === '__saldoInicial' ? d.saldoInicial
+                : key === '__saldoFinal'   ? d.saldoFinal
+                : (d.movimientos[key] || 0);
+        return `<td class="col-num" style="white-space:nowrap${color?' color:'+color:''}">${fmtK(v)}</td>`;
+      }).join('');
+      const style = bold ? 'font-weight:700;background:#f0f4ff' : '';
+      return `<tr style="${style}"><td style="white-space:nowrap;padding:4px 10px;${bold?'font-weight:700':''}">${label}</td>${cells}</tr>`;
+    }
+
+    const semanaCols = semanas.map(s => `<th class="col-num" style="white-space:nowrap">${headerLabel(s)}</th>`).join('');
+
+    bodyEl.innerHTML = `
+      <div style="overflow-x:auto;max-height:70vh;overflow-y:auto">
+        <table class="data-table" style="font-size:12px;min-width:600px">
+          <thead><tr style="position:sticky;top:0;z-index:2;background:#4361ee;color:#fff">
+            <th style="min-width:200px;text-align:left;padding:6px 10px">Movimiento</th>
+            ${semanaCols}
+          </tr></thead>
+          <tbody>
+            ${buildRow('SALDO INICIAL', '__saldoInicial', true)}
+            ${trxMain.map(t  => buildRow(t, t)).join('')}
+            ${trxExtra.map(t => buildRow(t, t)).join('')}
+            <tr><td colspan="${semanas.length+1}" style="padding:0;border:none"><hr style="margin:4px 0;border-color:#e5e7eb"></td></tr>
+            ${trxBottom.map(t => buildRow(t, t)).join('')}
+            ${buildRow('SALDO FINAL', '__saldoFinal', true)}
+          </tbody>
+        </table>
+      </div>
+      <div id="kx-usado-en" style="margin-top:12px"></div>`;
+
+    cargarUsadoEnRecetas(item, document.getElementById('kx-usado-en'), operacion);
   }
 
-  if (!data.length) {
-    document.getElementById('modal-body').innerHTML = `<p class="text-muted">Sin movimientos en el kardex para este item.</p>`;
-    return;
-  }
-
-  const semanas = data.map(d => d.semana);
-  // Recopilar todos los TRX que aparecen en los datos
-  const allTrx = new Set();
-  data.forEach(d => Object.keys(d.movimientos).forEach(t => allTrx.add(t)));
-
-  // Ordenar: primero los de TRX_MAIN que existen, luego los desconocidos, luego TRX_BOTTOM
-  const trxMain   = TRX_MAIN.filter(t => allTrx.has(t));
-  const trxExtra  = [...allTrx].filter(t => !TRX_MAIN.includes(t) && !TRX_BOTTOM.includes(t));
-  const trxBottom = TRX_BOTTOM.filter(t => allTrx.has(t));
-
-  const fmtK = v => v === 0 ? '<span style="color:#9ca3af">-</span>' : fmt(v, 2);
-
-  function headerLabel(s) {
-    if (s === 'HASTA') return `<span style="font-size:10px;line-height:1.4">Hist.<br>anterior</span>`;
-    const yr = Math.floor(s / 100), wk = String(s % 100).padStart(2, '0');
-    return `Sem<br><small>${yr}-${wk}</small>`;
-  }
-
-  function buildRow(label, key, bold = false, color = '') {
-    const cells = data.map(d => {
-      const v = key === '__saldoInicial' ? d.saldoInicial
-              : key === '__saldoFinal'   ? d.saldoFinal
-              : (d.movimientos[key] || 0);
-      return `<td class="col-num" style="white-space:nowrap${color?' color:'+color:''}">${fmtK(v)}</td>`;
-    }).join('');
-    const style = bold ? 'font-weight:700;background:#f0f4ff' : '';
-    return `<tr style="${style}"><td style="white-space:nowrap;padding:4px 10px;${bold?'font-weight:700':''}">${label}</td>${cells}</tr>`;
-  }
-
-  const semanaCols = semanas.map(s => `<th class="col-num" style="white-space:nowrap">${headerLabel(s)}</th>`).join('');
-
-  const html = `
-    <div style="overflow-x:auto;max-height:70vh;overflow-y:auto">
-      <table class="data-table" style="font-size:12px;min-width:600px">
-        <thead><tr style="position:sticky;top:0;z-index:2;background:#4361ee;color:#fff">
-          <th style="min-width:200px;text-align:left;padding:6px 10px">Movimiento</th>
-          ${semanaCols}
-        </tr></thead>
-        <tbody>
-          ${buildRow('SALDO INICIAL', '__saldoInicial', true)}
-          ${trxMain.map(t  => buildRow(t, t)).join('')}
-          ${trxExtra.map(t => buildRow(t, t)).join('')}
-          <tr><td colspan="${semanas.length+1}" style="padding:0;border:none"><hr style="margin:4px 0;border-color:#e5e7eb"></td></tr>
-          ${trxBottom.map(t => buildRow(t, t)).join('')}
-          ${buildRow('SALDO FINAL', '__saldoFinal', true)}
-        </tbody>
-      </table>
-    </div>
-    <div id="kx-usado-en" style="margin-top:12px"></div>`;
-
-  document.getElementById('modal-body').innerHTML = html;
-  cargarUsadoEnRecetas(item, document.getElementById('kx-usado-en'), operacion);
+  cargarYRenderKx();
 }
 
 // Delegated click para botones de kardex (se registra una sola vez)
@@ -1310,8 +1400,12 @@ async function viewKardex(container) {
           </div>
         </div>
       </div>
+      <div class="card mt-16" style="max-width:500px;padding:12px 14px">${kxControlesHtml('kxv')}</div>
       <div id="kx-result" class="mt-16"></div>
     </div>`;
+
+  let itemActual = null; // { itemCode, itemNombre } — para poder recargar al cambiar los controles
+  const ctrl = kxWireControles('kxv', () => { if (itemActual) selectKardexItem(itemActual.itemCode, itemActual.itemNombre); });
 
   async function loadItems() {
     try { allItems = await GET(`/datos/items?operacion=${activeOp}`); } catch { allItems = []; }
@@ -1330,7 +1424,7 @@ async function viewKardex(container) {
     const hdr = s => {
       if (s === 'HASTA') return `<span style="font-size:10px;line-height:1.4">Hist.<br>anterior</span>`;
       const yr = Math.floor(s / 100), wk = String(s % 100).padStart(2, '0');
-      return `Sem<br><small>${yr}-${wk}</small>`;
+      return `Sem<br><small>${yr}-${wk}</small><br><small style="font-size:9px;color:#9ca3af;font-weight:400">${kxRangoFechas(s)}</small>`;
     };
     const semanaCols = semanas.map(s => `<th class="col-num" style="white-space:nowrap">${hdr(s)}</th>`).join('');
     const buildRow = (label, key, bold=false) => {
@@ -1366,11 +1460,12 @@ async function viewKardex(container) {
   }
 
   async function selectKardexItem(itemCode, itemNombre) {
+    itemActual = { itemCode, itemNombre };
     document.getElementById('kx-item-input').value = `${itemCode} — ${itemNombre}`;
     document.getElementById('kx-dropdown').style.display = 'none';
     document.getElementById('kx-result').innerHTML = `<div style="padding:40px;text-align:center"><span class="spinner spinner-dark"></span></div>`;
     try {
-      const data = await GET(`/datos/kardex-item?item=${encodeURIComponent(itemCode)}&operacion=${encodeURIComponent(activeOp)}&semanas=8`);
+      const data = await GET(`/datos/kardex-item?item=${encodeURIComponent(itemCode)}&operacion=${encodeURIComponent(activeOp)}&semanas=${ctrl.getN()}&hasta=${ctrl.getHasta()}`);
       renderKardexTable(data, itemCode, itemNombre);
     } catch(err) { document.getElementById('kx-result').innerHTML = `<p class="msg-error">${err.message}</p>`; }
   }
@@ -1380,6 +1475,7 @@ async function viewKardex(container) {
       container.querySelectorAll('.tab-btn[data-op]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activeOp = btn.dataset.op;
+      itemActual = null;
       document.getElementById('kx-item-input').value = '';
       document.getElementById('kx-result').innerHTML = '';
       await loadItems();
