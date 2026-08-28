@@ -4,6 +4,7 @@ const auth = require('../middleware/auth');
 const SeguimientoCompraMovimiento = require('../models/SeguimientoCompraMovimiento');
 const SeguimientoCompraOC = require('../models/SeguimientoCompraOC');
 const VentaCanalDiaria = require('../models/VentaCanalDiaria');
+const VentaForecast = require('../models/VentaForecast');
 const GrupoCompraEspecial = require('../models/GrupoCompraEspecial');
 
 const router = express.Router();
@@ -268,18 +269,31 @@ router.get('/oc', async (req, res) => {
     rangoHasta.setUTCDate(rangoHasta.getUTCDate() + 6);
     rangoHasta.setUTCHours(23, 59, 59, 999);
 
-    const [docs, ventaDocs] = await Promise.all([
+    const [docs, ventaDocs, forecasts] = await Promise.all([
       SeguimientoCompraOC.find({
         operacion,
         $or: semanas.map(h => ({ año: h.año, semana: h.semana })),
       }).lean(),
       VentaCanalDiaria.find({ operacion, fecha: { $gte: rangoDesde, $lte: rangoHasta } }).lean(),
+      VentaForecast.find({ operacion, $or: semanas.map(h => ({ año: h.año, semana: h.semana })) }).lean(),
     ]);
 
     const ventaNetaPorSemana = {};
     ventaDocs.forEach(d => {
       const k = claveSemana(isoYear(d.fecha), isoWeek(d.fecha));
       ventaNetaPorSemana[k] = (ventaNetaPorSemana[k] || 0) + (d.ventaNetaMasRedencion || 0);
+    });
+
+    // Pronóstico de Venta (monto): mismo cálculo que la vista Pronóstico de
+    // Venta — suma por canal de (cantidad de todos los días) × ticket propuesto.
+    const pronosticoPorSemana = {};
+    forecasts.forEach(fc => {
+      const k = claveSemana(fc.año, fc.semana);
+      const monto = (fc.canales || []).reduce((s, c) => {
+        const sumaDias = (c.dias || []).reduce((a, d) => a + (d.cantidad || 0), 0);
+        return s + sumaDias * (c.ticketPropuesto || 0);
+      }, 0);
+      pronosticoPorSemana[k] = monto;
     });
 
     const grupos = new Map(); // grupoCompra -> { claveSemana: { NORMAL, ADICIONAL, OTRA } }
@@ -303,8 +317,12 @@ router.get('/oc', async (req, res) => {
       const k = claveSemana(h.año, h.semana);
       return [k, ventaNetaPorSemana[k] || 0];
     }));
+    const pronosticoVenta = Object.fromEntries(semanas.map(h => {
+      const k = claveSemana(h.año, h.semana);
+      return [k, pronosticoPorSemana[k] || 0];
+    }));
 
-    res.json({ operacion, semanas, filas, ventaNeta });
+    res.json({ operacion, semanas, filas, ventaNeta, pronosticoVenta });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

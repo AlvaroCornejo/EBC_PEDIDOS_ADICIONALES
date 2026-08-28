@@ -10441,38 +10441,54 @@ async function viewSeguimientoCompras(container) {
                     return claseCols.map((c, i) => `<td class="text-right" style="${divisor(i)}${wCol}">${fmtN(c.k === 'TOTAL' ? total : (v[c.k] ?? 0))}</td>`).join('');
                   }).join('')}
                 </tr>`).join('')}
-              <tr style="font-weight:700;background:var(--bg-hover)">
-                <td>TOTAL</td>
-                ${claves.map(k => {
+              ${(() => {
+                // Suma de los 4 totales (Normal/Adicional/Otra/Total) por semana.
+                const sumaPorSemana = {};
+                claves.forEach(k => {
                   const sum = { NORMAL: 0, ADICIONAL: 0, OTRA: 0 };
                   ocData.filas.forEach(f => {
                     const v = f.porSemana[k] || {};
                     sum.NORMAL += v.NORMAL || 0; sum.ADICIONAL += v.ADICIONAL || 0; sum.OTRA += v.OTRA || 0;
                   });
-                  const total = sum.NORMAL + sum.ADICIONAL + sum.OTRA;
-                  return claseCols.map((c, i) => `<td class="text-right" style="${divisor(i)}${wCol}">${fmtN(c.k === 'TOTAL' ? total : sum[c.k])}</td>`).join('');
-                }).join('')}
-              </tr>
-              <tr style="color:var(--text-muted)">
-                <td>Venta Neta</td>
-                ${claves.map((k, idx) => claseCols.map((c, i) =>
-                  `<td class="text-right" style="${divisor(i)}${wCol}">${c.k === 'TOTAL' ? fmtN(ocData.ventaNeta[k] ?? 0) : ''}</td>`
-                ).join('')).join('')}
-              </tr>
-              <tr style="color:var(--text-muted)">
-                <td>%</td>
-                ${claves.map(k => {
-                  const sum = { NORMAL: 0, ADICIONAL: 0, OTRA: 0 };
-                  ocData.filas.forEach(f => {
-                    const v = f.porSemana[k] || {};
-                    sum.NORMAL += v.NORMAL || 0; sum.ADICIONAL += v.ADICIONAL || 0; sum.OTRA += v.OTRA || 0;
-                  });
-                  const total = sum.NORMAL + sum.ADICIONAL + sum.OTRA;
-                  const vn = ocData.ventaNeta[k] || 0;
-                  const pct = vn ? Math.abs(total / vn) * 100 : null;
-                  return claseCols.map((c, i) => `<td class="text-right" style="${divisor(i)}${wCol}">${c.k === 'TOTAL' ? (pct == null ? '—' : pct.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%') : ''}</td>`).join('');
-                }).join('')}
-              </tr>
+                  sum.TOTAL = sum.NORMAL + sum.ADICIONAL + sum.OTRA;
+                  sumaPorSemana[k] = sum;
+                });
+                const fmtPct1 = v => v == null ? '—' : v.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+                // Fila de % — una por cada uno de los 4 totales, dividido entre
+                // el denominador de esa semana (Venta Neta o Pronóstico).
+                const filaPct = (denomPorSemana) => claves.map(k => {
+                  const denom = denomPorSemana[k] || 0;
+                  return claseCols.map((c, i) => {
+                    const pct = denom ? Math.abs(sumaPorSemana[k][c.k] / denom) * 100 : null;
+                    return `<td class="text-right" style="${divisor(i)}${wCol}">${fmtPct1(pct)}</td>`;
+                  }).join('');
+                }).join('');
+                const filaValorUnico = (valorPorSemana) => claves.map(k => claseCols.map((c, i) =>
+                  `<td class="text-right" style="${divisor(i)}${wCol}">${c.k === 'TOTAL' ? fmtN(valorPorSemana[k] ?? 0) : ''}</td>`
+                ).join('')).join('');
+
+                return `
+                  <tr style="font-weight:700;background:var(--bg-hover)">
+                    <td>TOTAL</td>
+                    ${claves.map(k => claseCols.map((c, i) => `<td class="text-right" style="${divisor(i)}${wCol}">${fmtN(sumaPorSemana[k][c.k])}</td>`).join('')).join('')}
+                  </tr>
+                  <tr style="color:var(--text-muted)">
+                    <td>Venta Neta</td>
+                    ${filaValorUnico(ocData.ventaNeta)}
+                  </tr>
+                  <tr style="color:var(--text-muted)">
+                    <td>%</td>
+                    ${filaPct(ocData.ventaNeta)}
+                  </tr>
+                  <tr style="color:var(--text-muted)">
+                    <td>Pronóstico de Venta</td>
+                    ${filaValorUnico(ocData.pronosticoVenta)}
+                  </tr>
+                  <tr style="color:var(--text-muted)">
+                    <td>%</td>
+                    ${filaPct(ocData.pronosticoVenta)}
+                  </tr>`;
+              })()}
             </tbody>
           </table>
         </div>
