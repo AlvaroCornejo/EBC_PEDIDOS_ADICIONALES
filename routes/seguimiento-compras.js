@@ -6,6 +6,7 @@ const SeguimientoCompraOC = require('../models/SeguimientoCompraOC');
 const VentaCanalDiaria = require('../models/VentaCanalDiaria');
 const VentaForecast = require('../models/VentaForecast');
 const GrupoCompraEspecial = require('../models/GrupoCompraEspecial');
+const Operacion = require('../models/Operacion');
 
 const router = express.Router();
 router.use(auth);
@@ -269,13 +270,14 @@ router.get('/oc', async (req, res) => {
     rangoHasta.setUTCDate(rangoHasta.getUTCDate() + 6);
     rangoHasta.setUTCHours(23, 59, 59, 999);
 
-    const [docs, ventaDocs, forecasts] = await Promise.all([
+    const [docs, ventaDocs, forecasts, operacionDoc] = await Promise.all([
       SeguimientoCompraOC.find({
         operacion,
         $or: semanas.map(h => ({ año: h.año, semana: h.semana })),
       }).lean(),
       VentaCanalDiaria.find({ operacion, fecha: { $gte: rangoDesde, $lte: rangoHasta } }).lean(),
       VentaForecast.find({ operacion, $or: semanas.map(h => ({ año: h.año, semana: h.semana })) }).lean(),
+      Operacion.findOne({ codigo: operacion }).lean(),
     ]);
 
     const ventaNetaPorSemana = {};
@@ -284,16 +286,23 @@ router.get('/oc', async (req, res) => {
       ventaNetaPorSemana[k] = (ventaNetaPorSemana[k] || 0) + (d.ventaNetaMasRedencion || 0);
     });
 
-    // Pronóstico de Venta (monto): mismo cálculo que la vista Pronóstico de
-    // Venta — suma por canal de (cantidad de todos los días) × ticket propuesto.
+    // Pronóstico de Venta (monto): Venta Neta Propuesta total de todos los
+    // canales (histórico + manual) — mismo criterio que "Pronóstico de Venta":
+    // Venta Bruta = suma por canal de (cantidad de todos los días) × ticket
+    // propuesto, más el importe de los canales manuales (ej. COMERCIAL); y
+    // Venta Neta = Venta Bruta / (1 + IGV% + RC%) de la operación.
+    const igvPct = operacionDoc?.igvPct || 0;
+    const rcPct = operacionDoc?.rcPct || 0;
+    const divisorNeta = 1 + igvPct + rcPct;
     const pronosticoPorSemana = {};
     forecasts.forEach(fc => {
       const k = claveSemana(fc.año, fc.semana);
-      const monto = (fc.canales || []).reduce((s, c) => {
+      const bruta = (fc.canales || []).reduce((s, c) => {
+        if (c.esManual) return s + (c.montoManual || 0);
         const sumaDias = (c.dias || []).reduce((a, d) => a + (d.cantidad || 0), 0);
         return s + sumaDias * (c.ticketPropuesto || 0);
       }, 0);
-      pronosticoPorSemana[k] = monto;
+      pronosticoPorSemana[k] = divisorNeta ? bruta / divisorNeta : bruta;
     });
 
     const grupos = new Map(); // grupoCompra -> { claveSemana: { NORMAL, ADICIONAL, OTRA } }
