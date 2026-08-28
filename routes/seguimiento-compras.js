@@ -260,10 +260,27 @@ router.get('/oc', async (req, res) => {
 
     const semanas = [-1, 0, 1].map(i => addSemanas(objetivo.año, objetivo.semana, i));
 
-    const docs = await SeguimientoCompraOC.find({
-      operacion,
-      $or: semanas.map(h => ({ año: h.año, semana: h.semana })),
-    }).lean();
+    // Venta Neta por semana (para la fila de % debajo de los totales) —
+    // mismo criterio que /eficiencia: todos los canales suman como AyB.
+    const primeraSemana = semanas[0], ultimaSemana = semanas[semanas.length - 1];
+    const rangoDesde = mondayOfIsoWeek(primeraSemana.año, primeraSemana.semana);
+    const rangoHasta = new Date(mondayOfIsoWeek(ultimaSemana.año, ultimaSemana.semana));
+    rangoHasta.setUTCDate(rangoHasta.getUTCDate() + 6);
+    rangoHasta.setUTCHours(23, 59, 59, 999);
+
+    const [docs, ventaDocs] = await Promise.all([
+      SeguimientoCompraOC.find({
+        operacion,
+        $or: semanas.map(h => ({ año: h.año, semana: h.semana })),
+      }).lean(),
+      VentaCanalDiaria.find({ operacion, fecha: { $gte: rangoDesde, $lte: rangoHasta } }).lean(),
+    ]);
+
+    const ventaNetaPorSemana = {};
+    ventaDocs.forEach(d => {
+      const k = claveSemana(isoYear(d.fecha), isoWeek(d.fecha));
+      ventaNetaPorSemana[k] = (ventaNetaPorSemana[k] || 0) + (d.ventaNetaMasRedencion || 0);
+    });
 
     const grupos = new Map(); // grupoCompra -> { claveSemana: { NORMAL, ADICIONAL, OTRA } }
     docs.forEach(d => {
@@ -282,7 +299,12 @@ router.get('/oc', async (req, res) => {
       })),
     }));
 
-    res.json({ operacion, semanas, filas });
+    const ventaNeta = Object.fromEntries(semanas.map(h => {
+      const k = claveSemana(h.año, h.semana);
+      return [k, ventaNetaPorSemana[k] || 0];
+    }));
+
+    res.json({ operacion, semanas, filas, ventaNeta });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

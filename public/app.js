@@ -10441,6 +10441,38 @@ async function viewSeguimientoCompras(container) {
                     return claseCols.map((c, i) => `<td class="text-right" style="${divisor(i)}${wCol}">${fmtN(c.k === 'TOTAL' ? total : (v[c.k] ?? 0))}</td>`).join('');
                   }).join('')}
                 </tr>`).join('')}
+              <tr style="font-weight:700;background:var(--bg-hover)">
+                <td>TOTAL</td>
+                ${claves.map(k => {
+                  const sum = { NORMAL: 0, ADICIONAL: 0, OTRA: 0 };
+                  ocData.filas.forEach(f => {
+                    const v = f.porSemana[k] || {};
+                    sum.NORMAL += v.NORMAL || 0; sum.ADICIONAL += v.ADICIONAL || 0; sum.OTRA += v.OTRA || 0;
+                  });
+                  const total = sum.NORMAL + sum.ADICIONAL + sum.OTRA;
+                  return claseCols.map((c, i) => `<td class="text-right" style="${divisor(i)}${wCol}">${fmtN(c.k === 'TOTAL' ? total : sum[c.k])}</td>`).join('');
+                }).join('')}
+              </tr>
+              <tr style="color:var(--text-muted)">
+                <td>Venta Neta</td>
+                ${claves.map((k, idx) => claseCols.map((c, i) =>
+                  `<td class="text-right" style="${divisor(i)}${wCol}">${c.k === 'TOTAL' ? fmtN(ocData.ventaNeta[k] ?? 0) : ''}</td>`
+                ).join('')).join('')}
+              </tr>
+              <tr style="color:var(--text-muted)">
+                <td>%</td>
+                ${claves.map(k => {
+                  const sum = { NORMAL: 0, ADICIONAL: 0, OTRA: 0 };
+                  ocData.filas.forEach(f => {
+                    const v = f.porSemana[k] || {};
+                    sum.NORMAL += v.NORMAL || 0; sum.ADICIONAL += v.ADICIONAL || 0; sum.OTRA += v.OTRA || 0;
+                  });
+                  const total = sum.NORMAL + sum.ADICIONAL + sum.OTRA;
+                  const vn = ocData.ventaNeta[k] || 0;
+                  const pct = vn ? Math.abs(total / vn) * 100 : null;
+                  return claseCols.map((c, i) => `<td class="text-right" style="${divisor(i)}${wCol}">${c.k === 'TOTAL' ? (pct == null ? '—' : pct.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%') : ''}</td>`).join('');
+                }).join('')}
+              </tr>
             </tbody>
           </table>
         </div>
