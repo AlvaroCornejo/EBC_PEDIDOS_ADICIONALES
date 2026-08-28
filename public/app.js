@@ -532,7 +532,7 @@ function jsq(s) { return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\
 async function cargarUsadoEnRecetas(item, el, operacion) {
   if (!el) return;
   try {
-    const usadoEn = await GET(`/recetas/usado-en?item=${encodeURIComponent(item)}`);
+    const usadoEn = await GET(`/recetas/usado-en?item=${encodeURIComponent(item)}&operacion=${encodeURIComponent(operacion || '')}`);
     if (!usadoEn.length) { el.innerHTML = ''; return; }
     el.innerHTML = `
       <div class="card" style="padding:10px 14px;background:#f8fafc">

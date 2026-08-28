@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const authMiddleware = require('../middleware/auth');
 const Receta  = require('../models/Receta');
+const Item    = require('../models/Item');
 
 router.use(authMiddleware);
 
@@ -110,6 +111,7 @@ router.get('/item/:item', async (req, res) => {
 router.get('/usado-en', async (req, res) => {
   try {
     const item = parseInt(req.query.item);
+    const { operacion } = req.query;
     if (!item) return res.status(400).json({ error: 'Parámetro item requerido' });
 
     const recetas = await Receta.find(
@@ -117,13 +119,24 @@ router.get('/usado-en', async (req, res) => {
       { item: 1, descripcion: 1, ingredientes: 1, _id: 0 }
     ).lean();
 
-    const usadoEn = recetas.map(r => {
-      const ing = r.ingredientes.find(i => i.item === item);
-      return {
-        item: r.item, descripcion: r.descripcion,
-        cantidad: ing?.cantidad || 0, unidad: ing?.unidad || '',
-      };
-    }).sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || ''));
+    // Las recetas son un catálogo global (no tienen operación propia) — se
+    // filtran a las que además están catalogadas como ítem en la operación
+    // seleccionada, para no mostrar recetas de otras operaciones.
+    let permitidos = null;
+    if (operacion) {
+      const items = await Item.find({ operacion, item: { $in: recetas.map(r => String(r.item)) } }, { item: 1, _id: 0 }).lean();
+      permitidos = new Set(items.map(i => i.item));
+    }
+
+    const usadoEn = recetas
+      .filter(r => !permitidos || permitidos.has(String(r.item)))
+      .map(r => {
+        const ing = r.ingredientes.find(i => i.item === item);
+        return {
+          item: r.item, descripcion: r.descripcion,
+          cantidad: ing?.cantidad || 0, unidad: ing?.unidad || '',
+        };
+      }).sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || ''));
 
     res.json(usadoEn);
   } catch (err) { res.status(500).json({ error: err.message }); }
