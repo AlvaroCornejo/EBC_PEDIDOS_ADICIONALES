@@ -9,6 +9,10 @@ const canalForecastSchema = new mongoose.Schema({
   canal:            { type: String, required: true },
   ticketPropuesto:  { type: Number, default: 0 },
   dias:             { type: [diaProyectadoSchema], default: [] },
+  // Canal manual (ej. COMERCIAL) sin histórico de pax/transacciones — se
+  // registra directo el importe de venta bruta propuesta, sin desglose.
+  esManual:         { type: Boolean, default: false },
+  montoManual:      { type: Number, default: 0 },
 }, { _id: false });
 
 const ventaForecastSchema = new mongoose.Schema({

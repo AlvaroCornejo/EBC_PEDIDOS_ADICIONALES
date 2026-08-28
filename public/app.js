@@ -4519,7 +4519,25 @@ async function viewPronosticoVenta(container) {
   let dataResumen = null;
   let proyeccion = {};   // canal -> { ticketPropuesto, dias: {1..7: cantidad} }
   let canalPorSlug = {};
+  let canalesManuales = []; // [{ canal, montoManual }] — canales sin histórico (ej. COMERCIAL), solo importe
   let bloqueado = false;
+
+  function operacionSeleccionada() {
+    for (const s of (S.sociedades || [])) {
+      const o = (s.operaciones || []).find(op => op.codigo === operacionActual);
+      if (o) return o;
+    }
+    return null;
+  }
+  function pctIgvRc() {
+    const op = operacionSeleccionada();
+    return { igvPct: op?.igvPct || 0, rcPct: op?.rcPct || 0 };
+  }
+  function ventaNetaDe(ventaBruta) {
+    const { igvPct, rcPct } = pctIgvRc();
+    const divisor = 1 + igvPct + rcPct;
+    return divisor ? ventaBruta / divisor : ventaBruta;
+  }
 
   const slug = s => String(s).replace(/[^A-Za-z0-9]+/g, '_');
   const fmtN = (v, dec = 0) => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -4641,7 +4659,9 @@ async function viewPronosticoVenta(container) {
         proyeccion[c.canal] = { ticketPropuesto: c.ticketPropuesta || 0, dias: {} };
         c.dias.forEach(d => { proyeccion[c.canal].dias[d.diaSemana] = d.propuesta; });
       });
+      canalesManuales = [];
       (fc.canales || []).forEach(fcc => {
+        if (fcc.esManual) { canalesManuales.push({ canal: fcc.canal, montoManual: fcc.montoManual || 0 }); return; }
         if (!proyeccion[fcc.canal]) proyeccion[fcc.canal] = { ticketPropuesto: 0, dias: {} };
         if (fcc.ticketPropuesto) proyeccion[fcc.canal].ticketPropuesto = fcc.ticketPropuesto;
         (fcc.dias || []).forEach(d => { proyeccion[fcc.canal].dias[d.diaSemana] = d.cantidad; });
@@ -4737,7 +4757,9 @@ async function viewPronosticoVenta(container) {
   }
 
   function totalArmadoVenta() {
-    return dataResumen.canales.reduce((s, c) => s + sumaDias(c.canal) * (proyeccion[c.canal]?.ticketPropuesto || 0), 0);
+    const historico = dataResumen.canales.reduce((s, c) => s + sumaDias(c.canal) * (proyeccion[c.canal]?.ticketPropuesto || 0), 0);
+    const manual = canalesManuales.reduce((s, m) => s + (Number(m.montoManual) || 0), 0);
+    return historico + manual;
   }
   function totalArmadoProyectado() {
     return dataResumen.canales.reduce((s, c) => s + sumaDias(c.canal), 0);
@@ -4747,27 +4769,45 @@ async function viewPronosticoVenta(container) {
     const filas = dataResumen.canales.map(c => {
       const proyectado = sumaDias(c.canal);
       const ticket = proyeccion[c.canal]?.ticketPropuesto || 0;
+      const ventaBruta = proyectado * ticket;
       return `<tr>
         <td>${esc(c.canal)} <span class="text-muted" style="font-size:11px">(${c.tipo === 'pax' ? 'PAX' : 'TRX'})</span></td>
         <td class="text-right" id="pv-armado-pax-${slug(c.canal)}">${fmtN(proyectado)}</td>
         <td class="text-right" id="pv-armado-ticket-${slug(c.canal)}">${fmtMoney(ticket)}</td>
-        <td class="text-right" id="pv-armado-venta-${slug(c.canal)}">${fmtMoney(proyectado * ticket)}</td>
+        <td class="text-right" id="pv-armado-venta-${slug(c.canal)}">${fmtMoney(ventaBruta)}</td>
+        <td class="text-right" id="pv-armado-neta-${slug(c.canal)}">${fmtMoney(ventaNetaDe(ventaBruta))}</td>
+        <td></td>
       </tr>`;
     }).join('');
+    const filasManuales = canalesManuales.map(m => `<tr>
+        <td>${esc(m.canal)} <span class="text-muted" style="font-size:11px">(manual)</span></td>
+        <td class="text-right">—</td>
+        <td class="text-right">—</td>
+        <td class="text-right"><input type="number" step="0.01" class="form-control text-right" id="pv-manual-${slug(m.canal)}" value="${m.montoManual ? m.montoManual.toFixed(2) : ''}" style="width:110px" oninput="pvManualChange('${slug(m.canal)}')" ${bloqueado ? 'disabled' : ''}></td>
+        <td class="text-right" id="pv-armado-neta-${slug(m.canal)}">${fmtMoney(ventaNetaDe(m.montoManual || 0))}</td>
+        <td>${bloqueado ? '' : `<button class="btn btn-outline btn-sm" style="color:var(--danger);padding:1px 6px" onclick="pvQuitarManual('${slug(m.canal)}')" title="Quitar canal">🗑️</button>`}</td>
+      </tr>`).join('');
     const totalProyectado = totalArmadoProyectado();
     const totalVenta = totalArmadoVenta();
+    const { igvPct, rcPct } = pctIgvRc();
     const filaTotal = `<tr style="font-weight:700;border-top:2px solid var(--border);background:var(--bg-secondary)">
       <td>TOTAL</td>
       <td class="text-right" id="pv-armado-total-pax">${fmtN(totalProyectado)}</td>
       <td></td>
       <td class="text-right" id="pv-armado-total-venta">${fmtMoney(totalVenta)}</td>
+      <td class="text-right" id="pv-armado-total-neta">${fmtMoney(ventaNetaDe(totalVenta))}</td>
+      <td></td>
     </tr>`;
     return `<div class="card mb-16" style="padding:14px">
-      <div style="font-weight:600;margin-bottom:8px">RESUMEN DE LA SEMANA — SEM ${dataResumen.objetivo.semana}/${dataResumen.objetivo.año}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-weight:600">RESUMEN DE LA SEMANA — SEM ${dataResumen.objetivo.semana}/${dataResumen.objetivo.año}</div>
+        ${!bloqueado && !canalesManuales.some(m => m.canal === 'COMERCIAL') ? `<button class="btn btn-outline btn-sm" onclick="pvAgregarComercial()">➕ Agregar canal Comercial</button>` : ''}
+      </div>
+      <p class="text-muted" style="font-size:11px;margin:-4px 0 8px">Venta Neta Propuesta = Venta Bruta / (1 + IGV ${(igvPct*100).toFixed(1)}% + RC ${(rcPct*100).toFixed(1)}%) — % definidos en Admin → Sociedades y Operaciones.</p>
       <div class="table-wrap" style="overflow-x:auto">
         <table class="data-table" style="font-size:12px;width:auto">
-          <thead><tr><th>Canal</th><th class="text-right" style="padding-left:24px">Pax/Trans. proyectado</th><th class="text-right" style="padding-left:24px">Ticket promedio final</th><th class="text-right" style="padding-left:24px">Venta bruta propuesta</th></tr></thead>
-          <tbody>${filas}${filaTotal}</tbody>
+          <thead><tr><th>Canal</th><th class="text-right" style="padding-left:24px">Pax/Trans. proyectado</th><th class="text-right" style="padding-left:24px">Ticket promedio final</th><th class="text-right" style="padding-left:24px">Venta bruta propuesta</th><th class="text-right" style="padding-left:24px">Venta neta propuesta</th><th></th></tr></thead>
+          <tbody>${filas}${filasManuales}${filaTotal}</tbody>
         </table>
       </div>
     </div>`;
@@ -4835,23 +4875,48 @@ async function viewPronosticoVenta(container) {
   function recalcArmado(slugCanal, canal) {
     const proyectado = sumaDias(canal);
     const ticket = proyeccion[canal]?.ticketPropuesto || 0;
+    const ventaBruta = proyectado * ticket;
     const paxEl = document.getElementById(`pv-armado-pax-${slugCanal}`);
     const ticketEl = document.getElementById(`pv-armado-ticket-${slugCanal}`);
     const ventaEl = document.getElementById(`pv-armado-venta-${slugCanal}`);
+    const netaEl = document.getElementById(`pv-armado-neta-${slugCanal}`);
     if (paxEl) paxEl.textContent = fmtN(proyectado);
     if (ticketEl) ticketEl.textContent = fmtMoney(ticket);
-    if (ventaEl) ventaEl.textContent = fmtMoney(proyectado * ticket);
+    if (ventaEl) ventaEl.textContent = fmtMoney(ventaBruta);
+    if (netaEl) netaEl.textContent = fmtMoney(ventaNetaDe(ventaBruta));
 
     const diaTotalEl = document.getElementById(`pv-diatotal-${slugCanal}`);
     if (diaTotalEl) diaTotalEl.value = fmtN(proyectado);
 
+    recalcTotalArmado();
+  }
+  function recalcTotalArmado() {
     const totalProyectado = totalArmadoProyectado();
     const totalVenta = totalArmadoVenta();
     const tPaxEl   = document.getElementById('pv-armado-total-pax');
     const tVentaEl = document.getElementById('pv-armado-total-venta');
+    const tNetaEl  = document.getElementById('pv-armado-total-neta');
     if (tPaxEl)   tPaxEl.textContent   = fmtN(totalProyectado);
     if (tVentaEl) tVentaEl.textContent = fmtMoney(totalVenta);
+    if (tNetaEl)  tNetaEl.textContent  = fmtMoney(ventaNetaDe(totalVenta));
   }
+  window.pvAgregarComercial = () => {
+    if (canalesManuales.some(m => m.canal === 'COMERCIAL')) return;
+    canalesManuales.push({ canal: 'COMERCIAL', montoManual: 0 });
+    render();
+  };
+  window.pvQuitarManual = (slugCanal) => {
+    canalesManuales = canalesManuales.filter(m => slug(m.canal) !== slugCanal);
+    render();
+  };
+  window.pvManualChange = (slugCanal) => {
+    const m = canalesManuales.find(m => slug(m.canal) === slugCanal);
+    if (!m) return;
+    m.montoManual = Number(document.getElementById(`pv-manual-${slugCanal}`).value) || 0;
+    const netaEl = document.getElementById(`pv-armado-neta-${slugCanal}`);
+    if (netaEl) netaEl.textContent = fmtMoney(ventaNetaDe(m.montoManual));
+    recalcTotalArmado();
+  };
 
   async function guardar() {
     if (!operacionActual || !dataResumen) { toast('Selecciona una operación', 'error'); return; }
@@ -4861,7 +4926,10 @@ async function viewPronosticoVenta(container) {
       canal,
       ticketPropuesto: Number(v.ticketPropuesto) || 0,
       dias: [1, 2, 3, 4, 5, 6, 7].map(d => ({ diaSemana: d, cantidad: Number(v.dias?.[d]) || 0 })),
-    }));
+    })).concat(canalesManuales.map(m => ({
+      canal: m.canal, esManual: true, montoManual: Number(m.montoManual) || 0,
+      ticketPropuesto: 0, dias: [],
+    })));
     try {
       await PUT('/pronostico-venta/forecast', {
         operacion: operacionActual, año: dataResumen.objetivo.año, semana: dataResumen.objetivo.semana, canales,
@@ -11754,11 +11822,13 @@ async function renderAdminSociedades(container) {
                     </div>
                     ${(s.operaciones||[]).length ? `
                     <table style="width:100%;font-size:12px;border-collapse:collapse">
-                      <thead><tr style="color:var(--text-muted)"><th style="text-align:left;padding:4px 8px">Código</th><th style="text-align:left;padding:4px 8px">Nombre</th><th style="width:40px"></th></tr></thead>
+                      <thead><tr style="color:var(--text-muted)"><th style="text-align:left;padding:4px 8px">Código</th><th style="text-align:left;padding:4px 8px">Nombre</th><th style="width:70px" title="Usado en Pronóstico de Venta">IGV %</th><th style="width:70px" title="Usado en Pronóstico de Venta">RC %</th><th style="width:40px"></th></tr></thead>
                       <tbody>
                         ${s.operaciones.map(o => `<tr>
                           <td style="padding:4px 8px"><code>${esc(o.codigo)}</code></td>
                           <td style="padding:4px 8px">${esc(o.nombre)}</td>
+                          <td style="padding:4px 8px"><input type="number" step="0.01" class="adm-op-igv" data-id="${o._id}" value="${((o.igvPct||0)*100).toFixed(2).replace(/\.?0+$/,'')}" style="width:56px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;font-size:12px;text-align:right"></td>
+                          <td style="padding:4px 8px"><input type="number" step="0.01" class="adm-op-rc" data-id="${o._id}" value="${((o.rcPct||0)*100).toFixed(2).replace(/\.?0+$/,'')}" style="width:56px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;font-size:12px;text-align:right"></td>
                           <td style="padding:4px 8px;text-align:center"><button class="btn btn-outline btn-sm" style="color:var(--danger);padding:1px 6px" onclick="admOpEliminar('${o._id}','${esc(o.codigo)}')">🗑️</button></td>
                         </tr>`).join('')}
                       </tbody>
@@ -11787,6 +11857,19 @@ async function renderAdminSociedades(container) {
       btn.addEventListener('click', () => {
         _admSocExpandida = _admSocExpandida === btn.dataset.codigo ? null : btn.dataset.codigo;
         render(sociedades);
+      });
+    });
+
+    container.querySelectorAll('.adm-op-igv, .adm-op-rc').forEach(input => {
+      input.addEventListener('change', async () => {
+        const field = input.classList.contains('adm-op-igv') ? 'igvPct' : 'rcPct';
+        const val = (parseFloat(input.value) || 0) / 100;
+        try {
+          await PUT(`/sociedades/operaciones/${input.dataset.id}`, { [field]: val });
+          toast('Guardado', 'success');
+          await loadSociedades();
+          reload();
+        } catch (e) { toast(e.message, 'error'); }
       });
     });
 

@@ -742,3 +742,28 @@ hay flujo de aprobación/Pedido Tienda, es solo una consulta de solo lectura. `G
 tripleta (Normal/Adicional/Otra, importeOC) por cada una de las 3 semanas. Comparte el
 selector de Operación y "Hasta la semana" de la consulta de Eficiencia (se recarga
 junto con ella en `cargar()`).
+
+### Sesión 11 — Pronóstico de Venta: canal manual + Venta Neta Propuesta
+
+**IGV%/RC% por operación**: `Operacion` (`models/Operacion.js`) gana `igvPct`/`rcPct`
+(fracción, ej. 0.18), editables inline en Admin → Sociedades y Operaciones (tabla de
+operaciones de cada sociedad, 2 columnas nuevas) vía `PUT /sociedades/operaciones/:id`.
+Se leen en el cliente desde `S.sociedades` (ya cargado app-wide por `loadSociedades()`,
+sin fetch propio) — `operacionSeleccionada()`/`pctIgvRc()` en `viewPronosticoVenta`.
+
+**Venta Neta Propuesta** = `Venta Bruta Propuesta / (1 + igvPct + rcPct)` — fórmula
+confirmada explícitamente por el usuario (no es "restar % en cascada", es dividir por
+el divisor combinado). Se agrega como columna nueva en "RESUMEN DE LA SEMANA", tanto
+por canal como en la fila TOTAL.
+
+**Canal manual COMERCIAL** (sin histórico — a diferencia de los demás canales, que
+salen de `VentaCanalDiaria.distinct('canal', ...)` y tienen tablas de regresión por
+día): botón "➕ Agregar canal Comercial" en el Resumen agrega una fila donde **solo se
+edita el importe de Venta Bruta Propuesta directamente** (sin pax/transacciones ni
+ticket — a pedido explícito del usuario). Estado cliente separado (`canalesManuales`,
+no mezclado con `proyeccion` que es solo para canales con histórico). Persistencia:
+`VentaForecast.canales[]` gana `esManual`/`montoManual` (`models/VentaForecast.js`);
+al guardar se concatena a los canales normales con `esManual:true, dias:[]`; al cargar
+un forecast existente, `cargar()` separa los `esManual` hacia `canalesManuales` en vez
+de `proyeccion`. Solo puede haber un canal "COMERCIAL" a la vez (botón se oculta si ya
+existe); se puede quitar con el botón 🗑️ de su fila (mientras no esté bloqueado).

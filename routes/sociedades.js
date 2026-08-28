@@ -55,9 +55,15 @@ router.post('/:sociedadId/operaciones', adminOnly, async (req, res) => {
 
 router.put('/operaciones/:id', adminOnly, async (req, res) => {
   try {
-    const { nombre } = req.body;
-    if (!nombre) return res.status(400).json({ error: 'Falta nombre' });
-    const o = await Operacion.findByIdAndUpdate(req.params.id, { nombre: nombre.trim() }, { new: true });
+    const { nombre, igvPct, rcPct } = req.body;
+    const update = {};
+    if (nombre !== undefined) {
+      if (!nombre) return res.status(400).json({ error: 'Falta nombre' });
+      update.nombre = nombre.trim();
+    }
+    if (igvPct !== undefined) update.igvPct = Number(igvPct) || 0;
+    if (rcPct !== undefined) update.rcPct = Number(rcPct) || 0;
+    const o = await Operacion.findByIdAndUpdate(req.params.id, update, { new: true });
     if (!o) return res.status(404).json({ error: 'No encontrada' });
     res.json(o);
   } catch (e) { res.status(500).json({ error: e.message }); }
