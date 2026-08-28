@@ -1,6 +1,7 @@
 /**
- * Importación de EBC BASE SEGUIMIENTO DE COMPRAS.xlsx a MongoDB (hoja MOVIMIENTOS,
- * fuente del módulo Aprobación y Seguimiento de Compras — Eficiencia de Consumo y Compra).
+ * Importación de EBC BASE SEGUIMIENTO DE COMPRAS.xlsx a MongoDB (hojas MOVIMIENTOS y OC,
+ * fuente del módulo Aprobación y Seguimiento de Compras — Eficiencia de Consumo y Compra
+ * + consulta de OC por Grupo de Compra).
  *
  * Solo se importan filas con GRUPO === 'FC' (se descartan las 'SD').
  *
@@ -17,6 +18,7 @@ const mongoose = require('mongoose');
 const ExcelJS  = require('exceljs');
 
 const SeguimientoCompraMovimiento = require('../models/SeguimientoCompraMovimiento');
+const SeguimientoCompraOC         = require('../models/SeguimientoCompraOC');
 const GrupoCompraEspecial         = require('../models/GrupoCompraEspecial');
 
 const FILE_PATH = process.argv[2]
@@ -90,6 +92,45 @@ async function main() {
   });
   console.log(`"MOVIMIENTOS": ${movDocs.length} filas FC válidas, ${movSD} filas SD descartadas, ${movRechazadas} rechazadas (datos incompletos).`);
 
+  // ── Hoja OC ──────────────────────────────────────────────────────────────────
+  const wsOC = wb.getWorksheet('OC');
+  if (!wsOC) throw new Error('No se encontró la hoja "OC"');
+  const hOC = leerEncabezado(wsOC);
+  const colO = colFn(hOC);
+  const COLO = {
+    grupo:        colO('GRUPO'),
+    grupoGeneral: colO('GRUPO GENERAL'),
+    grupoCompra:  colO('GRUPO COMPRA'),
+    operacion:    colO('OPERACION', 'OPERACIÓN'),
+    año:          colO('AÑO', 'ANO'),
+    semana:       colO('SEMANA'),
+    claseOC:      colO('CLASE OC'),
+    cantidadOC:   colO('CANTIDAD OC'),
+    importeOC:    colO('IMPORTE OC'),
+  };
+  const faltantesO = Object.entries(COLO).filter(([, c]) => c === undefined).map(([k]) => k);
+  if (faltantesO.length) throw new Error(`"OC": no se encontraron las columnas: ${faltantesO.join(', ')}`);
+
+  const ocDocs = [];
+  let ocRechazadas = 0, ocSD = 0;
+  wsOC.eachRow((row, i) => {
+    if (i === 1) return;
+    const v = row.values;
+    const grupo = str(v[COLO.grupo]);
+    if (grupo !== 'FC') { ocSD++; return; }
+    const operacion = str(v[COLO.operacion]);
+    const claseOC = str(v[COLO.claseOC]);
+    const año = num(v[COLO.año]);
+    const semana = num(v[COLO.semana]);
+    if (!operacion || !claseOC || !año || !semana) { ocRechazadas++; return; }
+    ocDocs.push({
+      grupo, grupoGeneral: str(v[COLO.grupoGeneral]), grupoCompra: str(v[COLO.grupoCompra]),
+      operacion, año, semana, claseOC,
+      cantidadOC: num(v[COLO.cantidadOC]), importeOC: num(v[COLO.importeOC]),
+    });
+  });
+  console.log(`"OC": ${ocDocs.length} filas FC válidas, ${ocSD} filas SD descartadas, ${ocRechazadas} rechazadas (datos incompletos).`);
+
   // ── Tabla GRUPO_COMPRA_ESPECIAL (dentro de la hoja "TABLAS", NO es una hoja
   // propia — hay varias tablas de Excel en esa misma hoja en distintas
   // columnas). Se ubica buscando la celda "GRUPO COMPRA" seguida a la derecha
@@ -131,6 +172,12 @@ async function main() {
     await SeguimientoCompraMovimiento.insertMany(movDocs.slice(i, i + BATCH), { ordered: false });
   }
   console.log(`  ✓ ${movDocs.length.toLocaleString()} filas en SeguimientoCompraMovimiento.`);
+
+  await SeguimientoCompraOC.deleteMany({});
+  for (let i = 0; i < ocDocs.length; i += BATCH) {
+    await SeguimientoCompraOC.insertMany(ocDocs.slice(i, i + BATCH), { ordered: false });
+  }
+  console.log(`  ✓ ${ocDocs.length.toLocaleString()} filas en SeguimientoCompraOC.`);
 
   await GrupoCompraEspecial.deleteMany({});
   if (especialDocs.length) await GrupoCompraEspecial.insertMany(especialDocs, { ordered: false });

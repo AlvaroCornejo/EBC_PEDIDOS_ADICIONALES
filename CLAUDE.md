@@ -710,3 +710,35 @@ Especial" junto al checkbox muestra qué grupos de compra aplican para la operac
 seleccionada (`GET /seguimiento-compras/grupos-especiales?operacion=`). Validado con
 datos reales: GBCFR tiene 78 de 571 movimientos (CAFE TOSTADO/CAFÉ VERDE) que se
 excluirían si se desmarca el checkbox.
+
+**Códigos de movimiento cortos** (fix crítico, el Excel origen cambió su vocabulario):
+la columna MOVIMIENTO de la hoja MOVIMIENTOS ya no trae nombres largos (BAJA, CONSUMOS,
+FALTANTE, SOBRANTE, TRANSFERENCIA, PRODUCCION, TRANSFORMACION, CONSUMO TRANSFORMACION)
+sino códigos cortos: `COMPRA, TRANSF, VENTA, INICIAL, CONSUM, CONS PRD, INGR PRD, BAJA,
+MERMA, SOBRA, FALTA` (confirmado leyendo el Excel real y contra Mongo tras el
+re-import). El cálculo buscaba `'TRANSFERENCIA'` (ya no existe) — se corrigió a
+`'TRANSF'`. "Otros Movimientos" se muestra en orden fijo (`OTROS_ORDEN` en el
+frontend): `INGR PRD, CONS PRD, CONSUM, BAJA, MERMA, SOBRA, FALTA` — cualquier tipo
+nuevo no contemplado cae al final, ordenado alfabéticamente. La tabla `TABLA_MOVIMIENTOS`
+de la hoja TABLAS (TRANSACCION→NOMBRE→SIGNO→MOVIMIENTO, 45 filas) **no sirve para
+este mapeo** — su propia columna MOVIMIENTO usa una nomenclatura distinta a la de la
+hoja MOVIMIENTOS (mismo nombre de columna, vocabularios distintos) — no hay ninguna
+tabla ni fórmula en el Excel que documente la relación; la fuente de verdad es
+simplemente lo que trae la columna MOVIMIENTO de la hoja MOVIMIENTOS directamente.
+Todos los importes/% se muestran en negro (se quitó el rojo para negativos, a pedido
+del usuario) y los % siempre en positivo (`Math.abs`, conservando el signo real solo
+internamente).
+
+**Tabla de Eficiencia con scroll**: el contenedor de la tabla usa `max-height:340px`
+(~8 filas) con `overflow:auto`; con más semanas mostradas aparece scroll vertical en
+vez de estirar la página.
+
+**OC por Grupo de Compra** (segunda consulta, debajo de Eficiencia): se restauró el
+modelo `SeguimientoCompraOC` (borrado en la Sesión 10, revivido aquí) y el import de
+la hoja OC en `importSeguimientoCompras.js` — a diferencia de la v1 (Sesión 8), ya NO
+hay flujo de aprobación/Pedido Tienda, es solo una consulta de solo lectura. `GET
+/seguimiento-compras/oc?operacion=&semanaObjetivo=` — **fijo a las últimas 3 semanas**
+(no configurable), filas = `grupoCompra` (ordenado alfabéticamente), columnas = una
+tripleta (Normal/Adicional/Otra, importeOC) por cada una de las 3 semanas. Comparte el
+selector de Operación y "Hasta la semana" de la consulta de Eficiencia (se recarga
+junto con ella en `cargar()`).

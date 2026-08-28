@@ -10219,9 +10219,11 @@ async function viewSeguimientoCompras(container) {
         </div>
       </div>
       <div id="sc-content"></div>
+      <div id="sc-oc-content" class="mt-16"></div>
     </div>`;
 
   const root = document.getElementById('sc-content');
+  const rootOC = document.getElementById('sc-oc-content');
 
   try {
     const ops = await GET('/seguimiento-compras/operaciones');
@@ -10285,9 +10287,57 @@ async function viewSeguimientoCompras(container) {
       if (semSel) params.set('semanaObjetivo', semSel);
 
       data = await GET(`/seguimiento-compras/eficiencia?${params}`);
-      root.innerHTML = `<div class="card" style="padding:14px;overflow-x:auto"><div id="sc-tabla"></div></div>`;
+      root.innerHTML = `<div class="card" style="padding:14px"><div style="overflow:auto;max-height:340px"><div id="sc-tabla"></div></div></div>`;
       renderTabla();
+      cargarOC(semSel);
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  async function cargarOC(semSel) {
+    rootOC.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando OC...</div>';
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual });
+      if (semSel) params.set('semanaObjetivo', semSel);
+      const ocData = await GET(`/seguimiento-compras/oc?${params}`);
+      renderTablaOC(ocData);
+    } catch (e) { rootOC.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function renderTablaOC(ocData) {
+    if (!ocData.filas.length) {
+      rootOC.innerHTML = `<div class="card" style="padding:14px"><h3 style="margin:0 0 10px 0">OC por Grupo de Compra</h3><p class="text-muted">Sin datos de OC para esta operación.</p></div>`;
+      return;
+    }
+    const claves = ocData.semanas.map(h => h.año * 100 + h.semana);
+    const claseCols = [
+      { k: 'NORMAL', label: 'Normal' },
+      { k: 'ADICIONAL', label: 'Adicional' },
+      { k: 'OTRA', label: 'Otra' },
+    ];
+    rootOC.innerHTML = `
+      <div class="card" style="padding:14px">
+        <h3 style="margin:0 0 10px 0">OC por Grupo de Compra</h3>
+        <div style="overflow-x:auto">
+          <table class="data-table" style="font-size:12px;white-space:nowrap">
+            <thead>
+              <tr>
+                <th rowspan="2">Grupo Compra</th>
+                ${ocData.semanas.map(h => `<th colspan="3" class="text-center">SEM ${h.semana}/${h.año}</th>`).join('')}
+              </tr>
+              <tr>
+                ${ocData.semanas.map(() => claseCols.map(c => `<th class="text-right">${c.label}</th>`).join('')).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${ocData.filas.map(f => `
+                <tr>
+                  <td>${esc(f.grupoCompra)}</td>
+                  ${claves.map(k => claseCols.map(c => `<td class="text-right">${fmtN(f.porSemana[k]?.[c.k] ?? 0)}</td>`).join('')).join('')}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
   }
 
   function renderTabla() {

@@ -2,6 +2,7 @@ const express = require('express');
 const auth = require('../middleware/auth');
 
 const SeguimientoCompraMovimiento = require('../models/SeguimientoCompraMovimiento');
+const SeguimientoCompraOC = require('../models/SeguimientoCompraOC');
 const VentaCanalDiaria = require('../models/VentaCanalDiaria');
 const GrupoCompraEspecial = require('../models/GrupoCompraEspecial');
 
@@ -238,6 +239,49 @@ router.get('/eficiencia', async (req, res) => {
     const filas = filasExtendidas.slice(EXTRA);
 
     res.json({ operacion, objetivo, nSemPct, filas });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /oc?operacion=&semanaObjetivo=YYYYWW — OC por Grupo de Compra ───────
+// Últimas 3 semanas (hasta semanaObjetivo, default semana ISO actual): una
+// fila por grupoCompra, y por cada semana el importe de OC Normal, Adicional
+// y Otra (de la hoja OC del Excel).
+router.get('/oc', async (req, res) => {
+  try {
+    const { operacion } = req.query;
+    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
+    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+
+    let objetivo;
+    const semQ = req.query.semanaObjetivo;
+    if (semQ && /^\d{6}$/.test(semQ)) objetivo = { año: +semQ.slice(0, 4), semana: +semQ.slice(4) };
+    else { const hoy = new Date(); objetivo = { año: isoYear(hoy), semana: isoWeek(hoy) }; }
+
+    const semanas = [2, 1, 0].map(i => addSemanas(objetivo.año, objetivo.semana, -i));
+
+    const docs = await SeguimientoCompraOC.find({
+      operacion,
+      $or: semanas.map(h => ({ año: h.año, semana: h.semana })),
+    }).lean();
+
+    const grupos = new Map(); // grupoCompra -> { claveSemana: { NORMAL, ADICIONAL, OTRA } }
+    docs.forEach(d => {
+      if (!grupos.has(d.grupoCompra)) grupos.set(d.grupoCompra, {});
+      const k = claveSemana(d.año, d.semana);
+      if (!grupos.get(d.grupoCompra)[k]) grupos.get(d.grupoCompra)[k] = { NORMAL: 0, ADICIONAL: 0, OTRA: 0 };
+      grupos.get(d.grupoCompra)[k][d.claseOC] = (grupos.get(d.grupoCompra)[k][d.claseOC] || 0) + d.importeOC;
+    });
+
+    const filas = [...grupos.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([grupoCompra, porSemana]) => ({
+      grupoCompra,
+      porSemana: Object.fromEntries(semanas.map(h => {
+        const k = claveSemana(h.año, h.semana);
+        const v = porSemana[k] || { NORMAL: 0, ADICIONAL: 0, OTRA: 0 };
+        return [k, v];
+      })),
+    }));
+
+    res.json({ operacion, semanas, filas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
