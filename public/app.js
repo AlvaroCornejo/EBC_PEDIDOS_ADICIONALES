@@ -10523,12 +10523,13 @@ async function viewSeguimientoCompras(container) {
                 });
                 const fmtPct1 = v => v == null ? '—' : v.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
                 // Fila de % — una por cada uno de los 4 totales, dividido entre
-                // el denominador de esa semana (Venta Neta o Pronóstico).
+                // el denominador de esa semana (Venta Neta o Pronóstico). Es uno
+                // de los datos principales del cuadro, se resalta más que el resto.
                 const filaPct = (denomPorSemana) => claves.map(k => {
                   const denom = denomPorSemana[k] || 0;
                   return claseCols.map((c, i) => {
                     const pct = denom ? Math.abs(sumaPorSemana[k][c.k] / denom) * 100 : null;
-                    return `<td class="text-right" style="${divisor(i)}${wCol}">${fmtPct1(pct)}</td>`;
+                    return `<td class="text-right" style="${divisor(i)}${wCol};font-size:14px;font-weight:700;color:var(--primary)">${fmtPct1(pct)}</td>`;
                   }).join('');
                 }).join('');
                 const filaValorUnico = (valorPorSemana) => claves.map(k => claseCols.map((c, i) =>
@@ -10544,16 +10545,16 @@ async function viewSeguimientoCompras(container) {
                     <td>Venta Neta</td>
                     ${filaValorUnico(ocData.ventaNeta)}
                   </tr>
-                  <tr style="color:var(--text-muted)">
-                    <td>%</td>
+                  <tr style="background:var(--bg-hover)">
+                    <td style="font-weight:700">%</td>
                     ${filaPct(ocData.ventaNeta)}
                   </tr>
                   <tr style="color:var(--text-muted)">
                     <td>Pronóstico de Venta</td>
                     ${filaValorUnico(ocData.pronosticoVenta)}
                   </tr>
-                  <tr style="color:var(--text-muted)">
-                    <td>%</td>
+                  <tr style="background:var(--bg-hover)">
+                    <td style="font-weight:700">%</td>
                     ${filaPct(ocData.pronosticoVenta)}
                   </tr>`;
               })()}
