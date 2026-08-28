@@ -10137,7 +10137,7 @@ async function viewSeguimientoCompras(container) {
   const fmtN = v => v == null ? '—' : Math.round(Number(v)).toLocaleString('es-PE');
   const fmtPct = v => v == null ? '—' : (Number(v) * 100).toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
   const tdN = v => `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${fmtN(v)}</td>`;
-  const spanPct = v => `<span style="${v < 0 ? 'color:#dc2626' : ''}">${fmtPct(v)}</span>`;
+  const spanPct = v => `<span style="${v < 0 ? 'color:#dc2626' : ''}">${fmtPct(v == null ? null : Math.abs(v))}</span>`;
   const tdP2 = (sem, nsem) => `<td class="text-center">${spanPct(sem)} / ${spanPct(nsem)}</td>`;
 
   function isoYearCli(date) {
@@ -10302,27 +10302,38 @@ async function viewSeguimientoCompras(container) {
     const colsIngresos = detalleIngresos ? 4 : 2; // + Compra/Transferencia (solo importe) cuando está abierto
     const colsOtros = detalleOtros ? otrosKeys.length + 1 : 1; // + un importe por tipo cuando está abierto
 
+    // Un color por grupo de columnas, aplicado como fondo de cabecera.
+    const C = {
+      ventas:   { bg: '#eef2ff', fg: '#4338ca' },
+      inv:      { bg: '#f1f5f9', fg: '#475569' },
+      ingresos: { bg: '#ecfdf5', fg: '#059669' },
+      fc:       { bg: '#fff7ed', fg: '#c2410c' },
+      otros:    { bg: '#f5f3ff', fg: '#7c3aed' },
+      consumo:  { bg: '#fdf2f8', fg: '#be185d' },
+    };
+    const th = (c, extra = '') => `background:${c.bg};color:${c.fg};${extra}`;
+
     el.innerHTML = `
       <table class="data-table" style="font-size:12px;white-space:nowrap">
         <thead>
           <tr>
             <th rowspan="2">Semana</th>
-            <th rowspan="2" class="text-right">Venta Bruta</th>
-            <th rowspan="2" class="text-right">Venta Neta</th>
-            <th rowspan="2" class="text-right">Saldo Inicial</th>
-            <th colspan="${colsIngresos}" class="text-center sc-th-toggle" id="sc-th-ingresos" style="cursor:pointer">${arrIngresos} Ingresos al Almacén</th>
-            <th colspan="2" class="text-center">FC Teórico</th>
-            <th colspan="${colsOtros}" class="text-center sc-th-toggle" id="sc-th-otros" style="cursor:pointer">${arrOtros} Otros Movimientos</th>
-            <th rowspan="2" class="text-right">Inventario Final</th>
-            <th colspan="2" class="text-center">Consumo Total</th>
+            <th rowspan="2" class="text-right" style="${th(C.ventas)}">VENTA<br>BRUTA</th>
+            <th rowspan="2" class="text-right" style="${th(C.ventas)}">VENTA<br>NETA</th>
+            <th rowspan="2" class="text-right" style="${th(C.inv)}">INV.<br>INICIAL</th>
+            <th colspan="${colsIngresos}" class="text-center sc-th-toggle" id="sc-th-ingresos" style="${th(C.ingresos, 'cursor:pointer')}">${arrIngresos} Ingresos al Almacén</th>
+            <th colspan="2" class="text-center" style="${th(C.fc)}">FC Teórico</th>
+            <th colspan="${colsOtros}" class="text-center sc-th-toggle" id="sc-th-otros" style="${th(C.otros, 'cursor:pointer')}">${arrOtros} Otros Movimientos</th>
+            <th rowspan="2" class="text-right" style="${th(C.inv)}">INV.<br>FINAL</th>
+            <th colspan="2" class="text-center" style="${th(C.consumo)}">Consumo Total</th>
           </tr>
           <tr>
-            ${detalleIngresos ? '<th class="text-right">Compra</th><th class="text-right">Transferencia</th>' : ''}
-            <th class="text-right">Importe</th><th class="text-center">% sem / ${data.nSemPct} sem</th>
-            <th class="text-right">Importe</th><th class="text-center">% sem / ${data.nSemPct} sem</th>
-            ${detalleOtros ? otrosKeys.map(k => `<th class="text-right">${esc(k)}</th>`).join('') : ''}
-            <th class="text-right">Importe</th>
-            <th class="text-right">Importe</th><th class="text-center">% sem / ${data.nSemPct} sem</th>
+            ${detalleIngresos ? `<th class="text-right" style="${th(C.ingresos)}">Compra</th><th class="text-right" style="${th(C.ingresos)}">Transferencia</th>` : ''}
+            <th class="text-right" style="${th(C.ingresos)}">Importe</th><th class="text-center" style="${th(C.ingresos)}">% sem / ${data.nSemPct} sem</th>
+            <th class="text-right" style="${th(C.fc)}">Importe</th><th class="text-center" style="${th(C.fc)}">% sem / ${data.nSemPct} sem</th>
+            ${detalleOtros ? otrosKeys.map(k => `<th class="text-right" style="${th(C.otros)}">${esc(k)}</th>`).join('') : ''}
+            <th class="text-right" style="${th(C.otros)}">Importe</th>
+            <th class="text-right" style="${th(C.consumo)}">Importe</th><th class="text-center" style="${th(C.consumo)}">% sem / ${data.nSemPct} sem</th>
           </tr>
         </thead>
         <tbody>
