@@ -10134,6 +10134,7 @@ async function viewSeguimientoCompras(container) {
   let detalleOtros = false;    // mostrar cada tipo de "otros movimientos" por separado
   let data = null;
 
+  const SC_COL_W = '90px'; // ancho fijo de columna numérica, igual en Eficiencia y OC
   const fmtN = v => v == null ? '—' : Math.round(Number(v)).toLocaleString('es-PE');
   const fmtPct = v => v == null ? '—' : (Number(v) * 100).toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
   const tdN = v => `<td class="text-right">${fmtN(v)}</td>`;
@@ -10313,7 +10314,13 @@ async function viewSeguimientoCompras(container) {
       { k: 'NORMAL', label: 'Normal' },
       { k: 'ADICIONAL', label: 'Adicional' },
       { k: 'OTRA', label: 'Otra' },
+      { k: 'TOTAL', label: 'Total' },
     ];
+    // Línea divisoria a la izquierda de la primera columna de cada semana,
+    // para separar visualmente un bloque de semana del siguiente.
+    const divisor = (i) => i === 0 ? 'border-left:2px solid var(--border);' : '';
+    const wCol = `width:${SC_COL_W}`;
+
     rootOC.innerHTML = `
       <div class="card" style="padding:14px">
         <h3 style="margin:0 0 10px 0">OC por Grupo de Compra</h3>
@@ -10322,17 +10329,21 @@ async function viewSeguimientoCompras(container) {
             <thead>
               <tr>
                 <th rowspan="2">Grupo Compra</th>
-                ${ocData.semanas.map(h => `<th colspan="3" class="text-center">SEM ${h.semana}/${h.año}</th>`).join('')}
+                ${ocData.semanas.map(h => `<th colspan="4" class="text-center" style="${divisor(0)}text-align:center">SEM ${h.semana}/${h.año}</th>`).join('')}
               </tr>
               <tr>
-                ${ocData.semanas.map(() => claseCols.map(c => `<th class="text-right">${c.label}</th>`).join('')).join('')}
+                ${ocData.semanas.map(() => claseCols.map((c, i) => `<th class="text-right" style="${divisor(i)}${wCol}">${c.label}</th>`).join('')).join('')}
               </tr>
             </thead>
             <tbody>
               ${ocData.filas.map(f => `
                 <tr>
                   <td>${esc(f.grupoCompra)}</td>
-                  ${claves.map(k => claseCols.map(c => `<td class="text-right">${fmtN(f.porSemana[k]?.[c.k] ?? 0)}</td>`).join('')).join('')}
+                  ${claves.map(k => {
+                    const v = f.porSemana[k] || {};
+                    const total = (v.NORMAL || 0) + (v.ADICIONAL || 0) + (v.OTRA || 0);
+                    return claseCols.map((c, i) => `<td class="text-right" style="${divisor(i)}${wCol}">${fmtN(c.k === 'TOTAL' ? total : (v[c.k] ?? 0))}</td>`).join('');
+                  }).join('')}
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -10375,7 +10386,7 @@ async function viewSeguimientoCompras(container) {
         <thead>
           <tr>
             <th rowspan="2">Semana</th>
-            <th rowspan="2" class="text-right" style="${th(C.ventas)}">VENTA<br>BRUTA</th>
+            <th rowspan="2" class="text-right" style="${th(C.ventas, `width:${SC_COL_W}`)}">VENTA<br>BRUTA</th>
             <th rowspan="2" class="text-right" style="${th(C.ventas)}">VENTA<br>NETA</th>
             <th rowspan="2" class="text-right" style="${th(C.inv)}">INV.<br>INICIAL</th>
             <th colspan="${colsIngresos}" class="text-center sc-th-toggle" id="sc-th-ingresos" style="${th(C.ingresos, 'cursor:pointer')}">${arrIngresos} Ingresos al Almacén</th>

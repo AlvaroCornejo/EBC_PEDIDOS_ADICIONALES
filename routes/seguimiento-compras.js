@@ -243,9 +243,10 @@ router.get('/eficiencia', async (req, res) => {
 });
 
 // ── GET /oc?operacion=&semanaObjetivo=YYYYWW — OC por Grupo de Compra ───────
-// Últimas 3 semanas (hasta semanaObjetivo, default semana ISO actual): una
-// fila por grupoCompra, y por cada semana el importe de OC Normal, Adicional
-// y Otra (de la hoja OC del Excel).
+// 3 semanas: la seleccionada, la anterior y la siguiente (la última columna
+// es siempre la semana siguiente a semanaObjetivo) — una fila por
+// grupoCompra, y por cada semana el importe de OC Normal, Adicional, Otra
+// y el Total de las 3 (de la hoja OC del Excel).
 router.get('/oc', async (req, res) => {
   try {
     const { operacion } = req.query;
@@ -257,7 +258,7 @@ router.get('/oc', async (req, res) => {
     if (semQ && /^\d{6}$/.test(semQ)) objetivo = { año: +semQ.slice(0, 4), semana: +semQ.slice(4) };
     else { const hoy = new Date(); objetivo = { año: isoYear(hoy), semana: isoWeek(hoy) }; }
 
-    const semanas = [2, 1, 0].map(i => addSemanas(objetivo.año, objetivo.semana, -i));
+    const semanas = [-1, 0, 1].map(i => addSemanas(objetivo.año, objetivo.semana, i));
 
     const docs = await SeguimientoCompraOC.find({
       operacion,
