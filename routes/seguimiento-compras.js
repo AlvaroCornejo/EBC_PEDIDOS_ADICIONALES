@@ -107,17 +107,30 @@ function calcularSemanaEficiencia(docs, esSD) {
     otrosTotal += importe;
   });
 
-  // Neteo de presentación SOBRA vs FALTA (por operación/semana): el mayor en
+  // Neteo de presentación SOBRA vs FALTA — la comparación es POR ÍTEM (o por
+  // Grupo Compra si esa semana el Excel no trae ítem, semanas antiguas), no
+  // sobre el total agregado de la semana: dentro de cada ítem, el mayor en
   // valor absoluto se queda con la suma de ambos, el otro pasa a cero (si son
-  // iguales en valor absoluto, ambos quedan en cero). Solo cambia cómo se
-  // reparte entre las 2 columnas — la suma SOBRA+FALTA (y por lo tanto
-  // otrosTotal/totalTodos/Inventario Final) no se altera.
-  if ('SOBRA' in otrosDetalle && 'FALTA' in otrosDetalle) {
-    const sobra = otrosDetalle['SOBRA'], falta = otrosDetalle['FALTA'];
-    const absSobra = Math.abs(sobra), absFalta = Math.abs(falta);
-    if (absSobra > absFalta) { otrosDetalle['SOBRA'] = sobra + falta; otrosDetalle['FALTA'] = 0; }
-    else if (absFalta > absSobra) { otrosDetalle['FALTA'] = sobra + falta; otrosDetalle['SOBRA'] = 0; }
-    else { otrosDetalle['SOBRA'] = 0; otrosDetalle['FALTA'] = 0; }
+  // iguales, ambos quedan en cero); luego se suman los resultados netos de
+  // todos los ítems. La suma SOBRA+FALTA de cada ítem se preserva, así que
+  // el total (otrosTotal/totalTodos/Inventario Final) no cambia.
+  if ('SOBRA' in otrosDetalle || 'FALTA' in otrosDetalle) {
+    const porClave = new Map(); // item (o "G|grupoCompra") -> { SOBRA, FALTA }
+    docs.forEach(d => {
+      if (d.movimiento !== 'SOBRA' && d.movimiento !== 'FALTA') return;
+      const clave = d.item || `G|${d.grupoCompra}`;
+      if (!porClave.has(clave)) porClave.set(clave, { SOBRA: 0, FALTA: 0 });
+      porClave.get(clave)[d.movimiento] += d.importe;
+    });
+    let netSobra = 0, netFalta = 0;
+    porClave.forEach(({ SOBRA: sobra, FALTA: falta }) => {
+      const absSobra = Math.abs(sobra), absFalta = Math.abs(falta);
+      if (absSobra > absFalta) netSobra += sobra + falta;
+      else if (absFalta > absSobra) netFalta += sobra + falta;
+      // si son iguales, ese ítem no aporta nada a ninguna de las dos columnas
+    });
+    if ('SOBRA' in otrosDetalle) otrosDetalle['SOBRA'] = netSobra;
+    if ('FALTA' in otrosDetalle) otrosDetalle['FALTA'] = netFalta;
   }
 
   if (esSD) {
