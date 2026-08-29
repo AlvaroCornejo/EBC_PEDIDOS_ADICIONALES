@@ -27,6 +27,18 @@ function checkOpAccess(user, operacion) {
   return ops === null || ops.includes(operacion);
 }
 
+/** Lee `operaciones=A,B,C` (vista por Sociedad, una o más operaciones) o el
+ * `operacion=A` de siempre (vista por Operación individual) — siempre
+ * devuelve un array. */
+function operacionesFromQuery(req) {
+  if (req.query.operaciones) return req.query.operaciones.split(',').map(s => s.trim()).filter(Boolean);
+  return req.query.operacion ? [req.query.operacion] : [];
+}
+/** Devuelve la primera operación sin acceso autorizado, o null si todas están OK. */
+function operacionNoAutorizada(user, operaciones) {
+  return operaciones.find(op => !checkOpAccess(user, op)) || null;
+}
+
 // ── Semanas ISO (mismo criterio usado en routes/pronostico-venta.js) ──────────
 function isoYear(date) {
   const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -70,10 +82,11 @@ router.get('/operaciones', async (req, res) => {
 // checkbox de incluir/excluir de esa operación ───────────────────────────────
 router.get('/grupos-especiales', async (req, res) => {
   try {
-    const { operacion } = req.query;
-    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-    const grupos = await GrupoCompraEspecial.distinct('grupoCompra', { operacion });
+    const operaciones = operacionesFromQuery(req);
+    if (!operaciones.length) return res.status(400).json({ error: 'Operación requerida' });
+    const noAutorizada = operacionNoAutorizada(req.user, operaciones);
+    if (noAutorizada) return res.status(403).json({ error: `Operación no autorizada: ${noAutorizada}` });
+    const grupos = await GrupoCompraEspecial.distinct('grupoCompra', { operacion: { $in: operaciones } });
     res.json(grupos.filter(Boolean).sort());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -118,7 +131,7 @@ function calcularSemanaEficiencia(docs, esSD) {
     const porClave = new Map(); // item (o "G|grupoCompra") -> { SOBRA, FALTA }
     docs.forEach(d => {
       if (d.movimiento !== 'SOBRA' && d.movimiento !== 'FALTA') return;
-      const clave = d.item || `G|${d.grupoCompra}`;
+      const clave = d.item ? `${d.operacion}|${d.item}` : `G|${d.operacion}|${d.grupoCompra}`;
       if (!porClave.has(clave)) porClave.set(clave, { SOBRA: 0, FALTA: 0 });
       porClave.get(clave)[d.movimiento] += d.importe;
     });
@@ -150,9 +163,10 @@ function pct(num, den) { return den ? num / den : null; }
 // teórico y real contra la Venta Neta AyB, semana a semana.
 router.get('/eficiencia', async (req, res) => {
   try {
-    const { operacion } = req.query;
-    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const operaciones = operacionesFromQuery(req);
+    if (!operaciones.length) return res.status(400).json({ error: 'Operación requerida' });
+    const noAutorizada = operacionNoAutorizada(req.user, operaciones);
+    if (noAutorizada) return res.status(403).json({ error: `Operación no autorizada: ${noAutorizada}` });
 
     const nSem = Math.min(Math.max(parseInt(req.query.nSemanas) || 8, 1), 104);
     // Nº de semanas para el % acumulado (variable) — se muestra junto al % semanal.
@@ -186,7 +200,7 @@ router.get('/eficiencia', async (req, res) => {
     rangoHasta.setUTCHours(23, 59, 59, 999);
 
     const ventaDocs = await VentaCanalDiaria.find({
-      operacion, fecha: { $gte: rangoDesde, $lte: rangoHasta },
+      operacion: { $in: operaciones }, fecha: { $gte: rangoDesde, $lte: rangoHasta },
     }).lean();
     const ventaPorSemana = {};
     ventaDocs.forEach(d => {
@@ -196,27 +210,34 @@ router.get('/eficiencia', async (req, res) => {
       ventaPorSemana[k].ventaNeta += d.ventaNetaMasRedencion || 0;
     });
 
-    // Grupos especiales a excluir de esta operación (checkbox "incluir" apagado)
-    // — se aplica tanto al Saldo Inicial base (histórico) como a las semanas
-    // mostradas, para que el saldo corrido siga siendo consistente.
-    const grupoFilter = { grupo: grupoParam };
+    // Grupos especiales a excluir (checkbox "incluir" apagado) — la exclusión
+    // es por (operación, grupoCompra), así que con varias operaciones (vista
+    // por Sociedad) no se puede filtrar con un simple $nin de grupoCompra
+    // (excluiría ese grupo en TODAS las operaciones aunque solo aplique a
+    // una) — se resuelve como un Set de pares y se filtra en JS. Se aplica
+    // tanto al Saldo Inicial base (histórico) como a las semanas mostradas,
+    // para que el saldo corrido siga siendo consistente.
+    let exclusionSet = null;
     if (!incluirEspeciales) {
-      const excluidos = await GrupoCompraEspecial.distinct('grupoCompra', { operacion });
-      if (excluidos.length) grupoFilter.grupoCompra = { $nin: excluidos };
+      const excluidos = await GrupoCompraEspecial.find({ operacion: { $in: operaciones } }).lean();
+      if (excluidos.length) exclusionSet = new Set(excluidos.map(e => `${e.operacion}|${e.grupoCompra}`));
     }
+    const sinExcluidos = docs => exclusionSet ? docs.filter(d => !exclusionSet.has(`${d.operacion}|${d.grupoCompra}`)) : docs;
 
     // Movimientos: todo lo anterior a la primera semana del rango (para el
     // Saldo Inicial base) + las semanas del rango.
-    const [previosDocs, semanaDocs] = await Promise.all([
+    const [previosDocsRaw, semanaDocsRaw] = await Promise.all([
       SeguimientoCompraMovimiento.find({
-        operacion, ...grupoFilter,
+        operacion: { $in: operaciones }, grupo: grupoParam,
         $expr: { $lt: [{ $add: [{ $multiply: ['$año', 100] }, '$semana'] }, claveInicio] },
       }).lean(),
       SeguimientoCompraMovimiento.find({
-        operacion, ...grupoFilter,
+        operacion: { $in: operaciones }, grupo: grupoParam,
         $or: rango.map(h => ({ año: h.año, semana: h.semana })),
       }).lean(),
     ]);
+    const previosDocs = sinExcluidos(previosDocsRaw);
+    const semanaDocs = sinExcluidos(semanaDocsRaw);
 
     const saldoInicialBase = previosDocs.reduce((s, d) => s + d.importe, 0);
 
@@ -290,7 +311,7 @@ router.get('/eficiencia', async (req, res) => {
 
     const filas = filasExtendidas.slice(EXTRA);
 
-    res.json({ operacion, objetivo, nSemPct, grupo: grupoParam, filas });
+    res.json({ operaciones, objetivo, nSemPct, grupo: grupoParam, filas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -301,9 +322,10 @@ router.get('/eficiencia', async (req, res) => {
 // y el Total de las 3 (de la hoja OC del Excel).
 router.get('/oc', async (req, res) => {
   try {
-    const { operacion } = req.query;
-    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const operaciones = operacionesFromQuery(req);
+    if (!operaciones.length) return res.status(400).json({ error: 'Operación requerida' });
+    const noAutorizada = operacionNoAutorizada(req.user, operaciones);
+    if (noAutorizada) return res.status(403).json({ error: `Operación no autorizada: ${noAutorizada}` });
     const grupoParam = req.query.grupo === 'SD' ? 'SD' : 'FC';
 
     let objetivo;
@@ -321,14 +343,14 @@ router.get('/oc', async (req, res) => {
     rangoHasta.setUTCDate(rangoHasta.getUTCDate() + 6);
     rangoHasta.setUTCHours(23, 59, 59, 999);
 
-    const [docs, ventaDocs, forecasts, operacionDoc] = await Promise.all([
+    const [docs, ventaDocs, forecasts, operacionDocs] = await Promise.all([
       SeguimientoCompraOC.find({
-        operacion, grupo: grupoParam,
+        operacion: { $in: operaciones }, grupo: grupoParam,
         $or: semanas.map(h => ({ año: h.año, semana: h.semana })),
       }).lean(),
-      VentaCanalDiaria.find({ operacion, fecha: { $gte: rangoDesde, $lte: rangoHasta } }).lean(),
-      VentaForecast.find({ operacion, $or: semanas.map(h => ({ año: h.año, semana: h.semana })) }).lean(),
-      Operacion.findOne({ codigo: operacion }).lean(),
+      VentaCanalDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: rangoDesde, $lte: rangoHasta } }).lean(),
+      VentaForecast.find({ operacion: { $in: operaciones }, $or: semanas.map(h => ({ año: h.año, semana: h.semana })) }).lean(),
+      Operacion.find({ codigo: { $in: operaciones } }).lean(),
     ]);
 
     const ventaNetaPorSemana = {};
@@ -341,10 +363,10 @@ router.get('/oc', async (req, res) => {
     // canales (histórico + manual) — mismo criterio que "Pronóstico de Venta":
     // Venta Bruta = suma por canal de (cantidad de todos los días) × ticket
     // propuesto, más el importe de los canales manuales (ej. COMERCIAL); y
-    // Venta Neta = Venta Bruta / (1 + IGV% + RC%) de la operación.
-    const igvPct = operacionDoc?.igvPct || 0;
-    const rcPct = operacionDoc?.rcPct || 0;
-    const divisorNeta = 1 + igvPct + rcPct;
+    // Venta Neta = Venta Bruta / (1 + IGV% + RC%) de CADA operación — el IGV%/
+    // RC% se define por operación, así que con varias (vista por Sociedad) se
+    // neta cada una con su propio divisor antes de sumar.
+    const igvRcPorOp = Object.fromEntries(operacionDocs.map(o => [o.codigo, { igvPct: o.igvPct || 0, rcPct: o.rcPct || 0 }]));
     const pronosticoPorSemana = {};
     forecasts.forEach(fc => {
       const k = claveSemana(fc.año, fc.semana);
@@ -353,7 +375,10 @@ router.get('/oc', async (req, res) => {
         const sumaDias = (c.dias || []).reduce((a, d) => a + (d.cantidad || 0), 0);
         return s + sumaDias * (c.ticketPropuesto || 0);
       }, 0);
-      pronosticoPorSemana[k] = divisorNeta ? bruta / divisorNeta : bruta;
+      const { igvPct = 0, rcPct = 0 } = igvRcPorOp[fc.operacion] || {};
+      const divisorNeta = 1 + igvPct + rcPct;
+      const neta = divisorNeta ? bruta / divisorNeta : bruta;
+      pronosticoPorSemana[k] = (pronosticoPorSemana[k] || 0) + neta;
     });
 
     const grupos = new Map(); // grupoCompra -> { claveSemana: { NORMAL, ADICIONAL, OTRA } }
@@ -382,7 +407,7 @@ router.get('/oc', async (req, res) => {
       return [k, pronosticoPorSemana[k] || 0];
     }));
 
-    res.json({ operacion, grupo: grupoParam, semanas, filas, ventaNeta, pronosticoVenta });
+    res.json({ operaciones, grupo: grupoParam, semanas, filas, ventaNeta, pronosticoVenta });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -395,10 +420,12 @@ router.get('/oc', async (req, res) => {
 // grupoCompra (Familia), como antes.
 router.get('/detalle-semana', async (req, res) => {
   try {
-    const { operacion } = req.query;
-    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const operaciones = operacionesFromQuery(req);
+    if (!operaciones.length) return res.status(400).json({ error: 'Operación requerida' });
+    const noAutorizada = operacionNoAutorizada(req.user, operaciones);
+    if (noAutorizada) return res.status(403).json({ error: `Operación no autorizada: ${noAutorizada}` });
     const grupoParam = req.query.grupo === 'SD' ? 'SD' : 'FC';
+    const multiOp = operaciones.length > 1;
 
     let objetivo;
     const semQ = req.query.semanaObjetivo;
@@ -406,41 +433,54 @@ router.get('/detalle-semana', async (req, res) => {
     else { const hoy = new Date(); objetivo = { año: isoYear(hoy), semana: isoWeek(hoy) }; }
 
     const docs = await SeguimientoCompraMovimiento.find({
-      operacion, grupo: grupoParam, año: objetivo.año, semana: objetivo.semana,
+      operacion: { $in: operaciones }, grupo: grupoParam, año: objetivo.año, semana: objetivo.semana,
     }).lean();
 
-    const porFila = new Map(); // key ("ITEM|codigo" o "GRUPO|grupoCompra") -> { tipo, item, grupoCompra, porMov }
+    // La clave siempre incluye la operación — el código de Item (y también
+    // Grupo Compra, en teoría) está scoped por operación, así que con varias
+    // operaciones (vista por Sociedad) un mismo código en 2 operaciones
+    // distintas NO debe mezclarse en la misma fila.
+    const porFila = new Map(); // key (op+ITEM|codigo o op+GRUPO|grupoCompra) -> { tipo, operacion, item, grupoCompra, porMov }
     const movimientosSet = new Set();
-    const itemCodes = new Set();
+    const itemCodesPorOp = new Map(); // operacion -> Set(item)
     docs.forEach(d => {
       movimientosSet.add(d.movimiento);
       const usaItem = !!d.item;
-      if (usaItem) itemCodes.add(d.item);
-      const key = usaItem ? `ITEM|${d.item}` : `GRUPO|${d.grupoCompra}`;
-      if (!porFila.has(key)) porFila.set(key, { tipo: usaItem ? 'item' : 'grupo', item: d.item, grupoCompra: d.grupoCompra, porMov: {} });
+      if (usaItem) {
+        if (!itemCodesPorOp.has(d.operacion)) itemCodesPorOp.set(d.operacion, new Set());
+        itemCodesPorOp.get(d.operacion).add(d.item);
+      }
+      const key = usaItem ? `${d.operacion}|ITEM|${d.item}` : `${d.operacion}|GRUPO|${d.grupoCompra}`;
+      if (!porFila.has(key)) porFila.set(key, { tipo: usaItem ? 'item' : 'grupo', operacion: d.operacion, item: d.item, grupoCompra: d.grupoCompra, porMov: {} });
       const fila = porFila.get(key);
       fila.porMov[d.movimiento] = (fila.porMov[d.movimiento] || 0) + d.importe;
     });
 
-    let nombresPorItem = {};
-    if (itemCodes.size) {
-      const itemsDb = await Item.find({ operacion, item: { $in: [...itemCodes] } }).lean();
-      nombresPorItem = Object.fromEntries(itemsDb.map(i => [i.item, i.nombre]));
+    const nombresPorOpItem = {}; // "operacion|item" -> nombre
+    if (itemCodesPorOp.size) {
+      const or = [...itemCodesPorOp.entries()].map(([operacion, codigos]) => ({ operacion, item: { $in: [...codigos] } }));
+      const itemsDb = await Item.find({ $or: or }).lean();
+      itemsDb.forEach(i => { nombresPorOpItem[`${i.operacion}|${i.item}`] = i.nombre; });
     }
 
+    const prefijoOp = f => multiOp ? `${f.operacion} · ` : '';
     const movimientos = [...movimientosSet].sort();
     const filas = [...porFila.values()]
-      .map(f => ({
-        item: f.tipo === 'item' ? f.item : null,
-        grupoCompra: f.tipo === 'item' ? null : f.grupoCompra,
-        descripcion: f.tipo === 'item' ? (nombresPorItem[f.item] || '') : null,
-        label: f.tipo === 'item' ? `${f.item} - ${nombresPorItem[f.item] || 'Sin descripción'}` : f.grupoCompra,
-        porMovimiento: Object.fromEntries(movimientos.map(m => [m, f.porMov[m] || 0])),
-        total: movimientos.reduce((s, m) => s + (f.porMov[m] || 0), 0),
-      }))
+      .map(f => {
+        const nombre = f.tipo === 'item' ? (nombresPorOpItem[`${f.operacion}|${f.item}`] || '') : null;
+        return {
+          operacion: f.operacion,
+          item: f.tipo === 'item' ? f.item : null,
+          grupoCompra: f.tipo === 'item' ? null : f.grupoCompra,
+          descripcion: nombre,
+          label: f.tipo === 'item' ? `${prefijoOp(f)}${f.item} - ${nombre || 'Sin descripción'}` : `${prefijoOp(f)}${f.grupoCompra}`,
+          porMovimiento: Object.fromEntries(movimientos.map(m => [m, f.porMov[m] || 0])),
+          total: movimientos.reduce((s, m) => s + (f.porMov[m] || 0), 0),
+        };
+      })
       .sort((a, b) => a.label.localeCompare(b.label));
 
-    res.json({ operacion, grupo: grupoParam, objetivo, movimientos, filas, porItem: filas.some(f => f.item !== null) });
+    res.json({ operaciones, grupo: grupoParam, objetivo, movimientos, filas, porItem: filas.some(f => f.item !== null) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

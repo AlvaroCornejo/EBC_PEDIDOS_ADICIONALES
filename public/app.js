@@ -10290,7 +10290,10 @@ async function viewPagosRecurrentes(container) {
 async function viewSeguimientoCompras(container) {
   const misOperaciones = S.user.role === 'ADMIN' ? null : (S.user.operations || []);
 
+  let disponiblesOps = []; // operaciones con datos de Seguimiento de Compras, ya filtradas por acceso
+  let modo = 'operacion'; // 'operacion' | 'sociedad'
   let operacionActual = '';
+  let sociedadesSeleccionadas = []; // códigos, usado cuando modo === 'sociedad'
   let semanaSelElegida = ''; // 'YYYYWW', vacío = semana actual
   let nSemanas = 8;
   let nSemanasPct = 4;
@@ -10341,10 +10344,21 @@ async function viewSeguimientoCompras(container) {
       <div class="card mb-16" style="padding:14px">
         <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
           <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Ver por</label>
+            <select id="sc-modo" class="form-control" style="width:120px">
+              <option value="operacion">Operación</option>
+              <option value="sociedad">Sociedad</option>
+            </select>
+          </div>
+          <div id="sc-operacion-wrap">
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
             <select id="sc-operacion" class="form-control" style="width:160px">
               <option value="">— Seleccionar —</option>
             </select>
+          </div>
+          <div id="sc-sociedad-wrap" style="display:none">
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad(es)</label>
+            <button class="btn btn-outline btn-sm" id="sc-sociedad-btn" style="min-width:220px;text-align:left">— Elegir sociedad(es) —</button>
           </div>
           <div>
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Hasta la semana</label>
@@ -10427,12 +10441,70 @@ async function viewSeguimientoCompras(container) {
 
   try {
     const ops = await GET('/seguimiento-compras/operaciones');
-    const disponibles = misOperaciones === null ? ops : ops.filter(o => misOperaciones.includes(o));
+    disponiblesOps = misOperaciones === null ? ops : ops.filter(o => misOperaciones.includes(o));
     const sel = document.getElementById('sc-operacion');
-    sel.innerHTML = '<option value="">— Seleccionar —</option>' + disponibles.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-    if (disponibles.length === 1) { sel.value = disponibles[0]; operacionActual = disponibles[0]; }
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + disponiblesOps.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (disponiblesOps.length === 1) { sel.value = disponiblesOps[0]; operacionActual = disponiblesOps[0]; }
   } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
 
+  // Sociedades con al menos una operación con datos (y autorizada para el
+  // usuario) — son las únicas seleccionables en modo "Sociedad".
+  function sociedadesDisponibles() {
+    return (S.sociedades || [])
+      .map(s => ({ codigo: s.codigo, nombre: s.nombre, operaciones: (s.operaciones || []).map(o => o.codigo).filter(c => disponiblesOps.includes(c)) }))
+      .filter(s => s.operaciones.length);
+  }
+  /** Lista de operaciones vigente según el modo actual (Operación u Sociedad). */
+  function operacionesActivas() {
+    if (modo === 'operacion') return operacionActual ? [operacionActual] : [];
+    const ops = new Set();
+    sociedadesDisponibles().forEach(s => { if (sociedadesSeleccionadas.includes(s.codigo)) s.operaciones.forEach(o => ops.add(o)); });
+    return [...ops];
+  }
+  function tituloOperaciones() {
+    if (modo === 'operacion') return operacionActual;
+    const nombres = sociedadesDisponibles().filter(s => sociedadesSeleccionadas.includes(s.codigo)).map(s => s.codigo);
+    return nombres.length ? `${nombres.join(' + ')} (${operacionesActivas().length} operaciones)` : '';
+  }
+
+  function actualizarBotonSociedad() {
+    const btn = document.getElementById('sc-sociedad-btn');
+    if (!btn) return;
+    btn.textContent = sociedadesSeleccionadas.length ? `🏢 ${tituloOperaciones()}` : '— Elegir sociedad(es) —';
+  }
+
+  function abrirSelectorSociedad() {
+    const socs = sociedadesDisponibles();
+    if (!socs.length) { toast('No hay sociedades con operaciones disponibles', 'error'); return; }
+    const html = `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${socs.map(s => `
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+            <input type="checkbox" class="sc-soc-check" value="${esc(s.codigo)}" ${sociedadesSeleccionadas.includes(s.codigo) ? 'checked' : ''}>
+            <strong>${esc(s.codigo)}</strong> — ${esc(s.nombre)} <span class="text-muted">(${s.operaciones.length} op.)</span>
+          </label>`).join('')}
+      </div>
+      <div style="margin-top:16px;text-align:right">
+        <button class="btn btn-primary btn-sm" id="sc-soc-aplicar">Aplicar</button>
+      </div>`;
+    openModal('Elegir Sociedad(es)', html);
+    document.getElementById('sc-soc-aplicar').addEventListener('click', () => {
+      sociedadesSeleccionadas = [...document.querySelectorAll('.sc-soc-check:checked')].map(c => c.value);
+      actualizarBotonSociedad();
+      closeModal();
+      semanaSelElegida = '';
+      cargar();
+    });
+  }
+
+  document.getElementById('sc-modo').addEventListener('change', (e) => {
+    modo = e.target.value;
+    document.getElementById('sc-operacion-wrap').style.display = modo === 'operacion' ? '' : 'none';
+    document.getElementById('sc-sociedad-wrap').style.display = modo === 'sociedad' ? '' : 'none';
+    semanaSelElegida = '';
+    cargar();
+  });
+  document.getElementById('sc-sociedad-btn').addEventListener('click', abrirSelectorSociedad);
   document.getElementById('sc-operacion').addEventListener('change', (e) => { operacionActual = e.target.value; semanaSelElegida = ''; cargar(); });
   document.getElementById('sc-semana-sel').addEventListener('change', (e) => { semanaSelElegida = e.target.value; cargar(); });
   function setNSemanas(n) {
@@ -10453,22 +10525,25 @@ async function viewSeguimientoCompras(container) {
   document.getElementById('sc-ver-especiales').addEventListener('click', verGruposEspeciales);
 
   async function verGruposEspeciales() {
-    if (!operacionActual) { toast('Elige una operación primero', 'error'); return; }
+    const ops = operacionesActivas();
+    if (!ops.length) { toast('Elige una operación o sociedad primero', 'error'); return; }
     try {
-      const grupos = await GET(`/seguimiento-compras/grupos-especiales?operacion=${encodeURIComponent(operacionActual)}`);
-      openModal(`Grupo Compra Especial — ${esc(operacionActual)}`, grupos.length
+      const grupos = await GET(`/seguimiento-compras/grupos-especiales?operaciones=${encodeURIComponent(ops.join(','))}`);
+      const titulo = `Grupo Compra Especial — ${esc(tituloOperaciones())}`;
+      openModal(titulo, grupos.length
         ? `<ul style="margin:0;padding-left:20px">${grupos.map(g => `<li>${esc(g)}</li>`).join('')}</ul>`
-        : `<p class="text-muted">No hay grupos de compra especiales configurados para ${esc(operacionActual)}.</p>`);
+        : `<p class="text-muted">No hay grupos de compra especiales configurados.</p>`);
     } catch (e) { toast(e.message, 'error'); }
   }
 
   async function abrirDetalleSemana(grupo, semSel) {
-    if (!operacionActual) { toast('Elige una operación primero', 'error'); return; }
+    const ops = operacionesActivas();
+    if (!ops.length) { toast('Elige una operación o sociedad primero', 'error'); return; }
     try {
-      const params = new URLSearchParams({ operacion: operacionActual, grupo });
+      const params = new URLSearchParams({ operaciones: ops.join(','), grupo });
       if (semSel) params.set('semanaObjetivo', semSel);
       const det = await GET(`/seguimiento-compras/detalle-semana?${params}`);
-      const titulo = `Detalle de Movimientos — ${esc(operacionActual)} (${grupo}) — SEM ${det.objetivo.semana}/${det.objetivo.año}`;
+      const titulo = `Detalle de Movimientos — ${esc(tituloOperaciones())} (${grupo}) — SEM ${det.objetivo.semana}/${det.objetivo.año}`;
       if (!det.filas.length) {
         openModal(titulo, `<p class="text-muted">Sin movimientos para esa semana.</p>`, null, { fullwide: true });
         return;
@@ -10543,13 +10618,14 @@ async function viewSeguimientoCompras(container) {
   }
 
   async function cargar() {
-    if (!operacionActual) { root.innerHTML = ''; return; }
+    const ops = operacionesActivas();
+    if (!ops.length) { root.innerHTML = ''; rootSD.innerHTML = ''; rootOC.innerHTML = ''; rootOcSD.innerHTML = ''; return; }
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
       const hoy = new Date();
       poblarSelectorSemanas({ año: isoYearCli(hoy), semana: isoWeekCli(hoy) });
       const incluirEspeciales = document.getElementById('sc-incluir-especiales').checked;
-      const params = new URLSearchParams({ operacion: operacionActual, nSemanas, nSemanasPct, incluirEspeciales: incluirEspeciales ? '1' : '0' });
+      const params = new URLSearchParams({ operaciones: ops.join(','), nSemanas, nSemanasPct, incluirEspeciales: incluirEspeciales ? '1' : '0' });
       const semSel = document.getElementById('sc-semana-sel').value;
       if (semSel) params.set('semanaObjetivo', semSel);
 
@@ -10568,9 +10644,10 @@ async function viewSeguimientoCompras(container) {
   }
 
   async function cargarOC(semSel) {
+    const ops = operacionesActivas();
     rootOC.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando OC...</div>';
     try {
-      const params = new URLSearchParams({ operacion: operacionActual });
+      const params = new URLSearchParams({ operaciones: ops.join(',') });
       if (semSel) params.set('semanaObjetivo', semSel);
       const ocData = await GET(`/seguimiento-compras/oc?${params}`);
       renderTablaOC(rootOC, ocData);
@@ -10578,10 +10655,11 @@ async function viewSeguimientoCompras(container) {
   }
 
   async function cargarSD(semSel) {
+    const ops = operacionesActivas();
     rootSD.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
       const incluirEspeciales = document.getElementById('sc-incluir-especiales').checked;
-      const params = new URLSearchParams({ operacion: operacionActual, nSemanas, nSemanasPct, incluirEspeciales: incluirEspeciales ? '1' : '0', grupo: 'SD' });
+      const params = new URLSearchParams({ operaciones: ops.join(','), nSemanas, nSemanasPct, incluirEspeciales: incluirEspeciales ? '1' : '0', grupo: 'SD' });
       if (semSel) params.set('semanaObjetivo', semSel);
       dataSD = await GET(`/seguimiento-compras/eficiencia?${params}`);
       rootSD.innerHTML = `<div class="card" style="padding:14px">
@@ -10597,9 +10675,10 @@ async function viewSeguimientoCompras(container) {
   }
 
   async function cargarOcSD(semSel) {
+    const ops = operacionesActivas();
     rootOcSD.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando OC...</div>';
     try {
-      const params = new URLSearchParams({ operacion: operacionActual, grupo: 'SD' });
+      const params = new URLSearchParams({ operaciones: ops.join(','), grupo: 'SD' });
       if (semSel) params.set('semanaObjetivo', semSel);
       const ocData = await GET(`/seguimiento-compras/oc?${params}`);
       renderTablaOC(rootOcSD, ocData);
