@@ -10,6 +10,7 @@ const schema = new mongoose.Schema({
   semana:       { type: Number, required: true },
   cantidad:     { type: Number, default: 0 },
   importe:      { type: Number, default: 0 }, // con signo ya aplicado en la fuente
+  item:         { type: String, default: '' }, // código de Item (ver models/Item.js); solo viene poblado en las semanas más recientes de la fuente
 });
 schema.index({ operacion: 1, año: 1, semana: 1 });
 schema.index({ operacion: 1, grupoCompra: 1, año: 1, semana: 1 });

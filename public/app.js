@@ -10478,7 +10478,7 @@ async function viewSeguimientoCompras(container) {
           <table class="data-table" style="font-size:12px;white-space:nowrap">
             <thead>
               <tr>
-                <th>Grupo Compra</th>
+                <th>${det.porItem ? 'Item' : 'Grupo Compra'}</th>
                 ${det.movimientos.map(m => `<th class="text-right">${esc(m)}</th>`).join('')}
                 <th class="text-right">TOTAL</th>
               </tr>
@@ -10486,7 +10486,7 @@ async function viewSeguimientoCompras(container) {
             <tbody>
               ${det.filas.map(f => `
                 <tr>
-                  <td>${esc(f.grupoCompra)}</td>
+                  <td>${esc(f.label)}</td>
                   ${det.movimientos.map(m => tdN(f.porMovimiento[m])).join('')}
                   ${tdN(f.total)}
                 </tr>`).join('')}
@@ -10710,7 +10710,7 @@ async function viewSeguimientoCompras(container) {
             <th rowspan="2" class="text-right" style="${th(C.ventas)}">VENTA<br>NETA</th>
             <th rowspan="2" class="text-right" style="${th(C.inv)}">INV.<br>INICIAL</th>
             <th colspan="${colsIngresos}" class="text-center sc-th-toggle" id="sc-th-ingresos" style="${th(C.ingresos, 'cursor:pointer')}">${arrIngresos} Ingresos al Almacén</th>
-            <th colspan="2" class="text-center" style="${th(C.dif)}">Diferencia</th>
+            <th colspan="2" class="text-center" title="Ingreso Real + FC Teórico" style="${th(C.dif)}">Diferencia</th>
             <th colspan="2" class="text-center" style="${th(C.fc)}">FC Teórico</th>
             <th colspan="${colsOtros}" class="text-center sc-th-toggle" id="sc-th-otros" style="${th(C.otros, 'cursor:pointer')}">${arrOtros} Otros Movimientos</th>
             <th rowspan="2" class="text-right" style="${th(C.inv)}">INV.<br>FINAL</th>
@@ -10719,7 +10719,7 @@ async function viewSeguimientoCompras(container) {
           <tr>
             ${detalleIngresos ? `<th class="text-right" style="${th(C.ingresos)}">COMPRA</th><th class="text-right" style="${th(C.ingresos)}">TRANS</th>` : ''}
             <th class="text-right" style="${th(C.ingresos)}">Importe</th><th class="text-center" style="${th(C.ingresos)}">% sem / ${data.nSemPct} sem</th>
-            <th class="text-right" style="${th(C.dif)}">Semana</th><th class="text-right" style="${th(C.dif)}">${data.nSemPct} sem</th>
+            <th class="text-right" style="${th(C.dif)}">Importe</th><th class="text-center" style="${th(C.dif)}">% sem / ${data.nSemPct} sem</th>
             <th class="text-right" style="${th(C.fc)}">Importe</th><th class="text-center" style="${th(C.fc)}">% sem / ${data.nSemPct} sem</th>
             ${detalleOtros ? otrosKeys.map(k => `<th class="text-right" style="${th(C.otros)}">${esc(k)}</th>`).join('') : ''}
             <th class="text-right" style="${th(C.otros)}">TOTAL<br>OTROS</th>
@@ -10735,7 +10735,7 @@ async function viewSeguimientoCompras(container) {
               ${tdN(f.saldoInicial)}
               ${detalleIngresos ? tdN(f.compra) + tdN(f.transferencia) : ''}
               ${tdN(f.ingresosAlmacen)}${tdP2(f.pctIngresosAlmacen, f.pctIngresosAlmacenNSem)}
-              ${tdN(f.diferencia)}${tdN(f.diferenciaNSem)}
+              ${tdN(f.diferencia)}${tdP2(f.pctDiferencia, f.pctDiferenciaNSem)}
               ${tdN(f.fcTeorico)}${tdP2(f.pctFcTeorico, f.pctFcTeoricoNSem)}
               ${detalleOtros ? otrosKeys.map(k => tdN(f.otrosDetalle[k] ?? 0)).join('') : ''}
               ${tdN(f.otrosTotal)}

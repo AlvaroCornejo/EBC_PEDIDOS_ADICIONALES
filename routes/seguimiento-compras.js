@@ -7,6 +7,7 @@ const VentaCanalDiaria = require('../models/VentaCanalDiaria');
 const VentaForecast = require('../models/VentaForecast');
 const GrupoCompraEspecial = require('../models/GrupoCompraEspecial');
 const Operacion = require('../models/Operacion');
+const Item = require('../models/Item');
 
 const router = express.Router();
 router.use(auth);
@@ -224,10 +225,15 @@ router.get('/eficiencia', async (req, res) => {
         ...(esSD ? {} : { transferencia: calc.transferencia }),
         ingresosAlmacen: calc.ingresosAlmacen,
         pctIngresosAlmacen: pct(calc.ingresosAlmacen, ventaNetaAyB),
+        // Diferencia = Ingreso Real + FC Teórico (se suman, no se restan: FC
+        // Teórico ya viene negativo en la fuente — sumarlo equivale a restar
+        // su magnitud). El % se deriva del mismo importe (equivale a restar
+        // el % de FC Teórico, ya que su signo también es negativo).
         ...(esSD ? {} : {
           fcTeorico: calc.fcTeorico,
           pctFcTeorico: pct(calc.fcTeorico, ventaNetaAyB),
-          diferencia: calc.ingresosAlmacen - calc.fcTeorico,
+          diferencia: calc.ingresosAlmacen + calc.fcTeorico,
+          pctDiferencia: pct(calc.ingresosAlmacen + calc.fcTeorico, ventaNetaAyB),
         }),
         otrosTotal: calc.otrosTotal,
         otrosDetalle: calc.otrosDetalle,
@@ -249,7 +255,9 @@ router.get('/eficiencia', async (req, res) => {
       fila.pctIngresosAlmacenNSem = pct(grupo.reduce((s, f) => s + f.ingresosAlmacen, 0), denAcum);
       if (!esSD) {
         fila.pctFcTeoricoNSem = pct(grupo.reduce((s, f) => s + (f.fcTeorico || 0), 0), denAcum);
-        fila.diferenciaNSem = grupo.reduce((s, f) => s + (f.diferencia || 0), 0);
+        const difAcum = grupo.reduce((s, f) => s + (f.diferencia || 0), 0);
+        fila.diferenciaNSem = difAcum;
+        fila.pctDiferenciaNSem = pct(difAcum, denAcum);
       }
       fila.pctConsumoTotalNSem = pct(grupo.reduce((s, f) => s + f.consumoTotal, 0), denAcum);
     });
@@ -353,9 +361,12 @@ router.get('/oc', async (req, res) => {
 });
 
 // ── GET /detalle-semana?operacion=&semanaObjetivo=YYYYWW&grupo=FC|SD ────────
-// Detalle del movimiento logístico de una sola semana: filas = grupoCompra
-// (no hay un nivel de detalle más fino que Familia en la fuente — no trae
-// ítem), columnas = cada tipo de MOVIMIENTO presente esa semana.
+// Detalle del movimiento logístico de una sola semana, columnas = cada tipo
+// de MOVIMIENTO presente esa semana. Filas: la fuente solo trae el código de
+// Item (campo "item") en las semanas más recientes — cuando viene poblado se
+// agrupa por Item (con su descripción resuelta contra el catálogo Item de
+// esa operación); para semanas antiguas sin ese dato se agrupa por
+// grupoCompra (Familia), como antes.
 router.get('/detalle-semana', async (req, res) => {
   try {
     const { operacion } = req.query;
@@ -372,23 +383,38 @@ router.get('/detalle-semana', async (req, res) => {
       operacion, grupo: grupoParam, año: objetivo.año, semana: objetivo.semana,
     }).lean();
 
-    const porGrupoCompra = new Map(); // grupoCompra -> { movimiento: importe }
+    const porFila = new Map(); // key ("ITEM|codigo" o "GRUPO|grupoCompra") -> { tipo, item, grupoCompra, porMov }
     const movimientosSet = new Set();
+    const itemCodes = new Set();
     docs.forEach(d => {
       movimientosSet.add(d.movimiento);
-      if (!porGrupoCompra.has(d.grupoCompra)) porGrupoCompra.set(d.grupoCompra, {});
-      const fila = porGrupoCompra.get(d.grupoCompra);
-      fila[d.movimiento] = (fila[d.movimiento] || 0) + d.importe;
+      const usaItem = !!d.item;
+      if (usaItem) itemCodes.add(d.item);
+      const key = usaItem ? `ITEM|${d.item}` : `GRUPO|${d.grupoCompra}`;
+      if (!porFila.has(key)) porFila.set(key, { tipo: usaItem ? 'item' : 'grupo', item: d.item, grupoCompra: d.grupoCompra, porMov: {} });
+      const fila = porFila.get(key);
+      fila.porMov[d.movimiento] = (fila.porMov[d.movimiento] || 0) + d.importe;
     });
 
-    const movimientos = [...movimientosSet].sort();
-    const filas = [...porGrupoCompra.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([grupoCompra, porMov]) => ({
-      grupoCompra,
-      porMovimiento: Object.fromEntries(movimientos.map(m => [m, porMov[m] || 0])),
-      total: movimientos.reduce((s, m) => s + (porMov[m] || 0), 0),
-    }));
+    let nombresPorItem = {};
+    if (itemCodes.size) {
+      const itemsDb = await Item.find({ operacion, item: { $in: [...itemCodes] } }).lean();
+      nombresPorItem = Object.fromEntries(itemsDb.map(i => [i.item, i.nombre]));
+    }
 
-    res.json({ operacion, grupo: grupoParam, objetivo, movimientos, filas });
+    const movimientos = [...movimientosSet].sort();
+    const filas = [...porFila.values()]
+      .map(f => ({
+        item: f.tipo === 'item' ? f.item : null,
+        grupoCompra: f.tipo === 'item' ? null : f.grupoCompra,
+        descripcion: f.tipo === 'item' ? (nombresPorItem[f.item] || '') : null,
+        label: f.tipo === 'item' ? `${f.item} - ${nombresPorItem[f.item] || 'Sin descripción'}` : f.grupoCompra,
+        porMovimiento: Object.fromEntries(movimientos.map(m => [m, f.porMov[m] || 0])),
+        total: movimientos.reduce((s, m) => s + (f.porMov[m] || 0), 0),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    res.json({ operacion, grupo: grupoParam, objetivo, movimientos, filas, porItem: filas.some(f => f.item !== null) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -72,6 +72,9 @@ async function main() {
   };
   const faltantesM = Object.entries(COLM).filter(([, c]) => c === undefined).map(([k]) => k);
   if (faltantesM.length) throw new Error(`"MOVIMIENTOS": no se encontraron las columnas: ${faltantesM.join(', ')}`);
+  // Columna ITEM: opcional — solo viene poblada en las semanas más recientes
+  // de la fuente (antes no existía), así que no se exige en faltantesM.
+  const colItemM = colM('ITEM');
 
   const movDocs = [];
   let movRechazadas = 0, movFC = 0, movSD = 0;
@@ -90,6 +93,7 @@ async function main() {
       grupo, grupoGeneral: str(v[COLM.grupoGeneral]), grupoCompra: str(v[COLM.grupoCompra]),
       operacion, movimiento, año, semana,
       cantidad: num(v[COLM.cantidad]), importe: num(v[COLM.importe]),
+      item: colItemM !== undefined ? str(v[colItemM]) : '',
     });
   });
   console.log(`"MOVIMIENTOS": ${movFC} filas FC, ${movSD} filas SD, ${movRechazadas} rechazadas (datos incompletos o GRUPO desconocido).`);
