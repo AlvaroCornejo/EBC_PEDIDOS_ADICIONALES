@@ -224,7 +224,11 @@ router.get('/eficiencia', async (req, res) => {
         ...(esSD ? {} : { transferencia: calc.transferencia }),
         ingresosAlmacen: calc.ingresosAlmacen,
         pctIngresosAlmacen: pct(calc.ingresosAlmacen, ventaNetaAyB),
-        ...(esSD ? {} : { fcTeorico: calc.fcTeorico, pctFcTeorico: pct(calc.fcTeorico, ventaNetaAyB) }),
+        ...(esSD ? {} : {
+          fcTeorico: calc.fcTeorico,
+          pctFcTeorico: pct(calc.fcTeorico, ventaNetaAyB),
+          diferencia: calc.ingresosAlmacen - calc.fcTeorico,
+        }),
         otrosTotal: calc.otrosTotal,
         otrosDetalle: calc.otrosDetalle,
         inventarioFinal,
@@ -243,7 +247,10 @@ router.get('/eficiencia', async (req, res) => {
       const grupo = filasExtendidas.slice(desde, idx + 1);
       const denAcum = grupo.reduce((s, f) => s + f.ventaNetaAyB, 0);
       fila.pctIngresosAlmacenNSem = pct(grupo.reduce((s, f) => s + f.ingresosAlmacen, 0), denAcum);
-      if (!esSD) fila.pctFcTeoricoNSem = pct(grupo.reduce((s, f) => s + (f.fcTeorico || 0), 0), denAcum);
+      if (!esSD) {
+        fila.pctFcTeoricoNSem = pct(grupo.reduce((s, f) => s + (f.fcTeorico || 0), 0), denAcum);
+        fila.diferenciaNSem = grupo.reduce((s, f) => s + (f.diferencia || 0), 0);
+      }
       fila.pctConsumoTotalNSem = pct(grupo.reduce((s, f) => s + f.consumoTotal, 0), denAcum);
     });
 
@@ -342,6 +349,46 @@ router.get('/oc', async (req, res) => {
     }));
 
     res.json({ operacion, grupo: grupoParam, semanas, filas, ventaNeta, pronosticoVenta });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /detalle-semana?operacion=&semanaObjetivo=YYYYWW&grupo=FC|SD ────────
+// Detalle del movimiento logístico de una sola semana: filas = grupoCompra
+// (no hay un nivel de detalle más fino que Familia en la fuente — no trae
+// ítem), columnas = cada tipo de MOVIMIENTO presente esa semana.
+router.get('/detalle-semana', async (req, res) => {
+  try {
+    const { operacion } = req.query;
+    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
+    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const grupoParam = req.query.grupo === 'SD' ? 'SD' : 'FC';
+
+    let objetivo;
+    const semQ = req.query.semanaObjetivo;
+    if (semQ && /^\d{6}$/.test(semQ)) objetivo = { año: +semQ.slice(0, 4), semana: +semQ.slice(4) };
+    else { const hoy = new Date(); objetivo = { año: isoYear(hoy), semana: isoWeek(hoy) }; }
+
+    const docs = await SeguimientoCompraMovimiento.find({
+      operacion, grupo: grupoParam, año: objetivo.año, semana: objetivo.semana,
+    }).lean();
+
+    const porGrupoCompra = new Map(); // grupoCompra -> { movimiento: importe }
+    const movimientosSet = new Set();
+    docs.forEach(d => {
+      movimientosSet.add(d.movimiento);
+      if (!porGrupoCompra.has(d.grupoCompra)) porGrupoCompra.set(d.grupoCompra, {});
+      const fila = porGrupoCompra.get(d.grupoCompra);
+      fila[d.movimiento] = (fila[d.movimiento] || 0) + d.importe;
+    });
+
+    const movimientos = [...movimientosSet].sort();
+    const filas = [...porGrupoCompra.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([grupoCompra, porMov]) => ({
+      grupoCompra,
+      porMovimiento: Object.fromEntries(movimientos.map(m => [m, porMov[m] || 0])),
+      total: movimientos.reduce((s, m) => s + (porMov[m] || 0), 0),
+    }));
+
+    res.json({ operacion, grupo: grupoParam, objetivo, movimientos, filas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

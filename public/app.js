@@ -10462,6 +10462,41 @@ async function viewSeguimientoCompras(container) {
     } catch (e) { toast(e.message, 'error'); }
   }
 
+  async function abrirDetalleSemana(grupo, semSel) {
+    if (!operacionActual) { toast('Elige una operación primero', 'error'); return; }
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual, grupo });
+      if (semSel) params.set('semanaObjetivo', semSel);
+      const det = await GET(`/seguimiento-compras/detalle-semana?${params}`);
+      const titulo = `Detalle de Movimientos — ${esc(operacionActual)} (${grupo}) — SEM ${det.objetivo.semana}/${det.objetivo.año}`;
+      if (!det.filas.length) {
+        openModal(titulo, `<p class="text-muted">Sin movimientos para esa semana.</p>`);
+        return;
+      }
+      const html = `
+        <div style="overflow:auto;max-height:60vh">
+          <table class="data-table" style="font-size:12px;white-space:nowrap">
+            <thead>
+              <tr>
+                <th>Grupo Compra</th>
+                ${det.movimientos.map(m => `<th class="text-right">${esc(m)}</th>`).join('')}
+                <th class="text-right">TOTAL</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${det.filas.map(f => `
+                <tr>
+                  <td>${esc(f.grupoCompra)}</td>
+                  ${det.movimientos.map(m => tdN(f.porMovimiento[m])).join('')}
+                  ${tdN(f.total)}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+      openModal(titulo, html);
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   function poblarSelectorSemanas(actual) {
     const sel = document.getElementById('sc-semana-sel');
     const valorPrevio = semanaSelElegida;
@@ -10487,8 +10522,14 @@ async function viewSeguimientoCompras(container) {
       if (semSel) params.set('semanaObjetivo', semSel);
 
       data = await GET(`/seguimiento-compras/eficiencia?${params}`);
-      root.innerHTML = `<div class="card" style="padding:14px"><div style="overflow:auto;max-height:340px"><div id="sc-tabla"></div></div></div>`;
+      root.innerHTML = `<div class="card" style="padding:14px">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+          <button class="btn btn-outline btn-sm" id="sc-btn-detalle">🔍 Detalle de movimientos (semana seleccionada)</button>
+        </div>
+        <div style="overflow:auto;max-height:340px"><div id="sc-tabla"></div></div>
+      </div>`;
       renderTabla();
+      document.getElementById('sc-btn-detalle').addEventListener('click', () => abrirDetalleSemana('FC', semSel));
       cargarOC(semSel);
       cargarSD(semSel);
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
@@ -10511,8 +10552,14 @@ async function viewSeguimientoCompras(container) {
       const params = new URLSearchParams({ operacion: operacionActual, nSemanas, nSemanasPct, incluirEspeciales: incluirEspeciales ? '1' : '0', grupo: 'SD' });
       if (semSel) params.set('semanaObjetivo', semSel);
       dataSD = await GET(`/seguimiento-compras/eficiencia?${params}`);
-      rootSD.innerHTML = `<div class="card" style="padding:14px"><div style="overflow:auto;max-height:340px"><div id="sc-tabla-sd"></div></div></div>`;
+      rootSD.innerHTML = `<div class="card" style="padding:14px">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+          <button class="btn btn-outline btn-sm" id="sc-btn-detalle-sd">🔍 Detalle de movimientos (semana seleccionada)</button>
+        </div>
+        <div style="overflow:auto;max-height:340px"><div id="sc-tabla-sd"></div></div>
+      </div>`;
       renderTablaSD();
+      document.getElementById('sc-btn-detalle-sd').addEventListener('click', () => abrirDetalleSemana('SD', semSel));
       cargarOcSD(semSel);
     } catch (e) { rootSD.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
@@ -10647,6 +10694,7 @@ async function viewSeguimientoCompras(container) {
       ventas:   { bg: '#eef2ff', fg: '#4338ca' },
       inv:      { bg: '#f1f5f9', fg: '#475569' },
       ingresos: { bg: '#ecfdf5', fg: '#059669' },
+      dif:      { bg: '#fefce8', fg: '#a16207' },
       fc:       { bg: '#fff7ed', fg: '#c2410c' },
       otros:    { bg: '#f5f3ff', fg: '#7c3aed' },
       consumo:  { bg: '#fdf2f8', fg: '#be185d' },
@@ -10662,6 +10710,7 @@ async function viewSeguimientoCompras(container) {
             <th rowspan="2" class="text-right" style="${th(C.ventas)}">VENTA<br>NETA</th>
             <th rowspan="2" class="text-right" style="${th(C.inv)}">INV.<br>INICIAL</th>
             <th colspan="${colsIngresos}" class="text-center sc-th-toggle" id="sc-th-ingresos" style="${th(C.ingresos, 'cursor:pointer')}">${arrIngresos} Ingresos al Almacén</th>
+            <th colspan="2" class="text-center" style="${th(C.dif)}">Diferencia</th>
             <th colspan="2" class="text-center" style="${th(C.fc)}">FC Teórico</th>
             <th colspan="${colsOtros}" class="text-center sc-th-toggle" id="sc-th-otros" style="${th(C.otros, 'cursor:pointer')}">${arrOtros} Otros Movimientos</th>
             <th rowspan="2" class="text-right" style="${th(C.inv)}">INV.<br>FINAL</th>
@@ -10670,6 +10719,7 @@ async function viewSeguimientoCompras(container) {
           <tr>
             ${detalleIngresos ? `<th class="text-right" style="${th(C.ingresos)}">COMPRA</th><th class="text-right" style="${th(C.ingresos)}">TRANS</th>` : ''}
             <th class="text-right" style="${th(C.ingresos)}">Importe</th><th class="text-center" style="${th(C.ingresos)}">% sem / ${data.nSemPct} sem</th>
+            <th class="text-right" style="${th(C.dif)}">Semana</th><th class="text-right" style="${th(C.dif)}">${data.nSemPct} sem</th>
             <th class="text-right" style="${th(C.fc)}">Importe</th><th class="text-center" style="${th(C.fc)}">% sem / ${data.nSemPct} sem</th>
             ${detalleOtros ? otrosKeys.map(k => `<th class="text-right" style="${th(C.otros)}">${esc(k)}</th>`).join('') : ''}
             <th class="text-right" style="${th(C.otros)}">TOTAL<br>OTROS</th>
@@ -10685,6 +10735,7 @@ async function viewSeguimientoCompras(container) {
               ${tdN(f.saldoInicial)}
               ${detalleIngresos ? tdN(f.compra) + tdN(f.transferencia) : ''}
               ${tdN(f.ingresosAlmacen)}${tdP2(f.pctIngresosAlmacen, f.pctIngresosAlmacenNSem)}
+              ${tdN(f.diferencia)}${tdN(f.diferenciaNSem)}
               ${tdN(f.fcTeorico)}${tdP2(f.pctFcTeorico, f.pctFcTeoricoNSem)}
               ${detalleOtros ? otrosKeys.map(k => tdN(f.otrosDetalle[k] ?? 0)).join('') : ''}
               ${tdN(f.otrosTotal)}
