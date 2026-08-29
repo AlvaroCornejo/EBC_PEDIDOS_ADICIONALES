@@ -10470,30 +10470,62 @@ async function viewSeguimientoCompras(container) {
       const det = await GET(`/seguimiento-compras/detalle-semana?${params}`);
       const titulo = `Detalle de Movimientos — ${esc(operacionActual)} (${grupo}) — SEM ${det.objetivo.semana}/${det.objetivo.año}`;
       if (!det.filas.length) {
-        openModal(titulo, `<p class="text-muted">Sin movimientos para esa semana.</p>`);
+        openModal(titulo, `<p class="text-muted">Sin movimientos para esa semana.</p>`, null, { fullwide: true });
         return;
       }
-      const html = `
-        <div style="overflow:auto;max-height:60vh">
-          <table class="data-table" style="font-size:12px;white-space:nowrap">
-            <thead>
-              <tr>
-                <th>${det.porItem ? 'Item' : 'Grupo Compra'}</th>
-                ${det.movimientos.map(m => `<th class="text-right">${esc(m)}</th>`).join('')}
-                <th class="text-right">TOTAL</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${det.filas.map(f => `
+      const labelCol = det.porItem ? 'Item' : 'Grupo Compra';
+      let sortCol = null; // null = orden original (por label)
+      let sortDir = 'asc';
+
+      function ordenar(filas) {
+        if (sortCol == null) return filas;
+        const arr = [...filas];
+        arr.sort((a, b) => {
+          const va = sortCol === 'label' ? a.label : (sortCol === 'total' ? a.total : (a.porMovimiento[sortCol] ?? 0));
+          const vb = sortCol === 'label' ? b.label : (sortCol === 'total' ? b.total : (b.porMovimiento[sortCol] ?? 0));
+          const cmp = (typeof va === 'string' || typeof vb === 'string') ? String(va).localeCompare(String(vb)) : va - vb;
+          return sortDir === 'asc' ? cmp : -cmp;
+        });
+        return arr;
+      }
+
+      function renderTablaDetalle() {
+        const wrap = document.getElementById('sc-detalle-wrap');
+        if (!wrap) return;
+        const filas = ordenar(det.filas);
+        const arrow = (col) => sortCol === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+        wrap.innerHTML = `
+          <div style="overflow:auto;max-height:75vh">
+            <table class="data-table" style="font-size:12px;white-space:nowrap">
+              <thead>
                 <tr>
-                  <td>${esc(f.label)}</td>
-                  ${det.movimientos.map(m => tdN(f.porMovimiento[m])).join('')}
-                  ${tdN(f.total)}
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`;
-      openModal(titulo, html);
+                  <th class="sc-det-th" data-col="label" style="cursor:pointer">${esc(labelCol)}${arrow('label')}</th>
+                  ${det.movimientos.map(m => `<th class="text-right sc-det-th" data-col="${esc(m)}" style="cursor:pointer">${esc(m)}${arrow(m)}</th>`).join('')}
+                  <th class="text-right sc-det-th" data-col="total" style="cursor:pointer">TOTAL${arrow('total')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filas.map(f => `
+                  <tr>
+                    <td>${esc(f.label)}</td>
+                    ${det.movimientos.map(m => tdN(f.porMovimiento[m])).join('')}
+                    ${tdN(f.total)}
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`;
+        wrap.querySelectorAll('.sc-det-th').forEach(th => {
+          th.addEventListener('click', () => {
+            const col = th.dataset.col;
+            if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+            else { sortCol = col; sortDir = 'asc'; }
+            renderTablaDetalle();
+          });
+        });
+      }
+
+      openModal(titulo, `<div id="sc-detalle-wrap"></div>`, null, { fullwide: true });
+      renderTablaDetalle();
     } catch (e) { toast(e.message, 'error'); }
   }
 
