@@ -767,3 +767,41 @@ al guardar se concatena a los canales normales con `esManual:true, dias:[]`; al 
 un forecast existente, `cargar()` separa los `esManual` hacia `canalesManuales` en vez
 de `proyeccion`. Solo puede haber un canal "COMERCIAL" a la vez (botón se oculta si ya
 existe); se puede quitar con el botón 🗑️ de su fila (mientras no esté bloqueado).
+
+### Sesión 12 — Seguimiento de Compras: sección Ítems SD
+
+Hasta esta sesión `importSeguimientoCompras.js` descartaba toda fila con
+`GRUPO !== 'FC'` (comentario "solo se importa FC" en ambos modelos). A
+pedido del usuario se agregó una sección nueva en el módulo, en espejo de
+la existente, para los ítems con `GRUPO = 'SD'` — que ahora se importan
+también (ambos grupos quedan en las mismas colecciones, distinguidos por
+el campo `grupo` que ya existía en los modelos).
+
+**Backend** (`routes/seguimiento-compras.js`): `/eficiencia` y `/oc` aceptan
+`grupo=FC|SD` (default `FC`) y filtran los movimientos/OC por ese campo.
+`calcularSemanaEficiencia(docs, esSD)` cambia de fórmula para SD, a pedido
+explícito del usuario: **no separa Transferencia ni FC Teórico** — solo se
+aparta la Compra; todo lo demás (incluida VENTA y TRANSF) va junto a
+**Otros Movimientos**. El cuadro "OC por Grupo de Compra" es idéntico al de
+FC, solo cambia el filtro `grupo`.
+
+**Frontend** (`public/app.js`, `viewSeguimientoCompras`): sección nueva
+"🗂️ Ítems SD" debajo de la existente, con su propia tabla de Eficiencia
+(`renderTablaSD`, columnas Compra + Otros Movimientos, sin FC Teórico) y su
+propio "OC por Grupo de Compra" (`renderTablaOC` generalizada para aceptar
+el elemento raíz como parámetro y reusarse en ambas secciones) — comparten
+el selector de Operación/Semana/N° semanas de la sección FC.
+
+**Pendiente de ejecutar en el servidor (CORPSERV-PRUEBA)**: `sync-master.bat`
+(y su paso `sync-seguimiento-compras.bat`) corre con la copia local del
+repo en `C:\pedidos-app\`, que **no se actualiza sola** — ningún bat hace
+`git pull` (solo `sync-excel.bat` hace `git push`, en sentido contrario).
+Mientras no se corra `git pull origin main` en el servidor, el import
+seguirá usando el script viejo (descarta SD) aunque el código ya esté en
+GitHub. Confirmado por consulta directa a Mongo: 0 documentos con
+`grupo:'SD'` en `SeguimientoCompraMovimiento`/`SeguimientoCompraOC` pese a
+que el Excel de origen sí trae filas SD. Acción pendiente: en el servidor,
+`cd C:\pedidos-app && git pull origin main && sync-seguimiento-compras.bat`
+(o esperar a que alguien lo haga antes de la corrida de las 6 AM — el
+`git pull` no está automatizado, así que si no se hace a mano seguirá
+desactualizado indefinidamente).

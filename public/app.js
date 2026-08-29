@@ -10383,12 +10383,25 @@ async function viewSeguimientoCompras(container) {
           </div>
         </div>
       </div>
-      <div id="sc-content"></div>
-      <div id="sc-oc-content" class="mt-16"></div>
-      <div class="mt-24" style="border-top:2px solid var(--border);padding-top:16px">
-        <div class="page-title" style="font-size:18px;margin-bottom:12px">🗂️ Ítems SD</div>
-        <div id="sc-content-sd"></div>
-        <div id="sc-oc-content-sd" class="mt-16"></div>
+      <div class="card mb-16" style="padding:0;overflow:hidden">
+        <div id="sc-grp-fc-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-hover);cursor:pointer">
+          <div class="page-title" style="font-size:16px;margin:0">FC</div>
+          <button id="sc-grp-fc-toggle" class="btn btn-outline btn-sm" type="button">▾ Minimizar</button>
+        </div>
+        <div id="sc-grp-fc-body" style="padding:14px">
+          <div id="sc-content"></div>
+          <div id="sc-oc-content" class="mt-16"></div>
+        </div>
+      </div>
+      <div class="card mb-16" style="padding:0;overflow:hidden">
+        <div id="sc-grp-sd-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-hover);cursor:pointer">
+          <div class="page-title" style="font-size:16px;margin:0">No FC</div>
+          <button id="sc-grp-sd-toggle" class="btn btn-outline btn-sm" type="button">▾ Minimizar</button>
+        </div>
+        <div id="sc-grp-sd-body" style="padding:14px">
+          <div id="sc-content-sd"></div>
+          <div id="sc-oc-content-sd" class="mt-16"></div>
+        </div>
       </div>
     </div>`;
 
@@ -10398,6 +10411,19 @@ async function viewSeguimientoCompras(container) {
   const rootOcSD = document.getElementById('sc-oc-content-sd');
   let dataSD = null;
   let detalleOtrosSD = false;
+
+  function setupGrupoToggle(bodyId, toggleId) {
+    let expanded = true;
+    const body = document.getElementById(bodyId);
+    const btn = document.getElementById(toggleId);
+    const update = () => {
+      body.style.display = expanded ? '' : 'none';
+      btn.textContent = expanded ? '▾ Minimizar' : '▸ Maximizar';
+    };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); expanded = !expanded; update(); });
+  }
+  setupGrupoToggle('sc-grp-fc-body', 'sc-grp-fc-toggle');
+  setupGrupoToggle('sc-grp-sd-body', 'sc-grp-sd-toggle');
 
   try {
     const ops = await GET('/seguimiento-compras/operaciones');
