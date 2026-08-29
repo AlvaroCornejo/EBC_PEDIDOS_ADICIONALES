@@ -107,6 +107,19 @@ function calcularSemanaEficiencia(docs, esSD) {
     otrosTotal += importe;
   });
 
+  // Neteo de presentación SOBRA vs FALTA (por operación/semana): el mayor en
+  // valor absoluto se queda con la suma de ambos, el otro pasa a cero (si son
+  // iguales en valor absoluto, ambos quedan en cero). Solo cambia cómo se
+  // reparte entre las 2 columnas — la suma SOBRA+FALTA (y por lo tanto
+  // otrosTotal/totalTodos/Inventario Final) no se altera.
+  if ('SOBRA' in otrosDetalle && 'FALTA' in otrosDetalle) {
+    const sobra = otrosDetalle['SOBRA'], falta = otrosDetalle['FALTA'];
+    const absSobra = Math.abs(sobra), absFalta = Math.abs(falta);
+    if (absSobra > absFalta) { otrosDetalle['SOBRA'] = sobra + falta; otrosDetalle['FALTA'] = 0; }
+    else if (absFalta > absSobra) { otrosDetalle['FALTA'] = sobra + falta; otrosDetalle['SOBRA'] = 0; }
+    else { otrosDetalle['SOBRA'] = 0; otrosDetalle['FALTA'] = 0; }
+  }
+
   if (esSD) {
     return { totalTodos, compra, ingresosAlmacen: compra, otrosTotal, otrosDetalle };
   }
