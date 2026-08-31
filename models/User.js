@@ -37,6 +37,7 @@ const userSchema = new mongoose.Schema({
   sociedadesMaestros:   { type: [String], default: [] },
   rolPagoRecurrente:    { type: String, default: '', enum: ['', 'programador', 'registrador', 'consulta', 'admin'] },
   rolSeguimientoCompras: { type: String, default: '', enum: ['', 'carga', 'aprobacion', 'consulta', 'admin'] },
+  rolCambioReceta:       { type: String, default: '', enum: ['', 'solicitante', 'aprobador', 'ambos'] },
 });
 
 module.exports = mongoose.model('User', userSchema);

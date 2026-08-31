@@ -14,6 +14,7 @@ const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pa
 const MAESTRO_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador de cuentas'],['registrador','Registrador ERP'],['admin','Administrador']];
 const PAGO_RECURRENTE_ROLES = [['','— Sin acceso —'],['programador','Programador (crea reglas)'],['registrador','Registrador (marca pagos)'],['consulta','Consulta'],['admin','Administrador (todo)']];
 const SEGUIMIENTO_COMPRAS_ROLES = [['','— Sin acceso —'],['carga','Carga (Pedido Tienda)'],['aprobacion','Aprobación'],['consulta','Consulta'],['admin','Administrador (todo)']];
+const CAMBIO_RECETA_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['ambos','Ambos']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 // Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
 // iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
@@ -263,7 +264,7 @@ const NAV_ITEMS = [
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerComparativo' },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
   { id: 'pronostico-venta', label: 'Pronóstico de Venta', icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerPronosticoVenta' },
-  { id: 'recetas-costeo', label: 'Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'puedeVerCosteoRecetas' },
+  { id: 'recetas-costeo', label: 'Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['puedeVerCosteoRecetas', 'rolCambioReceta'] },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
   { id: 'maestro-items',  label: 'Maestro de Ítems', icon: '🗂️', roles: [ROLES.ADMIN], extraPerm: 'rolMaestroItems' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
@@ -4236,6 +4237,12 @@ async function viewCostoRecetas(container) {
   let filtros = { grupo: '', item: '', nombre: '', semaforo: '' };
   let debounceNombre = null;
   let itemSeleccionado = null;
+  let tabActual = 'costeo'; // 'costeo' | 'solicitudes'
+  let filtroSolEstado = 'pendiente';
+
+  const puedeSolicitarCambio = S.user.role === 'ADMIN' || ['solicitante', 'ambos'].includes(S.user.rolCambioReceta);
+  const puedeAprobarCambio = S.user.role === 'ADMIN' || ['aprobador', 'ambos'].includes(S.user.rolCambioReceta);
+  const tieneAccesoCambios = puedeSolicitarCambio || puedeAprobarCambio;
 
   const esc2 = s => esc(String(s ?? ''));
   const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -4251,47 +4258,71 @@ async function viewCostoRecetas(container) {
       <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('cr-content','costeo-de-recetas')">📥 Bajar a Excel</button>
     </div>
     <div class="page-body">
-      <div class="card mb-16" style="padding:14px">
-        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
-            <select id="cr-operacion" class="form-control" style="width:160px">
-              <option value="">— Seleccionar —</option>
-            </select>
+      ${tieneAccesoCambios ? `
+      <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:16px;width:fit-content">
+        <button class="cr-tab" data-tab="costeo" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer;background:var(--primary);color:#fff">📋 Costeo</button>
+        <button class="cr-tab" data-tab="solicitudes" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer;background:var(--bg-secondary);color:var(--text)">📝 Solicitudes de Cambio</button>
+      </div>` : ''}
+      <div id="cr-tab-costeo">
+        <div class="card mb-16" style="padding:14px">
+          <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+              <select id="cr-operacion" class="form-control" style="width:160px">
+                <option value="">— Seleccionar —</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Grupo</label>
+              <select id="cr-grupo" class="form-control" style="width:180px">
+                <option value="">— Todos —</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Ítem</label>
+              <input type="number" id="cr-item" class="form-control" style="width:110px" placeholder="Código">
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Nombre</label>
+              <input type="text" id="cr-nombre" class="form-control" style="width:220px" placeholder="Buscar por nombre...">
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semáforo</label>
+              <select id="cr-semaforo" class="form-control" style="width:150px">
+                <option value="">— Todos —</option>
+                <option value="verde">🟢 Verde</option>
+                <option value="amarillo">🟡 Amarillo</option>
+                <option value="rojo">🔴 Rojo</option>
+                <option value="gris">⚪ Sin dato</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Grupo</label>
-            <select id="cr-grupo" class="form-control" style="width:180px">
-              <option value="">— Todos —</option>
-            </select>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Ítem</label>
-            <input type="number" id="cr-item" class="form-control" style="width:110px" placeholder="Código">
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Nombre</label>
-            <input type="text" id="cr-nombre" class="form-control" style="width:220px" placeholder="Buscar por nombre...">
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semáforo</label>
-            <select id="cr-semaforo" class="form-control" style="width:150px">
-              <option value="">— Todos —</option>
-              <option value="verde">🟢 Verde</option>
-              <option value="amarillo">🟡 Amarillo</option>
-              <option value="rojo">🔴 Rojo</option>
-              <option value="gris">⚪ Sin dato</option>
-            </select>
+        </div>
+        <div id="cr-split" style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+          <div id="cr-content" style="flex:1 1 380px;min-width:0"></div>
+          <div id="cr-detalle" style="flex:1 1 380px;min-width:0">
+            <div class="card"><div class="empty-state"><p>Selecciona un ítem de la lista para ver el detalle de su receta.</p></div></div>
           </div>
         </div>
       </div>
-      <div id="cr-split" style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
-        <div id="cr-content" style="flex:1 1 380px;min-width:0"></div>
-        <div id="cr-detalle" style="flex:1 1 380px;min-width:0">
-          <div class="card"><div class="empty-state"><p>Selecciona un ítem de la lista para ver el detalle de su receta.</p></div></div>
-        </div>
-      </div>
+      <div id="cr-tab-solicitudes" style="display:none"></div>
     </div>`;
+
+  if (tieneAccesoCambios) {
+    container.querySelectorAll('.cr-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabActual = btn.dataset.tab;
+        container.querySelectorAll('.cr-tab').forEach(b => {
+          const activo = b.dataset.tab === tabActual;
+          b.style.background = activo ? 'var(--primary)' : 'var(--bg-secondary)';
+          b.style.color = activo ? '#fff' : 'var(--text)';
+        });
+        document.getElementById('cr-tab-costeo').style.display = tabActual === 'costeo' ? '' : 'none';
+        document.getElementById('cr-tab-solicitudes').style.display = tabActual === 'solicitudes' ? '' : 'none';
+        if (tabActual === 'solicitudes') cargarSolicitudes();
+      });
+    });
+  }
 
   const root = document.getElementById('cr-content');
   const detalleRoot = document.getElementById('cr-detalle');
@@ -4404,14 +4435,17 @@ async function viewCostoRecetas(container) {
 
       detalleRoot.innerHTML = `
         <div class="card" style="padding:14px">
-          <div class="mb-16">
-            <div style="font-weight:600;font-size:15px">${esc2(d.nombre)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${d.grupo} — Ítem ${d.item})</span></div>
-            <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;flex-wrap:wrap">
-              <div>Costo Receta: <strong>${fmtMoney(d.costo)}</strong></div>
-              <div>Costo Real: <strong>${fmtMoney(d.costoReal)}</strong></div>
-              <div>Semáforo: ${semaforoDot(d.semaforo)}</div>
-              <div>Batch: <strong>${d.batch}</strong></div>
+          <div class="mb-16" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+            <div>
+              <div style="font-weight:600;font-size:15px">${esc2(d.nombre)} <span class="text-muted" style="font-size:12px;font-weight:normal">(${d.grupo} — Ítem ${d.item})</span></div>
+              <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;flex-wrap:wrap">
+                <div>Costo Receta: <strong>${fmtMoney(d.costo)}</strong></div>
+                <div>Costo Real: <strong>${fmtMoney(d.costoReal)}</strong></div>
+                <div>Semáforo: ${semaforoDot(d.semaforo)}</div>
+                <div>Batch: <strong>${d.batch}</strong></div>
+              </div>
             </div>
+            ${puedeSolicitarCambio ? `<button class="btn btn-outline btn-sm" id="cr-btn-solicitar" style="white-space:nowrap">✏️ Solicitar cambio</button>` : ''}
           </div>
           <div style="display:flex;gap:10px;margin-bottom:16px">
             <div class="card" style="flex:1;padding:10px;text-align:center">
@@ -4447,6 +4481,7 @@ async function viewCostoRecetas(container) {
           mostrarNivel(parseInt(tr.dataset.insumo), document.getElementById('cr-subreceta'), 1);
         });
       });
+      if (puedeSolicitarCambio) document.getElementById('cr-btn-solicitar').addEventListener('click', () => abrirFormSolicitud(d));
     } catch (e) { detalleRoot.innerHTML = `<div class="card"><p style="color:red;padding:14px">${esc2(e.message)}</p></div>`; }
   }
 
@@ -4504,6 +4539,245 @@ async function viewCostoRecetas(container) {
     } catch (e) {
       contenedor.innerHTML = `<div class="card" style="padding:14px"><p class="text-muted" style="margin:0">Este insumo no tiene receta propia registrada.</p></div>`;
     }
+  }
+
+  // ── Solicitar cambio de receta: cantidades de insumos existentes + agregar
+  // insumos nuevos (existentes en otra receta, o totalmente nuevos) ─────────
+  function abrirFormSolicitud(d) {
+    let filasNuevas = []; // { esInsumoNuevo, insumo, insumoNombre, cantidadNueva, costoSolicitado }
+    let contadorNuevas = 0;
+
+    function render() {
+      const filasExistentes = d.insumos.map(i => `
+        <tr data-insumo="${i.insumo}">
+          <td>${i.insumo} — ${esc2(i.nombreInsumo)}</td>
+          <td class="text-right">${fmtCant(i.cantidad)}</td>
+          <td class="text-right"><input type="number" step="0.001" class="form-control cr-sol-cant" style="width:100px;text-align:right" value="${i.cantidad}"></td>
+          <td class="text-right">${i.unitario ? fmtMoney(i.unitario) : `<input type="number" step="0.01" class="form-control cr-sol-costo" style="width:100px;text-align:right" placeholder="Costo">`}</td>
+        </tr>`).join('');
+
+      const filasNuevasHtml = filasNuevas.map((f, idx) => `
+        <tr data-nueva="${idx}">
+          <td colspan="2">
+            ${f.esInsumoNuevo
+              ? `<input type="text" class="form-control cr-nueva-nombre" style="width:100%" placeholder="Descripción del insumo nuevo" value="${esc2(f.insumoNombre)}">`
+              : `<input type="text" class="form-control cr-nueva-buscar" style="width:100%" placeholder="Código o nombre del insumo existente" list="cr-insumos-dl" value="${f.insumo ? `${f.insumo} — ${esc2(f.insumoNombre)}` : ''}">`}
+            <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin-top:2px">
+              <input type="checkbox" class="cr-nueva-toggle" ${f.esInsumoNuevo ? 'checked' : ''}> Es un insumo nuevo (no existe en el catálogo)
+            </label>
+          </td>
+          <td class="text-right"><input type="number" step="0.001" class="form-control cr-nueva-cant" style="width:100px;text-align:right" value="${f.cantidadNueva ?? ''}"></td>
+          <td class="text-right">
+            <input type="number" step="0.01" class="form-control cr-nueva-costo" style="width:100px;text-align:right" placeholder="Costo" value="${f.costoSolicitado ?? ''}">
+            <button type="button" class="cr-nueva-quitar" data-idx="${idx}" title="Quitar" style="border:none;background:none;cursor:pointer;color:#ef4444">✕</button>
+          </td>
+        </tr>`).join('');
+
+      const html = `
+        <p class="text-muted" style="margin:0 0 12px 0;font-size:13px">Cambia las cantidades que correspondan y/o agrega insumos nuevos. Si un insumo existente no tiene costo, se solicitará junto con el cambio. Este cambio no se aplica directo — queda pendiente de aprobación y, una vez aprobado, se actualiza en el ERP.</p>
+        <div class="table-wrap" style="max-height:45vh;overflow-y:auto">
+          <table class="data-table" style="font-size:12px" id="cr-sol-tabla">
+            <thead><tr>
+              <th>Insumo</th><th class="text-right">Cant. actual</th><th class="text-right">Cant. nueva</th><th class="text-right">Costo</th>
+            </tr></thead>
+            <tbody>${filasExistentes}${filasNuevasHtml}</tbody>
+          </table>
+        </div>
+        <datalist id="cr-insumos-dl"></datalist>
+        <button type="button" class="btn btn-outline btn-sm" id="cr-sol-agregar" style="margin-top:10px">➕ Agregar insumo</button>
+        <div style="margin-top:16px;text-align:right">
+          <button class="btn btn-primary btn-sm" id="cr-sol-enviar">📤 Enviar solicitud</button>
+        </div>`;
+      openModal(`Solicitar cambio — ${esc2(d.nombre)} (Ítem ${d.item})`, html);
+
+      GET(`/recetas-costeo/insumos?operacion=${encodeURIComponent(operacionActual)}`).then(list => {
+        const dl = document.getElementById('cr-insumos-dl');
+        if (dl) dl.innerHTML = list.map(i => `<option value="${i.insumo} — ${esc2(i.nombreInsumo)}">`).join('');
+      }).catch(() => {});
+
+      document.getElementById('cr-sol-agregar').addEventListener('click', () => {
+        filasNuevas.push({ esInsumoNuevo: false, insumo: null, insumoNombre: '', cantidadNueva: '', costoSolicitado: '' });
+        contadorNuevas++;
+        guardarEdicionesEnMemoria();
+        render();
+      });
+      document.querySelectorAll('.cr-nueva-quitar').forEach(btn => {
+        btn.addEventListener('click', () => {
+          guardarEdicionesEnMemoria();
+          filasNuevas.splice(parseInt(btn.dataset.idx), 1);
+          render();
+        });
+      });
+      document.querySelectorAll('.cr-nueva-toggle').forEach((chk, i) => {
+        chk.addEventListener('change', () => {
+          guardarEdicionesEnMemoria();
+          filasNuevas[i].esInsumoNuevo = chk.checked;
+          filasNuevas[i].insumo = null;
+          filasNuevas[i].insumoNombre = '';
+          render();
+        });
+      });
+      document.getElementById('cr-sol-enviar').addEventListener('click', enviarSolicitud);
+    }
+
+    // Persiste lo tecleado en filasNuevas[] antes de volver a pintar la tabla (al agregar/quitar filas).
+    function guardarEdicionesEnMemoria() {
+      document.querySelectorAll('#cr-sol-tabla tr[data-nueva]').forEach(tr => {
+        const idx = parseInt(tr.dataset.nueva);
+        const f = filasNuevas[idx];
+        if (!f) return;
+        f.cantidadNueva = tr.querySelector('.cr-nueva-cant')?.value || '';
+        f.costoSolicitado = tr.querySelector('.cr-nueva-costo')?.value || '';
+        if (f.esInsumoNuevo) {
+          f.insumoNombre = tr.querySelector('.cr-nueva-nombre')?.value || '';
+        } else {
+          const raw = tr.querySelector('.cr-nueva-buscar')?.value || '';
+          const m = raw.match(/^(\d+)\s*—\s*(.*)$/);
+          if (m) { f.insumo = parseInt(m[1]); f.insumoNombre = m[2]; }
+          else { f.insumo = null; f.insumoNombre = raw; }
+        }
+      });
+    }
+
+    async function enviarSolicitud() {
+      guardarEdicionesEnMemoria();
+      const lineas = [];
+
+      document.querySelectorAll('#cr-sol-tabla tr[data-insumo]').forEach(tr => {
+        const insumo = parseInt(tr.dataset.insumo);
+        const original = d.insumos.find(i => i.insumo === insumo);
+        const cantInput = tr.querySelector('.cr-sol-cant');
+        const costoInput = tr.querySelector('.cr-sol-costo');
+        const cantidadNueva = parseFloat(cantInput.value);
+        const cambioCantidad = Number.isFinite(cantidadNueva) && cantidadNueva !== original.cantidad;
+        const costoSolicitado = costoInput ? parseFloat(costoInput.value) : null;
+        if (cambioCantidad) {
+          lineas.push({ accion: 'MODIFICAR_CANTIDAD', insumo, insumoNombre: original.nombreInsumo, cantidadAnterior: original.cantidad, cantidadNueva, sinCosto: !original.unitario, costoSolicitado: Number.isFinite(costoSolicitado) ? costoSolicitado : undefined });
+        } else if (costoInput && Number.isFinite(costoSolicitado)) {
+          lineas.push({ accion: 'MODIFICAR_CANTIDAD', insumo, insumoNombre: original.nombreInsumo, cantidadAnterior: original.cantidad, cantidadNueva: original.cantidad, sinCosto: true, costoSolicitado });
+        }
+      });
+
+      for (const f of filasNuevas) {
+        const cantidadNueva = parseFloat(f.cantidadNueva);
+        if (!Number.isFinite(cantidadNueva) || cantidadNueva <= 0) { toast('Completa la cantidad de cada insumo nuevo', 'error'); return; }
+        if (!f.insumoNombre) { toast('Completa el nombre/código de cada insumo nuevo', 'error'); return; }
+        const costoSolicitado = parseFloat(f.costoSolicitado);
+        if (f.esInsumoNuevo && !Number.isFinite(costoSolicitado)) { toast('Indica el costo solicitado para el insumo nuevo', 'error'); return; }
+        lineas.push({
+          accion: 'AGREGAR_INSUMO', insumo: f.esInsumoNuevo ? null : f.insumo, insumoNombre: f.insumoNombre,
+          esInsumoNuevo: f.esInsumoNuevo, cantidadNueva,
+          sinCosto: !f.esInsumoNuevo && !Number.isFinite(costoSolicitado) ? true : undefined,
+          costoSolicitado: Number.isFinite(costoSolicitado) ? costoSolicitado : undefined,
+        });
+      }
+
+      if (!lineas.length) { toast('No hay cambios para enviar', 'error'); return; }
+
+      const btn = document.getElementById('cr-sol-enviar');
+      btn.disabled = true; btn.textContent = 'Enviando...';
+      try {
+        await POST('/recetas-costeo/solicitudes', { operacion: operacionActual, item: d.item, lineas });
+        closeModal();
+        toast('Solicitud enviada — queda pendiente de aprobación', 'success');
+      } catch (e) {
+        toast(e.message, 'error');
+        btn.disabled = false; btn.textContent = '📤 Enviar solicitud';
+      }
+    }
+
+    render();
+  }
+
+  // ── Tab Solicitudes de Cambio ────────────────────────────────────────────
+  async function cargarSolicitudes() {
+    const wrap = document.getElementById('cr-tab-solicitudes');
+    if (!operacionActual) { wrap.innerHTML = '<div class="card" style="padding:14px"><p class="text-muted" style="margin:0">Elige una operación en la pestaña Costeo primero.</p></div>'; return; }
+    wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual });
+      if (filtroSolEstado) params.set('estado', filtroSolEstado);
+      const sols = await GET(`/recetas-costeo/solicitudes?${params}`);
+      renderSolicitudes(sols);
+    } catch (e) { wrap.innerHTML = `<p style="color:red">${esc2(e.message)}</p>`; }
+  }
+
+  function renderSolicitudes(sols) {
+    const wrap = document.getElementById('cr-tab-solicitudes');
+    const ESTADO_LABEL = { pendiente: '🟡 Pendiente', aprobado: '🟢 Aprobado', rechazado: '🔴 Rechazado' };
+    const lineaTexto = l => {
+      if (l.accion === 'MODIFICAR_CANTIDAD') {
+        let t = `${l.insumo} — ${esc2(l.insumoNombre)}: ${fmtCant(l.cantidadAnterior)} → ${fmtCant(l.cantidadNueva)}`;
+        if (l.sinCosto) t += l.costoSolicitado != null ? ` (costo solicitado: ${fmtMoney(l.costoSolicitado)})` : ' (sin costo — pendiente)';
+        return t;
+      }
+      const cod = l.esInsumoNuevo ? 'NUEVO' : (l.insumo ?? '—');
+      return `➕ ${cod} — ${esc2(l.insumoNombre)}: ${fmtCant(l.cantidadNueva)}${l.costoSolicitado != null ? ` (costo: ${fmtMoney(l.costoSolicitado)})` : ''}`;
+    };
+
+    wrap.innerHTML = `
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="align-items:flex-end;gap:12px">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Estado</label>
+            <select id="cr-sol-estado" class="form-control" style="width:150px">
+              <option value="pendiente">Pendientes</option>
+              <option value="aprobado">Aprobados</option>
+              <option value="rechazado">Rechazados</option>
+              <option value="">Todos</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      ${!sols.length ? '<div class="empty-state"><p>Sin solicitudes para este filtro.</p></div>' : `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${sols.map(s => `
+          <div class="card" style="padding:14px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+              <div>
+                <div style="font-weight:600">${esc2(s.itemNombre)} <span class="text-muted" style="font-weight:normal;font-size:12px">(${esc2(s.grupo)} — Ítem ${s.item})</span>${s.automatico ? ' <span style="font-size:11px;color:var(--primary)">· generada por cambio en insumo ' + s.origenItem + '</span>' : ''}</div>
+                <div class="text-muted" style="font-size:12px;margin-top:2px">Solicitado por ${esc2(s.solicitadoPor)} — ${new Date(s.solicitadoEn).toLocaleString('es-PE')}</div>
+              </div>
+              <div>${ESTADO_LABEL[s.estado] || s.estado}</div>
+            </div>
+            ${s.lineas.length ? `
+            <ul style="margin:10px 0 0 0;padding-left:18px;font-size:13px">
+              ${s.lineas.map(l => `<li>${lineaTexto(l)}</li>`).join('')}
+            </ul>` : `<p class="text-muted" style="margin:10px 0 0 0;font-size:13px">Revisar: esta receta usa el ítem ${s.origenItem} como insumo, y ese ítem tuvo un cambio aprobado.</p>`}
+            ${s.estado !== 'pendiente' ? `<div class="text-muted" style="font-size:12px;margin-top:8px">${s.estado === 'aprobado' ? 'Aprobado' : 'Rechazado'} por ${esc2(s.aprobadoPor)}${s.comentarioAprobador ? ` — "${esc2(s.comentarioAprobador)}"` : ''}</div>` : ''}
+            ${s.estado === 'pendiente' && puedeAprobarCambio ? `
+            <div style="margin-top:10px;display:flex;gap:8px">
+              <button class="btn btn-success btn-sm cr-sol-aprobar" data-id="${s._id}">✔ Aprobar</button>
+              <button class="btn btn-outline btn-sm cr-sol-rechazar" data-id="${s._id}">✕ Rechazar</button>
+            </div>` : ''}
+          </div>`).join('')}
+      </div>`}`;
+
+    document.getElementById('cr-sol-estado').value = filtroSolEstado;
+    document.getElementById('cr-sol-estado').addEventListener('change', (e) => { filtroSolEstado = e.target.value; cargarSolicitudes(); });
+
+    wrap.querySelectorAll('.cr-sol-aprobar').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const r = await PUT(`/recetas-costeo/solicitudes/${btn.dataset.id}/aprobar`, {});
+          toast(r.cascada ? `Aprobado — se generaron ${r.cascada} solicitud(es) para recetas superiores` : 'Aprobado', 'success');
+          cargarSolicitudes();
+        } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+      });
+    });
+    wrap.querySelectorAll('.cr-sol-rechazar').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const comentario = prompt('Motivo del rechazo:');
+        if (!comentario) return;
+        btn.disabled = true;
+        try {
+          await PUT(`/recetas-costeo/solicitudes/${btn.dataset.id}/rechazar`, { comentario });
+          toast('Solicitud rechazada', 'success');
+          cargarSolicitudes();
+        } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+      });
+    });
   }
 }
 
@@ -15637,6 +15911,11 @@ function showUserModal(user, onSave, opts = {}) {
           ${SEGUIMIENTO_COMPRAS_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolSeguimientoCompras||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Rol para Solicitud/Aprobación de Cambio de Receta</label>
+        <select id="um-rol-cambio-receta">
+          ${CAMBIO_RECETA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCambioReceta||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-group" id="um-socs-section"><label>Sociedades</label>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
           ${(S.sociedades||[]).map(soc => {
@@ -15825,6 +16104,7 @@ function showUserModal(user, onSave, opts = {}) {
       rolMaestroItems: document.getElementById('um-maestro-items-role').value,
       rolPagoRecurrente: document.getElementById('um-rol-pago-recurrente').value,
       rolSeguimientoCompras: document.getElementById('um-rol-seguimiento-compras').value,
+      rolCambioReceta: document.getElementById('um-rol-cambio-receta').value,
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,
