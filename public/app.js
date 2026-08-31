@@ -4545,9 +4545,13 @@ async function viewCostoRecetas(container) {
   // ── Solicitar cambio de receta: cantidades de insumos existentes + agregar
   // insumos nuevos (existentes en otra receta, o totalmente nuevos) ─────────
   // Tabla compacta de solo lectura (Receta Actual / Receta Nueva) — M/L/D
-  // abreviado (Mesa/Llevar/Delivery) para que quepan las 2 recetas.
+  // abreviado (Mesa/Llevar/Delivery) para que quepan las 2 recetas, más el
+  // Costo Total de la receta (se recalcula con la cantidad/costo de cada
+  // línea, no el "costo" fijo del snapshot — para que refleje ediciones).
+  const costoLineaReceta = f => (f.cantidad || 0) * (f.unitario || f.costoSolicitado || 0);
   function tablaRecetaMLD(filas) {
     if (!filas.length) return '<p class="text-muted" style="font-size:12px;margin:6px 0">— Sin insumos —</p>';
+    const total = filas.reduce((s, f) => s + costoLineaReceta(f), 0);
     return `
       <table class="data-table" style="font-size:11px">
         <thead><tr>
@@ -4558,39 +4562,46 @@ async function viewCostoRecetas(container) {
           <tr>
             <td>${f.insumo ?? '—'} — ${esc2(f.nombreInsumo)}</td>
             <td class="text-right">${fmtCant(f.cantidad)}</td>
-            <td class="text-right">${f.unitario ? fmtMoney(f.unitario) : (f.costoSolicitado != null ? fmtMoney(f.costoSolicitado) + ' ⏳' : '—')}</td>
+            <td class="text-right">${f.unitario ? fmtMoney(costoLineaReceta(f)) : (f.costoSolicitado != null ? fmtMoney(costoLineaReceta(f)) + ' ⏳' : '—')}</td>
             <td class="text-center">${f.mesa ? '✓' : '—'}</td>
             <td class="text-center">${f.llevar ? '✓' : '—'}</td>
             <td class="text-center">${f.delivery ? '✓' : '—'}</td>
           </tr>`).join('')}</tbody>
+        <tfoot><tr style="font-weight:700"><td colspan="2">Costo Total Receta</td><td class="text-right">${fmtMoney(total)}</td><td colspan="3"></td></tr></tfoot>
       </table>`;
   }
 
   function abrirFormSolicitud(d) {
-    let filasNuevas = []; // { esInsumoNuevo, insumo, insumoNombre, cantidadNueva, costoSolicitado }
-    let contadorNuevas = 0;
+    let filasNuevas = []; // { esInsumoNuevo, insumo, insumoNombre, cantidadNueva, costoSolicitado, mesa, llevar, delivery }
 
-    // Receta nueva = insumos actuales con la cantidad/costo editados + los
-    // insumos nuevos agregados (sin M/L/D propio todavía — se asigna al
-    // registrar en el ERP).
+    const chkMLD = (cls, checked) => `<input type="checkbox" class="${cls}" ${checked ? 'checked' : ''}>`;
+
+    // Receta nueva = insumos actuales con la cantidad/costo/canal editados +
+    // los insumos nuevos agregados (con el canal que se les haya marcado).
     function calcularRecetaNueva() {
-      const cambios = new Map(); // insumo -> { cantidad, costoSolicitado }
+      const cambios = new Map(); // insumo -> { cantidad, costoSolicitado, mesa, llevar, delivery }
       document.querySelectorAll('#cr-sol-tabla tr[data-insumo]').forEach(tr => {
         const insumo = parseInt(tr.dataset.insumo);
         const cant = parseFloat(tr.querySelector('.cr-sol-cant')?.value);
         const costo = parseFloat(tr.querySelector('.cr-sol-costo')?.value);
-        cambios.set(insumo, { cantidad: Number.isFinite(cant) ? cant : undefined, costoSolicitado: Number.isFinite(costo) ? costo : undefined });
+        cambios.set(insumo, {
+          cantidad: Number.isFinite(cant) ? cant : undefined, costoSolicitado: Number.isFinite(costo) ? costo : undefined,
+          mesa: tr.querySelector('.cr-sol-mesa')?.checked, llevar: tr.querySelector('.cr-sol-llevar')?.checked, delivery: tr.querySelector('.cr-sol-delivery')?.checked,
+        });
       });
       const actuales = d.insumos.map(i => {
         const c = cambios.get(i.insumo) || {};
-        return { ...i, cantidad: c.cantidad ?? i.cantidad, costoSolicitado: c.costoSolicitado };
+        return { ...i, cantidad: c.cantidad ?? i.cantidad, costoSolicitado: c.costoSolicitado, mesa: c.mesa ?? i.mesa, llevar: c.llevar ?? i.llevar, delivery: c.delivery ?? i.delivery };
       });
-      const nuevos = filasNuevas.map(f => ({
-        insumo: f.esInsumoNuevo ? null : f.insumo, nombreInsumo: f.insumoNombre,
-        cantidad: parseFloat(f.cantidadNueva) || 0, unitario: 0,
-        costoSolicitado: parseFloat(f.costoSolicitado) || undefined,
-        mesa: false, llevar: false, delivery: false,
-      }));
+      const nuevos = filasNuevas.map((f, idx) => {
+        const tr = document.querySelector(`#cr-sol-tabla tr[data-nueva="${idx}"]`);
+        return {
+          insumo: f.esInsumoNuevo ? null : f.insumo, nombreInsumo: f.insumoNombre,
+          cantidad: parseFloat(f.cantidadNueva) || 0, unitario: 0,
+          costoSolicitado: parseFloat(f.costoSolicitado) || undefined,
+          mesa: tr?.querySelector('.cr-nueva-mesa')?.checked ?? f.mesa, llevar: tr?.querySelector('.cr-nueva-llevar')?.checked ?? f.llevar, delivery: tr?.querySelector('.cr-nueva-delivery')?.checked ?? f.delivery,
+        };
+      });
       return [...actuales, ...nuevos];
     }
     function actualizarPreview() {
@@ -4605,6 +4616,9 @@ async function viewCostoRecetas(container) {
           <td class="text-right">${fmtCant(i.cantidad)}</td>
           <td class="text-right"><input type="number" step="0.001" class="form-control cr-sol-cant" style="width:100px;text-align:right" value="${i.cantidad}"></td>
           <td class="text-right">${i.unitario ? fmtMoney(i.unitario) : `<input type="number" step="0.01" class="form-control cr-sol-costo" style="width:100px;text-align:right" placeholder="Costo">`}</td>
+          <td class="text-center">${chkMLD('cr-sol-mesa', i.mesa)}</td>
+          <td class="text-center">${chkMLD('cr-sol-llevar', i.llevar)}</td>
+          <td class="text-center">${chkMLD('cr-sol-delivery', i.delivery)}</td>
         </tr>`).join('');
 
       const filasNuevasHtml = filasNuevas.map((f, idx) => `
@@ -4622,10 +4636,13 @@ async function viewCostoRecetas(container) {
             <input type="number" step="0.01" class="form-control cr-nueva-costo" style="width:100px;text-align:right" placeholder="Costo" value="${f.costoSolicitado ?? ''}">
             <button type="button" class="cr-nueva-quitar" data-idx="${idx}" title="Quitar" style="border:none;background:none;cursor:pointer;color:#ef4444">✕</button>
           </td>
+          <td class="text-center">${chkMLD('cr-nueva-mesa', f.mesa)}</td>
+          <td class="text-center">${chkMLD('cr-nueva-llevar', f.llevar)}</td>
+          <td class="text-center">${chkMLD('cr-nueva-delivery', f.delivery)}</td>
         </tr>`).join('');
 
       const html = `
-        <p class="text-muted" style="margin:0 0 12px 0;font-size:13px">Cambia las cantidades que correspondan y/o agrega insumos nuevos. Si un insumo existente no tiene costo, se solicitará junto con el cambio. Este cambio no se aplica directo — queda pendiente de aprobación y, una vez aprobado, se anota en el ERP.</p>
+        <p class="text-muted" style="margin:0 0 12px 0;font-size:13px">Cambia las cantidades, el canal (M/L/D) que correspondan y/o agrega insumos nuevos. Si un insumo existente no tiene costo, se solicitará junto con el cambio. Este cambio no se aplica directo — queda pendiente de aprobación y, una vez aprobado, se anota en el ERP.</p>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px">
           <div style="flex:1 1 260px;min-width:0">
             <div style="font-weight:600;font-size:12px;margin-bottom:4px">Receta Actual</div>
@@ -4640,6 +4657,7 @@ async function viewCostoRecetas(container) {
           <table class="data-table" style="font-size:12px" id="cr-sol-tabla">
             <thead><tr>
               <th>Insumo</th><th class="text-right">Cant. actual</th><th class="text-right">Cant. nueva</th><th class="text-right">Costo</th>
+              <th class="text-center" title="Mesa">M</th><th class="text-center" title="Llevar">L</th><th class="text-center" title="Delivery">D</th>
             </tr></thead>
             <tbody>${filasExistentes}${filasNuevasHtml}</tbody>
           </table>
@@ -4657,8 +4675,7 @@ async function viewCostoRecetas(container) {
       }).catch(() => {});
 
       document.getElementById('cr-sol-agregar').addEventListener('click', () => {
-        filasNuevas.push({ esInsumoNuevo: false, insumo: null, insumoNombre: '', cantidadNueva: '', costoSolicitado: '' });
-        contadorNuevas++;
+        filasNuevas.push({ esInsumoNuevo: false, insumo: null, insumoNombre: '', cantidadNueva: '', costoSolicitado: '', mesa: false, llevar: false, delivery: false });
         guardarEdicionesEnMemoria();
         render();
       });
@@ -4679,10 +4696,11 @@ async function viewCostoRecetas(container) {
         });
       });
       document.getElementById('cr-sol-tabla').addEventListener('input', actualizarPreview);
+      document.getElementById('cr-sol-tabla').addEventListener('change', actualizarPreview);
       document.getElementById('cr-sol-enviar').addEventListener('click', enviarSolicitud);
     }
 
-    // Persiste lo tecleado en filasNuevas[] antes de volver a pintar la tabla (al agregar/quitar filas).
+    // Persiste lo tecleado/marcado en filasNuevas[] antes de volver a pintar la tabla (al agregar/quitar filas).
     function guardarEdicionesEnMemoria() {
       document.querySelectorAll('#cr-sol-tabla tr[data-nueva]').forEach(tr => {
         const idx = parseInt(tr.dataset.nueva);
@@ -4690,6 +4708,9 @@ async function viewCostoRecetas(container) {
         if (!f) return;
         f.cantidadNueva = tr.querySelector('.cr-nueva-cant')?.value || '';
         f.costoSolicitado = tr.querySelector('.cr-nueva-costo')?.value || '';
+        f.mesa = tr.querySelector('.cr-nueva-mesa')?.checked || false;
+        f.llevar = tr.querySelector('.cr-nueva-llevar')?.checked || false;
+        f.delivery = tr.querySelector('.cr-nueva-delivery')?.checked || false;
         if (f.esInsumoNuevo) {
           f.insumoNombre = tr.querySelector('.cr-nueva-nombre')?.value || '';
         } else {
@@ -4713,10 +4734,17 @@ async function viewCostoRecetas(container) {
         const cantidadNueva = parseFloat(cantInput.value);
         const cambioCantidad = Number.isFinite(cantidadNueva) && cantidadNueva !== original.cantidad;
         const costoSolicitado = costoInput ? parseFloat(costoInput.value) : null;
-        if (cambioCantidad) {
-          lineas.push({ accion: 'MODIFICAR_CANTIDAD', insumo, insumoNombre: original.nombreInsumo, cantidadAnterior: original.cantidad, cantidadNueva, sinCosto: !original.unitario, costoSolicitado: Number.isFinite(costoSolicitado) ? costoSolicitado : undefined });
-        } else if (costoInput && Number.isFinite(costoSolicitado)) {
-          lineas.push({ accion: 'MODIFICAR_CANTIDAD', insumo, insumoNombre: original.nombreInsumo, cantidadAnterior: original.cantidad, cantidadNueva: original.cantidad, sinCosto: true, costoSolicitado });
+        const mesa = tr.querySelector('.cr-sol-mesa').checked;
+        const llevar = tr.querySelector('.cr-sol-llevar').checked;
+        const delivery = tr.querySelector('.cr-sol-delivery').checked;
+        const cambioCanal = mesa !== !!original.mesa || llevar !== !!original.llevar || delivery !== !!original.delivery;
+        if (cambioCantidad || cambioCanal || (costoInput && Number.isFinite(costoSolicitado))) {
+          lineas.push({
+            accion: 'MODIFICAR_CANTIDAD', insumo, insumoNombre: original.nombreInsumo,
+            cantidadAnterior: original.cantidad, cantidadNueva: Number.isFinite(cantidadNueva) ? cantidadNueva : original.cantidad,
+            sinCosto: !original.unitario, costoSolicitado: Number.isFinite(costoSolicitado) ? costoSolicitado : undefined,
+            ...(cambioCanal ? { mesa, llevar, delivery } : {}),
+          });
         }
       });
 
@@ -4731,6 +4759,7 @@ async function viewCostoRecetas(container) {
           esInsumoNuevo: f.esInsumoNuevo, cantidadNueva,
           sinCosto: !f.esInsumoNuevo && !Number.isFinite(costoSolicitado) ? true : undefined,
           costoSolicitado: Number.isFinite(costoSolicitado) ? costoSolicitado : undefined,
+          mesa: !!f.mesa, llevar: !!f.llevar, delivery: !!f.delivery,
         });
       }
 
@@ -4775,12 +4804,15 @@ async function viewCostoRecetas(container) {
         if (existente) {
           existente.cantidad = l.cantidadNueva;
           if (l.costoSolicitado != null) existente.costoSolicitado = l.costoSolicitado;
+          if (l.mesa != null) existente.mesa = l.mesa;
+          if (l.llevar != null) existente.llevar = l.llevar;
+          if (l.delivery != null) existente.delivery = l.delivery;
         }
       } else if (l.accion === 'AGREGAR_INSUMO') {
         nuevos.push({
           insumo: l.esInsumoNuevo ? null : l.insumo, nombreInsumo: l.insumoNombre,
           cantidad: l.cantidadNueva, unitario: 0, costoSolicitado: l.costoSolicitado,
-          mesa: false, llevar: false, delivery: false,
+          mesa: !!l.mesa, llevar: !!l.llevar, delivery: !!l.delivery,
         });
       }
     });
@@ -4809,14 +4841,15 @@ async function viewCostoRecetas(container) {
   function renderSolicitudes(sols) {
     const wrap = document.getElementById('cr-tab-solicitudes');
     const ESTADO_LABEL = { pendiente: '🟡 Pendiente', aprobado: '🟢 Aprobado', rechazado: '🔴 Rechazado', registrado: '✅ Registrado en ERP' };
+    const canalTexto = l => l.mesa != null ? ` [canal → ${['mesa', 'llevar', 'delivery'].filter(c => l[c]).map(c => c[0].toUpperCase()).join('') || 'ninguno'}]` : '';
     const lineaTexto = l => {
       if (l.accion === 'MODIFICAR_CANTIDAD') {
         let t = `${l.insumo} — ${esc2(l.insumoNombre)}: ${fmtCant(l.cantidadAnterior)} → ${fmtCant(l.cantidadNueva)}`;
         if (l.sinCosto) t += l.costoSolicitado != null ? ` (costo solicitado: ${fmtMoney(l.costoSolicitado)})` : ' (sin costo — pendiente)';
-        return t;
+        return t + canalTexto(l);
       }
       const cod = l.esInsumoNuevo ? 'NUEVO' : (l.insumo ?? '—');
-      return `➕ ${cod} — ${esc2(l.insumoNombre)}: ${fmtCant(l.cantidadNueva)}${l.costoSolicitado != null ? ` (costo: ${fmtMoney(l.costoSolicitado)})` : ''}`;
+      return `➕ ${cod} — ${esc2(l.insumoNombre)}: ${fmtCant(l.cantidadNueva)}${l.costoSolicitado != null ? ` (costo: ${fmtMoney(l.costoSolicitado)})` : ''}${canalTexto(l)}`;
     };
 
     wrap.innerHTML = `
@@ -4857,6 +4890,7 @@ async function viewCostoRecetas(container) {
                 <button class="btn btn-success btn-sm cr-sol-aprobar" data-id="${s._id}">✔ Aprobar</button>
                 <button class="btn btn-outline btn-sm cr-sol-rechazar" data-id="${s._id}">✕ Rechazar</button>` : ''}
               ${s.estado === 'aprobado' && puedeRegistrarCambio ? `<button class="btn btn-primary btn-sm cr-sol-registrar" data-id="${s._id}">📥 Registrar en ERP</button>` : ''}
+              ${S.user.role === 'ADMIN' ? `<button class="btn btn-outline btn-sm cr-sol-eliminar" data-id="${s._id}" style="color:#ef4444;border-color:#ef4444">🗑️ Eliminar</button>` : ''}
             </div>
           </div>`).join('')}
       </div>`}`;
@@ -4900,6 +4934,17 @@ async function viewCostoRecetas(container) {
       btn.addEventListener('click', () => {
         const s = sols.find(x => x._id === btn.dataset.id);
         if (s) verRecetaActualNueva(s);
+      });
+    });
+    wrap.querySelectorAll('.cr-sol-eliminar').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar esta solicitud? Esta acción no se puede deshacer.')) return;
+        btn.disabled = true;
+        try {
+          await DEL(`/recetas-costeo/solicitudes/${btn.dataset.id}`);
+          toast('Solicitud eliminada', 'success');
+          cargarSolicitudes();
+        } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
       });
     });
   }

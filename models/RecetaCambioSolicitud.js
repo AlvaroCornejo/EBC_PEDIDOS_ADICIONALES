@@ -14,6 +14,12 @@ const lineaCambioSchema = new mongoose.Schema({
   cantidadNueva:     { type: Number, required: true },
   sinCosto:          { type: Boolean, default: false }, // true si el insumo (existente) no tiene costo unitario
   costoSolicitado:   { type: Number },       // costo propuesto, cuando sinCosto o esInsumoNuevo
+  // Canal(es) en los que aplica el insumo — se guarda solo cuando se
+  // propone un cambio de canal (o al agregar un insumo nuevo); si no viene,
+  // el canal de un insumo existente no cambia.
+  mesa:              { type: Boolean },
+  llevar:            { type: Boolean },
+  delivery:          { type: Boolean },
   comentario:        { type: String, default: '' },
 }, { _id: false });
 

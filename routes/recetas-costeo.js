@@ -173,6 +173,7 @@ router.post('/solicitudes', async (req, res) => {
         esInsumoNuevo: !!l.esInsumoNuevo,
         cantidadAnterior: l.cantidadAnterior, cantidadNueva: l.cantidadNueva,
         sinCosto: !!l.sinCosto, costoSolicitado: l.costoSolicitado, comentario: l.comentario || '',
+        mesa: l.mesa, llevar: l.llevar, delivery: l.delivery,
       })),
       solicitadoPor: req.user.username,
     });
@@ -256,6 +257,16 @@ router.put('/solicitudes/:id/registrar', async (req, res) => {
     sol.comentarioRegistrador = req.body.comentario || '';
     await sol.save();
     res.json(sol);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /solicitudes/:id — solo ADMIN, en cualquier estado.
+router.delete('/solicitudes/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo un administrador puede eliminar solicitudes' });
+    const sol = await RecetaCambioSolicitud.findByIdAndDelete(req.params.id);
+    if (!sol) return res.status(404).json({ error: 'Solicitud no encontrada' });
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
