@@ -158,7 +158,7 @@ router.get('/solicitudes', async (req, res) => {
 router.post('/solicitudes', async (req, res) => {
   try {
     if (!puedeSolicitar(req.user)) return res.status(403).json({ error: 'Sin permiso para solicitar cambios de receta' });
-    const { operacion, item, lineas } = req.body;
+    const { operacion, item, lineas, valorVenta } = req.body;
     if (!operacion || !item) return res.status(400).json({ error: 'Operación e ítem requeridos' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
     if (!Array.isArray(lineas) || !lineas.length) return res.status(400).json({ error: 'La solicitud no tiene cambios' });
@@ -168,6 +168,7 @@ router.post('/solicitudes', async (req, res) => {
 
     const doc = await RecetaCambioSolicitud.create({
       operacion, sociedad: resumen.sociedad, item, itemNombre: resumen.nombre, grupo: resumen.grupo,
+      valorVenta: Number.isFinite(valorVenta) ? valorVenta : undefined,
       lineas: lineas.map(l => ({
         accion: l.accion, insumo: l.insumo || undefined, insumoNombre: l.insumoNombre || '',
         esInsumoNuevo: !!l.esInsumoNuevo,

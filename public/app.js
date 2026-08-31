@@ -4571,8 +4571,13 @@ async function viewCostoRecetas(container) {
       </table>`;
   }
 
+  const pctFC = (costo, venta) => venta ? (costo / venta * 100) : null;
+  const fmtPctFC = v => v == null ? '—' : v.toFixed(1) + '%';
+
   function abrirFormSolicitud(d) {
-    let filasNuevas = []; // { esInsumoNuevo, insumo, insumoNombre, cantidadNueva, costoSolicitado, mesa, llevar, delivery }
+    let filasNuevas = []; // { esInsumoNuevo, insumo, insumoNombre, cantidadNueva, costoSolicitado, costoConocido, mesa, llevar, delivery }
+    let catalogoInsumos = {}; // insumo (código) -> { nombreInsumo, unitario } — para autocompletar el costo si ya existe
+    let valorVenta = null;
 
     const chkMLD = (cls, checked) => `<input type="checkbox" class="${cls}" ${checked ? 'checked' : ''}>`;
 
@@ -4597,16 +4602,27 @@ async function viewCostoRecetas(container) {
         const tr = document.querySelector(`#cr-sol-tabla tr[data-nueva="${idx}"]`);
         return {
           insumo: f.esInsumoNuevo ? null : f.insumo, nombreInsumo: f.insumoNombre,
-          cantidad: parseFloat(f.cantidadNueva) || 0, unitario: 0,
-          costoSolicitado: parseFloat(f.costoSolicitado) || undefined,
+          cantidad: parseFloat(f.cantidadNueva) || 0,
+          unitario: !f.esInsumoNuevo && f.costoConocido ? f.costoConocido : 0,
+          costoSolicitado: (f.esInsumoNuevo || !f.costoConocido) ? (parseFloat(f.costoSolicitado) || undefined) : undefined,
           mesa: tr?.querySelector('.cr-nueva-mesa')?.checked ?? f.mesa, llevar: tr?.querySelector('.cr-nueva-llevar')?.checked ?? f.llevar, delivery: tr?.querySelector('.cr-nueva-delivery')?.checked ?? f.delivery,
         };
       });
       return [...actuales, ...nuevos];
     }
+    function actualizarEncabezados() {
+      const totalActual = costoLineaReceta ? d.insumos.reduce((s, f) => s + costoLineaReceta(f), 0) : 0;
+      const totalNueva = calcularRecetaNueva().reduce((s, f) => s + costoLineaReceta(f), 0);
+      const setTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+      setTxt('cr-costo-actual', fmtMoney(totalActual));
+      setTxt('cr-pct-actual', fmtPctFC(pctFC(totalActual, valorVenta)));
+      setTxt('cr-costo-nueva', fmtMoney(totalNueva));
+      setTxt('cr-pct-nueva', fmtPctFC(pctFC(totalNueva, valorVenta)));
+    }
     function actualizarPreview() {
       const el = document.getElementById('cr-receta-nueva');
       if (el) el.innerHTML = tablaRecetaMLD(calcularRecetaNueva());
+      actualizarEncabezados();
     }
 
     function render() {
@@ -4633,7 +4649,9 @@ async function viewCostoRecetas(container) {
           </td>
           <td class="text-right"><input type="number" step="0.001" class="form-control cr-nueva-cant" style="width:100px;text-align:right" value="${f.cantidadNueva ?? ''}"></td>
           <td class="text-right">
-            <input type="number" step="0.01" class="form-control cr-nueva-costo" style="width:100px;text-align:right" placeholder="Costo" value="${f.costoSolicitado ?? ''}">
+            ${!f.esInsumoNuevo && f.costoConocido
+              ? `<span title="Ya tiene costo registrado, no se solicita">${fmtMoney(f.costoConocido)} ✓</span>`
+              : `<input type="number" step="0.01" class="form-control cr-nueva-costo" style="width:100px;text-align:right" placeholder="Costo" value="${f.costoSolicitado ?? ''}">`}
             <button type="button" class="cr-nueva-quitar" data-idx="${idx}" title="Quitar" style="border:none;background:none;cursor:pointer;color:#ef4444">✕</button>
           </td>
           <td class="text-center">${chkMLD('cr-nueva-mesa', f.mesa)}</td>
@@ -4641,15 +4659,25 @@ async function viewCostoRecetas(container) {
           <td class="text-center">${chkMLD('cr-nueva-delivery', f.delivery)}</td>
         </tr>`).join('');
 
+      const totalActualInicial = d.insumos.reduce((s, f) => s + costoLineaReceta(f), 0);
+      const totalNuevaInicial = calcularRecetaNueva().reduce((s, f) => s + costoLineaReceta(f), 0);
       const html = `
-        <p class="text-muted" style="margin:0 0 12px 0;font-size:13px">Cambia las cantidades, el canal (M/L/D) que correspondan y/o agrega insumos nuevos. Si un insumo existente no tiene costo, se solicitará junto con el cambio. Este cambio no se aplica directo — queda pendiente de aprobación y, una vez aprobado, se anota en el ERP.</p>
+        <p class="text-muted" style="margin:0 0 12px 0;font-size:13px">Cambia las cantidades, el canal (M/L/D) que correspondan y/o agrega insumos nuevos. Si un insumo existente no tiene costo, se solicitará junto con el cambio; si el insumo agregado ya tiene costo registrado en otra receta, se usa ese, sin solicitarlo. Este cambio no se aplica directo — queda pendiente de aprobación y, una vez aprobado, se anota en el ERP.</p>
+        <div style="margin-bottom:12px">
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Valor de Venta del producto</label>
+          <input type="number" step="0.01" id="cr-valor-venta" class="form-control" style="width:160px" placeholder="S/ 0.00" value="${valorVenta ?? ''}">
+        </div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px">
           <div style="flex:1 1 260px;min-width:0">
-            <div style="font-weight:600;font-size:12px;margin-bottom:4px">Receta Actual</div>
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">
+              Receta Actual — Costo Total: <span id="cr-costo-actual">${fmtMoney(totalActualInicial)}</span> — %FC: <span id="cr-pct-actual">${fmtPctFC(pctFC(totalActualInicial, valorVenta))}</span>
+            </div>
             <div style="max-height:180px;overflow:auto">${tablaRecetaMLD(d.insumos)}</div>
           </div>
           <div style="flex:1 1 260px;min-width:0">
-            <div style="font-weight:600;font-size:12px;margin-bottom:4px">Receta Nueva (vista previa)</div>
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">
+              Receta Nueva (vista previa) — Costo Total: <span id="cr-costo-nueva">${fmtMoney(totalNuevaInicial)}</span> — %FC: <span id="cr-pct-nueva">${fmtPctFC(pctFC(totalNuevaInicial, valorVenta))}</span>
+            </div>
             <div id="cr-receta-nueva" style="max-height:180px;overflow:auto">${tablaRecetaMLD(calcularRecetaNueva())}</div>
           </div>
         </div>
@@ -4670,12 +4698,17 @@ async function viewCostoRecetas(container) {
       openModal(`Solicitar cambio — ${esc2(d.nombre)} (Ítem ${d.item})`, html, null, { fullwide: true });
 
       GET(`/recetas-costeo/insumos?operacion=${encodeURIComponent(operacionActual)}`).then(list => {
+        catalogoInsumos = Object.fromEntries(list.map(i => [i.insumo, { nombreInsumo: i.nombreInsumo, unitario: i.unitario }]));
         const dl = document.getElementById('cr-insumos-dl');
         if (dl) dl.innerHTML = list.map(i => `<option value="${i.insumo} — ${esc2(i.nombreInsumo)}">`).join('');
       }).catch(() => {});
 
+      document.getElementById('cr-valor-venta').addEventListener('input', (e) => {
+        valorVenta = parseFloat(e.target.value) || null;
+        actualizarEncabezados();
+      });
       document.getElementById('cr-sol-agregar').addEventListener('click', () => {
-        filasNuevas.push({ esInsumoNuevo: false, insumo: null, insumoNombre: '', cantidadNueva: '', costoSolicitado: '', mesa: false, llevar: false, delivery: false });
+        filasNuevas.push({ esInsumoNuevo: false, insumo: null, insumoNombre: '', cantidadNueva: '', costoSolicitado: '', costoConocido: null, mesa: false, llevar: false, delivery: false });
         guardarEdicionesEnMemoria();
         render();
       });
@@ -4692,8 +4725,12 @@ async function viewCostoRecetas(container) {
           filasNuevas[i].esInsumoNuevo = chk.checked;
           filasNuevas[i].insumo = null;
           filasNuevas[i].insumoNombre = '';
+          filasNuevas[i].costoConocido = null;
           render();
         });
+      });
+      document.querySelectorAll('.cr-nueva-buscar').forEach(inp => {
+        inp.addEventListener('change', () => { guardarEdicionesEnMemoria(); render(); });
       });
       document.getElementById('cr-sol-tabla').addEventListener('input', actualizarPreview);
       document.getElementById('cr-sol-tabla').addEventListener('change', actualizarPreview);
@@ -4713,11 +4750,14 @@ async function viewCostoRecetas(container) {
         f.delivery = tr.querySelector('.cr-nueva-delivery')?.checked || false;
         if (f.esInsumoNuevo) {
           f.insumoNombre = tr.querySelector('.cr-nueva-nombre')?.value || '';
+          f.costoConocido = null;
         } else {
           const raw = tr.querySelector('.cr-nueva-buscar')?.value || '';
           const m = raw.match(/^(\d+)\s*—\s*(.*)$/);
           if (m) { f.insumo = parseInt(m[1]); f.insumoNombre = m[2]; }
           else { f.insumo = null; f.insumoNombre = raw; }
+          const conocido = f.insumo != null ? catalogoInsumos[f.insumo] : null;
+          f.costoConocido = conocido && conocido.unitario ? conocido.unitario : null;
         }
       });
     }
@@ -4752,13 +4792,14 @@ async function viewCostoRecetas(container) {
         const cantidadNueva = parseFloat(f.cantidadNueva);
         if (!Number.isFinite(cantidadNueva) || cantidadNueva <= 0) { toast('Completa la cantidad de cada insumo nuevo', 'error'); return; }
         if (!f.insumoNombre) { toast('Completa el nombre/código de cada insumo nuevo', 'error'); return; }
-        const costoSolicitado = parseFloat(f.costoSolicitado);
-        if (f.esInsumoNuevo && !Number.isFinite(costoSolicitado)) { toast('Indica el costo solicitado para el insumo nuevo', 'error'); return; }
+        const tieneCostoConocido = !f.esInsumoNuevo && f.costoConocido;
+        const costoSolicitado = tieneCostoConocido ? null : parseFloat(f.costoSolicitado);
+        if (!tieneCostoConocido && !Number.isFinite(costoSolicitado)) { toast('Este insumo no tiene costo registrado — indica el costo solicitado', 'error'); return; }
         lineas.push({
           accion: 'AGREGAR_INSUMO', insumo: f.esInsumoNuevo ? null : f.insumo, insumoNombre: f.insumoNombre,
           esInsumoNuevo: f.esInsumoNuevo, cantidadNueva,
-          sinCosto: !f.esInsumoNuevo && !Number.isFinite(costoSolicitado) ? true : undefined,
-          costoSolicitado: Number.isFinite(costoSolicitado) ? costoSolicitado : undefined,
+          sinCosto: !tieneCostoConocido,
+          costoSolicitado: tieneCostoConocido ? undefined : costoSolicitado,
           mesa: !!f.mesa, llevar: !!f.llevar, delivery: !!f.delivery,
         });
       }
@@ -4768,7 +4809,7 @@ async function viewCostoRecetas(container) {
       const btn = document.getElementById('cr-sol-enviar');
       btn.disabled = true; btn.textContent = 'Enviando...';
       try {
-        await POST('/recetas-costeo/solicitudes', { operacion: operacionActual, item: d.item, lineas });
+        await POST('/recetas-costeo/solicitudes', { operacion: operacionActual, item: d.item, lineas, valorVenta: valorVenta ?? undefined });
         closeModal();
         toast('Solicitud enviada — queda pendiente de aprobación', 'success');
       } catch (e) {
@@ -4823,14 +4864,21 @@ async function viewCostoRecetas(container) {
     try {
       const d = await GET(`/recetas-costeo/detalle?item=${s.item}&operacion=${encodeURIComponent(s.operacion)}`);
       const nueva = aplicarLineasARecetaActual(d.insumos, s.lineas);
+      const totalActual = d.insumos.reduce((sum, f) => sum + costoLineaReceta(f), 0);
+      const totalNueva = nueva.reduce((sum, f) => sum + costoLineaReceta(f), 0);
       const html = `
+        <div style="margin-bottom:12px;font-size:13px">Valor de Venta: <strong>${s.valorVenta != null ? fmtMoney(s.valorVenta) : '— (no ingresado por el solicitante)'}</strong></div>
         <div style="display:flex;gap:16px;flex-wrap:wrap">
           <div style="flex:1 1 300px;min-width:0">
-            <div style="font-weight:600;font-size:12px;margin-bottom:4px">Receta Actual</div>
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">
+              Receta Actual — Costo Total: ${fmtMoney(totalActual)} — %FC: ${fmtPctFC(pctFC(totalActual, s.valorVenta))}
+            </div>
             <div style="max-height:60vh;overflow:auto">${tablaRecetaMLD(d.insumos)}</div>
           </div>
           <div style="flex:1 1 300px;min-width:0">
-            <div style="font-weight:600;font-size:12px;margin-bottom:4px">Receta Nueva (propuesta)</div>
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">
+              Receta Nueva (propuesta) — Costo Total: ${fmtMoney(totalNueva)} — %FC: ${fmtPctFC(pctFC(totalNueva, s.valorVenta))}
+            </div>
             <div style="max-height:60vh;overflow:auto">${tablaRecetaMLD(nueva)}</div>
           </div>
         </div>`;
@@ -4881,7 +4929,8 @@ async function viewCostoRecetas(container) {
             ${s.lineas.length ? `
             <ul style="margin:10px 0 0 0;padding-left:18px;font-size:13px">
               ${s.lineas.map(l => `<li>${lineaTexto(l)}</li>`).join('')}
-            </ul>` : `<p class="text-muted" style="margin:10px 0 0 0;font-size:13px">Revisar: esta receta usa el ítem ${s.origenItem} como insumo, y ese ítem tuvo un cambio aprobado.</p>`}
+            </ul>
+            <div id="cr-sol-costos-${s._id}" class="text-muted" style="font-size:12px;margin-top:8px">⏳ Calculando costo actual/nuevo...</div>` : `<p class="text-muted" style="margin:10px 0 0 0;font-size:13px">Revisar: esta receta usa el ítem ${s.origenItem} como insumo, y ese ítem tuvo un cambio aprobado.</p>`}
             ${s.estado !== 'pendiente' && s.aprobadoPor ? `<div class="text-muted" style="font-size:12px;margin-top:8px">${s.estado === 'rechazado' ? 'Rechazado' : 'Aprobado'} por ${esc2(s.aprobadoPor)}${s.comentarioAprobador ? ` — "${esc2(s.comentarioAprobador)}"` : ''}</div>` : ''}
             ${s.estado === 'registrado' ? `<div class="text-muted" style="font-size:12px;margin-top:2px">Registrado en el ERP por ${esc2(s.registradoPor)}${s.comentarioRegistrador ? ` — "${esc2(s.comentarioRegistrador)}"` : ''}</div>` : ''}
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
@@ -4897,6 +4946,22 @@ async function viewCostoRecetas(container) {
 
     document.getElementById('cr-sol-estado').value = filtroSolEstado;
     document.getElementById('cr-sol-estado').addEventListener('change', (e) => { filtroSolEstado = e.target.value; cargarSolicitudes(); });
+
+    // Costo Actual/Nuevo + %FC por solicitud — se calcula aparte (sin
+    // bloquear el render de la lista) para no disparar N fetches síncronos.
+    sols.filter(s => s.lineas.length).forEach(s => {
+      GET(`/recetas-costeo/detalle?item=${s.item}&operacion=${encodeURIComponent(s.operacion)}`).then(d => {
+        const el = document.getElementById(`cr-sol-costos-${s._id}`);
+        if (!el) return;
+        const nueva = aplicarLineasARecetaActual(d.insumos, s.lineas);
+        const totalActual = d.insumos.reduce((sum, f) => sum + costoLineaReceta(f), 0);
+        const totalNueva = nueva.reduce((sum, f) => sum + costoLineaReceta(f), 0);
+        el.innerHTML = `Costo Actual: <strong>${fmtMoney(totalActual)}</strong> (%FC: ${fmtPctFC(pctFC(totalActual, s.valorVenta))}) → Costo Nuevo: <strong>${fmtMoney(totalNueva)}</strong> (%FC: ${fmtPctFC(pctFC(totalNueva, s.valorVenta))})`;
+      }).catch(() => {
+        const el = document.getElementById(`cr-sol-costos-${s._id}`);
+        if (el) el.textContent = '';
+      });
+    });
 
     wrap.querySelectorAll('.cr-sol-aprobar').forEach(btn => {
       btn.addEventListener('click', async () => {

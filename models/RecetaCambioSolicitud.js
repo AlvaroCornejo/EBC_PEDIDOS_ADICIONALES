@@ -32,6 +32,11 @@ const recetaCambioSolicitudSchema = new mongoose.Schema({
 
   lineas: { type: [lineaCambioSchema], default: [] },
 
+  // Valor de venta del producto (ingresado por el solicitante) — se guarda
+  // junto con la solicitud para que el %FC (Costo Total / Valor de Venta)
+  // se vea igual en la pantalla de aprobación.
+  valorVenta: { type: Number },
+
   // pendiente -> aprobado -> registrado (el registrador anota el cambio en
   // el ERP, es el último paso) — o rechazado, siempre desde pendiente.
   estado: { type: String, default: 'pendiente', enum: ['pendiente', 'aprobado', 'rechazado', 'registrado'] },
