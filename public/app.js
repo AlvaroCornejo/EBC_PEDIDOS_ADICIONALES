@@ -10292,7 +10292,7 @@ async function viewSeguimientoCompras(container) {
 
   let disponiblesOps = []; // operaciones con datos de Seguimiento de Compras, ya filtradas por acceso
   let modo = 'operacion'; // 'operacion' | 'sociedad'
-  let operacionActual = '';
+  let operacionesSeleccionadas = []; // códigos, usado cuando modo === 'operacion'
   let sociedadesSeleccionadas = []; // códigos, usado cuando modo === 'sociedad'
   let semanaSelElegida = ''; // 'YYYYWW', vacío = semana actual
   let nSemanas = 8;
@@ -10351,10 +10351,8 @@ async function viewSeguimientoCompras(container) {
             </select>
           </div>
           <div id="sc-operacion-wrap">
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
-            <select id="sc-operacion" class="form-control" style="width:160px">
-              <option value="">— Seleccionar —</option>
-            </select>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación(es)</label>
+            <button class="btn btn-outline btn-sm" id="sc-operacion-btn" style="min-width:220px;text-align:left">— Elegir operación(es) —</button>
           </div>
           <div id="sc-sociedad-wrap" style="display:none">
             <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Sociedad(es)</label>
@@ -10442,9 +10440,7 @@ async function viewSeguimientoCompras(container) {
   try {
     const ops = await GET('/seguimiento-compras/operaciones');
     disponiblesOps = misOperaciones === null ? ops : ops.filter(o => misOperaciones.includes(o));
-    const sel = document.getElementById('sc-operacion');
-    sel.innerHTML = '<option value="">— Seleccionar —</option>' + disponiblesOps.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-    if (disponiblesOps.length === 1) { sel.value = disponiblesOps[0]; operacionActual = disponiblesOps[0]; }
+    if (disponiblesOps.length === 1) operacionesSeleccionadas = [disponiblesOps[0]];
   } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
 
   // Sociedades con al menos una operación con datos (y autorizada para el
@@ -10456,13 +10452,13 @@ async function viewSeguimientoCompras(container) {
   }
   /** Lista de operaciones vigente según el modo actual (Operación u Sociedad). */
   function operacionesActivas() {
-    if (modo === 'operacion') return operacionActual ? [operacionActual] : [];
+    if (modo === 'operacion') return operacionesSeleccionadas;
     const ops = new Set();
     sociedadesDisponibles().forEach(s => { if (sociedadesSeleccionadas.includes(s.codigo)) s.operaciones.forEach(o => ops.add(o)); });
     return [...ops];
   }
   function tituloOperaciones() {
-    if (modo === 'operacion') return operacionActual;
+    if (modo === 'operacion') return operacionesSeleccionadas.join(' + ');
     const nombres = sociedadesDisponibles().filter(s => sociedadesSeleccionadas.includes(s.codigo)).map(s => s.codigo);
     return nombres.length ? `${nombres.join(' + ')} (${operacionesActivas().length} operaciones)` : '';
   }
@@ -10471,6 +10467,11 @@ async function viewSeguimientoCompras(container) {
     const btn = document.getElementById('sc-sociedad-btn');
     if (!btn) return;
     btn.textContent = sociedadesSeleccionadas.length ? `🏢 ${tituloOperaciones()}` : '— Elegir sociedad(es) —';
+  }
+  function actualizarBotonOperacion() {
+    const btn = document.getElementById('sc-operacion-btn');
+    if (!btn) return;
+    btn.textContent = operacionesSeleccionadas.length ? `📍 ${operacionesSeleccionadas.join(' + ')}` : '— Elegir operación(es) —';
   }
 
   function abrirSelectorSociedad() {
@@ -10497,6 +10498,29 @@ async function viewSeguimientoCompras(container) {
     });
   }
 
+  function abrirSelectorOperacion() {
+    if (!disponiblesOps.length) { toast('No hay operaciones disponibles', 'error'); return; }
+    const html = `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${disponiblesOps.map(o => `
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+            <input type="checkbox" class="sc-op-check" value="${esc(o)}" ${operacionesSeleccionadas.includes(o) ? 'checked' : ''}>
+            <strong>${esc(o)}</strong>
+          </label>`).join('')}
+      </div>
+      <div style="margin-top:16px;text-align:right">
+        <button class="btn btn-primary btn-sm" id="sc-op-aplicar">Aplicar</button>
+      </div>`;
+    openModal('Elegir Operación(es)', html);
+    document.getElementById('sc-op-aplicar').addEventListener('click', () => {
+      operacionesSeleccionadas = [...document.querySelectorAll('.sc-op-check:checked')].map(c => c.value);
+      actualizarBotonOperacion();
+      closeModal();
+      semanaSelElegida = '';
+      cargar();
+    });
+  }
+
   document.getElementById('sc-modo').addEventListener('change', (e) => {
     modo = e.target.value;
     document.getElementById('sc-operacion-wrap').style.display = modo === 'operacion' ? '' : 'none';
@@ -10505,7 +10529,8 @@ async function viewSeguimientoCompras(container) {
     cargar();
   });
   document.getElementById('sc-sociedad-btn').addEventListener('click', abrirSelectorSociedad);
-  document.getElementById('sc-operacion').addEventListener('change', (e) => { operacionActual = e.target.value; semanaSelElegida = ''; cargar(); });
+  document.getElementById('sc-operacion-btn').addEventListener('click', abrirSelectorOperacion);
+  actualizarBotonOperacion();
   document.getElementById('sc-semana-sel').addEventListener('change', (e) => { semanaSelElegida = e.target.value; cargar(); });
   function setNSemanas(n) {
     nSemanas = Math.min(Math.max(n, 1), 104);
