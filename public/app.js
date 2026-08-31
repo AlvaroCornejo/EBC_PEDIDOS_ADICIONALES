@@ -10371,28 +10371,70 @@ async function viewFlujoCaja(container) {
       const movRow = document.createElement('tr');
       movRow.id = parentId + '-' + sanId(String(m._id)) + (m.esSplit ? '-' + sanId(g.glosa) : '');
       movRow.setAttribute('data-drill-parent', parentId);
+      const infoComentario = m.comentario ? `<br><span style="color:#b45309">💬 ${esc(m.comentario)}</span>` : '';
+
+      if (m.esSplit) {
+        // Pago que agrupa a varios proveedores bajo un mismo movimiento
+        // bancario: se muestra solo el proveedor — el detalle del
+        // movimiento (fecha/banco/Op) queda oculto hasta hacer click.
+        movRow.style.cursor = 'pointer';
+        movRow.innerHTML = `
+          <td style="padding-left:88px;color:var(--text-muted);font-size:11px">
+            ▸ ${m.proveedor ? esc(m.proveedor) : '(sin proveedor)'}
+            <button class="btn-icon fc-mov-reclasificar" data-id="${m._id}" title="Reclasificar" style="border:none;background:none;cursor:pointer;padding:0 0 0 6px;font-size:11px">✏️</button>${infoComentario}
+          </td>
+          ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
+          <td class="text-right" style="${m.importe < 0 ? 'color:#dc2626' : ''}">${fmtMoney(m.importe)}</td>`;
+        movRow.querySelector('.fc-mov-reclasificar').addEventListener('click', ev => {
+          ev.stopPropagation();
+          abrirModalAsignarMovimiento(m._id, subdetalleCodigo);
+        });
+        movRow.addEventListener('click', () => toggleMovBancario(movRow, m, fechas));
+        insertAfter.after(movRow);
+        insertAfter = movRow;
+        return;
+      }
+
       const esMasivo = m.pagosErp && m.pagosErp.length > 1;
       const infoExtra = esMasivo
         ? ` · ▸ Pago masivo (${m.pagosErp.length} beneficiarios)`
         : (m.proveedor ? ' · ' + esc(m.proveedor) : '');
-      const infoSplit = m.esSplit ? ` · <span style="color:#7c3aed">desglosado, ${fmtMoney(m.importe)} de ${fmtMoney(m.importeTotal)}</span>` : '';
-      const infoComentario = m.comentario ? `<br><span style="color:#b45309">💬 ${esc(m.comentario)}</span>` : '';
       if (esMasivo) movRow.style.cursor = 'pointer';
       movRow.innerHTML = `
         <td style="padding-left:88px;color:var(--text-muted);font-size:11px">
-          ${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}${infoExtra}${infoSplit}
+          ${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}${infoExtra}
           <button class="btn-icon fc-mov-reclasificar" data-id="${m._id}" title="Reclasificar" style="border:none;background:none;cursor:pointer;padding:0 0 0 6px;font-size:11px">✏️</button>${infoComentario}
         </td>
         ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
         <td class="text-right" style="${m.importe < 0 ? 'color:#dc2626' : ''}">${fmtMoney(m.importe)}</td>`;
       movRow.querySelector('.fc-mov-reclasificar').addEventListener('click', ev => {
         ev.stopPropagation();
-        abrirModalAsignarMovimiento(m._id, m.esSplit ? subdetalleCodigo : null);
+        abrirModalAsignarMovimiento(m._id, null);
       });
       if (esMasivo) movRow.addEventListener('click', () => toggleDetallePagos(movRow, m, fechas));
       insertAfter.after(movRow);
       insertAfter = movRow;
     });
+  }
+
+  // Detalle del movimiento bancario detrás de un proveedor desglosado (split)
+  // — fecha/banco/Op y el importe total del movimiento completo (no solo la
+  // parte de este proveedor).
+  function toggleMovBancario(tr, m, fechas) {
+    const parentId = tr.id;
+    const tbody = tr.parentElement;
+    const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
+    if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
+
+    const row = document.createElement('tr');
+    row.setAttribute('data-drill-parent', parentId);
+    row.innerHTML = `
+      <td style="padding-left:108px;color:var(--text-muted);font-size:11px">
+        ${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''} · <span style="color:#7c3aed">total del movimiento: ${fmtMoney(m.importeTotal)}</span>
+      </td>
+      ${fechas.map(() => '<td></td>').join('')}
+      <td></td>`;
+    tr.after(row);
   }
 
   function toggleDetallePagos(tr, m, fechas) {
