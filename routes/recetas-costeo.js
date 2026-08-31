@@ -9,16 +9,19 @@ const router = express.Router();
 router.use(auth);
 
 function requireAccess(req, res, next) {
-  if (req.user.role === 'ADMIN' || req.user.puedeVerCosteoRecetas || req.user.rolCambioReceta) return next();
+  if (req.user.role === 'ADMIN' || req.user.puedeVerCosteoRecetas || (req.user.rolCambioReceta || []).length) return next();
   return res.status(403).json({ error: 'Sin acceso al Costeo de Recetas' });
 }
 router.use(requireAccess);
 
 function puedeSolicitar(user) {
-  return user.role === 'ADMIN' || ['solicitante', 'ambos'].includes(user.rolCambioReceta);
+  return user.role === 'ADMIN' || (user.rolCambioReceta || []).includes('solicitante');
 }
 function puedeAprobar(user) {
-  return user.role === 'ADMIN' || ['aprobador', 'ambos'].includes(user.rolCambioReceta);
+  return user.role === 'ADMIN' || (user.rolCambioReceta || []).includes('aprobador');
+}
+function puedeRegistrar(user) {
+  return user.role === 'ADMIN' || (user.rolCambioReceta || []).includes('registrador');
 }
 
 /** Operaciones autorizadas del usuario (null = todas) */
@@ -139,7 +142,7 @@ router.get('/insumos', async (req, res) => {
 // GET /solicitudes?operacion=&estado=&item=
 router.get('/solicitudes', async (req, res) => {
   try {
-    if (!puedeSolicitar(req.user) && !puedeAprobar(req.user)) return res.status(403).json({ error: 'Sin acceso a Solicitudes de Cambio' });
+    if (!puedeSolicitar(req.user) && !puedeAprobar(req.user) && !puedeRegistrar(req.user)) return res.status(403).json({ error: 'Sin acceso a Solicitudes de Cambio' });
     const { operacion, estado, item } = req.query;
     if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
@@ -232,6 +235,25 @@ router.put('/solicitudes/:id/rechazar', async (req, res) => {
     sol.aprobadoPor = req.user.username;
     sol.aprobadoEn = new Date();
     sol.comentarioAprobador = comentario;
+    await sol.save();
+    res.json(sol);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /solicitudes/:id/registrar — último paso: marca que el cambio ya se
+// anotó en el ERP (solo desde 'aprobado').
+router.put('/solicitudes/:id/registrar', async (req, res) => {
+  try {
+    if (!puedeRegistrar(req.user)) return res.status(403).json({ error: 'Sin permiso para registrar cambios de receta en el ERP' });
+    const sol = await RecetaCambioSolicitud.findById(req.params.id);
+    if (!sol) return res.status(404).json({ error: 'Solicitud no encontrada' });
+    if (!checkOpAccess(req.user, sol.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    if (sol.estado !== 'aprobado') return res.status(400).json({ error: 'Solo se puede registrar una solicitud ya aprobada' });
+
+    sol.estado = 'registrado';
+    sol.registradoPor = req.user.username;
+    sol.registradoEn = new Date();
+    sol.comentarioRegistrador = req.body.comentario || '';
     await sol.save();
     res.json(sol);
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -14,7 +14,7 @@ const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pa
 const MAESTRO_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador de cuentas'],['registrador','Registrador ERP'],['admin','Administrador']];
 const PAGO_RECURRENTE_ROLES = [['','— Sin acceso —'],['programador','Programador (crea reglas)'],['registrador','Registrador (marca pagos)'],['consulta','Consulta'],['admin','Administrador (todo)']];
 const SEGUIMIENTO_COMPRAS_ROLES = [['','— Sin acceso —'],['carga','Carga (Pedido Tienda)'],['aprobacion','Aprobación'],['consulta','Consulta'],['admin','Administrador (todo)']];
-const CAMBIO_RECETA_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['ambos','Ambos']];
+const CAMBIO_RECETA_ROLES = [['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['registrador','Registrador (anota el cambio en el ERP)']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 // Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
 // iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
@@ -4240,9 +4240,10 @@ async function viewCostoRecetas(container) {
   let tabActual = 'costeo'; // 'costeo' | 'solicitudes'
   let filtroSolEstado = 'pendiente';
 
-  const puedeSolicitarCambio = S.user.role === 'ADMIN' || ['solicitante', 'ambos'].includes(S.user.rolCambioReceta);
-  const puedeAprobarCambio = S.user.role === 'ADMIN' || ['aprobador', 'ambos'].includes(S.user.rolCambioReceta);
-  const tieneAccesoCambios = puedeSolicitarCambio || puedeAprobarCambio;
+  const puedeSolicitarCambio = S.user.role === 'ADMIN' || (S.user.rolCambioReceta || []).includes('solicitante');
+  const puedeAprobarCambio = S.user.role === 'ADMIN' || (S.user.rolCambioReceta || []).includes('aprobador');
+  const puedeRegistrarCambio = S.user.role === 'ADMIN' || (S.user.rolCambioReceta || []).includes('registrador');
+  const tieneAccesoCambios = puedeSolicitarCambio || puedeAprobarCambio || puedeRegistrarCambio;
 
   const esc2 = s => esc(String(s ?? ''));
   const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -4543,9 +4544,59 @@ async function viewCostoRecetas(container) {
 
   // ── Solicitar cambio de receta: cantidades de insumos existentes + agregar
   // insumos nuevos (existentes en otra receta, o totalmente nuevos) ─────────
+  // Tabla compacta de solo lectura (Receta Actual / Receta Nueva) — M/L/D
+  // abreviado (Mesa/Llevar/Delivery) para que quepan las 2 recetas.
+  function tablaRecetaMLD(filas) {
+    if (!filas.length) return '<p class="text-muted" style="font-size:12px;margin:6px 0">— Sin insumos —</p>';
+    return `
+      <table class="data-table" style="font-size:11px">
+        <thead><tr>
+          <th>Insumo</th><th class="text-right">Cant.</th><th class="text-right">Costo</th>
+          <th class="text-center" title="Mesa">M</th><th class="text-center" title="Llevar">L</th><th class="text-center" title="Delivery">D</th>
+        </tr></thead>
+        <tbody>${filas.map(f => `
+          <tr>
+            <td>${f.insumo ?? '—'} — ${esc2(f.nombreInsumo)}</td>
+            <td class="text-right">${fmtCant(f.cantidad)}</td>
+            <td class="text-right">${f.unitario ? fmtMoney(f.unitario) : (f.costoSolicitado != null ? fmtMoney(f.costoSolicitado) + ' ⏳' : '—')}</td>
+            <td class="text-center">${f.mesa ? '✓' : '—'}</td>
+            <td class="text-center">${f.llevar ? '✓' : '—'}</td>
+            <td class="text-center">${f.delivery ? '✓' : '—'}</td>
+          </tr>`).join('')}</tbody>
+      </table>`;
+  }
+
   function abrirFormSolicitud(d) {
     let filasNuevas = []; // { esInsumoNuevo, insumo, insumoNombre, cantidadNueva, costoSolicitado }
     let contadorNuevas = 0;
+
+    // Receta nueva = insumos actuales con la cantidad/costo editados + los
+    // insumos nuevos agregados (sin M/L/D propio todavía — se asigna al
+    // registrar en el ERP).
+    function calcularRecetaNueva() {
+      const cambios = new Map(); // insumo -> { cantidad, costoSolicitado }
+      document.querySelectorAll('#cr-sol-tabla tr[data-insumo]').forEach(tr => {
+        const insumo = parseInt(tr.dataset.insumo);
+        const cant = parseFloat(tr.querySelector('.cr-sol-cant')?.value);
+        const costo = parseFloat(tr.querySelector('.cr-sol-costo')?.value);
+        cambios.set(insumo, { cantidad: Number.isFinite(cant) ? cant : undefined, costoSolicitado: Number.isFinite(costo) ? costo : undefined });
+      });
+      const actuales = d.insumos.map(i => {
+        const c = cambios.get(i.insumo) || {};
+        return { ...i, cantidad: c.cantidad ?? i.cantidad, costoSolicitado: c.costoSolicitado };
+      });
+      const nuevos = filasNuevas.map(f => ({
+        insumo: f.esInsumoNuevo ? null : f.insumo, nombreInsumo: f.insumoNombre,
+        cantidad: parseFloat(f.cantidadNueva) || 0, unitario: 0,
+        costoSolicitado: parseFloat(f.costoSolicitado) || undefined,
+        mesa: false, llevar: false, delivery: false,
+      }));
+      return [...actuales, ...nuevos];
+    }
+    function actualizarPreview() {
+      const el = document.getElementById('cr-receta-nueva');
+      if (el) el.innerHTML = tablaRecetaMLD(calcularRecetaNueva());
+    }
 
     function render() {
       const filasExistentes = d.insumos.map(i => `
@@ -4574,7 +4625,17 @@ async function viewCostoRecetas(container) {
         </tr>`).join('');
 
       const html = `
-        <p class="text-muted" style="margin:0 0 12px 0;font-size:13px">Cambia las cantidades que correspondan y/o agrega insumos nuevos. Si un insumo existente no tiene costo, se solicitará junto con el cambio. Este cambio no se aplica directo — queda pendiente de aprobación y, una vez aprobado, se actualiza en el ERP.</p>
+        <p class="text-muted" style="margin:0 0 12px 0;font-size:13px">Cambia las cantidades que correspondan y/o agrega insumos nuevos. Si un insumo existente no tiene costo, se solicitará junto con el cambio. Este cambio no se aplica directo — queda pendiente de aprobación y, una vez aprobado, se anota en el ERP.</p>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+          <div style="flex:1 1 260px;min-width:0">
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">Receta Actual</div>
+            <div style="max-height:180px;overflow:auto">${tablaRecetaMLD(d.insumos)}</div>
+          </div>
+          <div style="flex:1 1 260px;min-width:0">
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">Receta Nueva (vista previa)</div>
+            <div id="cr-receta-nueva" style="max-height:180px;overflow:auto">${tablaRecetaMLD(calcularRecetaNueva())}</div>
+          </div>
+        </div>
         <div class="table-wrap" style="max-height:45vh;overflow-y:auto">
           <table class="data-table" style="font-size:12px" id="cr-sol-tabla">
             <thead><tr>
@@ -4588,7 +4649,7 @@ async function viewCostoRecetas(container) {
         <div style="margin-top:16px;text-align:right">
           <button class="btn btn-primary btn-sm" id="cr-sol-enviar">📤 Enviar solicitud</button>
         </div>`;
-      openModal(`Solicitar cambio — ${esc2(d.nombre)} (Ítem ${d.item})`, html);
+      openModal(`Solicitar cambio — ${esc2(d.nombre)} (Ítem ${d.item})`, html, null, { fullwide: true });
 
       GET(`/recetas-costeo/insumos?operacion=${encodeURIComponent(operacionActual)}`).then(list => {
         const dl = document.getElementById('cr-insumos-dl');
@@ -4617,6 +4678,7 @@ async function viewCostoRecetas(container) {
           render();
         });
       });
+      document.getElementById('cr-sol-tabla').addEventListener('input', actualizarPreview);
       document.getElementById('cr-sol-enviar').addEventListener('click', enviarSolicitud);
     }
 
@@ -4702,9 +4764,51 @@ async function viewCostoRecetas(container) {
     } catch (e) { wrap.innerHTML = `<p style="color:red">${esc2(e.message)}</p>`; }
   }
 
+  // Aplica las líneas de una solicitud sobre la receta actual (recién
+  // consultada) para armar la "Receta Nueva" que se muestra en el detalle.
+  function aplicarLineasARecetaActual(insumosActuales, lineas) {
+    const porInsumo = new Map(insumosActuales.map(i => [i.insumo, { ...i }]));
+    const nuevos = [];
+    lineas.forEach(l => {
+      if (l.accion === 'MODIFICAR_CANTIDAD') {
+        const existente = porInsumo.get(l.insumo);
+        if (existente) {
+          existente.cantidad = l.cantidadNueva;
+          if (l.costoSolicitado != null) existente.costoSolicitado = l.costoSolicitado;
+        }
+      } else if (l.accion === 'AGREGAR_INSUMO') {
+        nuevos.push({
+          insumo: l.esInsumoNuevo ? null : l.insumo, nombreInsumo: l.insumoNombre,
+          cantidad: l.cantidadNueva, unitario: 0, costoSolicitado: l.costoSolicitado,
+          mesa: false, llevar: false, delivery: false,
+        });
+      }
+    });
+    return [...porInsumo.values(), ...nuevos];
+  }
+
+  async function verRecetaActualNueva(s) {
+    try {
+      const d = await GET(`/recetas-costeo/detalle?item=${s.item}&operacion=${encodeURIComponent(s.operacion)}`);
+      const nueva = aplicarLineasARecetaActual(d.insumos, s.lineas);
+      const html = `
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <div style="flex:1 1 300px;min-width:0">
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">Receta Actual</div>
+            <div style="max-height:60vh;overflow:auto">${tablaRecetaMLD(d.insumos)}</div>
+          </div>
+          <div style="flex:1 1 300px;min-width:0">
+            <div style="font-weight:600;font-size:12px;margin-bottom:4px">Receta Nueva (propuesta)</div>
+            <div style="max-height:60vh;overflow:auto">${tablaRecetaMLD(nueva)}</div>
+          </div>
+        </div>`;
+      openModal(`Receta Actual vs. Nueva — ${esc2(s.itemNombre)} (Ítem ${s.item})`, html, null, { fullwide: true });
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   function renderSolicitudes(sols) {
     const wrap = document.getElementById('cr-tab-solicitudes');
-    const ESTADO_LABEL = { pendiente: '🟡 Pendiente', aprobado: '🟢 Aprobado', rechazado: '🔴 Rechazado' };
+    const ESTADO_LABEL = { pendiente: '🟡 Pendiente', aprobado: '🟢 Aprobado', rechazado: '🔴 Rechazado', registrado: '✅ Registrado en ERP' };
     const lineaTexto = l => {
       if (l.accion === 'MODIFICAR_CANTIDAD') {
         let t = `${l.insumo} — ${esc2(l.insumoNombre)}: ${fmtCant(l.cantidadAnterior)} → ${fmtCant(l.cantidadNueva)}`;
@@ -4724,6 +4828,7 @@ async function viewCostoRecetas(container) {
               <option value="pendiente">Pendientes</option>
               <option value="aprobado">Aprobados</option>
               <option value="rechazado">Rechazados</option>
+              <option value="registrado">Registrados</option>
               <option value="">Todos</option>
             </select>
           </div>
@@ -4744,12 +4849,15 @@ async function viewCostoRecetas(container) {
             <ul style="margin:10px 0 0 0;padding-left:18px;font-size:13px">
               ${s.lineas.map(l => `<li>${lineaTexto(l)}</li>`).join('')}
             </ul>` : `<p class="text-muted" style="margin:10px 0 0 0;font-size:13px">Revisar: esta receta usa el ítem ${s.origenItem} como insumo, y ese ítem tuvo un cambio aprobado.</p>`}
-            ${s.estado !== 'pendiente' ? `<div class="text-muted" style="font-size:12px;margin-top:8px">${s.estado === 'aprobado' ? 'Aprobado' : 'Rechazado'} por ${esc2(s.aprobadoPor)}${s.comentarioAprobador ? ` — "${esc2(s.comentarioAprobador)}"` : ''}</div>` : ''}
-            ${s.estado === 'pendiente' && puedeAprobarCambio ? `
-            <div style="margin-top:10px;display:flex;gap:8px">
-              <button class="btn btn-success btn-sm cr-sol-aprobar" data-id="${s._id}">✔ Aprobar</button>
-              <button class="btn btn-outline btn-sm cr-sol-rechazar" data-id="${s._id}">✕ Rechazar</button>
-            </div>` : ''}
+            ${s.estado !== 'pendiente' && s.aprobadoPor ? `<div class="text-muted" style="font-size:12px;margin-top:8px">${s.estado === 'rechazado' ? 'Rechazado' : 'Aprobado'} por ${esc2(s.aprobadoPor)}${s.comentarioAprobador ? ` — "${esc2(s.comentarioAprobador)}"` : ''}</div>` : ''}
+            ${s.estado === 'registrado' ? `<div class="text-muted" style="font-size:12px;margin-top:2px">Registrado en el ERP por ${esc2(s.registradoPor)}${s.comentarioRegistrador ? ` — "${esc2(s.comentarioRegistrador)}"` : ''}</div>` : ''}
+            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+              ${s.lineas.length ? `<button class="btn btn-outline btn-sm cr-sol-ver" data-id="${s._id}">👁 Ver receta actual y nueva</button>` : ''}
+              ${s.estado === 'pendiente' && puedeAprobarCambio ? `
+                <button class="btn btn-success btn-sm cr-sol-aprobar" data-id="${s._id}">✔ Aprobar</button>
+                <button class="btn btn-outline btn-sm cr-sol-rechazar" data-id="${s._id}">✕ Rechazar</button>` : ''}
+              ${s.estado === 'aprobado' && puedeRegistrarCambio ? `<button class="btn btn-primary btn-sm cr-sol-registrar" data-id="${s._id}">📥 Registrar en ERP</button>` : ''}
+            </div>
           </div>`).join('')}
       </div>`}`;
 
@@ -4776,6 +4884,22 @@ async function viewCostoRecetas(container) {
           toast('Solicitud rechazada', 'success');
           cargarSolicitudes();
         } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+      });
+    });
+    wrap.querySelectorAll('.cr-sol-registrar').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await PUT(`/recetas-costeo/solicitudes/${btn.dataset.id}/registrar`, {});
+          toast('Marcado como registrado en el ERP', 'success');
+          cargarSolicitudes();
+        } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+      });
+    });
+    wrap.querySelectorAll('.cr-sol-ver').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const s = sols.find(x => x._id === btn.dataset.id);
+        if (s) verRecetaActualNueva(s);
       });
     });
   }
@@ -15911,10 +16035,13 @@ function showUserModal(user, onSave, opts = {}) {
           ${SEGUIMIENTO_COMPRAS_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolSeguimientoCompras||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group"><label>Rol para Solicitud/Aprobación de Cambio de Receta</label>
-        <select id="um-rol-cambio-receta">
-          ${CAMBIO_RECETA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCambioReceta||'')=== k?'selected':''}>${v}</option>`).join('')}
-        </select>
+      <div class="form-group"><label>Cambio de Receta</label>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+          ${CAMBIO_RECETA_ROLES.map(([k,v])=>`
+            <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+              <input type="checkbox" class="um-cambio-receta-chk" value="${k}" ${(user?.rolCambioReceta||[]).includes(k)?'checked':''}> ${v}
+            </label>`).join('')}
+        </div>
       </div>
       <div class="form-group" id="um-socs-section"><label>Sociedades</label>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
@@ -16104,7 +16231,7 @@ function showUserModal(user, onSave, opts = {}) {
       rolMaestroItems: document.getElementById('um-maestro-items-role').value,
       rolPagoRecurrente: document.getElementById('um-rol-pago-recurrente').value,
       rolSeguimientoCompras: document.getElementById('um-rol-seguimiento-compras').value,
-      rolCambioReceta: document.getElementById('um-rol-cambio-receta').value,
+      rolCambioReceta: [...document.querySelectorAll('.um-cambio-receta-chk:checked')].map(c => c.value),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,

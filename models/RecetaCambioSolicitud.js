@@ -26,13 +26,18 @@ const recetaCambioSolicitudSchema = new mongoose.Schema({
 
   lineas: { type: [lineaCambioSchema], default: [] },
 
-  estado: { type: String, default: 'pendiente', enum: ['pendiente', 'aprobado', 'rechazado'] },
+  // pendiente -> aprobado -> registrado (el registrador anota el cambio en
+  // el ERP, es el último paso) — o rechazado, siempre desde pendiente.
+  estado: { type: String, default: 'pendiente', enum: ['pendiente', 'aprobado', 'rechazado', 'registrado'] },
 
   solicitadoPor: { type: String, required: true },
   solicitadoEn:  { type: Date, default: Date.now },
   aprobadoPor:   { type: String },
   aprobadoEn:    { type: Date },
   comentarioAprobador: { type: String, default: '' },
+  registradoPor: { type: String },
+  registradoEn:  { type: Date },
+  comentarioRegistrador: { type: String, default: '' },
 
   // Generada automáticamente al aprobar un cambio en una receta que es
   // insumo de esta (nivel inferior) — no trae líneas propias, solo marca
