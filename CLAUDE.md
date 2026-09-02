@@ -61,7 +61,6 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 - `puedeVerVentas`: boolean — acceso a Venta & TIP por Operación
 - `puedeVerPronosticoVenta`: boolean — acceso a Pronóstico de Venta (scoped por `operations`, igual que `puedeVerVentas`)
 - `puedeVerCosteoRecetas`: boolean — acceso a Costeo de Recetas (scoped por `operations`, igual que `puedeVerVentas`)
-- `rolPagoRecurrente`: '' | programador | registrador | consulta — acceso a Pagos Recurrentes (scoped por `operations`)
 - `rolSeguimientoCompras`: '' | carga | aprobacion | consulta | admin — acceso a Aprobación y Seguimiento de Compras (scoped por `operations`, ver Sesión 8)
 - `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
 - `sociedadesCompra`: array — sociedades para ver Precios de Compra (códigos del catálogo `Sociedad`, ver sección "Sociedades y Operaciones")
@@ -447,48 +446,14 @@ AUTORIZACION, MONEDA`.
   (se muestra "—" en vez de dividir por cero). Incluye una columna TOTAL por mes (todos los
   operadores juntos, mismo cálculo agregado).
 
-### Sesión 7 — Pagos Recurrentes
+### Sesión 7 — Pagos Recurrentes (eliminado por completo en la Sesión 13)
 
-Nuevo módulo para controlar pagos recurrentes (electricidad, agua, internet, etc.) por
-operación, sin depender de cargar archivos externos — a diferencia del resto de Gestión
-de Pagos, todo se ingresa a mano desde la UI.
-
-**Modelos** (`models/`):
-- `PagoRecurrenteTipo` — catálogo simple `{nombre, activo}` (Electricidad, Agua,
-  Internet...), mismo patrón que `PagoGrupoProveedor`.
-- `PagoRecurrenteRegla` — la regla de recurrencia: `{operacion, tipoPago, descripcion,
-  diaPago, intervaloMeses, montoEstimado, fechaInicio, activa}`.
-- `PagoRecurrenteProgramacion` — cada ocurrencia generada (lo que se lista/filtra/paga):
-  `{reglaId, operacion, tipoPago, descripcion, fechaProgramada, montoProgramado, estado:
-  pendiente|pagado|anulado, fechaPagoReal, montoPagoReal, comentario}`. Índice único
-  `{reglaId, fechaProgramada}`.
-
-**Backend** (`routes/pagos-recurrentes.js`, montado en `/api/pagos-recurrentes`).
-Acceso por `rolPagoRecurrente` (`'' | programador | registrador | consulta`), scoped por
-`operations` (igual patrón que Pronóstico de Venta / Recetas — NO por `sociedadesPago`
-como el resto de Gestión de Pagos).
-- **Generador de ocurrencias** (`asegurarProgramacionFutura(regla)`): para una regla
-  activa, genera filas `pendiente` desde la última ya generada (o `fechaInicio`) sumando
-  `intervaloMeses` hasta cubrir **hoy + 6 meses**, ajustando `diaPago` al último día del
-  mes si no existe (ej. día 31 en febrero → 28/29). Idempotente vía el índice único
-  `reglaId+fechaProgramada` (duplicados del `insertMany` con `ordered:false` se
-  descartan). Se invoca al crear/reactivar una regla y al inicio de
-  `GET /programaciones` — mantiene la ventana de 6 meses al día sin necesitar un cron.
-- `GET/POST/DELETE /tipos` — catálogo (crear/borrar solo `programador`).
-- `GET/POST/PUT /reglas` — CRUD de reglas (solo `programador`); reactivar (`activa:true`)
-  dispara el generador de nuevo.
-- `GET /programaciones?operacion=&tipoPago=&estado=&fechaProgDesde=&fechaProgHasta=&
-  fechaPagoDesde=&fechaPagoHasta=` — lista filtrada.
-- `PUT /programaciones/:id` — editar fecha/monto de una ocurrencia puntual (solo
-  `programador`, antes de pagar). `PUT /programaciones/:id/pagar` — completa
-  fecha/monto real y pasa a `pagado` (`programador` o `registrador`).
-  `PUT /programaciones/:id/anular` — pasa a `anulado` (solo `programador`).
-
-**Frontend**: nav `pagos-recurrentes` → `viewPagosRecurrentes` — filtros (Operación, Tipo
-de Pago, Estado, rango Fecha Programada, rango Fecha Pago Real), tabla de ocurrencias con
-botón "💰 Pagar" (`programador`/`registrador`) y "✕ Anular" (`programador`), botón
-"＋ Nueva regla" (modal con creación de tipo de pago al vuelo) y "📋 Reglas" (listar/
-pausar/reactivar reglas existentes), ambos solo para `programador`.
+Módulo para controlar pagos recurrentes (electricidad, agua, internet, etc.) por
+operación, con todo ingresado a mano desde la UI (sin archivos externos). **Se borró
+por completo en la Sesión 13** (código y datos, a pedido del usuario) — ver esa sección.
+Los modelos `PagoRecurrenteTipo`, `PagoRecurrenteRegla` y `PagoRecurrenteProgramacion`
+(y sus colecciones en Mongo), la ruta `/api/pagos-recurrentes` y el permiso
+`rolPagoRecurrente` ya no existen.
 
 ### Sesión 8 — Aprobación y Seguimiento de Compras (v1, reemplazada en Sesión 10)
 
@@ -805,3 +770,60 @@ que el Excel de origen sí trae filas SD. Acción pendiente: en el servidor,
 (o esperar a que alguien lo haga antes de la corrida de las 6 AM — el
 `git pull` no está automatizado, así que si no se hace a mano seguirá
 desactualizado indefinidamente).
+
+### Sesión 13 — Automatización de Gestión de Pagos (EBC) + borrado de Pagos Recurrentes
+
+**Automatización de 3 de los 4 botones de carga de Paso 1 — Programación** (antes
+100% manual desde el navegador, carpeta origen `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\
+EBC AI BASES\EBC PROGRAMACION DE PAGOS\`). El botón **PROGRAMACIÓN** (archivo por
+sociedad) ya no es 100% manual — se automatizó también, con guardas (ver abajo); el
+resto de la UI (Paso 2 a 5, aprobación/preparación/autorización/pago) sigue siendo
+manual como antes.
+
+- **PAGOS** (`EBC PAGOS.csv`) → `scripts/syncPagosPromedios.js` (`sync-pagos-promedios.bat`,
+  paso 18/20 de `sync-master.bat`) — replica `POST /api/pagos/cargar-pagos`: calcula
+  promedio de pago de las 4 semanas más recientes por beneficiario y actualiza
+  `PagoProgramacion.promediosPagos` **solo** de programaciones ya abiertas
+  (`borrador`/`pendiente`); si una sociedad no tiene programación abierta, se omite
+  (no crea nada).
+- **POR RENDIR** (`EBC ADELANTOS.csv`) → `scripts/syncAdelantos.js` (`sync-adelantos.bat`,
+  paso 19/20) — replica `POST /api/pagos/adelantos/cargar`: `deleteMany`+`insertMany`
+  completo en `PagoAdelanto`, por las sociedades presentes en el archivo (columna
+  `CompaniaSocio`, mapeada a nombre de sociedad vía `CompaniaCodigo`, mismo catálogo
+  que usa Obligaciones EBC).
+- **OBLIGACIONES EBC** (`EBC OBLIGACIONES.csv`) ya estaba automatizado desde antes
+  (`sync-obligaciones.bat`, paso 10/20) — sin cambios.
+- **PROGRAMACIÓN** (archivo por sociedad: `ERSAC.csv`, `FRQ1.csv`, `MUVON.csv`,
+  `GOLDEN_BEAN.csv`, `QUIASMO.csv`, `FK.csv`) → `scripts/syncProgramacion.js`
+  (`sync-programacion.bat`, paso 20/20) — replica `POST /api/pagos/cargar` (mismo
+  cruce con `PagoBeneficiario`, mismo cálculo de `diasVencido`/`seleccionado`). Dos
+  guardas explícitas a pedido del usuario: (1) **solo corre los martes** (`new
+  Date().getDay() !== 2` corta el script entero antes de tocar cualquier archivo);
+  (2) **por sociedad**, si ya existe una `PagoProgramacion` para esa sociedad+semana
+  actual (`año`+`semana` del próximo viernes), no genera nada para esa sociedad (pero
+  sigue con las demás) — evita duplicar lo que hoy pasaría si se subiera el mismo
+  archivo dos veces a mano. `creadoPor` queda como `"AUTOMATICO (sync-programacion)"`.
+  Mapeo archivo→sociedad (`ARCHIVO_POR_COMPANIA` en el script) confirmado contra
+  datos reales: `GOLDEN_BEAN.csv`→`GB`, `FK.csv`→`FACTORIAL K`.
+- Los 3 archivos por sociedad para el módulo QUIASMO/FACTORIAL K ya existían como
+  sociedad en el sistema (dados de alta antes de esta sesión, no en esta) — la base
+  local de un proyecto hermano (`payment_app`, Flask, descartado como referencia)
+  estaba desactualizada y no las tenía, lo que generó confusión inicial sobre si
+  había que crearlas.
+- **Validado en producción**: `sync-adelantos.bat` cargó 103 adelantos (6 sociedades);
+  `sync-pagos-promedios.bat` actualizó promedios de ERSAC y MUVON (únicas con
+  programación abierta ese día, el resto se omitió correctamente);
+  `sync-programacion.bat` corrió en martes real y creó programación nueva para las 6
+  sociedades (confirmado con el usuario, ej. FACTORIAL K: 433 obligaciones).
+- Todos los scripts nuevos siguen el patrón exacto de `scripts/syncObligaciones.js`
+  (`dns.setServers(['8.8.8.8','8.8.4.4'])` antes de conectar — mismo workaround de DNS
+  que ya usan los scripts existentes en este entorno).
+
+**Borrado completo de Pagos Recurrentes** (código y datos, a pedido del usuario — ver
+nota en Sesión 7): se quitaron `routes/pagos-recurrentes.js`, los 3 modelos
+(`PagoRecurrenteTipo`/`Regla`/`Programacion`), el mount en `server.js`, el nav item y
+la función `viewPagosRecurrentes` completa en `public/app.js`, el campo
+`rolPagoRecurrente` en `models/User.js` y sus referencias en `routes/users.js` /
+`routes/auth.js` / el form de usuarios. Datos borrados de MongoDB (drop de las 3
+colecciones, vía script temporal no commiteado): 1 `PagoRecurrenteTipo`, 3
+`PagoRecurrenteRegla`, 21 `PagoRecurrenteProgramacion`.

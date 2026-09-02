@@ -12,7 +12,6 @@ const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULT
 const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pagos']];
 const MAESTRO_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador de cuentas'],['registrador','Registrador ERP'],['admin','Administrador']];
-const PAGO_RECURRENTE_ROLES = [['','— Sin acceso —'],['programador','Programador (crea reglas)'],['registrador','Registrador (marca pagos)'],['consulta','Consulta'],['admin','Administrador (todo)']];
 const SEGUIMIENTO_COMPRAS_ROLES = [['','— Sin acceso —'],['carga','Carga (Pedido Tienda)'],['aprobacion','Aprobación'],['consulta','Consulta'],['admin','Administrador (todo)']];
 const CAMBIO_RECETA_ROLES = [['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['registrador','Registrador (anota el cambio en el ERP)']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
@@ -269,7 +268,6 @@ const NAV_ITEMS = [
   { id: 'maestro-items',  label: 'Maestro de Ítems', icon: '🗂️', roles: [ROLES.ADMIN], extraPerm: 'rolMaestroItems' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
-  { id: 'pagos-recurrentes', label: 'Pagos Recurrentes', icon: '🔁', roles: [ROLES.ADMIN], extraPerm: 'rolPagoRecurrente' },
   { id: 'seguimiento-compras', label: 'Seguimiento de Compras', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'rolSeguimientoCompras' },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
@@ -335,7 +333,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, 'pagos-recurrentes': viewPagosRecurrentes, 'seguimiento-compras': viewSeguimientoCompras, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, 'seguimiento-compras': viewSeguimientoCompras, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
   if (views[view]) views[view](vc, params);
 }
 
@@ -10344,6 +10342,38 @@ async function viewFlujoCaja(container) {
 
     let insertAfter = tr;
     sub.glosas.forEach(g => {
+      // Cuando TODOS los movimientos de esta glosa (código interno del
+      // banco, ej. "C/PV OB PROVEED BXI ...") tienen proveedor identificado
+      // (por ERP o por desglose manual), se muestra directamente el/los
+      // proveedor(es) en este nivel — la glosa/movimiento bancario pasa a
+      // ser el detalle, un nivel más abajo, del proveedor.
+      const todosConProveedor = g.movimientos.length > 0 && g.movimientos.every(m => m.proveedor);
+      if (todosConProveedor) {
+        const porProveedor = new Map();
+        g.movimientos.forEach(m => {
+          if (!porProveedor.has(m.proveedor)) porProveedor.set(m.proveedor, []);
+          porProveedor.get(m.proveedor).push(m);
+        });
+        porProveedor.forEach((movs, proveedor) => {
+          const provId = parentId + '-' + sanId(g.glosa) + '-' + sanId(proveedor);
+          const totalProv = movs.reduce((s, m) => s + m.importe, 0);
+          const provRow = document.createElement('tr');
+          provRow.id = provId;
+          provRow.setAttribute('data-drill-parent', parentId);
+          provRow.style.cursor = 'pointer';
+          provRow.innerHTML = `
+            <td style="padding-left:68px;color:var(--text-muted)">▸ ${esc(proveedor)}</td>
+            ${fechas.map(f => { const v = movs.filter(m => m.fecha === f).reduce((s2, m) => s2 + m.importe, 0); return `<td class="text-right" style="${v < 0 ? 'color:#dc2626' : ''}">${v ? fmtMoney(v) : ''}</td>`; }).join('')}
+            <td class="text-right" style="${totalProv < 0 ? 'color:#dc2626' : ''}">${fmtMoney(totalProv)}</td>`;
+          provRow.addEventListener('click', (ev) => { ev.stopPropagation(); toggleMovimientosProveedor(provRow, movs, fechas, sub.codigo); });
+          insertAfter.after(provRow);
+          insertAfter = provRow;
+        });
+        return;
+      }
+
+      // Sin proveedor identificado en ninguno de sus movimientos — se
+      // muestra el texto de la glosa tal cual, como antes.
       const glosaRowId = parentId + '-' + sanId(g.glosa);
       const totalGlosa = fechas.reduce((s, f) => s + (g.valores[f] || 0), 0);
       const glosaRow = document.createElement('tr');
@@ -10357,6 +10387,42 @@ async function viewFlujoCaja(container) {
       glosaRow.addEventListener('click', (ev) => { ev.stopPropagation(); toggleMovimientos(glosaRow, g, fechas, sub.codigo); });
       insertAfter.after(glosaRow);
       insertAfter = glosaRow;
+    });
+  }
+
+  // Detalle de movimiento(s) bancario(s) de un proveedor ya identificado a
+  // nivel de glosa (reemplaza al viejo nivel "glosa" para estos casos) —
+  // aquí sí se muestra fecha/banco/Op/glosa, ya que el proveedor ya se
+  // mostró arriba.
+  function toggleMovimientosProveedor(tr, movs, fechas, subdetalleCodigo) {
+    const parentId = tr.id;
+    const tbody = tr.parentElement;
+    const existing = tbody.querySelectorAll(`tr[data-drill-parent="${parentId}"]`);
+    if (existing.length) { removeDrillDescendants(tbody, parentId); return; }
+
+    let insertAfter = tr;
+    movs.forEach(m => {
+      const movRow = document.createElement('tr');
+      movRow.id = parentId + '-' + sanId(String(m._id)) + (m.esSplit ? '-split' : '');
+      movRow.setAttribute('data-drill-parent', parentId);
+      const esMasivo = m.pagosErp && m.pagosErp.length > 1;
+      const infoMasivo = esMasivo ? ` · ▸ Pago masivo (${m.pagosErp.length} beneficiarios)` : '';
+      const infoComentario = m.comentario ? `<br><span style="color:#b45309">💬 ${esc(m.comentario)}</span>` : '';
+      if (esMasivo) movRow.style.cursor = 'pointer';
+      movRow.innerHTML = `
+        <td style="padding-left:88px;color:var(--text-muted);font-size:11px">
+          ${fmtFechaCorta(m.fechaReal)} · ${esc(m.banco)} ${esc(m.moneda)}${m.numeroOperacion ? ' · Op ' + esc(m.numeroOperacion) : ''}${m.glosa ? ' · ' + esc(m.glosa) : ''}${infoMasivo}
+          <button class="btn-icon fc-mov-reclasificar" data-id="${m._id}" title="Reclasificar" style="border:none;background:none;cursor:pointer;padding:0 0 0 6px;font-size:11px">✏️</button>${infoComentario}
+        </td>
+        ${fechas.map(f => `<td class="text-right" style="${m.importe < 0 && f === m.fecha ? 'color:#dc2626' : ''}">${f === m.fecha ? fmtMoney(m.importe) : ''}</td>`).join('')}
+        <td class="text-right" style="${m.importe < 0 ? 'color:#dc2626' : ''}">${fmtMoney(m.importe)}</td>`;
+      movRow.querySelector('.fc-mov-reclasificar').addEventListener('click', ev => {
+        ev.stopPropagation();
+        abrirModalAsignarMovimiento(m._id, m.esSplit ? subdetalleCodigo : null);
+      });
+      if (esMasivo) movRow.addEventListener('click', () => toggleDetallePagos(movRow, m, fechas));
+      insertAfter.after(movRow);
+      insertAfter = movRow;
     });
   }
 
@@ -10480,360 +10546,6 @@ async function viewFlujoCaja(container) {
 
   await poblarCuentaSelect();
   await Promise.all([cargar(), cargarSinAsignar(), cargarUltimaFecha()]);
-}
-
-async function viewPagosRecurrentes(container) {
-  const isAdmin = S.user.role === 'ADMIN';
-  const rol = S.user.rolPagoRecurrente || (isAdmin ? 'programador' : '');
-  const esProgramador = isAdmin || rol === 'programador' || rol === 'admin';
-  const puedeRegistrarPago = isAdmin || rol === 'programador' || rol === 'registrador' || rol === 'admin';
-  const misOperaciones = isAdmin ? null : (S.user.operations || []);
-
-  const fmtMoney = v => v == null ? '—' : 'S/ ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtFecha = d => d ? new Date(d).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
-
-  let tipos = [];
-  let filtros = { operacion: '', tipoPago: '', estado: '', fechaProgDesde: '', fechaProgHasta: '', fechaPagoDesde: '', fechaPagoHasta: '' };
-
-  container.innerHTML = `
-    <div class="page-header">
-      <div class="page-title">🔁 Pagos Recurrentes</div>
-      <div style="display:flex;gap:8px">
-        ${esProgramador ? `
-        <button class="btn btn-outline btn-sm" id="pr-reglas-btn">📋 Reglas</button>
-        <button class="btn btn-primary btn-sm" id="pr-nueva-regla-btn">＋ Nueva regla</button>` : ''}
-      </div>
-    </div>
-    <div class="page-body">
-      <div class="card mb-16" style="padding:14px">
-        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
-            <select id="pr-operacion" class="form-control" style="width:150px">
-              <option value="">— Todas —</option>
-              ${(misOperaciones === null ? ALL_OPS : misOperaciones).slice().sort((a, b) => a.localeCompare(b)).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo de Pago</label>
-            <select id="pr-tipo" class="form-control" style="width:160px">
-              <option value="">— Todos —</option>
-            </select>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Estado</label>
-            <select id="pr-estado" class="form-control" style="width:130px">
-              <option value="">— Todos —</option>
-              <option value="pendiente">Pendiente</option>
-              <option value="pagado">Pagado</option>
-              <option value="anulado">Anulado</option>
-            </select>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha Programada</label>
-            <div style="display:flex;gap:4px;align-items:center">
-              <input type="date" id="pr-prog-desde" class="form-control" style="width:135px">
-              <span>—</span>
-              <input type="date" id="pr-prog-hasta" class="form-control" style="width:135px">
-            </div>
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha Pago Real</label>
-            <div style="display:flex;gap:4px;align-items:center">
-              <input type="date" id="pr-pago-desde" class="form-control" style="width:135px">
-              <span>—</span>
-              <input type="date" id="pr-pago-hasta" class="form-control" style="width:135px">
-            </div>
-          </div>
-          <button class="btn btn-primary btn-sm" id="pr-filtrar-btn">🔍 Filtrar</button>
-        </div>
-      </div>
-      <div id="pr-content"></div>
-    </div>`;
-
-  const root = document.getElementById('pr-content');
-
-  try { tipos = await GET('/pagos-recurrentes/tipos'); } catch (e) { tipos = []; }
-  const selTipo = document.getElementById('pr-tipo');
-  selTipo.innerHTML = '<option value="">— Todos —</option>' + tipos.map(t => `<option value="${esc(t.nombre)}">${esc(t.nombre)}</option>`).join('');
-
-  document.getElementById('pr-filtrar-btn').addEventListener('click', cargar);
-  if (esProgramador) {
-    document.getElementById('pr-nueva-regla-btn').addEventListener('click', abrirModalNuevaRegla);
-    document.getElementById('pr-reglas-btn').addEventListener('click', abrirModalReglas);
-  }
-
-  async function cargar() {
-    filtros = {
-      operacion: document.getElementById('pr-operacion').value,
-      tipoPago: document.getElementById('pr-tipo').value,
-      estado: document.getElementById('pr-estado').value,
-      fechaProgDesde: document.getElementById('pr-prog-desde').value,
-      fechaProgHasta: document.getElementById('pr-prog-hasta').value,
-      fechaPagoDesde: document.getElementById('pr-pago-desde').value,
-      fechaPagoHasta: document.getElementById('pr-pago-hasta').value,
-    };
-    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
-    try {
-      const params = new URLSearchParams();
-      Object.entries(filtros).forEach(([k, v]) => { if (v) params.set(k, v); });
-      const docs = await GET(`/pagos-recurrentes/programaciones?${params}`);
-      render(docs);
-    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
-  }
-
-  const PR_MESES_ABR = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Set','Oct','Nov','Dic'];
-  const prMesKey   = f => new Date(f).toISOString().slice(0, 7); // YYYY-MM
-  const prMesLabel = k => { const [y, m] = k.split('-'); return `${PR_MESES_ABR[parseInt(m, 10) - 1]} ${y}`; };
-
-  function render(docs) {
-    if (!docs.length) { root.innerHTML = '<div class="empty-state"><p>Sin programaciones para los filtros elegidos.</p></div>'; return; }
-
-    // Una fila (de 2 líneas) por regla = por operación + tipo de pago; los pagos se
-    // reparten en columnas por mes (según fechaProgramada) a la derecha.
-    const porRegla = {};
-    docs.forEach(d => {
-      if (!porRegla[d.reglaId]) porRegla[d.reglaId] = { operacion: d.operacion, tipoPago: d.tipoPago, descripcion: d.descripcion, ocurrencias: {} };
-      porRegla[d.reglaId].ocurrencias[prMesKey(d.fechaProgramada)] = d;
-    });
-    const meses = [...new Set(docs.map(d => prMesKey(d.fechaProgramada)))].sort();
-    const reglas = Object.entries(porRegla).sort(([, a], [, b]) =>
-      a.operacion.localeCompare(b.operacion) || a.tipoPago.localeCompare(b.tipoPago));
-
-    const celdaVacia = '<td class="text-right">—</td><td class="text-right">—</td>';
-
-    root.innerHTML = `
-      <div class="card">
-        <div class="table-wrap">
-          <table class="data-table" style="font-size:12px">
-            <thead>
-              <tr>
-                <th rowspan="2" style="vertical-align:bottom">Operación</th>
-                <th rowspan="2" style="vertical-align:bottom">Tipo de Pago</th>
-                <th rowspan="2" style="vertical-align:bottom"></th>
-                ${meses.map(m => `<th class="text-center" colspan="2" style="border-left:2px solid var(--border)">${prMesLabel(m)}</th>`).join('')}
-              </tr>
-              <tr>${meses.map(() => `<th class="text-right" style="border-left:2px solid var(--border)">Fecha</th><th class="text-right">Importe</th>`).join('')}</tr>
-            </thead>
-            <tbody>
-              ${reglas.map(([reglaId, r]) => {
-                const filaProg = meses.map(m => {
-                  const d = r.ocurrencias[m];
-                  if (!d) return celdaVacia;
-                  return `<td class="text-right" style="border-left:2px solid var(--border)">${fmtFecha(d.fechaProgramada)}</td><td class="text-right">${fmtMoney(d.montoProgramado)}</td>`;
-                }).join('');
-                const filaReal = meses.map(m => {
-                  const d = r.ocurrencias[m];
-                  if (!d) return celdaVacia;
-                  if (d.estado === 'pagado') {
-                    return `<td class="text-right" style="border-left:2px solid var(--border)" title="${esc(d.comentario || '')}">${fmtFecha(d.fechaPagoReal)}</td><td class="text-right">${fmtMoney(d.montoPagoReal)}</td>`;
-                  }
-                  if (d.estado === 'anulado') {
-                    return `<td class="text-center" colspan="2" style="border-left:2px solid var(--border);color:var(--text-muted)">Anulado</td>`;
-                  }
-                  return `<td class="text-center" colspan="2" style="border-left:2px solid var(--border);white-space:nowrap">
-                    ${puedeRegistrarPago ? `<button class="btn btn-xs btn-primary" onclick="prMarcarPagado('${d._id}',${d.montoProgramado})">💰 Pagar</button>` : PR_ESTADO_BADGE.pendiente}
-                    ${esProgramador ? `<button class="btn btn-xs btn-outline" onclick="prAnular('${d._id}')" title="Anular">✕</button>` : ''}
-                  </td>`;
-                }).join('');
-                return `<tr style="border-top:2px solid var(--border)">
-                    <td rowspan="2" style="vertical-align:middle" title="${esc(r.descripcion || '')}">${esc(r.operacion)}</td>
-                    <td rowspan="2" style="vertical-align:middle">${esc(r.tipoPago)}</td>
-                    <td style="font-size:10px;color:var(--text-muted);white-space:nowrap">Programado</td>
-                    ${filaProg}
-                  </tr>
-                  <tr>
-                    <td style="font-size:10px;color:var(--text-muted);white-space:nowrap">Real</td>
-                    ${filaReal}
-                  </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>`;
-  }
-
-  window.prMarcarPagado = (id, montoSugerido) => {
-    const hoy = new Date().toISOString().slice(0, 10);
-    const body = `
-      <div class="form-group"><label>Fecha de pago real *</label>
-        <input type="date" id="pr-pago-fecha" class="form-control" value="${hoy}"></div>
-      <div class="form-group"><label>Monto pagado *</label>
-        <input type="number" step="0.01" id="pr-pago-monto" class="form-control" value="${montoSugerido}"></div>
-      <div class="form-group"><label>Comentario</label>
-        <input type="text" id="pr-pago-comentario" class="form-control" placeholder="Opcional"></div>
-      <div id="pr-pago-error" class="msg-error hidden"></div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
-        <button class="btn btn-primary" id="pr-pago-save">💾 Guardar</button>
-      </div>`;
-    openModal('Registrar pago', body);
-    document.getElementById('pr-pago-save').addEventListener('click', async () => {
-      const errEl = document.getElementById('pr-pago-error');
-      try {
-        await PUT(`/pagos-recurrentes/programaciones/${id}/pagar`, {
-          fechaPagoReal: document.getElementById('pr-pago-fecha').value,
-          montoPagoReal: document.getElementById('pr-pago-monto').value,
-          comentario: document.getElementById('pr-pago-comentario').value,
-        });
-        document.getElementById('modal').classList.add('hidden');
-        toast('Pago registrado', 'success');
-        cargar();
-      } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
-    });
-  };
-
-  window.prAnular = async (id) => {
-    if (!confirm('¿Anular esta ocurrencia? No se generará ningún pago para esta fecha.')) return;
-    try {
-      await PUT(`/pagos-recurrentes/programaciones/${id}/anular`, {});
-      toast('Ocurrencia anulada', 'success');
-      cargar();
-    } catch (e) { toast(e.message, 'error'); }
-  };
-
-  function abrirModalNuevaRegla() {
-    const hoy = new Date().toISOString().slice(0, 10);
-    const body = `
-      <div class="form-group"><label>Operación *</label>
-        <select id="pr-r-operacion" class="form-control">
-          <option value="">— Seleccionar —</option>
-          ${(misOperaciones === null ? ALL_OPS : misOperaciones).slice().sort((a, b) => a.localeCompare(b)).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
-        </select></div>
-      <div class="form-group"><label>Tipo de Pago *</label>
-        <select id="pr-r-tipo" class="form-control">
-          <option value="">— Seleccionar —</option>
-          ${tipos.map(t => `<option value="${esc(t.nombre)}">${esc(t.nombre)}</option>`).join('')}
-        </select>
-        <div style="display:flex;gap:6px;margin-top:6px">
-          <input type="text" id="pr-r-tipo-nuevo" class="form-control" placeholder="O crear un tipo nuevo..." style="flex:1">
-          <button type="button" class="btn btn-outline btn-sm" id="pr-r-tipo-crear">＋ Crear</button>
-        </div></div>
-      <div class="form-group"><label>Descripción</label>
-        <input type="text" id="pr-r-descripcion" class="form-control" placeholder="Ej. Luz local San Isidro"></div>
-      <div class="form-group"><label>Día de pago (1-31) *</label>
-        <input type="number" id="pr-r-dia" class="form-control" min="1" max="31" value="1"></div>
-      <div class="form-group"><label>Intervalo *</label>
-        <select id="pr-r-intervalo" class="form-control">
-          ${PR_INTERVALOS.map(i => `<option value="${i.v}">${i.label}</option>`).join('')}
-        </select></div>
-      <div class="form-group"><label>Monto estimado *</label>
-        <input type="number" step="0.01" id="pr-r-monto" class="form-control"></div>
-      <div class="form-group"><label>Fecha de inicio *</label>
-        <input type="date" id="pr-r-inicio" class="form-control" value="${hoy}"></div>
-      <div id="pr-r-error" class="msg-error hidden"></div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
-        <button class="btn btn-primary" id="pr-r-save">💾 Guardar</button>
-      </div>`;
-    openModal('Nueva regla de pago recurrente', body);
-
-    document.getElementById('pr-r-tipo-crear').addEventListener('click', async () => {
-      const nombre = document.getElementById('pr-r-tipo-nuevo').value.trim();
-      if (!nombre) return;
-      try {
-        await POST('/pagos-recurrentes/tipos', { nombre });
-        tipos = await GET('/pagos-recurrentes/tipos');
-        const sel = document.getElementById('pr-r-tipo');
-        sel.innerHTML = '<option value="">— Seleccionar —</option>' + tipos.map(t => `<option value="${esc(t.nombre)}">${esc(t.nombre)}</option>`).join('');
-        sel.value = nombre;
-        document.getElementById('pr-r-tipo-nuevo').value = '';
-        toast('Tipo de pago creado', 'success');
-      } catch (e) { toast(e.message, 'error'); }
-    });
-
-    document.getElementById('pr-r-save').addEventListener('click', async () => {
-      const errEl = document.getElementById('pr-r-error');
-      try {
-        await POST('/pagos-recurrentes/reglas', {
-          operacion: document.getElementById('pr-r-operacion').value,
-          tipoPago: document.getElementById('pr-r-tipo').value,
-          descripcion: document.getElementById('pr-r-descripcion').value,
-          diaPago: document.getElementById('pr-r-dia').value,
-          intervaloMeses: document.getElementById('pr-r-intervalo').value,
-          montoEstimado: document.getElementById('pr-r-monto').value,
-          fechaInicio: document.getElementById('pr-r-inicio').value,
-        });
-        document.getElementById('modal').classList.add('hidden');
-        toast('Regla creada — se generó la programación de los próximos 6 meses', 'success');
-        cargar();
-      } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
-    });
-  }
-
-  async function abrirModalReglas() {
-    let reglas = [];
-    try { reglas = await GET('/pagos-recurrentes/reglas'); } catch (e) { toast(e.message, 'error'); return; }
-    const render2 = () => `
-      <div class="table-wrap" style="max-height:60vh;overflow-y:auto">
-        <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Operación</th><th>Tipo</th><th>Descripción</th><th>Día</th><th>Intervalo</th><th class="text-right">Monto Est.</th><th class="text-center">Activa</th><th></th></tr></thead>
-          <tbody>${reglas.map(r => `<tr>
-            <td>${esc(r.operacion)}</td><td>${esc(r.tipoPago)}</td><td>${esc(r.descripcion || '')}</td>
-            <td class="text-center">${r.diaPago}</td>
-            <td>${(PR_INTERVALOS.find(i => i.v === r.intervaloMeses) || {}).label || r.intervaloMeses + ' mes(es)'}</td>
-            <td class="text-right">S/ ${Number(r.montoEstimado).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            <td class="text-center">
-              <input type="checkbox" ${r.activa ? 'checked' : ''} onchange="prToggleRegla('${r._id}', this.checked)">
-            </td>
-            <td class="text-center"><button class="btn btn-xs btn-outline" onclick="prEditarRegla('${r._id}')" title="Editar">✏️</button></td>
-          </tr>`).join('')}</tbody>
-        </table>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cerrar</button>
-      </div>`;
-    openModal('Reglas de pago recurrente', render2(), null, { wide: true });
-
-    window.prToggleRegla = async (id, activa) => {
-      try {
-        await PUT(`/pagos-recurrentes/reglas/${id}`, { activa });
-        toast(activa ? 'Regla reactivada — se generó su programación' : 'Regla pausada', 'success');
-        cargar();
-        abrirModalReglas();
-      } catch (e) { toast(e.message, 'error'); }
-    };
-
-    window.prEditarRegla = (id) => {
-      const r = reglas.find(x => x._id === id);
-      if (!r) return;
-      const body = `
-        <div class="form-group"><label>Operación</label>
-          <input type="text" class="form-control" value="${esc(r.operacion)} — ${esc(r.tipoPago)}" disabled></div>
-        <div class="form-group"><label>Descripción</label>
-          <input type="text" id="pr-e-descripcion" class="form-control" value="${esc(r.descripcion || '')}"></div>
-        <div class="form-group"><label>Día de pago (1-31) *</label>
-          <input type="number" id="pr-e-dia" class="form-control" min="1" max="31" value="${r.diaPago}"></div>
-        <div class="form-group"><label>Intervalo *</label>
-          <select id="pr-e-intervalo" class="form-control">
-            ${PR_INTERVALOS.map(i => `<option value="${i.v}" ${i.v === r.intervaloMeses ? 'selected' : ''}>${i.label}</option>`).join('')}
-          </select></div>
-        <div class="form-group"><label>Monto estimado *</label>
-          <input type="number" step="0.01" id="pr-e-monto" class="form-control" value="${r.montoEstimado}"></div>
-        <div id="pr-e-error" class="msg-error hidden"></div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
-          <button class="btn btn-primary" id="pr-e-save">💾 Guardar</button>
-        </div>`;
-      openModal('Editar regla de pago recurrente', body);
-      document.getElementById('pr-e-save').addEventListener('click', async () => {
-        const errEl = document.getElementById('pr-e-error');
-        try {
-          await PUT(`/pagos-recurrentes/reglas/${id}`, {
-            descripcion: document.getElementById('pr-e-descripcion').value,
-            diaPago: document.getElementById('pr-e-dia').value,
-            intervaloMeses: document.getElementById('pr-e-intervalo').value,
-            montoEstimado: document.getElementById('pr-e-monto').value,
-          });
-          document.getElementById('modal').classList.add('hidden');
-          toast('Regla actualizada — los cambios aplican a las próximas ocurrencias', 'success');
-          cargar();
-        } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
-      });
-    };
-  }
-
-  cargar();
 }
 
 // ─── View: Aprobación y Seguimiento de Compras ────────────────────
@@ -16177,11 +15889,6 @@ function showUserModal(user, onSave, opts = {}) {
           ${CAJA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCaja||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group"><label>Rol para Pagos Recurrentes</label>
-        <select id="um-rol-pago-recurrente">
-          ${PAGO_RECURRENTE_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolPagoRecurrente||'')=== k?'selected':''}>${v}</option>`).join('')}
-        </select>
-      </div>
       <div class="form-group"><label>Rol para Aprob. y Seguimiento de Compras</label>
         <select id="um-rol-seguimiento-compras">
           ${SEGUIMIENTO_COMPRAS_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolSeguimientoCompras||'')=== k?'selected':''}>${v}</option>`).join('')}
@@ -16381,7 +16088,6 @@ function showUserModal(user, onSave, opts = {}) {
       role,
       rolPago:      document.getElementById('um-pago-role').value,
       rolMaestroItems: document.getElementById('um-maestro-items-role').value,
-      rolPagoRecurrente: document.getElementById('um-rol-pago-recurrente').value,
       rolSeguimientoCompras: document.getElementById('um-rol-seguimiento-compras').value,
       rolCambioReceta: [...document.querySelectorAll('.um-cambio-receta-chk:checked')].map(c => c.value),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,

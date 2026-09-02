@@ -35,7 +35,6 @@ const userSchema = new mongoose.Schema({
   sociedadesConciliacion: { type: [String], default: [] },
   rolMaestroItems:      { type: String, default: '' },
   sociedadesMaestros:   { type: [String], default: [] },
-  rolPagoRecurrente:    { type: String, default: '', enum: ['', 'programador', 'registrador', 'consulta', 'admin'] },
   rolSeguimientoCompras: { type: String, default: '', enum: ['', 'carga', 'aprobacion', 'consulta', 'admin'] },
   // Array (no un solo rol) porque son 3 roles combinables independientes:
   // solicitante, aprobador, registrador (el que anota el cambio en el ERP,
