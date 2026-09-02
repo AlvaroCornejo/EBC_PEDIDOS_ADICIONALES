@@ -252,13 +252,23 @@ async function startTokenRefresh() {
 }
 
 // ─── Navigation ──────────────────────────────────────────────────
+// Solicitar/Mis Pedidos/Aprobar/Atender viven bajo un solo item de sidebar
+// ("Pedidos Adicionales") y se muestran como tabs arriba de la pantalla de trabajo
+// (mismo patrón que los Paso 1-5 de Gestión de Pagos) — ver PEDIDOS_TABS y navigate().
+// Kardex queda como item propio del sidebar, fuera de este grupo.
+const PEDIDOS_TABS = [
+  { id: 'solicitar',   label: 'Solicitar',   icon: '📝', roles: [ROLES.ADMIN, ROLES.SOL] },
+  { id: 'mis-pedidos', label: 'Mis Pedidos', icon: '📋', roles: [ROLES.ADMIN, ROLES.SOL] },
+  { id: 'aprobar',     label: 'Aprobar',     icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
+  { id: 'atender',     label: 'Atender',     icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
+];
+const PEDIDOS_TAB_IDS = PEDIDOS_TABS.map(t => t.id);
+
 const NAV_ITEMS = [
-  { id: 'solicitar',      label: 'Solicitar',       icon: '📝', roles: [ROLES.ADMIN, ROLES.SOL] },
-  { id: 'mis-pedidos',    label: 'Mis Pedidos',     icon: '📋', roles: [ROLES.ADMIN, ROLES.SOL] },
+  { id: 'pedidos-adicionales', label: 'Pedidos Adicionales', icon: '📝',
+    roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
   { id: 'kardex',         label: 'Kardex',          icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'puedeVerKardex' },
   // comentarios solo en footer sidebar, no en nav principal
-  { id: 'aprobar',        label: 'Aprobar',         icon: '✅', roles: [ROLES.ADMIN, ROLES.APR] },
-  { id: 'atender',        label: 'Atender',         icon: '🚚', roles: [ROLES.ADMIN, ROLES.ATE, ROLES.PLT] },
   { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerComparativo' },
   { id: 'ventas',         label: 'Venta & TIP',     icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'puedeVerVentas' },
@@ -316,16 +326,35 @@ function renderNav() {
   });
 }
 
+function pedidosDefaultTab() {
+  const t = PEDIDOS_TABS.find(canSeeNav);
+  return t ? t.id : 'solicitar';
+}
+
+function renderPedidosTabs(container, activeId) {
+  const bar = document.createElement('div');
+  bar.className = 'tabs mb-0';
+  bar.innerHTML = PEDIDOS_TABS.filter(canSeeNav).map(t =>
+    `<button class="tab-btn${t.id === activeId ? ' active' : ''}" data-view-tab="${t.id}">${t.icon} ${t.label}</button>`
+  ).join('');
+  bar.querySelectorAll('.tab-btn[data-view-tab]').forEach(b => {
+    b.addEventListener('click', () => navigate(b.dataset.viewTab));
+  });
+  container.appendChild(bar);
+}
+
 function setActiveNav(view) {
+  const navId = PEDIDOS_TAB_IDS.includes(view) ? 'pedidos-adicionales' : view;
   document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.view === view);
+    el.classList.toggle('active', el.dataset.view === navId);
   });
   document.querySelectorAll('.bn-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.view === view);
+    el.classList.toggle('active', el.dataset.view === navId);
   });
 }
 
 function navigate(view, params = {}) {
+  if (view === 'pedidos-adicionales') view = pedidosDefaultTab();
   S.view = view;
   S.viewParams = params;
   setActiveNav(view);
@@ -334,7 +363,17 @@ function navigate(view, params = {}) {
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
   const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, 'seguimiento-compras': viewSeguimientoCompras, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
-  if (views[view]) views[view](vc, params);
+  if (!views[view]) return;
+  if (PEDIDOS_TAB_IDS.includes(view)) {
+    renderPedidosTabs(vc, view);
+    const inner = document.createElement('div');
+    inner.id = 'pedidos-tab-content';
+    inner.className = 'mt-16';
+    vc.appendChild(inner);
+    views[view](inner, params);
+  } else {
+    views[view](vc, params);
+  }
 }
 
 // ─── View: Solicitar ─────────────────────────────────────────────

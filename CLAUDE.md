@@ -827,3 +827,20 @@ la función `viewPagosRecurrentes` completa en `public/app.js`, el campo
 `routes/auth.js` / el form de usuarios. Datos borrados de MongoDB (drop de las 3
 colecciones, vía script temporal no commiteado): 1 `PagoRecurrenteTipo`, 3
 `PagoRecurrenteRegla`, 21 `PagoRecurrenteProgramacion`.
+
+**Sidebar de Pedidos Adicionales agrupado en tabs**: Solicitar/Mis Pedidos/Aprobar/
+Atender pasan de ser 4 items sueltos del sidebar a un solo item **"Pedidos
+Adicionales"** que renderiza un tab bar arriba de la pantalla de trabajo (mismo
+patrón visual que los Paso 1-5 de Gestión de Pagos, clase `.tabs`/`.tab-btn`).
+**Kardex queda como item propio del sidebar**, fuera del grupo (a pedido explícito
+del usuario tras una primera versión que lo incluía). Implementado sin tocar las 5
+funciones `view*` existentes ni los ~8 call-sites que ya hacían
+`navigate('solicitar', {editId...})` / `navigate('mis-pedidos')` / etc. (edición de
+pedido, redirect post-login por rol) — en cambio, `navigate()` detecta si el `view`
+pedido es uno de `PEDIDOS_TAB_IDS` y en ese caso monta el tab bar (`renderPedidosTabs`)
+más un contenedor `#pedidos-tab-content` y le pasa ESE div a la función `view*`
+correspondiente, en vez del `#view-container` completo. `setActiveNav` resuelve el id
+efectivo del sidebar (`pedidos-adicionales`) cuando el view activo es uno de los 4 sub-
+tabs, para que el ítem quede resaltado. Click en el item del sidebar
+(`navigate('pedidos-adicionales')`) resuelve al primer tab accesible para el usuario
+(`pedidosDefaultTab()`, mismo criterio por rol que ya usa `canSeeNav`).
