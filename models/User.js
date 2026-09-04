@@ -40,6 +40,7 @@ const userSchema = new mongoose.Schema({
   // solicitante, aprobador, registrador (el que anota el cambio en el ERP,
   // último paso del flujo) — un usuario puede tener uno, dos o los tres.
   rolCambioReceta:       { type: [String], default: [], enum: ['solicitante', 'aprobador', 'registrador'] },
+  accesoSaldoBanco:      { type: Boolean, default: false },
 });
 
 module.exports = mongoose.model('User', userSchema);

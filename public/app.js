@@ -284,6 +284,7 @@ const NAV_ITEMS = [
   { id: 'autorizaciones', label: 'Incluir Pagos', icon: '📋', roles: [ROLES.ADMIN], extraPermAny: ['rolObligaciones', 'rolPago'] },
   { id: 'pl',             label: 'PL',              icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoEERR' },
   { id: 'conciliacion',   label: 'Conciliación Cobranzas', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoConciliacion' },
+  { id: 'saldo-banco',    label: 'Saldos Bancarios', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoSaldoBanco' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -362,7 +363,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, 'seguimiento-compras': viewSeguimientoCompras, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'pronostico-venta': viewPronosticoVenta, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, 'maestro-items': viewMaestroItems, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, 'seguimiento-compras': viewSeguimientoCompras, movimientos: viewMovimientos, caja: viewCierreCaja, autorizaciones: viewAutorizacionesPago, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -14394,6 +14395,194 @@ async function viewConciliacion(container) {
   if (sociedades.length) window.ccConsultar();
 }
 
+// ─── View: Saldos Bancarios ─────────────────────────────────────
+async function viewSaldoBanco(container) {
+  const esAdmin = S.user.role === 'ADMIN';
+  const BANCOS = ['BBVA', 'BCP', 'BN', 'IBK'];
+  const MONEDAS = ['PEN', 'USD'];
+  const PERIODOS = [['dia', 'Día'], ['semana', 'Semana'], ['mes', 'Mes'], ['año', 'Año']];
+
+  let fechaSel = new Date().toISOString().slice(0, 10);
+
+  const esc2 = s => esc(String(s ?? ''));
+  const fmtMoney = v => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tdM = v => `<td class="text-right" style="${v != null && v < 0 ? 'color:#dc2626' : ''}">${fmtMoney(v)}</td>`;
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">🏦 Saldos Bancarios</div>
+      ${esAdmin ? `<button class="btn btn-outline btn-sm" id="sb-btn-admin">⚙️ Administrar cuentas</button>` : ''}
+    </div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="align-items:flex-end;gap:12px">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha</label>
+            <input type="date" id="sb-fecha" class="form-control" style="width:170px" value="${fechaSel}">
+          </div>
+        </div>
+      </div>
+      <div id="sb-content"></div>
+    </div>`;
+
+  const root = document.getElementById('sb-content');
+  document.getElementById('sb-fecha').addEventListener('change', (e) => { fechaSel = e.target.value; cargar(); });
+  if (esAdmin) document.getElementById('sb-btn-admin').addEventListener('click', abrirAdminCuentas);
+
+  async function cargar() {
+    if (!fechaSel) return;
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const data = await GET(`/saldo-banco/resumen?fecha=${fechaSel}`);
+      render(data);
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc2(e.message)}</p>`; }
+  }
+
+  function render(data) {
+    if (!data.filas.length) {
+      root.innerHTML = `<div class="card" style="padding:14px"><p class="text-muted" style="margin:0">Sin cuentas registradas en el catálogo. ${esAdmin ? 'Usa "⚙️ Administrar cuentas" para dar de alta la primera.' : 'Pide a un administrador que registre las cuentas.'}</p></div>`;
+      return;
+    }
+    root.innerHTML = `
+      <div class="card" style="padding:14px">
+        <div style="overflow-x:auto">
+          <table class="data-table" style="font-size:12px;white-space:nowrap">
+            <thead>
+              <tr>
+                <th rowspan="2">Sociedad</th><th rowspan="2">Cuenta</th><th rowspan="2">Banco</th><th rowspan="2">Moneda</th>
+                ${PERIODOS.map(([, label], i) => `<th colspan="4" class="text-center" style="${i === 0 ? 'border-left:2px solid var(--border);' : ''}">${label}</th>`).join('')}
+              </tr>
+              <tr>
+                ${PERIODOS.map((_, i) => `
+                  <th class="text-right" style="${i === 0 ? 'border-left:2px solid var(--border);' : ''}">Saldo Inicial</th>
+                  <th class="text-right">Cargos</th>
+                  <th class="text-right">Abonos</th>
+                  <th class="text-right">Saldo Final</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${data.filas.map(f => `
+                <tr>
+                  <td>${esc2(f.sociedad)}</td>
+                  <td>${esc2(f.cuenta)}${f.nombreCuenta ? ` <span class="text-muted" style="font-size:11px">(${esc2(f.nombreCuenta)})</span>` : ''}</td>
+                  <td>${esc2(f.banco)}</td>
+                  <td>${esc2(f.moneda)}</td>
+                  ${PERIODOS.map(([key], i) => {
+                    const p = f[key] || {};
+                    return `${tdM(p.saldoInicial).replace('<td', i === 0 ? '<td style="border-left:2px solid var(--border)"' : '<td')}${tdM(p.cargos)}${tdM(p.abonos)}${tdM(p.saldoFinal)}`;
+                  }).join('')}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  // ── Admin: catálogo de cuentas + ruta de Descargas ────────────────────
+  async function abrirAdminCuentas() {
+    let cuentas = [], ruta = '';
+    try {
+      [cuentas, ruta] = await Promise.all([
+        GET('/saldo-banco/cuentas'),
+        GET('/saldo-banco/config').then(r => r.ruta),
+      ]);
+    } catch (e) { toast(e.message, 'error'); return; }
+    renderAdmin(cuentas, ruta);
+  }
+
+  function renderAdmin(cuentas, ruta) {
+    const html = `
+      <div class="form-group">
+        <label>Carpeta Descargas del servidor</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="sb-ruta" class="form-control" style="flex:1" value="${esc2(ruta)}">
+          <button class="btn btn-primary btn-sm" id="sb-ruta-guardar">Guardar</button>
+        </div>
+        <p class="text-muted" style="font-size:12px;margin:4px 0 0 0">Se leen los archivos "movimiento*" (.xls/.xlsx/.zip) de esta carpeta, modificados hoy.</p>
+      </div>
+      <hr style="margin:16px 0">
+      <div class="table-wrap" style="max-height:40vh;overflow-y:auto">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Cuenta</th><th>Banco</th><th>Moneda</th><th>Sociedad</th><th>Nombre</th><th></th></tr></thead>
+          <tbody>
+            ${cuentas.map(c => `
+              <tr data-id="${c._id}">
+                <td>${esc2(c.cuenta)}</td>
+                <td>${esc2(c.banco)}</td>
+                <td>${esc2(c.moneda)}</td>
+                <td>${esc2(c.sociedad)}</td>
+                <td>${esc2(c.nombreCuenta)}</td>
+                <td><button class="btn-icon sb-cuenta-borrar" data-id="${c._id}" title="Eliminar" style="border:none;background:none;cursor:pointer;color:#ef4444">🗑️</button></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <hr style="margin:16px 0">
+      <div style="font-weight:600;margin-bottom:8px">➕ Agregar cuenta</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block">Cuenta (tal como aparece en el archivo del banco)</label>
+          <input type="text" id="sb-nueva-cuenta" class="form-control" style="width:200px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block">Banco</label>
+          <select id="sb-nueva-banco" class="form-control" style="width:100px">${BANCOS.map(b => `<option value="${b}">${b}</option>`).join('')}</select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block">Moneda</label>
+          <select id="sb-nueva-moneda" class="form-control" style="width:90px">${MONEDAS.map(m => `<option value="${m}">${m}</option>`).join('')}</select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block">Sociedad</label>
+          <select id="sb-nueva-sociedad" class="form-control" style="width:150px">
+            <option value="">— Elegir —</option>
+            ${(S.sociedades || []).map(s => `<option value="${esc2(s.codigo)}">${esc2(s.codigo)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block">Nombre (referencia)</label>
+          <input type="text" id="sb-nueva-nombre" class="form-control" style="width:180px" placeholder="ej. FACTORIAL K SAC">
+        </div>
+        <button class="btn btn-success btn-sm" id="sb-nueva-agregar">➕ Agregar</button>
+      </div>`;
+    openModal('Administrar Cuentas — Saldos Bancarios', html, null, { fullwide: true });
+
+    document.getElementById('sb-ruta-guardar').addEventListener('click', async () => {
+      try {
+        await PUT('/saldo-banco/config', { ruta: document.getElementById('sb-ruta').value });
+        toast('Ruta guardada', 'success');
+      } catch (e) { toast(e.message, 'error'); }
+    });
+    document.querySelectorAll('.sb-cuenta-borrar').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar esta cuenta del catálogo?')) return;
+        try {
+          await DEL(`/saldo-banco/cuentas/${btn.dataset.id}`);
+          const nuevas = await GET('/saldo-banco/cuentas');
+          renderAdmin(nuevas, document.getElementById('sb-ruta').value);
+        } catch (e) { toast(e.message, 'error'); }
+      });
+    });
+    document.getElementById('sb-nueva-agregar').addEventListener('click', async () => {
+      const cuenta = document.getElementById('sb-nueva-cuenta').value.trim();
+      const banco = document.getElementById('sb-nueva-banco').value;
+      const moneda = document.getElementById('sb-nueva-moneda').value;
+      const sociedad = document.getElementById('sb-nueva-sociedad').value;
+      const nombreCuenta = document.getElementById('sb-nueva-nombre').value.trim();
+      if (!cuenta || !sociedad) { toast('Completa cuenta y sociedad', 'error'); return; }
+      try {
+        await POST('/saldo-banco/cuentas', { cuenta, banco, moneda, sociedad, nombreCuenta });
+        const nuevas = await GET('/saldo-banco/cuentas');
+        renderAdmin(nuevas, document.getElementById('sb-ruta').value);
+        toast('Cuenta agregada', 'success');
+        cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  cargar();
+}
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -15941,6 +16130,12 @@ function showUserModal(user, onSave, opts = {}) {
             </label>`).join('')}
         </div>
       </div>
+      <div class="form-group"><label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+          <input type="checkbox" id="um-saldo-banco" ${user?.accesoSaldoBanco?'checked':''}
+            style="width:15px;height:15px;accent-color:var(--primary)">
+          <span>🏦 <strong>Saldos Bancarios</strong></span>
+        </label>
+      </div>
       <div class="form-group" id="um-socs-section"><label>Sociedades</label>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
           ${(S.sociedades||[]).map(soc => {
@@ -16129,6 +16324,7 @@ function showUserModal(user, onSave, opts = {}) {
       rolMaestroItems: document.getElementById('um-maestro-items-role').value,
       rolSeguimientoCompras: document.getElementById('um-rol-seguimiento-compras').value,
       rolCambioReceta: [...document.querySelectorAll('.um-cambio-receta-chk:checked')].map(c => c.value),
+      accesoSaldoBanco:     !isAdmin && (document.getElementById('um-saldo-banco')?.checked ?? false),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,
