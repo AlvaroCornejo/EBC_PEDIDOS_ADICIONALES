@@ -314,16 +314,11 @@ function renderNav() {
     : `<a href="#" class="nav-item" data-view="${n.id}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`
   ).join('');
   nav.querySelectorAll('.nav-item[data-view]').forEach(el => {
-    el.addEventListener('click', e => { e.preventDefault(); navigate(el.dataset.view); });
-  });
-
-  // Bottom nav (mobile)
-  const bn = document.getElementById('bottom-nav');
-  bn.innerHTML = visibles.filter(n => !n.href)   // externos no van en bottom nav
-    .map(n => `<button class="bn-item" data-view="${n.id}"><span class="bn-icon">${n.icon}</span><span class="bn-label">${n.label}</span></button>`)
-    .join('');
-  bn.querySelectorAll('.bn-item').forEach(el => {
-    el.addEventListener('click', () => navigate(el.dataset.view));
+    el.addEventListener('click', e => {
+      e.preventDefault();
+      navigate(el.dataset.view);
+      closeMobileNav(); // en mobile, el sidebar es el panel deslizante — se cierra al elegir
+    });
   });
 }
 
@@ -347,9 +342,6 @@ function renderPedidosTabs(container, activeId) {
 function setActiveNav(view) {
   const navId = PEDIDOS_TAB_IDS.includes(view) ? 'pedidos-adicionales' : view;
   document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.view === navId);
-  });
-  document.querySelectorAll('.bn-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === navId);
   });
 }
@@ -17629,4 +17621,19 @@ document.addEventListener('DOMContentLoaded', () => {
       location.reload(true);
     }
   });
+
+  // Menú móvil: hamburguesa abre/cierra el sidebar como panel deslizante
+  // (mismo listado de navegación que en desktop) — reemplaza a la franja
+  // horizontal con todos los ítems, que dejó de entrar bien con ~20 apps.
+  document.getElementById('bn-menu-btn').addEventListener('click', () => toggleMobileNav());
+  document.getElementById('mobile-nav-backdrop').addEventListener('click', () => closeMobileNav());
 });
+
+function toggleMobileNav() {
+  document.querySelector('.sidebar')?.classList.toggle('mobile-open');
+  document.getElementById('mobile-nav-backdrop')?.classList.toggle('show');
+}
+function closeMobileNav() {
+  document.querySelector('.sidebar')?.classList.remove('mobile-open');
+  document.getElementById('mobile-nav-backdrop')?.classList.remove('show');
+}

@@ -297,30 +297,58 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 .filter-bar select, .filter-bar input { padding: 7px 10px; border: 1.5px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 13px; }
 
 /* ─── Bottom Nav (mobile only) ───────────────────────────────── */
-.bottom-nav { display: none; }
+.bn-menu { display: none; }
+.mobile-nav-backdrop { display: none; }
 
 /* ─── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 768px) {
   :root { --sidebar-w: 0px; }
-  .sidebar { display: none; }
+
+  /* El sidebar deja de ocultarse — se reutiliza como panel deslizante
+     (el mismo listado de navegación que en desktop, con toda la lista de
+     apps disponibles), oculto fuera de pantalla hasta que se abre con el
+     botón hamburguesa. Antes esto se mostraba siempre como una franja
+     horizontal con todos los ítems — con ~20 ítems ya no entraba bien. */
+  .sidebar {
+    left: 0; transform: translateX(-100%);
+    width: 260px; max-width: 82vw;
+    transition: transform .22s ease;
+    z-index: 300;
+    box-shadow: 2px 0 16px rgba(0,0,0,.35);
+  }
+  .sidebar.mobile-open { transform: translateX(0); }
   .main-content { margin-left: 0; padding-bottom: 64px; }
 
-  /* Bottom nav */
-  .bottom-nav {
+  /* Fondo oscuro detrás del panel cuando está abierto — cierra al tocarlo */
+  .mobile-nav-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.4);
+    z-index: 290;
+  }
+  .mobile-nav-backdrop.show { display: block; }
+
+  /* Botón hamburguesa fijo a la izquierda, mismo estilo que el de refresh */
+  .bn-menu {
     display: flex;
     position: fixed;
-    bottom: 0; left: 0; right: 52px; /* deja espacio al botón refresh */
-    height: 60px;
+    bottom: 0; left: 0;
+    width: 52px; height: 60px;
     background: var(--sidebar);
+    border: none;
     border-top: 1px solid rgba(255,255,255,.1);
-    z-index: 200;
-    align-items: stretch;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    border-right: 1px solid rgba(255,255,255,.1);
+    color: #8892b0;
+    font-size: 22px;
+    cursor: pointer;
+    z-index: 201;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    transition: color .15s, background .15s;
   }
-  .bottom-nav::-webkit-scrollbar { display: none; }
+  .bn-menu:hover, .bn-menu:active { background: var(--sidebar-hover); color: #fff; }
 
-  /* Botón hard-refresh fijo a la derecha del bottom nav */
+  /* Botón hard-refresh fijo a la derecha */
   .bn-refresh {
     display: flex;
     position: fixed;
@@ -340,30 +368,6 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
     transition: color .15s, background .15s;
   }
   .bn-refresh:hover, .bn-refresh:active { background: var(--sidebar-hover); color: #fff; }
-
-  .bn-item {
-    flex: 1;
-    min-width: 60px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    color: #8892b0;
-    font-size: 10px;
-    font-weight: 500;
-    cursor: pointer;
-    border: none;
-    background: none;
-    padding: 6px 4px;
-    transition: color .15s, background .15s;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .bn-item:hover { background: var(--sidebar-hover); color: #fff; }
-  .bn-item.active { color: #fff; background: rgba(67,97,238,.25); }
-  .bn-item.active .bn-icon { color: var(--sidebar-active); }
-  .bn-icon { font-size: 20px; line-height: 1; }
-  .bn-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64px; }
 
   .pg-resumenes-footer { max-height: 60vh !important; }
 }
