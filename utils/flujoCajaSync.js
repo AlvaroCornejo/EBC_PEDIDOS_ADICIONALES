@@ -55,21 +55,29 @@ function claveMovimiento(m) {
 async function importarArchivoEstadoCuenta({ sociedad, banco, moneda, archivo }) {
   const movs = await leerMovimientoBanco(banco, archivo);
 
-  // La clasificación por glosa/ERP se puede recalcular sola (reconciliar()
-  // corre después de cada import), pero la manual (reclasificación o
-  // desglose) no tiene forma de recalcularse — se preserva "reconociendo"
-  // el mismo movimiento en la nueva carga por fecha+n°op+glosa+importe.
-  const manuales = await FlujoMovimientoBancario.find({ sociedad, banco, moneda, metodoAsignacion: 'manual' }).lean();
-  const manualesPorClave = new Map(manuales.map(m => [claveMovimiento(m), m]));
+  // Se preserva CUALQUIER asignación previa (manual, glosa o ERP) —
+  // reconciliar() vuelve a correr después de cada import, pero depende de
+  // catálogos que también son snapshot (ej. FlujoPagoERP, que puede no
+  // cubrir fechas viejas si el CSV de origen trae solo una ventana
+  // reciente) — si ya no puede re-derivar una clasificación automática que
+  // antes SÍ se había resuelto, el movimiento quedaría "sin asignar" de
+  // nuevo sin motivo real. Se "reconoce" el mismo movimiento en la nueva
+  // carga por fecha+n°op+glosa+importe, igual que antes se hacía solo para
+  // las manuales.
+  const previosAsignados = await FlujoMovimientoBancario.find({
+    sociedad, banco, moneda,
+    $or: [{ subdetalleCodigo: { $ne: null } }, { splits: { $exists: true, $not: { $size: 0 } } }],
+  }).lean();
+  const previosPorClave = new Map(previosAsignados.map(m => [claveMovimiento(m), m]));
 
   await FlujoMovimientoBancario.deleteMany({ sociedad, banco, moneda });
   const docs = movs.map(m => {
     const doc = { sociedad, banco, moneda, ...m };
-    const previo = manualesPorClave.get(claveMovimiento(doc));
+    const previo = previosPorClave.get(claveMovimiento(doc));
     if (previo) {
       doc.subdetalleCodigo = previo.subdetalleCodigo;
       doc.splits = previo.splits || [];
-      doc.metodoAsignacion = 'manual';
+      doc.metodoAsignacion = previo.metodoAsignacion || 'manual';
       doc.proveedor = previo.proveedor || '';
       doc.asignadoPor = previo.asignadoPor || '';
       doc.asignadoEn = previo.asignadoEn || null;
