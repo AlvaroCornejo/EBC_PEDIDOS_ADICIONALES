@@ -14442,11 +14442,11 @@ async function viewSaldoBanco(container) {
             <thead>
               <tr>
                 <th rowspan="2">Sociedad</th><th rowspan="2">Cuenta</th><th rowspan="2">Banco</th><th rowspan="2">Moneda</th>
-                ${PERIODOS.map(([, label], i) => `<th colspan="4" class="text-center" style="${i === 0 ? 'border-left:2px solid var(--border);' : ''}">${label}</th>`).join('')}
+                ${PERIODOS.map(([, label]) => `<th colspan="4" class="text-center" style="border-left:2px solid var(--border);">${label}</th>`).join('')}
               </tr>
               <tr>
-                ${PERIODOS.map((_, i) => `
-                  <th class="text-right" style="${i === 0 ? 'border-left:2px solid var(--border);' : ''}">Saldo Inicial</th>
+                ${PERIODOS.map(() => `
+                  <th class="text-right" style="border-left:2px solid var(--border);">Saldo Inicial</th>
                   <th class="text-right">Cargos</th>
                   <th class="text-right">Abonos</th>
                   <th class="text-right">Saldo Final</th>`).join('')}
@@ -14459,9 +14459,9 @@ async function viewSaldoBanco(container) {
                   <td>${esc2(f.cuenta)}${f.nombreCuenta ? ` <span class="text-muted" style="font-size:11px">(${esc2(f.nombreCuenta)})</span>` : ''}</td>
                   <td>${esc2(f.banco)}</td>
                   <td>${esc2(f.moneda)}</td>
-                  ${PERIODOS.map(([key], i) => {
+                  ${PERIODOS.map(([key]) => {
                     const p = f[key] || {};
-                    return `${tdM(p.saldoInicial).replace('<td', i === 0 ? '<td style="border-left:2px solid var(--border)"' : '<td')}${tdM(p.cargos)}${tdM(p.abonos)}${tdM(p.saldoFinal)}`;
+                    return `${tdM(p.saldoInicial).replace('<td', '<td style="border-left:2px solid var(--border)"')}${tdM(p.cargos)}${tdM(p.abonos)}${tdM(p.saldoFinal)}`;
                   }).join('')}
                 </tr>`).join('')}
             </tbody>
