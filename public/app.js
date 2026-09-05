@@ -14435,13 +14435,16 @@ async function viewSaldoBanco(container) {
       root.innerHTML = `<div class="card" style="padding:14px"><p class="text-muted" style="margin:0">Sin cuentas registradas en el catálogo. ${esAdmin ? 'Usa "⚙️ Administrar cuentas" para dar de alta la primera.' : 'Pide a un administrador que registre las cuentas.'}</p></div>`;
       return;
     }
+    const COLS = ['sb-col-0', 'sb-col-1', 'sb-col-2', 'sb-col-3'];
+    const thSticky = (i, label) => `<th rowspan="2" class="${COLS[i]}" style="position:sticky;left:0;z-index:3;background:#f8f9fc;${i > 0 ? 'border-left:1px solid var(--border);' : ''}">${label}</th>`;
+    const tdSticky = (i, idx, html) => `<td class="${COLS[i]}" style="position:sticky;left:0;z-index:1;background:${idx % 2 === 1 ? '#f1f5f9' : '#fff'};${i > 0 ? 'border-left:1px solid var(--border);' : ''}">${html}</td>`;
     root.innerHTML = `
       <div class="card" style="padding:14px">
         <div style="overflow-x:auto">
           <table class="data-table" style="font-size:12px;white-space:nowrap">
             <thead>
               <tr>
-                <th rowspan="2">Sociedad</th><th rowspan="2">Cuenta</th><th rowspan="2">Banco</th><th rowspan="2">Moneda</th>
+                ${thSticky(0, 'Sociedad')}${thSticky(1, 'Cuenta')}${thSticky(2, 'Banco')}${thSticky(3, 'Moneda')}
                 ${PERIODOS.map(([, label]) => `<th colspan="4" class="text-center" style="border-left:2px solid var(--border);">${label}</th>`).join('')}
               </tr>
               <tr>
@@ -14453,12 +14456,12 @@ async function viewSaldoBanco(container) {
               </tr>
             </thead>
             <tbody>
-              ${data.filas.map(f => `
+              ${data.filas.map((f, idx) => `
                 <tr>
-                  <td>${esc2(f.sociedad)}</td>
-                  <td>${esc2(f.cuenta)}${f.nombreCuenta ? ` <span class="text-muted" style="font-size:11px">(${esc2(f.nombreCuenta)})</span>` : ''}</td>
-                  <td>${esc2(f.banco)}</td>
-                  <td>${esc2(f.moneda)}</td>
+                  ${tdSticky(0, idx, esc2(f.sociedad))}
+                  ${tdSticky(1, idx, esc2(f.cuenta) + (f.nombreCuenta ? ` <span class="text-muted" style="font-size:11px">(${esc2(f.nombreCuenta)})</span>` : ''))}
+                  ${tdSticky(2, idx, esc2(f.banco))}
+                  ${tdSticky(3, idx, esc2(f.moneda))}
                   ${PERIODOS.map(([key]) => {
                     const p = f[key] || {};
                     return `${tdM(p.saldoInicial).replace('<td', '<td style="border-left:2px solid var(--border)"')}${tdM(p.cargos)}${tdM(p.abonos)}${tdM(p.saldoFinal)}`;
@@ -14468,6 +14471,21 @@ async function viewSaldoBanco(container) {
           </table>
         </div>
       </div>`;
+    aplicarStickyOffsets();
+  }
+
+  // Calcula el left de cada columna fija (Sociedad/Cuenta/Banco/Moneda) según
+  // el ancho real ya renderizado de la columna anterior — los anchos son
+  // variables (dependen del contenido), así que no se puede fijar en CSS.
+  function aplicarStickyOffsets() {
+    const COLS = ['sb-col-0', 'sb-col-1', 'sb-col-2', 'sb-col-3'];
+    let left = 0;
+    COLS.forEach((cls) => {
+      const el = root.querySelector(`.${cls}`);
+      if (!el) return;
+      root.querySelectorAll(`.${cls}`).forEach(e => { e.style.left = `${left}px`; });
+      left += el.getBoundingClientRect().width;
+    });
   }
 
   // ── Admin: catálogo de cuentas + ruta de Descargas ────────────────────
