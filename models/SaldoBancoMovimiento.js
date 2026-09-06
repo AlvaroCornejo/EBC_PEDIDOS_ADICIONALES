@@ -15,7 +15,11 @@ const saldoBancoMovimientoSchema = new mongoose.Schema({
   glosa:    { type: String, default: '' },
   importe:  { type: Number, required: true }, // con signo
   saldo:    { type: Number, required: true }, // saldo tras este movimiento
+  // Orden cronológico dentro del import (la fecha del banco solo trae día,
+  // sin hora, así que con varios movimientos el mismo día "fecha" no basta
+  // para saber cuál fue el último — seq lo preserva).
+  seq:      { type: Number, default: 0 },
 });
-saldoBancoMovimientoSchema.index({ cuenta: 1, fecha: 1 });
+saldoBancoMovimientoSchema.index({ cuenta: 1, fecha: 1, seq: 1 });
 
 module.exports = mongoose.model('SaldoBancoMovimiento', saldoBancoMovimientoSchema);

@@ -52,7 +52,7 @@ async function main() {
       }
       const docs = r.movimientos.map(m => ({
         cuenta: r.cuenta, sociedad: cat.sociedad, banco: cat.banco, moneda: cat.moneda,
-        fecha: m.fecha, glosa: m.glosa, importe: m.importe, saldo: m.saldo,
+        fecha: m.fecha, glosa: m.glosa, importe: m.importe, saldo: m.saldo, seq: m.seq,
       }));
       await SaldoBancoMovimiento.deleteMany({ cuenta: r.cuenta });
       if (docs.length) await SaldoBancoMovimiento.insertMany(docs, { ordered: false });

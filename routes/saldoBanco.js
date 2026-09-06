@@ -98,7 +98,10 @@ function rangoPeriodo(fecha, tipo) {
     hasta: new Date(Date.UTC(d.getUTCFullYear(), 11, 31)),
   };
 }
-// movsOrdenados: movimientos de la cuenta, ordenados por fecha ascendente
+// movsOrdenados: movimientos de la cuenta, ordenados por fecha+seq ascendente
+// (seq desempata movimientos del mismo día, ya que la fecha del banco no
+// trae hora — sin eso, el último de un día con varios movimientos podía
+// quedar mal elegido y el saldo final salía incorrecto).
 function resumenPeriodo(movsOrdenados, desde, hasta) {
   const antes = movsOrdenados.filter(m => m.fecha < desde);
   const hastaIncl = movsOrdenados.filter(m => m.fecha <= hasta);
@@ -125,7 +128,7 @@ router.get('/resumen', async (req, res) => {
     const rangoHasta = new Date(periodos['año'].hasta); rangoHasta.setUTCDate(rangoHasta.getUTCDate() + 7);
 
     const cuentas = await SaldoCuentaBanco.find({}).sort({ sociedad: 1, banco: 1 }).lean();
-    const movs = await SaldoBancoMovimiento.find({ fecha: { $gte: rangoDesde, $lte: rangoHasta } }).sort({ fecha: 1 }).lean();
+    const movs = await SaldoBancoMovimiento.find({ fecha: { $gte: rangoDesde, $lte: rangoHasta } }).sort({ fecha: 1, seq: 1 }).lean();
     const movsPorCuenta = {};
     movs.forEach(m => { (movsPorCuenta[m.cuenta] || (movsPorCuenta[m.cuenta] = [])).push(m); });
 

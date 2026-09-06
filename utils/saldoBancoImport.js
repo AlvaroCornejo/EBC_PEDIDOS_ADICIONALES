@@ -136,7 +136,11 @@ function parseBCP_XLSX(ws) {
     if (!Number.isFinite(importe) || !Number.isFinite(saldo)) return;
     movimientos.push({ fecha, glosa: String(cellVal(row.getCell(colDesc)?.value) ?? '').trim(), importe, saldo });
   });
-  movimientos.sort((a, b) => a.fecha - b.fecha);
+  // El archivo viene DESCENDENTE (más nuevo primero) — revertir alcanza para
+  // dejarlo ascendente sin perder el orden real dentro de un mismo día (un
+  // .sort() por fecha sola no distingue movimientos del mismo día entre sí,
+  // ya que la fecha del banco no trae hora).
+  movimientos.reverse();
   return { cuenta, moneda, nombreCuenta, movimientos };
 }
 
@@ -208,6 +212,7 @@ function detectarBancoXLSX(ws) {
  */
 async function leerArchivoMovimientos(filePath) {
   const ext = path.extname(filePath).toLowerCase();
+  let resultado;
 
   if (ext === '.zip') {
     const zip = new AdmZip(filePath);
@@ -219,30 +224,32 @@ async function leerArchivoMovimientos(filePath) {
     const ws = wb.worksheets[0];
     const banco = detectarBancoXLSX(ws) || 'IBK'; // el único caso conocido en zip, por ahora
     const datos = banco === 'IBK' ? parseIBK_XLSX(ws) : parseBCP_XLSX(ws);
-    return { banco, ...datos };
-  }
-
-  if (ext === '.xls') {
+    resultado = { banco, ...datos };
+  } else if (ext === '.xls') {
     const buf = fs.readFileSync(filePath);
     const inicioTxt = buf.slice(0, 200).toString('latin1').trim().toLowerCase();
     if (!inicioTxt.startsWith('<table') && !inicioTxt.includes('<table')) {
       throw new Error('.xls no reconocido (no es la tabla HTML de BBVA)');
     }
     const datos = parseBBVA_HTML(buf);
-    return { banco: 'BBVA', ...datos };
-  }
-
-  if (ext === '.xlsx') {
+    resultado = { banco: 'BBVA', ...datos };
+  } else if (ext === '.xlsx') {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(filePath);
     const ws = wb.worksheets[0];
     const banco = detectarBancoXLSX(ws);
     if (!banco) throw new Error('.xlsx no reconocido (ni BCP ni IBK)');
     const datos = banco === 'BCP' ? parseBCP_XLSX(ws) : parseIBK_XLSX(ws);
-    return { banco, ...datos };
+    resultado = { banco, ...datos };
+  } else {
+    throw new Error(`Extensión no soportada: ${ext}`);
   }
 
-  throw new Error(`Extensión no soportada: ${ext}`);
+  // seq preserva el orden cronológico real dentro del archivo — la fecha del
+  // banco no trae hora, y ni insertMany({ordered:false}) ni un sort por
+  // fecha sola garantizan mantener el orden entre movimientos del mismo día.
+  resultado.movimientos.forEach((m, i) => { m.seq = i; });
+  return resultado;
 }
 
 /**
