@@ -14394,7 +14394,8 @@ async function viewSaldoBanco(container) {
   const MONEDAS = ['PEN', 'USD'];
   const PERIODOS = [['dia', 'Día'], ['semana', 'Semana'], ['mes', 'Mes'], ['año', 'Año']];
 
-  let fechaSel = new Date().toISOString().slice(0, 10);
+  const ayer = new Date(); ayer.setDate(ayer.getDate() - 1);
+  let fechaSel = ayer.toISOString().slice(0, 10);
 
   const esc2 = s => esc(String(s ?? ''));
   const fmtMoney = v => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -16140,12 +16141,6 @@ function showUserModal(user, onSave, opts = {}) {
             </label>`).join('')}
         </div>
       </div>
-      <div class="form-group"><label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
-          <input type="checkbox" id="um-saldo-banco" ${user?.accesoSaldoBanco?'checked':''}
-            style="width:15px;height:15px;accent-color:var(--primary)">
-          <span>🏦 <strong>Saldos Bancarios</strong></span>
-        </label>
-      </div>
       <div class="form-group" id="um-socs-section"><label>Sociedades</label>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
           ${(S.sociedades||[]).map(soc => {
@@ -16268,6 +16263,11 @@ function showUserModal(user, onSave, opts = {}) {
             <input type="checkbox" id="um-conciliacion" ${user?.accesoConciliacion?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🏦 <strong>Conciliación de Cobranzas</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-saldo-banco" ${user?.accesoSaldoBanco?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🏦 <strong>Saldos Bancarios</strong></span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-maestros" ${(user?.sociedadesMaestros||[]).length>0?'checked':''}
@@ -17629,7 +17629,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Logout
   document.getElementById('logout-btn').addEventListener('click', logout);
 
-  // Hard refresh (bottom nav mobile)
+  // Hard refresh (opción dentro del panel deslizante móvil)
   document.getElementById('bn-refresh-btn').addEventListener('click', () => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(regs => {
