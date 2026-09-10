@@ -9,19 +9,19 @@ const router = express.Router();
 router.use(auth);
 
 function requireAccess(req, res, next) {
-  if (req.user.role === 'ADMIN' || req.user.puedeVerCosteoRecetas || (req.user.rolCambioReceta || []).length) return next();
+  if (req.user.role === 'ADMIN' || req.user.puedeVerCosteoRecetas || req.user.rolCambioReceta) return next();
   return res.status(403).json({ error: 'Sin acceso al Costeo de Recetas' });
 }
 router.use(requireAccess);
 
 function puedeSolicitar(user) {
-  return user.role === 'ADMIN' || (user.rolCambioReceta || []).includes('solicitante');
+  return user.role === 'ADMIN' || ['solicitante', 'admin'].includes(user.rolCambioReceta);
 }
 function puedeAprobar(user) {
-  return user.role === 'ADMIN' || (user.rolCambioReceta || []).includes('aprobador');
+  return user.role === 'ADMIN' || ['aprobador', 'admin'].includes(user.rolCambioReceta);
 }
 function puedeRegistrar(user) {
-  return user.role === 'ADMIN' || (user.rolCambioReceta || []).includes('registrador');
+  return user.role === 'ADMIN' || ['registrador', 'admin'].includes(user.rolCambioReceta);
 }
 
 /** Operaciones autorizadas del usuario (null = todas) */

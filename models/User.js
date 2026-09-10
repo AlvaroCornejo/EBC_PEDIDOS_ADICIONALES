@@ -36,11 +36,11 @@ const userSchema = new mongoose.Schema({
   rolMaestroItems:      { type: String, default: '' },
   sociedadesMaestros:   { type: [String], default: [] },
   rolSeguimientoCompras: { type: String, default: '', enum: ['', 'carga', 'aprobacion', 'consulta', 'admin'] },
-  // Array (no un solo rol) porque son 3 roles combinables independientes:
-  // solicitante, aprobador, registrador (el que anota el cambio en el ERP,
-  // último paso del flujo) — un usuario puede tener uno, dos o los tres.
-  rolCambioReceta:       { type: [String], default: [], enum: ['solicitante', 'aprobador', 'registrador'] },
+  // 'admin' = los 3 pasos (solicitante, aprobador, registrador que anota el
+  // cambio en el ERP); mismo patrón single-select que rolPago/rolCaja/etc.
+  rolCambioReceta:       { type: String, default: '', enum: ['', 'solicitante', 'aprobador', 'registrador', 'admin'] },
   accesoSaldoBanco:      { type: Boolean, default: false },
+  accesoFlujoCaja:       { type: Boolean, default: false },
 });
 
 module.exports = mongoose.model('User', userSchema);

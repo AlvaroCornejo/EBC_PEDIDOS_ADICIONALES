@@ -18,7 +18,7 @@ const router = express.Router();
 router.use(auth);
 
 function requireAccess(req, res, next) {
-  if (req.user.role === 'ADMIN' || req.user.rolPago) return next();
+  if (req.user.role === 'ADMIN' || req.user.rolPago || req.user.accesoFlujoCaja) return next();
   return res.status(403).json({ error: 'Sin acceso a Flujo de Caja' });
 }
 router.use(requireAccess);

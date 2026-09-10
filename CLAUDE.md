@@ -844,3 +844,35 @@ efectivo del sidebar (`pedidos-adicionales`) cuando el view activo es uno de los
 tabs, para que el ítem quede resaltado. Click en el item del sidebar
 (`navigate('pedidos-adicionales')`) resuelve al primer tab accesible para el usuario
 (`pedidosDefaultTab()`, mismo criterio por rol que ya usa `canSeeNav`).
+
+### Sesión 14 — Admin de Usuarios: Cambio de Receta a dropdown + permiso propio de Flujo de Caja
+
+**`rolCambioReceta` pasa de checkboxes (array) a un solo `<select>`**, mismo patrón
+que `rolPago`/`rolCaja`/`rolMaestroItems`/etc. (`CAMBIO_RECETA_ROLES` en `app.js`,
+opción `admin` = los 3 pasos a la vez). Verificado contra Mongo antes del cambio:
+0 usuarios tenían más de un valor marcado, así que no hubo pérdida de datos en la
+migración. **Bug real encontrado de paso**: `routes/auth.js` (`buildPayload`, usado
+tanto en login como en refresh de token) nunca incluía `rolCambioReceta` en el JWT
+— `req.user.rolCambioReceta` era `undefined` en todo request, así que los permisos
+de Solicitante/Aprobador/Registrador de Cambio de Receta **nunca funcionaron** para
+nadie que no fuera ADMIN o tuviera `puedeVerCosteoRecetas`, desde que se implementó
+en la Sesión 7 original. Se corrigió agregando el campo al payload.
+
+**Flujo de Caja gana un permiso propio** (`accesoFlujoCaja`, boolean, mismo patrón
+que `accesoSaldoBanco`/`accesoConciliacion`): antes solo se podía ver teniendo
+`rolPago` (heredado de Gestión de Pagos, sin forma de otorgarlo por separado). Ahora
+`routes/flujoCaja.js` acepta `role===ADMIN || rolPago || accesoFlujoCaja`, y el nav
+item usa `extraPermAny: ['rolPago', 'accesoFlujoCaja']` — no rompe a nadie que ya
+tuviera acceso vía `rolPago`. El scoping de sociedades sigue siendo `sociedadesPago`
+(mismo campo que ya usa Gestión de Pagos; se llena desde la sección "Sociedades" del
+form de usuario, independiente de qué checkbox de función esté marcado — mismo
+mecanismo que ya usan Precios de Compra/Conciliación/Maestro de Ítems). Nota: un
+usuario con solo `accesoFlujoCaja` (sin `rolPago` en `['programador','admin']`) ve
+Flujo de Caja pero no puede asignar/reconciliar movimientos (`puedeAsignar` en
+`viewFlujoCaja` sigue exigiendo `rolPago`) — de facto queda como acceso de solo
+consulta, que es el caso de uso que se pidió.
+
+**No committeado en esta sesión** (cambios preexistentes del usuario, ajenos a esta
+tarea): `public/index.html`/`public/styles.css` tenían modificaciones sin commitear
+(mover el botón "Recargar app" al panel deslizante móvil) — se dejaron intactas y
+fuera del commit de esta sesión.

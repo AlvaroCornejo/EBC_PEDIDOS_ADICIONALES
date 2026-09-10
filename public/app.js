@@ -13,7 +13,7 @@ const CAJA_ROLES  = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULT
 const OBLIG_ROLES = [['','— Sin acceso —'],['autorizador','Autorizador de Pagos']];
 const MAESTRO_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante'],['validador','Validador de cuentas'],['registrador','Registrador ERP'],['admin','Administrador']];
 const SEGUIMIENTO_COMPRAS_ROLES = [['','— Sin acceso —'],['carga','Carga (Pedido Tienda)'],['aprobacion','Aprobación'],['consulta','Consulta'],['admin','Administrador (todo)']];
-const CAMBIO_RECETA_ROLES = [['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['registrador','Registrador (anota el cambio en el ERP)']];
+const CAMBIO_RECETA_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['registrador','Registrador (anota el cambio en el ERP)'],['admin','Administrador (todo)']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 // Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
 // iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
@@ -277,7 +277,7 @@ const NAV_ITEMS = [
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
   { id: 'maestro-items',  label: 'Maestro de Ítems', icon: '🗂️', roles: [ROLES.ADMIN], extraPerm: 'rolMaestroItems' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
-  { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
+  { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPermAny: ['rolPago', 'accesoFlujoCaja'] },
   { id: 'seguimiento-compras', label: 'Seguimiento de Compras', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'rolSeguimientoCompras' },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'caja',          label: 'Cierre de Caja',  icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['rolCaja', 'accesoOficina', 'accesoDepositos'] },
@@ -4270,9 +4270,9 @@ async function viewCostoRecetas(container) {
   let tabActual = 'costeo'; // 'costeo' | 'solicitudes'
   let filtroSolEstado = 'pendiente';
 
-  const puedeSolicitarCambio = S.user.role === 'ADMIN' || (S.user.rolCambioReceta || []).includes('solicitante');
-  const puedeAprobarCambio = S.user.role === 'ADMIN' || (S.user.rolCambioReceta || []).includes('aprobador');
-  const puedeRegistrarCambio = S.user.role === 'ADMIN' || (S.user.rolCambioReceta || []).includes('registrador');
+  const puedeSolicitarCambio = S.user.role === 'ADMIN' || ['solicitante','admin'].includes(S.user.rolCambioReceta);
+  const puedeAprobarCambio = S.user.role === 'ADMIN' || ['aprobador','admin'].includes(S.user.rolCambioReceta);
+  const puedeRegistrarCambio = S.user.role === 'ADMIN' || ['registrador','admin'].includes(S.user.rolCambioReceta);
   const tieneAccesoCambios = puedeSolicitarCambio || puedeAprobarCambio || puedeRegistrarCambio;
 
   const esc2 = s => esc(String(s ?? ''));
@@ -16133,13 +16133,10 @@ function showUserModal(user, onSave, opts = {}) {
           ${SEGUIMIENTO_COMPRAS_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolSeguimientoCompras||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group"><label>Cambio de Receta</label>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
-          ${CAMBIO_RECETA_ROLES.map(([k,v])=>`
-            <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-              <input type="checkbox" class="um-cambio-receta-chk" value="${k}" ${(user?.rolCambioReceta||[]).includes(k)?'checked':''}> ${v}
-            </label>`).join('')}
-        </div>
+      <div class="form-group"><label>Rol para Cambio de Receta</label>
+        <select id="um-rol-cambio-receta">
+          ${CAMBIO_RECETA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCambioReceta||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
       </div>
       <div class="form-group" id="um-socs-section"><label>Sociedades</label>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
@@ -16270,6 +16267,11 @@ function showUserModal(user, onSave, opts = {}) {
             <span>🏦 <strong>Saldos Bancarios</strong></span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-flujo-caja" ${user?.accesoFlujoCaja?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>💵 <strong>Flujo de Caja</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-maestros" ${(user?.sociedadesMaestros||[]).length>0?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🗂️ <strong>Maestro de Ítems (por sociedad)</strong></span>
@@ -16333,8 +16335,9 @@ function showUserModal(user, onSave, opts = {}) {
       rolPago:      document.getElementById('um-pago-role').value,
       rolMaestroItems: document.getElementById('um-maestro-items-role').value,
       rolSeguimientoCompras: document.getElementById('um-rol-seguimiento-compras').value,
-      rolCambioReceta: [...document.querySelectorAll('.um-cambio-receta-chk:checked')].map(c => c.value),
+      rolCambioReceta: document.getElementById('um-rol-cambio-receta').value,
       accesoSaldoBanco:     !isAdmin && (document.getElementById('um-saldo-banco')?.checked ?? false),
+      accesoFlujoCaja:      !isAdmin && (document.getElementById('um-flujo-caja')?.checked ?? false),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       rolCaja:          isAdmin ? '' : document.getElementById('um-rol-caja').value,
