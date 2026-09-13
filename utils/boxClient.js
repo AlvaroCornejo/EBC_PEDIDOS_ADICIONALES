@@ -6,7 +6,13 @@
 // (utils/sendEmail.js): boxClientId, boxClientSecret, boxEnterpriseId,
 // cierreContableRutaBoxBase (ej. "Cierre Contable" — carpeta raíz visible para la Service
 // Account de la app, ya colaborada desde el Box Admin Console).
+const dns = require('dns');
 const Config = require('../models/Config');
+
+// La API de Box quedó inalcanzable (ETIMEDOUT) probando una ruta IPv6 poco confiable en
+// una red real — forzar IPv4 primero evita ese timeout sin depender de la suerte del
+// resolutor por defecto de Node (verificado en la sesión de pruebas de este módulo).
+dns.setDefaultResultOrder('ipv4first');
 
 let cachedToken = null; // { token, expiresAt }
 
