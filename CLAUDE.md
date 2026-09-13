@@ -876,3 +876,97 @@ consulta, que es el caso de uso que se pidió.
 tarea): `public/index.html`/`public/styles.css` tenían modificaciones sin commitear
 (mover el botón "Recargar app" al panel deslizante móvil) — se dejaron intactas y
 fuera del commit de esta sesión.
+
+### Sesión 15 — Control de Actividades y Calendario de Cierre Contable
+
+Nuevo módulo para controlar las actividades del cierre contable mensual: qué hay
+que hacer, quién es responsable, cuándo vence, si requiere adjunto, y si ya se
+cumplió. Construido en rama `feature/cierre-contable` (no mergeada a `main` a
+propósito hasta que el usuario lo apruebe — este módulo toca un flujo nuevo grande,
+no vale la pena arriesgar el auto-deploy sin revisión). Reutiliza a propósito los
+patrones de Pedidos Adicionales (permisos, notificaciones `sendPush`+`sendEmail`,
+catálogos admin estilo Sociedades) en vez de inventar convenciones nuevas.
+
+**Modelos nuevos** (`models/`): `Proceso` (catálogo simple `{codigo,nombre}`, 7
+valores seed vía `scripts/seedProcesos.js`), `Actividad` (plantilla del mes
+vigente, con `nivelAsignacion: SOCIEDAD|OPERACION` y `reglaVencimiento:
+{tipo: FECHA_FIJA|DIA_HABIL, ...}`), `CierreMensual` (histórico congelado por
+`periodo` único), `ActividadCierre` (instancia mensual operativa —
+`estado: PENDIENTE|CUMPLIDA|REABIERTA`; "Vencida"/"Cumplida a tiempo"/"Cumplida
+tarde" **no se persisten**, se derivan al vuelo en `utils/fechaLima.js:
+estadoDerivado()` comparando contra la hora actual, ya que esta app no tiene
+scheduler interno), `AsignacionResponsable`/`AsignacionConsulta` (usuario × alcance
+`TODAS|SOCIEDAD|OPERACION`, resueltas en vivo contra la BD en cada request —
+nunca contra el JWT, para no repetir el bug de `buildPayload()` de la Sesión 14),
+`Adjunto` (historial nunca se borra), `DiaNoLaborable` (unifica feriados oficiales
+y adicionales en un solo modelo con `origen: FERIADO_OFICIAL|ADICIONAL`, a
+diferencia del pedido original que los separaba — simplifica el cálculo de día
+hábil a una sola consulta).
+
+**Backend** (`routes/cierreContable.js`, montado en `/api/cierre-contable`,
+un solo archivo consolidado igual que `routes/caja.js`): CRUD de
+procesos/actividades/días no laborables, `POST /cierres/generar` (congela
+actividades activas en instancias con fecha ya resuelta), `PUT
+/actividades-cierre/:id/cumplir` (bloquea sin adjunto si es obligatorio, solo el
+responsable asignado o ADMIN), `POST .../reabrir` (solo ADMIN, notifica),
+`POST .../adjuntos` (multer en memoria, sube directo a Box, nunca toca `data/`),
+`POST /dias-no-laborables/sincronizar-feriados` (API pública de Nager.Date, Perú).
+
+**Bug real encontrado probando el módulo end-to-end** (antes de cualquier uso
+real): el filtro por Sociedad/Operación en `GET /actividades-cierre` comparaba el
+campo crudo de la instancia — una actividad de nivel SOCIEDAD (con
+`operacionCodigo` vacío) desaparecía al filtrar por una de sus operaciones, y
+viceversa. Se corrigió reutilizando la misma función de cobertura
+(`asignacionCubreInstancia`) que ya resolvía este caso para las asignaciones de
+responsables/consulta — construyendo un "filtro" sintético con la misma forma.
+
+**`utils/fechaLima.js`** (nuevo, sin dependencia externa — Perú no tiene horario de
+verano, un helper con `Intl.DateTimeFormat('en-CA', {timeZone:'America/Lima'})`
+basta): `hoyLima()`, `diasHabilesDelMes(periodo)` (calculado una sola vez por
+periodo al generar el mes, no por actividad), `calcularDiaHabilN()`,
+`estadoDerivado()`.
+
+**`utils/boxClient.js`** (nuevo — primera integración real con la API de Box de
+todo el repo; hasta ahora Box solo se usaba como carpeta de red sincronizada por
+`.bat`): implementado con `fetch` nativo en vez de `box-node-sdk` (cero
+dependencias nuevas, mismo criterio que `scripts/syncTipoCambio.js`). Server
+Authentication vía Client Credentials Grant. **Nivel de acceso de la app:
+"Aplicación + Empresa" (no "Solo aplicación")** — se probó primero con "Solo
+aplicación" y requiere `box_subject_type=user` con el ID exacto de la cuenta de
+servicio (Box no lo expone en ningún lado fácil de encontrar sin ya tener un
+token — problema del huevo y la gallina); con "Aplicación + Empresa" solo hace
+falta `box_subject_type=enterprise` + el Enterprise ID, visible en Box Admin
+Console → Cuenta y facturación → "ID de empresa". **`dns.setDefaultResultOrder
+('ipv4first')`** agregado tras un `ETIMEDOUT` real probando contra la API de Box
+(ruta IPv6 poco confiable). Credenciales guardadas en `Config` (reutiliza
+`GET/PUT /api/config` genérico, sin ruta nueva) — keys `boxClientId`,
+`boxClientSecret`, `boxEnterpriseId`, `cierreContableRutaBoxBase` (el ID de la
+carpeta raíz en Box, `0` = raíz del espacio de la Service Account, no una ruta de
+texto). **El link compartido de cada adjunto usa `access:'open'` (no
+`'company'`)** a pedido explícito del usuario — muchos usuarios de la app no
+tienen licencia de Box, así que el link tiene que abrirse sin sesión de Box.
+
+**Frontend** (`public/app.js`, prefijo `_ccm*`/`ccm*` — `cc*` ya lo usa
+Conciliación): nav item `cierreContable` (visible para ADMIN o para quien tenga
+alguna asignación — `S.user.cierreContableAcceso` se llena con una llamada extra a
+`GET /cierre-contable/mi-acceso` en `showApp()`, igual patrón que
+`loadSociedades()`; no viaja en el JWT). Tablero matriz Proceso×Operación con
+filtros (periodo/sociedad/operación/proceso se re-consultan al servidor;
+responsable/estado se filtran en el cliente sobre el último fetch, sin ida extra
+al servidor). Una actividad de nivel Sociedad se repite visualmente en cada
+columna de operación de esa sociedad (🏢), resuelto en el cliente con la misma
+lógica de cobertura que el backend. Admin → pestaña "📅 Cierre Contable"
+(estilo multi-sección como `renderAdminFlujoCaja`): Procesos, Actividades,
+Días No Laborables + sync feriados, Generar Nuevo Mes, Responsables, Consultas,
+Configuración de Box.
+
+**Probado end-to-end contra la base de datos real** (no una de prueba — se
+evaluó el riesgo primero: todo lo que escribe el módulo va a colecciones nuevas,
+sin `deleteMany`/`updateMany` sin filtro en ningún lado; lo único que toca una
+colección compartida es `Config`, solo agregando keys nuevas) con un usuario
+ADMIN temporal (borrado al terminar): generación de mes, cálculo de día hábil
+cruzando de mes, cumplir/reabrir/re-cumplir, bloqueo de adjunto obligatorio,
+asignación de responsables, filtros del tablero, y subida real de un archivo a
+Box con link público — todos los datos de prueba (usuario, actividades, cierres,
+archivos en Box) se borraron al terminar. Las credenciales de Box configuradas
+quedaron guardadas (son las reales, no de prueba).
