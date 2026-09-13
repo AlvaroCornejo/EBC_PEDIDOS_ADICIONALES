@@ -320,12 +320,23 @@ router.get('/actividades-cierre', async (req, res) => {
       periodo = ultimo.periodo;
     }
     const filtro = { cierreId: (await CierreMensual.findOne({ periodo }).lean())?.id || '__ninguno__' };
-    if (req.query.sociedad) filtro.sociedadCodigo = req.query.sociedad;
-    if (req.query.operacion) filtro.operacionCodigo = req.query.operacion;
     if (req.query.proceso) filtro.procesoCodigo = req.query.proceso;
 
     let instancias = await ActividadCierre.find(filtro).lean();
     const operacionASociedad = await mapaOperacionASociedad();
+
+    // Filtro por sociedad/operación: NO se puede comparar el campo crudo (una actividad
+    // de nivel SOCIEDAD tiene operacionCodigo vacío pero igual "aplica" a cada una de sus
+    // operaciones, y viceversa no aplica) — se resuelve con la misma lógica de cobertura
+    // que ya usamos para las asignaciones de responsables/consulta.
+    if (req.query.sociedad || req.query.operacion) {
+      const filtroAlcance = {
+        scope: req.query.operacion ? 'OPERACION' : 'SOCIEDAD',
+        operacionCodigo: req.query.operacion || '',
+        sociedadCodigo: req.query.sociedad || '',
+      };
+      instancias = instancias.filter(inst => asignacionCubreInstancia(filtroAlcance, inst, operacionASociedad));
+    }
 
     // Scoping por usuario (ADMIN ve todo).
     if (req.user.role !== 'ADMIN') {
