@@ -9,9 +9,11 @@ const actividadSchema = new mongoose.Schema({
   descripcion: { type: String, default: '' },
   procesoCodigo: { type: String, required: true },
 
-  nivelAsignacion: { type: String, required: true, enum: ['SOCIEDAD', 'OPERACION'] },
-  sociedadCodigo:  { type: String, default: '' },  // requerido si nivelAsignacion=SOCIEDAD
-  operacionCodigo: { type: String, default: '' },  // requerido si nivelAsignacion=OPERACION
+  // TODAS = toda sociedad/operación existente o futura (no hay que reeditar la actividad
+  // si se crea una sociedad nueva). SOCIEDAD admite una o varias (sociedadCodigos).
+  nivelAsignacion: { type: String, required: true, enum: ['SOCIEDAD', 'OPERACION', 'TODAS'] },
+  sociedadCodigos: { type: [String], default: [] }, // 1+ códigos si nivelAsignacion=SOCIEDAD
+  operacionCodigo: { type: String, default: '' },   // requerido si nivelAsignacion=OPERACION
 
   reglaVencimiento: {
     tipo:      { type: String, required: true, enum: ['FECHA_FIJA', 'DIA_HABIL'] },

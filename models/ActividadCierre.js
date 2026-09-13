@@ -11,8 +11,8 @@ const actividadCierreSchema = new mongoose.Schema({
 
   nombre:          { type: String, required: true },
   procesoCodigo:   { type: String, required: true },
-  nivelAsignacion: { type: String, required: true, enum: ['SOCIEDAD', 'OPERACION'] },
-  sociedadCodigo:  { type: String, default: '' },
+  nivelAsignacion: { type: String, required: true, enum: ['SOCIEDAD', 'OPERACION', 'TODAS'] },
+  sociedadCodigos: { type: [String], default: [] },
   operacionCodigo: { type: String, default: '' },
 
   fechaLimite: { type: String, required: true }, // 'YYYY-MM-DD'

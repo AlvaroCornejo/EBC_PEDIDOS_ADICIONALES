@@ -12541,6 +12541,13 @@ function ccmBadge(estado) {
   return `<span class="badge" style="background:${c.bg};color:${c.color}">${esc(c.label)}</span>`;
 }
 
+// Texto de alcance de una Actividad/ActividadCierre (TODAS|SOCIEDAD con 1+ códigos|OPERACION).
+function ccmAlcanceTexto(a) {
+  if (a.nivelAsignacion === 'TODAS') return '🏢 Todas las sociedades';
+  if (a.nivelAsignacion === 'SOCIEDAD') return `🏢 ${(a.sociedadCodigos || []).map(esc).join(', ')}`;
+  return esc(a.operacionCodigo);
+}
+
 // Se llama una vez al iniciar sesión (showApp), igual que loadSociedades(), para saber si
 // hay que mostrar el nav item — no se guarda en el JWT (ver rutas de asignaciones en
 // routes/cierreContable.js: se resuelven en vivo, nunca se confía en el token para esto).
@@ -12640,14 +12647,15 @@ function ccmRenderTablero() {
               ${operaciones.map(o => {
                 const enCelda = filtradas
                   .filter(a => a.procesoCodigo === p.codigo && (
+                    a.nivelAsignacion === 'TODAS' ||
                     (a.nivelAsignacion === 'OPERACION' && a.operacionCodigo === o.codigo) ||
-                    (a.nivelAsignacion === 'SOCIEDAD' && a.sociedadCodigo === o.sociedadCodigo)
+                    (a.nivelAsignacion === 'SOCIEDAD' && (a.sociedadCodigos || []).includes(o.sociedadCodigo))
                   ))
                   .sort((x, y) => (x.fechaLimite + x.horaLimite).localeCompare(y.fechaLimite + y.horaLimite));
                 if (!enCelda.length) return `<td></td>`;
                 return `<td>${enCelda.map(a => `
                   <div class="ccm-celda-item" data-id="${a.id}" style="cursor:pointer;margin-bottom:4px;white-space:nowrap" title="${esc(a.nombre)} — vence ${esc(a.fechaLimite)} ${esc(a.horaLimite)}">
-                    ${a.nivelAsignacion === 'SOCIEDAD' ? '🏢 ' : ''}${ccmBadge(a.estado)}
+                    ${a.nivelAsignacion !== 'OPERACION' ? '🏢 ' : ''}${ccmBadge(a.estado)}
                   </div>`).join('')}</td>`;
               }).join('')}
             </tr>`).join('')}
@@ -12676,7 +12684,7 @@ function ccmRenderModalDetalle(detalle) {
     <div style="display:flex;flex-direction:column;gap:10px">
       <div>${ccmBadge(detalle.estado)}</div>
       <div><strong>Proceso:</strong> ${esc(detalle.procesoCodigo)}</div>
-      <div><strong>Alcance:</strong> ${detalle.nivelAsignacion === 'SOCIEDAD' ? `🏢 Sociedad ${esc(detalle.sociedadCodigo)} (todas sus operaciones)` : `Operación ${esc(detalle.operacionCodigo)}`}</div>
+      <div><strong>Alcance:</strong> ${ccmAlcanceTexto(detalle)}</div>
       <div><strong>Vence:</strong> ${esc(detalle.fechaLimite)} ${esc(detalle.horaLimite)}</div>
       <div><strong>Responsable(s):</strong> ${(detalle.responsables || []).map(r => esc(r.nombre)).join(', ') || '—'}</div>
       ${detalle.fechaHoraCumplimiento ? `<div><strong>Cumplida:</strong> ${fmtDate(detalle.fechaHoraCumplimiento)} ${fmtTime(detalle.fechaHoraCumplimiento)} por ${esc(detalle.cumplidoPorNombre)}</div>` : ''}
@@ -12736,7 +12744,7 @@ function ccmAbrirModalActividad(actividad, onSave) {
   const editando = !!actividad;
   const a = actividad || {
     nombre: '', descripcion: '', procesoCodigo: _ccmProcesos[0]?.codigo || '',
-    nivelAsignacion: 'OPERACION', sociedadCodigo: '', operacionCodigo: '',
+    nivelAsignacion: 'OPERACION', sociedadCodigos: [], operacionCodigo: '',
     reglaVencimiento: { tipo: 'DIA_HABIL', diaHabil: 3, fecha: '' },
     horaLimite: '18:00', requiereAdjunto: false,
   };
@@ -12747,14 +12755,18 @@ function ccmAbrirModalActividad(actividad, onSave) {
       <label>Descripción<br><textarea id="ccm-act-descripcion" ${inp} rows="2">${esc(a.descripcion)}</textarea></label>
       <label>Proceso<br><select id="ccm-act-proceso" ${inp}>${_ccmProcesos.map(p => `<option value="${esc(p.codigo)}" ${p.codigo === a.procesoCodigo ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></label>
       <div>
-        <label><input type="radio" name="ccm-act-nivel" value="OPERACION" ${a.nivelAsignacion === 'OPERACION' ? 'checked' : ''}> Nivel Operación</label>
-        <label style="margin-left:16px"><input type="radio" name="ccm-act-nivel" value="SOCIEDAD" ${a.nivelAsignacion === 'SOCIEDAD' ? 'checked' : ''}> Nivel Sociedad (todas sus operaciones)</label>
+        <label><input type="radio" name="ccm-act-nivel" value="OPERACION" ${a.nivelAsignacion === 'OPERACION' ? 'checked' : ''}> Una Operación</label>
+        <label style="margin-left:16px"><input type="radio" name="ccm-act-nivel" value="SOCIEDAD" ${a.nivelAsignacion === 'SOCIEDAD' ? 'checked' : ''}> Una o varias Sociedades</label>
+        <label style="margin-left:16px"><input type="radio" name="ccm-act-nivel" value="TODAS" ${a.nivelAsignacion === 'TODAS' ? 'checked' : ''}> Todas las Sociedades</label>
       </div>
-      <div id="ccm-act-operacion-wrap" style="${a.nivelAsignacion === 'SOCIEDAD' ? 'display:none' : ''}">
+      <div id="ccm-act-operacion-wrap" style="${a.nivelAsignacion !== 'OPERACION' ? 'display:none' : ''}">
         <label>Operación<br><select id="ccm-act-operacion" ${inp}>${ALL_OPS.map(o => `<option value="${esc(o)}" ${o === a.operacionCodigo ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>
       </div>
-      <div id="ccm-act-sociedad-wrap" style="${a.nivelAsignacion === 'OPERACION' ? 'display:none' : ''}">
-        <label>Sociedad<br><select id="ccm-act-sociedad" ${inp}>${S.sociedades.map(s => `<option value="${esc(s.codigo)}" ${s.codigo === a.sociedadCodigo ? 'selected' : ''}>${esc(s.nombre)}</option>`).join('')}</select></label>
+      <div id="ccm-act-sociedad-wrap" style="${a.nivelAsignacion !== 'SOCIEDAD' ? 'display:none' : ''}">
+        <label>Sociedad(es) — aplica a todas sus operaciones</label>
+        <div style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px">
+          ${S.sociedades.map(s => `<label style="font-weight:400"><input type="checkbox" class="ccm-act-sociedad-cb" value="${esc(s.codigo)}" ${(a.sociedadCodigos || []).includes(s.codigo) ? 'checked' : ''}> ${esc(s.nombre)}</label>`).join('')}
+        </div>
       </div>
       <div>
         <label><input type="radio" name="ccm-act-tipo-regla" value="DIA_HABIL" ${a.reglaVencimiento.tipo === 'DIA_HABIL' ? 'checked' : ''}> Día hábil N del mes</label>
@@ -12773,9 +12785,9 @@ function ccmAbrirModalActividad(actividad, onSave) {
   openModal(editando ? 'Editar actividad' : 'Nueva actividad', html);
 
   const toggleNivel = () => {
-    const esSoc = document.querySelector('input[name="ccm-act-nivel"]:checked').value === 'SOCIEDAD';
-    document.getElementById('ccm-act-sociedad-wrap').style.display = esSoc ? '' : 'none';
-    document.getElementById('ccm-act-operacion-wrap').style.display = esSoc ? 'none' : '';
+    const nivel = document.querySelector('input[name="ccm-act-nivel"]:checked').value;
+    document.getElementById('ccm-act-sociedad-wrap').style.display = nivel === 'SOCIEDAD' ? '' : 'none';
+    document.getElementById('ccm-act-operacion-wrap').style.display = nivel === 'OPERACION' ? '' : 'none';
   };
   document.getElementsByName('ccm-act-nivel').forEach(r => r.addEventListener('change', toggleNivel));
   const toggleRegla = () => {
@@ -12793,7 +12805,7 @@ function ccmAbrirModalActividad(actividad, onSave) {
       descripcion: document.getElementById('ccm-act-descripcion').value,
       procesoCodigo: document.getElementById('ccm-act-proceso').value,
       nivelAsignacion,
-      sociedadCodigo: document.getElementById('ccm-act-sociedad').value,
+      sociedadCodigos: [...document.querySelectorAll('.ccm-act-sociedad-cb:checked')].map(cb => cb.value),
       operacionCodigo: document.getElementById('ccm-act-operacion').value,
       reglaVencimiento: tipoRegla === 'DIA_HABIL'
         ? { tipo: 'DIA_HABIL', diaHabil: parseInt(document.getElementById('ccm-act-diahabil').value, 10) || 1 }
@@ -12846,11 +12858,16 @@ async function ccmAdmRenderProcesos(container) {
   reload();
 }
 
-async function ccmAdmRenderActividades(container) {
+// onListaCambio: se llama tras crear/editar/desactivar una actividad — las secciones
+// Responsables/Consultas de más abajo tienen su propio <select> de actividades ya
+// cargado y no se enteran solas de este cambio (bug real: el dropdown quedaba
+// desactualizado hasta recargar toda la página).
+async function ccmAdmRenderActividades(container, onListaCambio) {
   async function reload() {
     let actividades = [];
     try { actividades = await GET('/cierre-contable/actividades'); } catch (e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; return; }
     render(actividades);
+    onListaCambio?.();
   }
   const reglaTexto = a => a.reglaVencimiento.tipo === 'FECHA_FIJA' ? `Fecha fija: ${esc(a.reglaVencimiento.fecha)}` : `Día hábil ${a.reglaVencimiento.diaHabil}`;
   function render(actividades) {
@@ -12862,7 +12879,7 @@ async function ccmAdmRenderActividades(container) {
           <tr>
             <td>${esc(a.nombre)}</td>
             <td>${esc(a.procesoCodigo)}</td>
-            <td>${a.nivelAsignacion === 'SOCIEDAD' ? `🏢 ${esc(a.sociedadCodigo)}` : esc(a.operacionCodigo)}</td>
+            <td>${ccmAlcanceTexto(a)}</td>
             <td>${reglaTexto(a)}</td>
             <td>${esc(a.horaLimite)}</td>
             <td>${a.requiereAdjunto ? '📎 Sí' : '—'}</td>
@@ -13115,7 +13132,10 @@ async function renderAdminCierreContable(container) {
       <div class="card" style="padding:16px"><div class="card-title" style="margin-bottom:10px">Configuración de Box</div><div id="ccm-adm-box"></div></div>
     </div>`;
   ccmAdmRenderProcesos(document.getElementById('ccm-adm-procesos'));
-  ccmAdmRenderActividades(document.getElementById('ccm-adm-actividades'));
+  ccmAdmRenderActividades(document.getElementById('ccm-adm-actividades'), () => {
+    // La lista de actividades cambió — refrescar los <select> que dependen de ella.
+    ccmAdmRenderResponsables(document.getElementById('ccm-adm-responsables'));
+  });
   ccmAdmRenderDias(document.getElementById('ccm-adm-dias'));
   ccmAdmRenderGenerar(document.getElementById('ccm-adm-generar'));
   ccmAdmRenderResponsables(document.getElementById('ccm-adm-responsables'));

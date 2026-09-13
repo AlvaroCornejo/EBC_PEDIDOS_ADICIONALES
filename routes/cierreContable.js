@@ -40,13 +40,15 @@ async function mapaOperacionASociedad() {
 }
 
 function validarAlcance(body, ops, socs) {
-  const { nivelAsignacion, sociedadCodigo, operacionCodigo } = body;
+  const { nivelAsignacion, sociedadCodigos, operacionCodigo } = body;
   if (nivelAsignacion === 'SOCIEDAD') {
-    if (!sociedadCodigo || !socs.has(sociedadCodigo)) return 'Falta una Sociedad válida';
+    if (!Array.isArray(sociedadCodigos) || !sociedadCodigos.length || sociedadCodigos.some(c => !socs.has(c))) {
+      return 'Falta elegir una o más Sociedades válidas';
+    }
   } else if (nivelAsignacion === 'OPERACION') {
     if (!operacionCodigo || !ops.has(operacionCodigo)) return 'Falta una Operación válida';
-  } else {
-    return 'nivelAsignacion debe ser SOCIEDAD u OPERACION';
+  } else if (nivelAsignacion !== 'TODAS') {
+    return 'nivelAsignacion debe ser SOCIEDAD, OPERACION o TODAS';
   }
   return null;
 }
@@ -74,20 +76,37 @@ function validarReglaVencimiento(regla = {}) {
   return null;
 }
 
-// Una asignación (scope/sociedadCodigo/operacionCodigo) ¿cubre esta instancia
-// (nivelAsignacion/sociedadCodigo/operacionCodigo)? operacionASociedad resuelve la
-// sociedad de una operación para comparar a través de niveles distintos.
+// ¿La instancia (Actividad/ActividadCierre, nivelAsignacion TODAS|SOCIEDAD|OPERACION)
+// aplica a esta sociedad/operación puntual? operacionASociedad resuelve la sociedad de
+// una operación para comparar a través de niveles distintos.
+function instanciaAplicaASociedad(instancia, sociedadCodigo, operacionASociedad) {
+  if (instancia.nivelAsignacion === 'TODAS') return true;
+  if (instancia.nivelAsignacion === 'SOCIEDAD') return (instancia.sociedadCodigos || []).includes(sociedadCodigo);
+  return operacionASociedad[instancia.operacionCodigo] === sociedadCodigo;
+}
+function instanciaAplicaAOperacion(instancia, operacionCodigo, operacionASociedad) {
+  if (instancia.nivelAsignacion === 'TODAS') return true;
+  if (instancia.nivelAsignacion === 'OPERACION') return instancia.operacionCodigo === operacionCodigo;
+  return (instancia.sociedadCodigos || []).includes(operacionASociedad[operacionCodigo]);
+}
+
+// Una asignación/filtro (scope TODAS|SOCIEDAD|OPERACION, con un solo sociedadCodigo/
+// operacionCodigo — AsignacionResponsable/Consulta y los filtros del tablero no cambian,
+// solo la Actividad/ActividadCierre del otro lado ahora puede tener varias sociedades o
+// TODAS) ¿cubre esta instancia?
 function asignacionCubreInstancia(asig, instancia, operacionASociedad) {
   if (asig.scope === 'TODAS') return true;
-  if (asig.scope === 'SOCIEDAD') {
-    if (instancia.nivelAsignacion === 'SOCIEDAD') return instancia.sociedadCodigo === asig.sociedadCodigo;
-    return operacionASociedad[instancia.operacionCodigo] === asig.sociedadCodigo;
-  }
-  if (asig.scope === 'OPERACION') {
-    if (instancia.nivelAsignacion === 'OPERACION') return instancia.operacionCodigo === asig.operacionCodigo;
-    return operacionASociedad[asig.operacionCodigo] === instancia.sociedadCodigo;
-  }
+  if (asig.scope === 'SOCIEDAD') return instanciaAplicaASociedad(instancia, asig.sociedadCodigo, operacionASociedad);
+  if (asig.scope === 'OPERACION') return instanciaAplicaAOperacion(instancia, asig.operacionCodigo, operacionASociedad);
   return false;
+}
+
+// Etiqueta de una sola línea para nombrar la carpeta de Box de una instancia (no hay una
+// única "sociedad" cuando nivelAsignacion es TODAS o SOCIEDAD con varios códigos).
+function etiquetaSociedad(instancia, operacionASociedad) {
+  if (instancia.nivelAsignacion === 'TODAS') return 'TODAS';
+  if (instancia.nivelAsignacion === 'SOCIEDAD') return (instancia.sociedadCodigos || []).join('+') || 'SOCIEDAD';
+  return operacionASociedad[instancia.operacionCodigo] || instancia.operacionCodigo;
 }
 
 async function esResponsableDe(usuarioId, actividadOrigenId, instancia, operacionASociedad) {
@@ -165,7 +184,7 @@ router.post('/actividades', adminOnly, async (req, res) => {
     const actividad = await Actividad.create({
       id: uuidv4(), nombre: nombre.trim(), descripcion: descripcion || '', procesoCodigo,
       nivelAsignacion: req.body.nivelAsignacion,
-      sociedadCodigo: req.body.nivelAsignacion === 'SOCIEDAD' ? req.body.sociedadCodigo : '',
+      sociedadCodigos: req.body.nivelAsignacion === 'SOCIEDAD' ? req.body.sociedadCodigos : [],
       operacionCodigo: req.body.nivelAsignacion === 'OPERACION' ? req.body.operacionCodigo : '',
       reglaVencimiento, horaLimite: horaLimite || '18:00', requiereAdjunto: !!requiereAdjunto,
     });
@@ -189,13 +208,13 @@ router.put('/actividades/:id', adminOnly, async (req, res) => {
       if (!(await Proceso.findOne({ codigo: req.body.procesoCodigo }))) return res.status(400).json({ error: 'Proceso inválido' });
       update.procesoCodigo = req.body.procesoCodigo;
     }
-    if (req.body.nivelAsignacion !== undefined || req.body.sociedadCodigo !== undefined || req.body.operacionCodigo !== undefined) {
+    if (req.body.nivelAsignacion !== undefined || req.body.sociedadCodigos !== undefined || req.body.operacionCodigo !== undefined) {
       const { ops, socs } = await codigosValidos();
       const merged = { ...actividad.toObject(), ...req.body };
       const errAlcance = validarAlcance(merged, ops, socs);
       if (errAlcance) return res.status(400).json({ error: errAlcance });
       update.nivelAsignacion = merged.nivelAsignacion;
-      update.sociedadCodigo = merged.nivelAsignacion === 'SOCIEDAD' ? merged.sociedadCodigo : '';
+      update.sociedadCodigos = merged.nivelAsignacion === 'SOCIEDAD' ? merged.sociedadCodigos : [];
       update.operacionCodigo = merged.nivelAsignacion === 'OPERACION' ? merged.operacionCodigo : '';
     }
     if (req.body.reglaVencimiento !== undefined) {
@@ -297,7 +316,7 @@ router.post('/cierres/generar', adminOnly, async (req, res) => {
       return {
         id: uuidv4(), cierreId: cierre.id, actividadOrigenId: a.id,
         nombre: a.nombre, procesoCodigo: a.procesoCodigo, nivelAsignacion: a.nivelAsignacion,
-        sociedadCodigo: a.sociedadCodigo, operacionCodigo: a.operacionCodigo,
+        sociedadCodigos: a.sociedadCodigos, operacionCodigo: a.operacionCodigo,
         fechaLimite: fechaLimiteInstancia, horaLimite: a.horaLimite,
         requiereAdjunto: a.requiereAdjunto,
         estado: 'PENDIENTE', fechaHoraCumplimiento: null, cumplidoPorId: null, cumplidoPorNombre: null,
@@ -440,8 +459,8 @@ router.post('/actividades-cierre/:id/adjuntos', uploadMemory.single('file'), asy
     if (inst.estado === 'CUMPLIDA') return res.status(400).json({ error: 'La actividad ya está cumplida — reábrela para subir un nuevo adjunto' });
     if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
 
+    const operacionASociedad = await mapaOperacionASociedad();
     if (req.user.role !== 'ADMIN') {
-      const operacionASociedad = await mapaOperacionASociedad();
       const puede = await esResponsableDe(req.user.id, inst.actividadOrigenId, inst, operacionASociedad);
       if (!puede) return res.status(403).json({ error: 'No eres responsable de esta actividad' });
     }
@@ -449,7 +468,7 @@ router.post('/actividades-cierre/:id/adjuntos', uploadMemory.single('file'), asy
     const cierre = await CierreMensual.findOne({ id: inst.cierreId }).lean();
     const subido = await boxClient.subirArchivo({
       buffer: req.file.buffer, nombreOriginal: req.file.originalname,
-      periodo: cierre?.periodo || inst.cierreId, sociedadCodigo: inst.sociedadCodigo,
+      periodo: cierre?.periodo || inst.cierreId, sociedadCodigo: etiquetaSociedad(inst, operacionASociedad),
       operacionCodigo: inst.operacionCodigo, actividadNombre: inst.nombre,
     });
 
