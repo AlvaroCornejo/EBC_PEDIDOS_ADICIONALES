@@ -99,13 +99,16 @@ async function subirArchivo({ buffer, nombreOriginal, periodo, sociedadCodigo, o
   return { boxFileId: archivo.id, boxFileName: nombreUnico, rutaBox: `${periodo}/${sociedadCodigo}/${operacionCodigo || '_SOCIEDAD'}/${actividadNombre}`, sharedLink: link };
 }
 
+// access:'open' (no 'company') a propósito: muchos usuarios de la app no tienen licencia
+// de Box, así que el link tiene que abrirse sin necesitar sesión de Box ni ser miembro del
+// Enterprise — cualquiera con el link puede verlo.
 async function crearOEnlaceExistente(fileId) {
   const detalle = await boxFetch(`https://api.box.com/2.0/files/${fileId}?fields=shared_link`);
   if (detalle.shared_link) return detalle.shared_link.url;
   const actualizado = await boxFetch(`https://api.box.com/2.0/files/${fileId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ shared_link: { access: 'company' } }),
+    body: JSON.stringify({ shared_link: { access: 'open' } }),
   });
   return actualizado.shared_link?.url || null;
 }
