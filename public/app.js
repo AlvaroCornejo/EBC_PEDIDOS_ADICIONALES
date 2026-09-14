@@ -9857,6 +9857,7 @@ async function viewFlujoCaja(container) {
           </div>
           ${puedeAsignar ? `<button class="btn btn-outline btn-sm" id="fc-reconciliar">🔄 Reconciliar</button>` : ''}
           ${esAdmin ? `<button class="btn btn-outline btn-sm" id="fc-saldo-inicial">⚙ Saldo Inicial</button>` : ''}
+          <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-content','flujo-de-caja')">📥 Bajar a Excel</button>
         </div>
       </div>
       <div id="fc-sin-asignar"></div>

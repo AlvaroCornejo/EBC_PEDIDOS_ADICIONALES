@@ -299,6 +299,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 /* ─── Bottom Nav (mobile only) ───────────────────────────────── */
 .bn-menu { display: none; }
 .mobile-nav-backdrop { display: none; }
+.mobile-only { display: none; }
 
 /* ─── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 768px) {
@@ -317,7 +318,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
     box-shadow: 2px 0 16px rgba(0,0,0,.35);
   }
   .sidebar.mobile-open { transform: translateX(0); }
-  .main-content { margin-left: 0; padding-bottom: 64px; }
+  .main-content { margin-left: 0; padding-top: 52px; }
 
   /* Fondo oscuro detrás del panel cuando está abierto — cierra al tocarlo */
   .mobile-nav-backdrop {
@@ -327,15 +328,15 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
   }
   .mobile-nav-backdrop.show { display: block; }
 
-  /* Botón hamburguesa fijo a la izquierda, mismo estilo que el de refresh */
+  /* Botón hamburguesa fijo arriba a la izquierda */
   .bn-menu {
     display: flex;
     position: fixed;
-    bottom: 0; left: 0;
-    width: 52px; height: 60px;
+    top: 0; left: 0;
+    width: 52px; height: 52px;
     background: var(--sidebar);
     border: none;
-    border-top: 1px solid rgba(255,255,255,.1);
+    border-bottom: 1px solid rgba(255,255,255,.1);
     border-right: 1px solid rgba(255,255,255,.1);
     color: #8892b0;
     font-size: 22px;
@@ -348,26 +349,8 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
   }
   .bn-menu:hover, .bn-menu:active { background: var(--sidebar-hover); color: #fff; }
 
-  /* Botón hard-refresh fijo a la derecha */
-  .bn-refresh {
-    display: flex;
-    position: fixed;
-    bottom: 0; right: 0;
-    width: 52px; height: 60px;
-    background: var(--sidebar);
-    border: none;
-    border-top: 1px solid rgba(255,255,255,.1);
-    border-left: 1px solid rgba(255,255,255,.1);
-    color: #8892b0;
-    font-size: 22px;
-    cursor: pointer;
-    z-index: 201;
-    align-items: center;
-    justify-content: center;
-    -webkit-tap-highlight-color: transparent;
-    transition: color .15s, background .15s;
-  }
-  .bn-refresh:hover, .bn-refresh:active { background: var(--sidebar-hover); color: #fff; }
+  /* "Recargar app" pasa a ser una opción más dentro del panel deslizante */
+  .mobile-only { display: block; }
 
   .pg-resumenes-footer { max-height: 60vh !important; }
 }
