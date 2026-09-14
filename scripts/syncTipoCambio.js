@@ -3,7 +3,9 @@
 // API key). Rellena desde la fecha más antigua que tenga movimientos de Flujo
 // de Caja hasta hoy, saltando las fechas que ya están cargadas — así corre
 // bien tanto la primera vez (backfill completo) como a diario (solo agrega el
-// día nuevo). Uso: node scripts/syncTipoCambio.js
+// día nuevo). Si la API no tiene publicado el TC de una fecha (ej. HTTP 404),
+// se guarda esa fecha con el TC del último día conocido, en vez de dejarla
+// sin cargar. Uso: node scripts/syncTipoCambio.js
 const dns = require('dns');
 dns.setServers(['8.8.8.8', '8.8.4.4']);
 require('dotenv').config();
@@ -53,25 +55,42 @@ async function main() {
   const hoy = new Date();
   hoy.setUTCHours(0, 0, 0, 0);
 
-  const existentes = new Set((await TipoCambio.find({}, 'fecha').lean()).map(t => ymd(t.fecha)));
+  const existentesDocs = await TipoCambio.find({}, 'fecha valor').sort({ fecha: 1 }).lean();
+  const existentes = new Map(existentesDocs.map(t => [ymd(t.fecha), t.valor]));
 
-  let cargados = 0, saltados = 0, errores = 0;
+  // Recorre en orden cronológico llevando el último valor conocido (ya cargado
+  // o recién obtenido) — si la API falla para una fecha (ej. HTTP 404, sin
+  // publicación ese día), se usa ese último valor como respaldo en vez de
+  // dejar la fecha sin tipo de cambio.
+  let ultimoValor = null;
+  let cargados = 0, saltados = 0, respaldos = 0, errores = 0;
   for (let d = new Date(desde); d <= hoy; d.setUTCDate(d.getUTCDate() + 1)) {
     const fechaStr = ymd(d);
-    if (existentes.has(fechaStr)) { saltados++; continue; }
+    if (existentes.has(fechaStr)) {
+      ultimoValor = existentes.get(fechaStr);
+      saltados++;
+      continue;
+    }
     try {
       const valor = await obtenerTC(fechaStr);
       await TipoCambio.create({ fecha: new Date(fechaStr), valor, actualizadoPor: 'sync-automatico' });
+      ultimoValor = valor;
       cargados++;
       console.log(`✓ ${fechaStr} -> ${valor}`);
     } catch (err) {
-      errores++;
-      console.error(`✗ ${fechaStr}: ${err.message}`);
+      if (ultimoValor != null) {
+        await TipoCambio.create({ fecha: new Date(fechaStr), valor: ultimoValor, actualizadoPor: 'sync-automatico (TC del dia anterior, sin publicar)' });
+        respaldos++;
+        console.log(`⚠ ${fechaStr}: ${err.message} -> se usa TC del día anterior (${ultimoValor})`);
+      } else {
+        errores++;
+        console.error(`✗ ${fechaStr}: ${err.message} (sin TC previo para usar de respaldo)`);
+      }
     }
     await sleep(PAUSA_MS);
   }
 
-  console.log(`\nListo. Cargados: ${cargados}, ya existían: ${saltados}, errores: ${errores}`);
+  console.log(`\nListo. Cargados: ${cargados}, ya existían: ${saltados}, respaldados con TC del día anterior: ${respaldos}, errores sin respaldo: ${errores}`);
   await mongoose.disconnect();
 }
 
