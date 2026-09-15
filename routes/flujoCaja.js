@@ -328,7 +328,7 @@ router.post('/reconciliar', async (req, res) => {
 // ── Movimientos (nivel subdetalle) ─────────────────────────────────────────────
 router.get('/movimientos', async (req, res) => {
   try {
-    const { sociedad, banco, moneda, desde, hasta, sinAsignar } = req.query;
+    const { sociedad, banco, moneda, desde, hasta, sinAsignar, numeroOperacion } = req.query;
     if (!sociedad) return res.status(400).json({ error: 'Sociedad requerida' });
     if (!checkSocAccess(req.user, sociedad)) return res.status(403).json({ error: 'Sin acceso a esta sociedad' });
 
@@ -338,6 +338,12 @@ router.get('/movimientos', async (req, res) => {
     // Un movimiento con splits (desglosado a mano) no cuenta como "sin asignar"
     // aunque subdetalleCodigo quede en null.
     if (sinAsignar === 'true') { filter.subdetalleCodigo = null; filter.$or = [{ splits: { $exists: false } }, { splits: { $size: 0 } }]; }
+    // El banco puede rellenar con ceros a la izquierda (ej. BBVA: "0000004569")
+    // — se busca que termine con los dígitos escritos, con o sin ceros adelante.
+    if (numeroOperacion) {
+      const digits = numeroOperacion.replace(/\D/g, '');
+      if (digits) filter.numeroOperacion = new RegExp('0*' + digits + '$');
+    }
     if (desde || hasta) {
       filter.fecha = {};
       if (desde) filter.fecha.$gte = new Date(desde);

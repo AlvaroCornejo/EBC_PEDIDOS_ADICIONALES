@@ -9855,11 +9855,19 @@ async function viewFlujoCaja(container) {
               <option value="manual">Manual</option>
             </select>
           </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Buscar N° Operación</label>
+            <div style="display:flex;gap:4px">
+              <input type="text" id="fc-buscar-numop" class="form-control" style="width:130px" placeholder="Ej. 4569">
+              <button class="btn btn-outline btn-sm" id="fc-buscar-numop-btn">🔍</button>
+            </div>
+          </div>
           ${puedeAsignar ? `<button class="btn btn-outline btn-sm" id="fc-reconciliar">🔄 Reconciliar</button>` : ''}
           ${esAdmin ? `<button class="btn btn-outline btn-sm" id="fc-saldo-inicial">⚙ Saldo Inicial</button>` : ''}
           <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-content','flujo-de-caja')">📥 Bajar a Excel</button>
         </div>
       </div>
+      <div id="fc-buscar-resultado"></div>
       <div id="fc-sin-asignar"></div>
       <div id="fc-content"></div>
     </div>`;
@@ -9897,6 +9905,53 @@ async function viewFlujoCaja(container) {
   document.getElementById('fc-metodo').addEventListener('change', e => { metodo = e.target.value; cargar(); });
   document.getElementById('fc-reconciliar')?.addEventListener('click', reconciliar);
   document.getElementById('fc-saldo-inicial')?.addEventListener('click', abrirModalSaldoInicial);
+  document.getElementById('fc-buscar-numop-btn').addEventListener('click', buscarPorNumeroOperacion);
+  document.getElementById('fc-buscar-numop').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPorNumeroOperacion(); });
+
+  // Busca en TODA la sociedad (sin filtro de cuenta/fecha/modo — el número de
+  // operación es único independientemente del período que se esté viendo).
+  async function buscarPorNumeroOperacion() {
+    const wrap = document.getElementById('fc-buscar-resultado');
+    const numeroOperacion = document.getElementById('fc-buscar-numop').value.trim();
+    if (!sociedadActual || !numeroOperacion) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = '<div class="card mb-16" style="padding:10px 14px;font-size:12px;color:var(--text-muted)">Buscando…</div>';
+    try {
+      const params = new URLSearchParams({ sociedad: sociedadActual, numeroOperacion });
+      const movs = await GET(`/flujo-caja/movimientos?${params}`);
+      if (!movs.length) {
+        wrap.innerHTML = `<div class="card mb-16" style="padding:10px 14px;font-size:13px;color:var(--text-muted)">Sin movimientos con N° de operación "${esc(numeroOperacion)}" en ${esc(sociedadActual)}.</div>`;
+        return;
+      }
+      wrap.innerHTML = `
+        <div class="card mb-16" style="padding:0;border-left:3px solid #4361ee">
+          <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;font-weight:600;background:#eef2ff">
+            <span>🔍 ${movs.length} movimiento${movs.length !== 1 ? 's' : ''} con N° Op. "${esc(numeroOperacion)}"</span>
+            <button class="btn btn-outline btn-xs" id="fc-buscar-numop-cerrar">✕</button>
+          </div>
+          <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+            <table class="data-table" style="font-size:12px">
+              <thead><tr><th>Fecha</th><th>Banco</th><th>Mon.</th><th>N° Op.</th><th>Glosa</th><th class="text-right">Importe</th><th>Línea / Detalle / Subdetalle</th></tr></thead>
+              <tbody>
+                ${movs.map(m => `
+                  <tr>
+                    <td>${fmtDate(m.fecha)}</td>
+                    <td>${esc(m.banco)}</td>
+                    <td>${esc(m.moneda)}</td>
+                    <td>${esc(m.numeroOperacion || '—')}</td>
+                    <td>${esc(m.glosa)}</td>
+                    <td class="text-right" style="${m.importe < 0 ? 'color:#dc2626' : ''}">${fmtMoney(m.importe)}</td>
+                    <td style="font-size:11px;color:var(--text-muted)">${m.subdetalleNombre ? esc(`${m.lineaNombre} / ${m.detalleNombre} / ${m.subdetalleNombre}`) : (Array.isArray(m.splits) && m.splits.length ? 'Desglosado (varios)' : '— sin asignar —')}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+      document.getElementById('fc-buscar-numop-cerrar').addEventListener('click', () => {
+        wrap.innerHTML = '';
+        document.getElementById('fc-buscar-numop').value = '';
+      });
+    } catch (e) { wrap.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
 
   async function abrirModalSaldoInicial() {
     if (!sociedadActual) return;
@@ -10295,7 +10350,7 @@ async function viewFlujoCaja(container) {
             </tr></thead>
             <tbody id="fc-tbody">
               ${saldoPorFecha ? rowHtml('fc-saldo-inicial', 'SALDO INICIAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f]?.inicial ?? null])), totalSaldoInicial, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
-              ${filas.filter(linea => totalLinea(linea) !== 0).map(linea => rowHtml('fc-linea-' + sanId(linea.codigo), linea.nombre, Object.fromEntries(fechas.map(f => [f, sumaDets(linea.detalles, f)])), totalLinea(linea), { bold: true, showZero: true, clickable: linea.detalles.length > 0 })).join('')}
+              ${filas.map(linea => rowHtml('fc-linea-' + sanId(linea.codigo), linea.nombre, Object.fromEntries(fechas.map(f => [f, sumaDets(linea.detalles, f)])), totalLinea(linea), { bold: true, showZero: true, clickable: linea.detalles.length > 0 })).join('')}
               ${totalSinClasificar !== 0 || Object.keys(sinClasificarPorFecha || {}).length ? rowHtml('fc-sin-clasificar', 'SIN CLASIFICAR', Object.fromEntries(fechas.map(f => [f, sinClasificarPorFecha?.[f] || 0])), totalSinClasificar, { muted: true, showZero: true }) : ''}
               ${saldoPorFecha ? rowHtml('fc-saldo-final', 'SALDO FINAL', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f]?.final ?? null])), totalSaldoFinal, { bold: true, showZero: true, clickable: !!cuentasSaldo?.length }) : ''}
               ${saldoPorFecha ? rowHtml('fc-mov-caja', 'MOVIMIENTO DE CAJA DEL PERÍODO', Object.fromEntries(fechas.map(f => [f, saldoPorFecha[f] ? saldoPorFecha[f].final - saldoPorFecha[f].inicial : null])), totalMovCaja, { muted: true, showZero: true }) : ''}
@@ -10304,7 +10359,7 @@ async function viewFlujoCaja(container) {
         </div>
       </div>`;
 
-    filas.filter(linea => totalLinea(linea) !== 0).forEach(linea => {
+    filas.forEach(linea => {
       if (!linea.detalles.length) return;
       const tr = document.getElementById('fc-linea-' + sanId(linea.codigo));
       tr?.addEventListener('click', () => toggleDetalles(tr, linea, fechas));
@@ -10326,7 +10381,7 @@ async function viewFlujoCaja(container) {
     const sumaSubs = (subs, f) => subs.reduce((s, sub) => s + (sub.valores[f] || 0), 0);
     const totalDet = det => fechas.reduce((s, f) => s + sumaSubs(det.subdetalles, f), 0);
     let insertAfter = tr;
-    linea.detalles.filter(det => totalDet(det) !== 0).forEach(det => {
+    linea.detalles.forEach(det => {
       const detId = parentId + '-' + sanId(det.codigo);
       const total = totalDet(det);
       const detRow = document.createElement('tr');
@@ -10351,7 +10406,7 @@ async function viewFlujoCaja(container) {
 
     const totalSubOf = sub => fechas.reduce((s, f) => s + (sub.valores[f] || 0), 0);
     let insertAfter = tr;
-    det.subdetalles.filter(sub => totalSubOf(sub) !== 0).forEach(sub => {
+    det.subdetalles.forEach(sub => {
       const subId = parentId + '-' + sanId(sub.codigo);
       const totalSub = totalSubOf(sub);
       const subRow = document.createElement('tr');
