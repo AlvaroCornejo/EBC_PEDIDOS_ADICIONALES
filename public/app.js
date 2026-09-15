@@ -9896,12 +9896,12 @@ async function viewFlujoCaja(container) {
     } catch (e) { el.textContent = ''; }
   }
 
-  document.getElementById('fc-sociedad').addEventListener('change', async e => { sociedadActual = e.target.value; await poblarCuentaSelect(); cargar(); cargarUltimaFecha(); });
+  document.getElementById('fc-sociedad').addEventListener('change', async e => { sociedadActual = e.target.value; await poblarCuentaSelect(); cargar(); cargarSinAsignar(); cargarUltimaFecha(); });
   document.getElementById('fc-desde').addEventListener('change', cargar);
   document.getElementById('fc-hasta').addEventListener('change', cargar);
   document.getElementById('fc-modo').addEventListener('change', e => { modo = e.target.value; cargar(); });
   document.getElementById('fc-agrupacion').addEventListener('change', e => { agrupacion = e.target.value; cargar(); });
-  document.getElementById('fc-cuenta').addEventListener('change', e => { cuenta = e.target.value; cargar(); });
+  document.getElementById('fc-cuenta').addEventListener('change', e => { cuenta = e.target.value; cargar(); cargarSinAsignar(); });
   document.getElementById('fc-metodo').addEventListener('change', e => { metodo = e.target.value; cargar(); });
   document.getElementById('fc-reconciliar')?.addEventListener('click', reconciliar);
   document.getElementById('fc-saldo-inicial')?.addEventListener('click', abrirModalSaldoInicial);
