@@ -15144,7 +15144,7 @@ async function viewSaldoBanco(container) {
               ${data.filas.map((f, idx) => `
                 <tr>
                   ${tdSticky(0, idx, esc2(f.sociedad))}
-                  ${tdSticky(1, idx, esc2(f.cuenta) + (f.nombreCuenta ? ` <span class="text-muted" style="font-size:11px">(${esc2(f.nombreCuenta)})</span>` : ''))}
+                  ${tdSticky(1, idx, f.nombreCuenta ? esc2(f.nombreCuenta) : '<span class="text-muted">—</span>')}
                   ${tdSticky(2, idx, esc2(f.banco))}
                   ${tdSticky(3, idx, esc2(f.moneda))}
                   ${PERIODOS.map(([key]) => {
