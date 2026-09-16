@@ -13782,11 +13782,15 @@ async function viewPL(container) {
     const extra = lista.filter(u => !cubiertas.has(u));
     return `<div style="margin-top:12px" id="pl-ops-wrap">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
-          <label class="form-label" style="margin-bottom:0">Sedes</label>
+          <button type="button" id="pl-ops-toggle" onclick="plToggleOpsSection()"
+            style="display:flex;align-items:center;gap:4px;background:none;border:none;padding:0;cursor:pointer;font:inherit">
+            <span id="pl-ops-toggle-icon">▾</span>
+            <label class="form-label" style="margin-bottom:0;cursor:pointer">Sedes</label>
+          </button>
           <button type="button" onclick="document.querySelectorAll('input[name=\\'pl-unidad\\']').forEach(c=>c.checked=false);document.querySelectorAll('.pl-soc-chk').forEach(c=>c.checked=false)"
             style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-page);color:var(--text-muted);cursor:pointer">Borrar selección</button>
         </div>
-        <div style="display:flex;flex-direction:column;gap:6px">
+        <div id="pl-ops-body" style="display:flex;flex-direction:column;gap:6px">
           ${filas.map(f => `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:6px;padding:6px 10px">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;white-space:nowrap">
               <input type="checkbox" class="pl-soc-chk" data-soc="${esc(f.codigo)}" ${f.ops.every(u=>lista.includes(u))?'checked':''}
@@ -13798,6 +13802,15 @@ async function viewPL(container) {
           ${extra.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${extra.map(mkChk).join('')}</div>` : ''}
         </div>
       </div>`;
+  };
+
+  window.plToggleOpsSection = function() {
+    const body = document.getElementById('pl-ops-body');
+    const icon = document.getElementById('pl-ops-toggle-icon');
+    if (!body) return;
+    const collapsed = body.style.display === 'none';
+    body.style.display = collapsed ? 'flex' : 'none';
+    if (icon) icon.textContent = collapsed ? '▾' : '▸';
   };
 
   const wirePlSocCheckboxes = () => {
@@ -14106,7 +14119,7 @@ async function viewPL(container) {
         }
 
         rowsHtml += `<tr ${dataOnClick} style="${isDrillable?'cursor:pointer':''}">
-          <td style="width:340px;padding:6px 8px;font-weight:700;font-size:${fsize};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${bgStyle};${textColor}">${esc(label)}</td>
+          <td style="width:340px;padding:6px 8px;font-weight:700;font-size:${fsize};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;z-index:1;${bgStyle};${textColor}">${esc(label)}</td>
           ${rowCells}
         </tr>`;
 
@@ -14164,7 +14177,7 @@ async function viewPL(container) {
           ? `<td style="background:${bgTot};color:#fff"></td><td style="background:${bgTot};color:#fff"></td>`
           : '';
         rowsHtml += `<tr>
-          <td style="padding:6px 8px;font-weight:700;font-size:13px;background:var(--bg-hover)">BALANCE</td>
+          <td style="width:340px;padding:6px 8px;font-weight:700;font-size:13px;position:sticky;left:0;z-index:1;background:var(--bg-hover)">BALANCE</td>
           ${balCells}
           ${showTotal ? `<td colspan="2" style="padding:6px 8px;text-align:center;color:#fff;background:${bgTot};font-weight:700" title="${esc(okTot?'Balance cuadra':'Diferencia: '+fmtN(diffTot))}">${okTot ? '✓ OK' : '⚠ ERROR'}</td>` : ''}
           ${extraBalCells}
@@ -14182,13 +14195,13 @@ async function viewPL(container) {
         : '';
       const headerHtml = `<thead style="position:sticky;top:0;z-index:10;background:var(--bg-card)">
         <tr>
-          <th style="width:340px;text-align:left;padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Concepto</th>
+          <th style="width:340px;text-align:left;padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:sticky;left:0;z-index:11;background:var(--bg-card)">Concepto</th>
           ${colsData.map(c => `<th colspan="2" style="text-align:center;padding:6px 8px;white-space:nowrap;border-left:1px solid var(--border)">${esc(fmtCol(c))}</th>`).join('')}
           ${showTotal ? `<th colspan="2" style="text-align:center;padding:6px 8px;border-left:1px solid var(--border);font-weight:700">TOTAL</th>` : ''}
           ${extraHeaders}
         </tr>
         <tr style="font-size:11px;color:var(--text-muted)">
-          <th></th>
+          <th style="position:sticky;left:0;z-index:11;background:var(--bg-card)"></th>
           ${colsData.map(() => `<th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th><th style="text-align:right;padding:2px 6px">%</th>`).join('')}
           ${showTotal ? `<th style="text-align:right;padding:2px 8px;border-left:1px solid var(--border)">S/</th><th style="text-align:right;padding:2px 6px">%</th>` : ''}
           ${extraSubHeaders}
