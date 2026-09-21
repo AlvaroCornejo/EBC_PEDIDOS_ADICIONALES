@@ -55,6 +55,7 @@ app.use('/api/comparativo', require('./routes/comparativo'));
 app.use('/api/ventas',      require('./routes/ventas'));
 app.use('/api/bajas',       require('./routes/bajas'));
 app.use('/api/pagos',       require('./routes/pagos'));
+app.use('/api/planillas',   require('./routes/planillas'));
 app.use('/api/personas',    require('./routes/personas'));
 app.use('/api/flujo-caja',  require('./routes/flujoCaja'));
 app.use('/api/movimientos', require('./routes/movimientos'));

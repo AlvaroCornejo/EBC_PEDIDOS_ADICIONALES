@@ -32,6 +32,11 @@ const userSchema = new mongoose.Schema({
   rolCambioReceta:       { type: String, default: '', enum: ['', 'solicitante', 'aprobador', 'registrador', 'admin'] },
   accesoSaldoBanco:      { type: Boolean, default: false },
   accesoFlujoCaja:       { type: Boolean, default: false },
+  // Planillas: 'rrhh' (Paso 1) / 'gaf' (Paso 3) / 'admin' (ambos), acceso
+  // corporativo a todas las operaciones. El Manager de operación (Pasos 2 y
+  // 4) usa accesoPlanillas + operations (mismo patrón que accesoBajas/etc.).
+  rolPlanilla:      { type: String, default: '', enum: ['', 'rrhh', 'gaf', 'admin'] },
+  accesoPlanillas:  { type: Boolean, default: false },
 });
 
 module.exports = mongoose.model('User', userSchema);

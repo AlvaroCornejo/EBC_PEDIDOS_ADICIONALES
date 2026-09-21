@@ -7,6 +7,7 @@ const API = '/api';
 const ROLES = { ADMIN: 'ADMIN', SOL: 'OPERADOR_SOLICITUD', APR: 'OPERADOR_APROBACION', ATE: 'OPERADOR_ATENCION', PLT: 'OPERADOR_PLANTA', CONS: 'OPERADOR_CONSULTA' };
 const ROLE_LABELS = { ADMIN: 'Administrador', OPERADOR_SOLICITUD: 'Solicitador', OPERADOR_APROBACION: 'Aprobador', OPERADOR_ATENCION: 'Compras', OPERADOR_PLANTA: 'Planta', OPERADOR_CONSULTA: 'Consultas' };
 const PAGO_ROLES  = [['','— Sin acceso —'],['programador','Programador (Paso 1)'],['aprobador','Aprobador (Paso 2)'],['pagador','Pagador (Paso 3 y 5)'],['autorizador','Autorizador (Paso 4)'],['admin','Administrador']];
+const PLANILLA_ROLES = [['','— Sin acceso —'],['rrhh','RRHH (Paso 1)'],['gaf','GAF (Paso 3)'],['admin','Administrador (ambos)']];
 const BCT_ROLES   = [['','— Sin acceso —'],['SOLICITUD','Solicitud'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const CAMBIO_RECETA_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['registrador','Registrador (anota el cambio en el ERP)'],['admin','Administrador (todo)']];
@@ -271,6 +272,7 @@ const NAV_ITEMS = [
   { id: 'recetas-costeo', label: 'Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['puedeVerCosteoRecetas', 'rolCambioReceta'] },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
+  { id: 'planillas',     label: 'Planillas',       icon: '🧮', roles: [ROLES.ADMIN], extraPermAny: ['rolPlanilla', 'accesoPlanillas'] },
   { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPermAny: ['rolPago', 'accesoFlujoCaja'] },
   { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
   { id: 'pl',             label: 'PL',              icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoEERR' },
@@ -346,7 +348,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -8684,6 +8686,509 @@ function fcSubdetallesOrdenados(lineas, detalles, subdetalles) {
   return { etiqueta, ordenados };
 }
 
+// ─── Admin: Planillas — catálogo Esperado → Puntos ─────────────────
+async function renderAdminPlanillas(container) {
+  async function load() {
+    const docs = await GET('/planillas/esperados');
+    container.innerHTML = `
+      <p class="mb-8 text-muted" style="font-size:13px">
+        Catálogo "Esperado → Puntos" que usa el GAF en el Paso 3 de Planillas para
+        asignar puntos a cada trabajador y repartir la Bolsa.
+      </p>
+      <div class="card" style="padding:14px;max-width:420px">
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th>Esperado</th><th>Puntos</th><th></th></tr></thead>
+          <tbody>
+            ${docs.map(d => `<tr data-id="${d._id}">
+              <td><input class="form-control pla-e" value="${esc(d.esperado)}" style="width:160px"></td>
+              <td><input type="number" class="form-control pla-p" value="${d.puntos}" style="width:80px"></td>
+              <td><button class="btn btn-outline btn-xs pla-del" data-id="${d._id}">✕</button></td>
+            </tr>`).join('')}
+            <tr>
+              <td><input class="form-control" id="pla-n-e" placeholder="Nuevo..." style="width:160px"></td>
+              <td><input type="number" class="form-control" id="pla-n-p" style="width:80px"></td>
+              <td><button class="btn btn-primary btn-xs" id="pla-add">+ Agregar</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`;
+
+    container.querySelectorAll('tbody tr[data-id]').forEach(tr => {
+      const guardar = async () => {
+        try {
+          await PUT(`/planillas/esperados/${tr.dataset.id}`, {
+            esperado: tr.querySelector('.pla-e').value, puntos: Number(tr.querySelector('.pla-p').value) || 0,
+          });
+          toast('Actualizado', 'success');
+        } catch (e) { toast(e.message, 'error'); }
+      };
+      tr.querySelector('.pla-e').addEventListener('change', guardar);
+      tr.querySelector('.pla-p').addEventListener('change', guardar);
+      tr.querySelector('.pla-del').addEventListener('click', async () => {
+        try { await DEL(`/planillas/esperados/${tr.dataset.id}`); load(); } catch (e) { toast(e.message, 'error'); }
+      });
+    });
+    document.getElementById('pla-add').addEventListener('click', async () => {
+      const esperado = document.getElementById('pla-n-e').value.trim();
+      const puntos = Number(document.getElementById('pla-n-p').value) || 0;
+      if (!esperado) return toast('Ingresa un valor de "Esperado"', 'error');
+      try { await POST('/planillas/esperados', { esperado, puntos }); load(); } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+  try { await load(); } catch (e) { container.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+}
+
+// ─── View: Planillas ─────────────────────────────────────────────
+const PL_OCURRENCIAS = [
+  ['feriados', '🎌 Feriados'], ['faltas', '🚫 Faltas'], ['vacaciones', '🏖️ Vacaciones'],
+  ['licenciaSinGoce', '📄 Licencia sin goce'], ['licenciaConGoce', '📄 Licencia con goce'],
+  ['descansoMedico', '🩺 Descanso médico'],
+];
+const PL_MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const PL_ESTADO_LABEL = {
+  borrador: 'Paso 1 — RRHH cargando', pendienteManager: 'Paso 2 — Manager registrando ocurrencias',
+  bloqueada: 'Paso 3 — Esperando al GAF', pendienteVoBo: 'Paso 4 — Esperando VoBo del Manager',
+  cerrada: 'Cerrada',
+};
+
+async function viewPlanillas(container) {
+  const esAdmin = S.user.role === 'ADMIN';
+  const esRRHH = esAdmin || ['rrhh', 'admin'].includes(S.user.rolPlanilla);
+  const esGAF  = esAdmin || ['gaf', 'admin'].includes(S.user.rolPlanilla);
+  const esManagerGlobal = esAdmin || !!S.user.accesoPlanillas;
+
+  let operaciones = [];
+  let esperados = [];
+  let operacionActual = '', mesActual = new Date().getMonth() + 1, quincenaActual = new Date().getDate() <= 15 ? '1Q' : '2Q';
+  let planilla = null;
+  let tabActual = 'p1';
+
+  const fmtMoney = v => 'S/ ' + (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtFecha = v => v ? new Date(v).toISOString().slice(0, 10) : '';
+  const esManagerDeOperacion = op => esAdmin || (esManagerGlobal && (S.user.operations || []).includes(op));
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">🧮 Planillas</div></div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="pl-operacion" class="form-control" style="width:160px"><option value="">— Seleccionar —</option></select>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Mes</label>
+            <select id="pl-mes" class="form-control" style="width:140px">
+              ${PL_MESES.map((m, i) => `<option value="${i + 1}" ${i + 1 === mesActual ? 'selected' : ''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Quincena</label>
+            <select id="pl-quincena" class="form-control" style="width:100px">
+              <option value="1Q" ${quincenaActual === '1Q' ? 'selected' : ''}>1Q</option>
+              <option value="2Q" ${quincenaActual === '2Q' ? 'selected' : ''}>2Q</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" id="pl-cargar">🔍 Cargar</button>
+          <span id="pl-estado-badge"></span>
+        </div>
+      </div>
+      <div id="pl-content"></div>
+    </div>`;
+
+  try {
+    operaciones = await GET('/planillas/operaciones');
+    const sel = document.getElementById('pl-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; }
+  } catch (e) { toast(e.message, 'error'); }
+  try { esperados = await GET('/planillas/esperados'); } catch (e) { /* catálogo vacío si falla */ }
+
+  document.getElementById('pl-operacion').addEventListener('change', e => { operacionActual = e.target.value; });
+  document.getElementById('pl-mes').addEventListener('change', e => { mesActual = Number(e.target.value); });
+  document.getElementById('pl-quincena').addEventListener('change', e => { quincenaActual = e.target.value; });
+  document.getElementById('pl-cargar').addEventListener('click', cargar);
+
+  const root = document.getElementById('pl-content');
+
+  async function cargar() {
+    if (!operacionActual) return toast('Selecciona una operación', 'error');
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    document.getElementById('pl-estado-badge').innerHTML = '';
+    try {
+      planilla = await GET(`/planillas?operacion=${encodeURIComponent(operacionActual)}&mes=${mesActual}&quincena=${quincenaActual}`);
+      tabActual = tabDefault();
+      render();
+    } catch (e) {
+      planilla = null;
+      if (e.status === 404) {
+        root.innerHTML = esRRHH
+          ? `<div class="card"><div class="empty-state"><p>No existe planilla para ${esc(operacionActual)} — ${PL_MESES[mesActual - 1]} ${quincenaActual}.</p>
+              <button class="btn btn-primary btn-sm" id="pl-nueva">➕ Crear planilla</button></div></div>`
+          : `<div class="card"><div class="empty-state"><p>No existe planilla para ${esc(operacionActual)} — ${PL_MESES[mesActual - 1]} ${quincenaActual}.</p></div></div>`;
+        document.getElementById('pl-nueva')?.addEventListener('click', crearPlanilla);
+      } else {
+        root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`;
+      }
+    }
+  }
+
+  function tabDefault() {
+    if (!planilla) return 'p1';
+    const map = { borrador: 'p1', pendienteManager: 'p2', bloqueada: 'p3', pendienteVoBo: 'p4', cerrada: 'p4' };
+    return map[planilla.estado] || 'p1';
+  }
+
+  async function crearPlanilla() {
+    const html = `
+      <div class="form-group"><label>Fecha de Pago</label><input type="date" id="pl-n-fpago" class="form-control" value="${today()}"></div>
+      <div class="form-group"><label>Límite carga RRHH (Paso 1)</label><input type="datetime-local" id="pl-n-f1" class="form-control"></div>
+      <div class="form-group"><label>Límite Manager — Ocurrencias (Paso 2)</label><input type="datetime-local" id="pl-n-f2" class="form-control"></div>
+      <div class="form-group"><label>Límite GAF — Bolsa (Paso 3)</label><input type="datetime-local" id="pl-n-f3" class="form-control"></div>
+      <div class="form-group"><label>Límite VoBo Manager (Paso 4)</label><input type="datetime-local" id="pl-n-f4" class="form-control"></div>`;
+    openModal('➕ Nueva Planilla', html + `
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="pl-n-guardar">💾 Crear</button>
+      </div>`);
+    document.getElementById('pl-n-guardar').addEventListener('click', async () => {
+      try {
+        planilla = await POST('/planillas', {
+          operacion: operacionActual, mes: mesActual, quincena: quincenaActual,
+          fechaPago: document.getElementById('pl-n-fpago').value,
+          fechaLimiteRRHH: document.getElementById('pl-n-f1').value,
+          fechaLimiteManager: document.getElementById('pl-n-f2').value,
+          fechaLimiteGAF: document.getElementById('pl-n-f3').value,
+          fechaLimiteVoBo: document.getElementById('pl-n-f4').value,
+        });
+        closeModal();
+        toast('Planilla creada', 'success');
+        tabActual = 'p1';
+        render();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  function render() {
+    document.getElementById('pl-estado-badge').innerHTML = planilla
+      ? `<span class="badge">${esc(PL_ESTADO_LABEL[planilla.estado] || planilla.estado)}</span>` : '';
+    if (!planilla) return;
+    const puedeP1 = esRRHH;
+    const puedeP2 = esManagerDeOperacion(planilla.operacion);
+    const puedeP3 = esGAF;
+    const puedeP4 = esManagerDeOperacion(planilla.operacion);
+    root.innerHTML = `
+      <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:16px;width:fit-content">
+        <button class="pl-tab" data-tab="p1" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer">1. Datos (RRHH)</button>
+        <button class="pl-tab" data-tab="p2" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer">2. Ocurrencias (Manager)</button>
+        <button class="pl-tab" data-tab="p3" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer">3. Bolsa (GAF)</button>
+        <button class="pl-tab" data-tab="p4" style="padding:8px 16px;font-size:13px;border:none;cursor:pointer">4. Revisión Final</button>
+      </div>
+      <div id="pl-tab-content"></div>`;
+    container.querySelectorAll('.pl-tab').forEach(btn => {
+      const activo = btn.dataset.tab === tabActual;
+      btn.style.background = activo ? 'var(--primary)' : 'var(--bg-secondary)';
+      btn.style.color = activo ? '#fff' : 'var(--text)';
+      btn.addEventListener('click', () => { tabActual = btn.dataset.tab; render(); });
+    });
+    const tc = document.getElementById('pl-tab-content');
+    if (tabActual === 'p1') renderPaso1(tc, puedeP1);
+    if (tabActual === 'p2') renderPaso2(tc, puedeP2);
+    if (tabActual === 'p3') renderPaso3(tc, puedeP3);
+    if (tabActual === 'p4') renderPaso4(tc);
+  }
+
+  // ── Paso 1 — RRHH: tabla editable de trabajadores ─────────────────────────
+  function renderPaso1(root1, puede) {
+    const editable = puede && (planilla.estado === 'borrador' || esAdmin || S.user.rolPlanilla === 'admin');
+    root1.innerHTML = `
+      <div class="card" style="padding:14px">
+        ${!puede ? '<p class="text-muted">Solo RRHH puede editar este paso.</p>' : ''}
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr>
+              <th>Código</th><th>Nombre</th><th>F. Ingreso</th><th>F. Cese</th><th>Tipo Doc</th><th>N° Doc</th>
+              <th>Básico</th><th>Sueldo Ref.</th><th>Asig. Familiar</th><th>Cargo</th><th></th>
+            </tr></thead>
+            <tbody>
+              ${planilla.trabajadores.map((t, i) => `<tr data-idx="${i}">
+                <td><input class="form-control pl-t-f" data-f="codigo" value="${esc(t.codigo)}" ${editable ? '' : 'disabled'} style="width:80px"></td>
+                <td><input class="form-control pl-t-f" data-f="nombre" value="${esc(t.nombre)}" ${editable ? '' : 'disabled'} style="width:180px"></td>
+                <td><input type="date" class="form-control pl-t-f" data-f="fechaIngreso" value="${fmtFecha(t.fechaIngreso)}" ${editable ? '' : 'disabled'}></td>
+                <td><input type="date" class="form-control pl-t-f" data-f="fechaCese" value="${fmtFecha(t.fechaCese)}" ${editable ? '' : 'disabled'}></td>
+                <td><input class="form-control pl-t-f" data-f="tipoDocumento" value="${esc(t.tipoDocumento)}" ${editable ? '' : 'disabled'} style="width:70px"></td>
+                <td><input class="form-control pl-t-f" data-f="numeroDocumento" value="${esc(t.numeroDocumento)}" ${editable ? '' : 'disabled'} style="width:100px"></td>
+                <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="basico" value="${t.basico ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
+                <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="sueldoReferencial" value="${t.sueldoReferencial ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
+                <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="asignacionFamiliar" value="${t.asignacionFamiliar ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
+                <td><input class="form-control pl-t-f" data-f="cargo" value="${esc(t.cargo)}" ${editable ? '' : 'disabled'} style="width:120px"></td>
+                <td>${editable ? `<button class="btn btn-outline btn-xs pl-t-del" data-idx="${i}">✕</button>` : ''}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${editable ? `
+        <div style="margin-top:12px;display:flex;gap:10px">
+          <button class="btn btn-outline btn-sm" id="pl-t-add">➕ Agregar trabajador</button>
+          <button class="btn btn-primary btn-sm" id="pl-t-guardar">💾 Guardar</button>
+          ${planilla.estado === 'borrador' ? '<button class="btn btn-success btn-sm" id="pl-t-pasar">➡️ Pasar a Manager</button>' : ''}
+        </div>` : ''}
+      </div>`;
+    if (!editable) return;
+
+    function leerTrabajadores() {
+      return Array.from(root1.querySelectorAll('tbody tr')).map((tr, i) => {
+        const orig = planilla.trabajadores[i] || {};
+        const get = f => tr.querySelector(`[data-f="${f}"]`).value;
+        return {
+          _id: orig._id, codigo: get('codigo'), nombre: get('nombre'),
+          fechaIngreso: get('fechaIngreso'), fechaCese: get('fechaCese') || null,
+          tipoDocumento: get('tipoDocumento'), numeroDocumento: get('numeroDocumento'),
+          basico: Number(get('basico')) || 0, sueldoReferencial: Number(get('sueldoReferencial')) || 0,
+          asignacionFamiliar: Number(get('asignacionFamiliar')) || 0, cargo: get('cargo'),
+        };
+      });
+    }
+    document.getElementById('pl-t-add').addEventListener('click', () => {
+      planilla.trabajadores = leerTrabajadores();
+      planilla.trabajadores.push({ codigo: '', nombre: '', fechaIngreso: today(), fechaCese: null, tipoDocumento: '', numeroDocumento: '', basico: 0, sueldoReferencial: 0, asignacionFamiliar: 0, cargo: '' });
+      renderPaso1(root1, puede);
+    });
+    root1.querySelectorAll('.pl-t-del').forEach(btn => btn.addEventListener('click', () => {
+      const trabs = leerTrabajadores();
+      trabs.splice(Number(btn.dataset.idx), 1);
+      planilla.trabajadores = trabs;
+      renderPaso1(root1, puede);
+    }));
+    document.getElementById('pl-t-guardar').addEventListener('click', async () => {
+      try {
+        planilla = await PUT(`/planillas/${planilla._id}/trabajadores`, { trabajadores: leerTrabajadores() });
+        toast('Guardado', 'success');
+        render();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+    document.getElementById('pl-t-pasar')?.addEventListener('click', async () => {
+      if (!confirm('¿Pasar la planilla al Paso 2 (Manager)? RRHH ya no podrá agregar/quitar trabajadores.')) return;
+      try {
+        await PUT(`/planillas/${planilla._id}/trabajadores`, { trabajadores: leerTrabajadores() });
+        planilla = await PUT(`/planillas/${planilla._id}/pasar-a-manager`, {});
+        toast('Planilla enviada al Manager', 'success');
+        tabActual = 'p2';
+        render();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  // ── Paso 2 — Manager: ocurrencias por trabajador ───────────────────────────
+  function renderPaso2(root2, puede) {
+    const editable = puede && planilla.estado === 'pendienteManager';
+    const editableAdmin = (esRRHH || esGAF) && planilla.estado !== 'pendienteManager' && planilla.estado !== 'borrador';
+    const activo = editable || editableAdmin;
+    if (!puede && !editableAdmin) { root2.innerHTML = '<div class="card"><p class="text-muted" style="padding:14px">Sin acceso a este paso.</p></div>'; return; }
+    root2.innerHTML = `
+      ${!activo ? '<p class="text-muted mb-8">Este paso está bloqueado.</p>' : ''}
+      <div style="display:flex;flex-direction:column;gap:12px">
+        ${planilla.trabajadores.map((t, i) => rangoCardHtml(t, i, activo)).join('')}
+      </div>
+      ${activo ? `<div style="margin-top:16px;display:flex;gap:10px">
+        <button class="btn btn-primary btn-sm" id="pl-o-guardar">💾 Guardar</button>
+        ${editable ? '<button class="btn btn-success btn-sm" id="pl-o-ok">✅ Dar OK y bloquear</button>' : ''}
+      </div>` : ''}`;
+    if (!activo) return;
+
+    function rango3Html(t, i, campo, activo) {
+      const rangos = t[campo] || [];
+      const filas = [0, 1, 2].map(n => {
+        const r = rangos[n] || { desde: '', hasta: '' };
+        return `<div style="display:flex;gap:4px;align-items:center;margin-bottom:2px">
+          <input type="date" class="form-control pl-r" data-i="${i}" data-campo="${campo}" data-n="${n}" data-x="desde" value="${fmtFecha(r.desde)}" ${activo ? '' : 'disabled'} style="width:130px">
+          <input type="date" class="form-control pl-r" data-i="${i}" data-campo="${campo}" data-n="${n}" data-x="hasta" value="${fmtFecha(r.hasta)}" ${activo ? '' : 'disabled'} style="width:130px">
+        </div>`;
+      }).join('');
+      return filas;
+    }
+    document.getElementById('pl-o-guardar')?.addEventListener('click', () => guardarOcurrencias(false));
+    document.getElementById('pl-o-ok')?.addEventListener('click', async () => {
+      if (!confirm('¿Dar el OK final? Ya no podrás modificar las ocurrencias después.')) return;
+      await guardarOcurrencias(true);
+    });
+
+    async function guardarOcurrencias(cerrar) {
+      const trabajadores = planilla.trabajadores.map((t, i) => {
+        const card = root2.querySelector(`[data-tid="${i}"]`);
+        const upd = { _id: t._id };
+        PL_OCURRENCIAS.forEach(([campo]) => {
+          upd[campo] = [0, 1, 2].map(n => ({
+            desde: card.querySelector(`[data-campo="${campo}"][data-n="${n}"][data-x="desde"]`).value,
+            hasta: card.querySelector(`[data-campo="${campo}"][data-n="${n}"][data-x="hasta"]`).value,
+          })).filter(r => r.desde && r.hasta);
+        });
+        upd.extraMonto = Number(card.querySelector('[data-f="extraMonto"]').value) || 0;
+        upd.extraComentario = card.querySelector('[data-f="extraComentario"]').value;
+        upd.descuentoMonto = Number(card.querySelector('[data-f="descuentoMonto"]').value) || 0;
+        upd.descuentoComentario = card.querySelector('[data-f="descuentoComentario"]').value;
+        upd.observacion = card.querySelector('[data-f="observacion"]').value;
+        return upd;
+      });
+      try {
+        const endpoint = editable ? `/planillas/${planilla._id}/ocurrencias` : `/planillas/${planilla._id}/ocurrencias-admin`;
+        planilla = await PUT(endpoint, { trabajadores });
+        if (cerrar) planilla = await PUT(`/planillas/${planilla._id}/manager-ok`, {});
+        toast(cerrar ? 'Ocurrencias guardadas y planilla bloqueada' : 'Guardado', 'success');
+        if (cerrar) tabActual = 'p3';
+        render();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    function rangoCardHtml(t, i, activo) {
+      return `<div class="card" style="padding:14px" data-tid="${i}">
+        <div style="font-weight:700;margin-bottom:10px">${esc(t.codigo)} — ${esc(t.nombre)}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px">
+          ${PL_OCURRENCIAS.map(([campo, label]) => `<div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">${label} (hasta 3 rangos)</label>
+            ${rango3Html(t, i, campo, activo)}
+          </div>`).join('')}
+        </div>
+        <div style="display:flex;gap:14px;margin-top:12px;flex-wrap:wrap">
+          <div><label class="form-label">Extra (S/)</label><input type="number" step="0.01" class="form-control pl-t-f" data-f="extraMonto" value="${t.extraMonto ?? 0}" ${activo ? '' : 'disabled'} style="width:110px"></div>
+          <div><label class="form-label">Comentario Extra</label><input class="form-control pl-t-f" data-f="extraComentario" value="${esc(t.extraComentario || '')}" ${activo ? '' : 'disabled'} style="width:200px"></div>
+          <div><label class="form-label">Descuento (S/)</label><input type="number" step="0.01" class="form-control pl-t-f" data-f="descuentoMonto" value="${t.descuentoMonto ?? 0}" ${activo ? '' : 'disabled'} style="width:110px"></div>
+          <div><label class="form-label">Comentario Descuento</label><input class="form-control pl-t-f" data-f="descuentoComentario" value="${esc(t.descuentoComentario || '')}" ${activo ? '' : 'disabled'} style="width:200px"></div>
+        </div>
+        <div style="margin-top:10px"><label class="form-label">Observación</label><input class="form-control pl-t-f" data-f="observacion" value="${esc(t.observacion || '')}" ${activo ? '' : 'disabled'} style="width:100%"></div>
+      </div>`;
+    }
+  }
+
+  // ── Paso 3 — GAF: TIP/RC/%RC + descuentos + esperado por trabajador ───────
+  function renderPaso3(root3, puede) {
+    const editable = puede && planilla.estado === 'bloqueada';
+    if (!puede) { root3.innerHTML = '<div class="card"><p class="text-muted" style="padding:14px">Solo el GAF puede editar este paso.</p></div>'; return; }
+    if (!editable) { root3.innerHTML = '<p class="text-muted mb-8">Este paso no está disponible (la planilla debe estar bloqueada por el Manager primero, o ya pasó de este paso).</p>'; }
+    root3.innerHTML += `
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+          <div><label class="form-label">TIP (S/)</label><input type="number" step="0.01" id="pl-b-tip" class="form-control" value="${planilla.tip ?? 0}" ${editable ? '' : 'disabled'} style="width:130px"></div>
+          <div><label class="form-label">RC (S/)</label><input type="number" step="0.01" id="pl-b-rc" class="form-control" value="${planilla.rc ?? 0}" ${editable ? '' : 'disabled'} style="width:130px"></div>
+          <div><label class="form-label">% RC que queda en la operación</label><input type="number" step="0.01" id="pl-b-rcpct" class="form-control" value="${(planilla.rcPctOperacion ?? 0) * 100}" ${editable ? '' : 'disabled'} style="width:130px">%</div>
+        </div>
+        <div style="margin-top:12px">
+          <label class="form-label">Descuentos a la Bolsa</label>
+          <div id="pl-b-descuentos">
+            ${(planilla.descuentosBolsa || []).map((d, i) => `<div style="display:flex;gap:6px;margin-bottom:4px" data-di="${i}">
+              <input type="number" step="0.01" class="form-control pl-b-desc-monto" value="${d.monto ?? 0}" ${editable ? '' : 'disabled'} style="width:110px">
+              <input class="form-control pl-b-desc-com" value="${esc(d.comentario || '')}" ${editable ? '' : 'disabled'} style="width:260px" placeholder="Comentario">
+              ${editable ? `<button class="btn btn-outline btn-xs pl-b-desc-del" data-i="${i}">✕</button>` : ''}
+            </div>`).join('')}
+          </div>
+          ${editable ? '<button class="btn btn-outline btn-xs" id="pl-b-desc-add">+ Agregar descuento</button>' : ''}
+        </div>
+        <div style="margin-top:10px;font-weight:700">Bolsa total: ${fmtMoney(planilla.bolsaOperacion)}</div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr><th>Código</th><th>Nombre</th><th>Esperado</th><th>Puntos</th></tr></thead>
+            <tbody>
+              ${planilla.trabajadores.map((t, i) => `<tr>
+                <td>${esc(t.codigo)}</td><td>${esc(t.nombre)}</td>
+                <td>
+                  <select class="form-control pl-b-esperado" data-i="${i}" ${editable ? '' : 'disabled'}>
+                    <option value="">—</option>
+                    ${esperados.map(e => `<option value="${esc(e.esperado)}" ${t.esperado === e.esperado ? 'selected' : ''}>${esc(e.esperado)} (${e.puntos} pts)</option>`).join('')}
+                  </select>
+                </td>
+                <td class="pl-b-puntos" data-i="${i}">${t.puntos ?? 0}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${editable ? '<div style="margin-top:12px"><button class="btn btn-success btn-sm" id="pl-b-guardar">✅ Guardar y enviar al Manager (VoBo)</button></div>' : ''}
+      </div>`;
+    if (!editable) return;
+
+    root3.querySelectorAll('.pl-b-esperado').forEach(sel => sel.addEventListener('change', () => {
+      const e = esperados.find(x => x.esperado === sel.value);
+      root3.querySelector(`.pl-b-puntos[data-i="${sel.dataset.i}"]`).textContent = e ? e.puntos : 0;
+    }));
+    document.getElementById('pl-b-desc-add').addEventListener('click', () => {
+      planilla.descuentosBolsa = leerDescuentos();
+      planilla.descuentosBolsa.push({ monto: 0, comentario: '' });
+      renderPaso3(root3, puede);
+    });
+    root3.querySelectorAll('.pl-b-desc-del').forEach(btn => btn.addEventListener('click', () => {
+      const list = leerDescuentos();
+      list.splice(Number(btn.dataset.i), 1);
+      planilla.descuentosBolsa = list;
+      renderPaso3(root3, puede);
+    }));
+
+    function leerDescuentos() {
+      return Array.from(root3.querySelectorAll('#pl-b-descuentos > div')).map(div => ({
+        monto: Number(div.querySelector('.pl-b-desc-monto').value) || 0,
+        comentario: div.querySelector('.pl-b-desc-com').value,
+      }));
+    }
+    document.getElementById('pl-b-guardar').addEventListener('click', async () => {
+      if (!confirm('¿Guardar y enviar la planilla al Manager para el VoBo final?')) return;
+      const trabajadores = planilla.trabajadores.map((t, i) => ({
+        _id: t._id, esperado: root3.querySelector(`.pl-b-esperado[data-i="${i}"]`).value,
+      }));
+      try {
+        planilla = await PUT(`/planillas/${planilla._id}/bolsa`, {
+          tip: Number(document.getElementById('pl-b-tip').value) || 0,
+          rc: Number(document.getElementById('pl-b-rc').value) || 0,
+          rcPctOperacion: (Number(document.getElementById('pl-b-rcpct').value) || 0) / 100,
+          descuentosBolsa: leerDescuentos(),
+          trabajadores,
+        });
+        toast('Bolsa distribuida, planilla enviada al Manager', 'success');
+        tabActual = 'p4';
+        render();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  // ── Paso 4 — Manager: revisión final + VoBo ────────────────────────────────
+  function renderPaso4(root4) {
+    const puede = esManagerDeOperacion(planilla.operacion);
+    const puedeVobo = puede && planilla.estado === 'pendienteVoBo';
+    root4.innerHTML = `
+      <div class="card" style="padding:14px">
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr>
+              <th>Código</th><th>Nombre</th><th class="text-right">Días Brutos</th>
+              ${PL_OCURRENCIAS.map(([, l]) => `<th class="text-right">${l}</th>`).join('')}
+              <th class="text-right">Días Netos</th><th class="text-right">Bolsa</th>
+              <th class="text-right">Extra</th><th class="text-right">Descuento</th>
+              <th class="text-right">Estimado</th>
+            </tr></thead>
+            <tbody>
+              ${planilla.trabajadores.map(t => `<tr>
+                <td>${esc(t.codigo)}</td><td>${esc(t.nombre)}</td>
+                <td class="text-right">${t.diasBrutos}</td>
+                ${PL_OCURRENCIAS.map(([campo]) => `<td class="text-right">${t.diasPorTipo[campo]}</td>`).join('')}
+                <td class="text-right">${t.diasNetos}</td>
+                <td class="text-right">${fmtMoney(t.bolsaTrabajador)}</td>
+                <td class="text-right">${fmtMoney(t.extraMonto)}</td>
+                <td class="text-right">${fmtMoney(t.descuentoMonto)}</td>
+                <td class="text-right" style="font-weight:700">${fmtMoney(t.montoEstimado)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${puedeVobo ? '<div style="margin-top:12px"><button class="btn btn-success btn-sm" id="pl-vobo">✅ Dar VoBo final</button></div>' : ''}
+        ${planilla.estado === 'cerrada' ? '<p class="text-muted mt-8">Planilla cerrada.</p>' : ''}
+      </div>`;
+    document.getElementById('pl-vobo')?.addEventListener('click', async () => {
+      if (!confirm('¿Dar el VoBo final? La planilla quedará cerrada.')) return;
+      try {
+        planilla = await PUT(`/planillas/${planilla._id}/vobo`, {});
+        toast('Planilla cerrada', 'success');
+        render();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+}
+
 // ─── View: Flujo de Caja ─────────────────────────────────────────
 async function viewFlujoCaja(container) {
   const esAdmin = S.user.role === 'ADMIN' || S.user.rolPago === 'admin';
@@ -12043,6 +12548,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="proy-tiendas">🏪 Tiendas Proy.</button>
         <button class="tab-btn" data-tab="conciliacion">🏦 Conciliación Cobranzas</button>
         <button class="tab-btn" data-tab="sociedades">🏢 Sociedades y Operaciones</button>
+        <button class="tab-btn" data-tab="planillas">🧮 Planillas</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -12059,6 +12565,7 @@ async function viewAdmin(container) {
       <div id="tab-proy-tiendas" class="tab-panel"></div>
       <div id="tab-conciliacion" class="tab-panel"></div>
       <div id="tab-sociedades" class="tab-panel"></div>
+      <div id="tab-planillas" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -12085,6 +12592,7 @@ async function viewAdmin(container) {
   renderAdminProyTiendas(document.getElementById('tab-proy-tiendas'));
   renderAdminConciliacion(document.getElementById('tab-conciliacion'));
   renderAdminSociedades(document.getElementById('tab-sociedades'));
+  renderAdminPlanillas(document.getElementById('tab-planillas'));
 }
 
 // ─── Admin: Conciliación de Cobranzas — rutas de archivos por sociedad ──
@@ -13478,6 +13986,11 @@ function showUserModal(user, onSave, opts = {}) {
           ${PAGO_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolPago||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Rol para Planillas</label>
+        <select id="um-planilla-role">
+          ${PLANILLA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolPlanilla||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-group"><label>Rol para Bajas / Consumos / Transferencias</label>
         <select id="um-rol-bct">
           ${BCT_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolBCT||'')=== k?'selected':''}>${v}</option>`).join('')}
@@ -13602,6 +14115,11 @@ function showUserModal(user, onSave, opts = {}) {
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>💵 <strong>Flujo de Caja</strong></span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-planillas" ${user?.accesoPlanillas?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🧮 <strong>Planillas (Manager de sus operaciones)</strong></span>
+          </label>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -13658,9 +14176,11 @@ function showUserModal(user, onSave, opts = {}) {
       email: document.getElementById('um-email').value.trim(),
       role,
       rolPago:      document.getElementById('um-pago-role').value,
+      rolPlanilla:  document.getElementById('um-planilla-role').value,
       rolCambioReceta: document.getElementById('um-rol-cambio-receta').value,
       accesoSaldoBanco:     !isAdmin && (document.getElementById('um-saldo-banco')?.checked ?? false),
       accesoFlujoCaja:      !isAdmin && (document.getElementById('um-flujo-caja')?.checked ?? false),
+      accesoPlanillas:      !isAdmin && (document.getElementById('um-planillas')?.checked ?? false),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       operations: operacionesDerivadas,

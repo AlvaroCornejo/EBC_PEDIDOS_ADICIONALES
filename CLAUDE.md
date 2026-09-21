@@ -1051,3 +1051,78 @@ con colecciones (`cajas`, `mozos`, `sedes`, `turnos`, `sociedads`,
 `conteocajaoficinas`, `conciliacioncontables`) que no coinciden con ningún
 modelo de este repo ni de `payment_app` — no la usa nada de este proyecto. Se
 le informó al usuario para que decida si la borra directamente desde Atlas.
+
+### Sesión 18 — Planillas (Estimado de Sueldos, módulo nuevo)
+
+Módulo nuevo, informativo (no conecta al ERP de RRHH): arma un estimado de
+planilla quincenal por Operación, cargado y editado a mano dentro de la app,
+reutilizando el catálogo `Sociedad`/`Operacion` ya existente. Flujo de 4
+pasos en orden: RRHH carga trabajadores → Manager de la operación registra
+ocurrencias y da OK (bloquea) → GAF distribuye la Bolsa → Manager da el VoBo
+final. Mismo patrón de "documento con `estado` + timestamps por etapa" que ya
+usa `PagoProgramacion` (Gestión de Pagos), y el mismo patrón visual de tabs
+Paso 1..N que usa `viewPagos`.
+
+**Modelos** (`models/`): `PlanillaEsperado` (catálogo simple
+`{esperado, puntos}`, administrable en Admin → 🧮 Planillas, usado por el GAF
+en el Paso 3). `Planilla` — un documento por `operacion+mes+quincena`
+(índice único), con las 4 fechas límite, `estado` (`borrador→
+pendienteManager→bloqueada→pendienteVoBo→cerrada`), auditoría por etapa
+(`managerOkPor/En`, `gafPor/En`, `voboPor/En`), datos de Bolsa
+(`tip`/`rc`/`rcPctOperacion`/`descuentosBolsa`), y `trabajadores[]`
+(subdocumentos con los datos base de RRHH, hasta 3 rangos de fecha por cada
+uno de los 6 tipos de ocurrencia — feriados/faltas/vacaciones/licencia sin
+goce/licencia con goce/descanso médico —, extra/descuento con comentario,
+observación, y `esperado`/`puntos` asignados por el GAF).
+
+**Nada se persiste calculado** (días por tipo, días brutos/netos, monto
+estimado) — se deriva siempre al vuelo en `utils/planillaCalculo.js`
+(funciones puras, sin dependencias), mismo criterio que `estadoDerivado()`
+del extinto Cierre Contable, para no desincronizar un valor guardado.
+Fórmulas confirmadas con el usuario:
+- Días de un rango: inclusive en ambos extremos.
+- Días brutos trabajados = fecha de pago − fecha de ingreso, **tope 15**.
+- Días netos = días brutos − faltas − licencia sin goce de haber (las demás
+  ocurrencias no descuentan).
+- Bolsa de la operación = TIP × 100% + RC × %RC_operación − descuentos a la
+  Bolsa (la Bolsa es **por operación**, no una bolsa única de toda la
+  empresa).
+- Parte de la Bolsa de cada trabajador = Bolsa_operación ×
+  (puntos_trabajador / Σ puntos de esa operación). El "esperado" de cada
+  trabajador (para buscar sus puntos) **se asigna a mano** en el Paso 3, no
+  se deriva del cargo.
+- Monto estimado = (Básico / 15 × días netos) + Asignación Familiar (no se
+  prorratea) + parte de la Bolsa + Extra − Descuento. `Sueldo Referencial`
+  es solo informativo, no entra en la fórmula.
+- Verificado con un script de prueba local contra valores de ejemplo antes
+  de darla por buena (ver historial de esta sesión).
+
+**Backend** (`routes/planillas.js`, montado en `/api/planillas`): acceso vía
+`rolPlanilla` (`''|rrhh|gaf|admin`, corporativo — ve todas las operaciones,
+igual que el GAF en Gestión de Pagos/Flujo de Caja) + `accesoPlanillas`
+(boolean, Manager — solo sus `operations` asignadas, mismo criterio que
+`accesoBajas`/`accesoConsumos` en Movimientos). `GET/POST/PUT/DELETE
+/esperados` (catálogo, solo ADMIN), `GET /operaciones`, `GET /?operacion=&mes=&quincena=`
+(trae la planilla con los derivados ya resueltos), `POST /` (crea — RRHH,
+autocompleta trabajadores desde la quincena anterior de esa operación
+excluyendo cesados vía el campo nuevo `fechaCese`), `PUT /:id/trabajadores`
++ `/pasar-a-manager` (Paso 1, RRHH), `PUT /:id/ocurrencias` (Paso 2, Manager,
+solo si `estado='pendienteManager'`) + `/manager-ok` (bloquea), `PUT
+/:id/ocurrencias-admin` (mismo body que `/ocurrencias` pero para RRHH/GAF,
+sin restricción de `estado` — para corregir algo después del bloqueo, como
+pidió el usuario), `PUT /:id/bolsa` (Paso 3, GAF), `PUT /:id/vobo` (Paso 4,
+Manager, cierra la planilla).
+
+**Frontend** (`public/app.js`): nav item `planillas` (`extraPermAny:
+['rolPlanilla','accesoPlanillas']`) → `viewPlanillas` (selector
+Operación/Mes/Quincena + botón crear si no existe, tabs Paso 1-4 igual que
+`viewPagos`, cada paso habilitado/bloqueado según rol y `estado` actual).
+Admin → nueva pestaña "🧮 Planillas" (`renderAdminPlanillas`, CRUD del
+catálogo esperado→puntos). Permisos nuevos en `User`/`auth.js`/`users.js`/
+form de usuarios: `rolPlanilla` (select, mismo patrón que `rolPago`) y
+`accesoPlanillas` (checkbox en "Módulos Autorizados", junto a Flujo de Caja).
+
+**Pendiente**: verificación funcional end-to-end (crear una planilla real,
+pasar por los 4 pasos) la hace el usuario en producción, como en el resto de
+módulos de esta app — no fue posible levantar el servidor con Mongo real
+desde este entorno de desarrollo.

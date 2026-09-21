@@ -24,6 +24,7 @@ function buildPayload(user) {
     rolCambioReceta: user.rolCambioReceta || '',
     accesoSaldoBanco: !!user.accesoSaldoBanco,
     accesoFlujoCaja: !!user.accesoFlujoCaja,
+    rolPlanilla: user.rolPlanilla || '', accesoPlanillas: !!user.accesoPlanillas,
   };
 }
 
