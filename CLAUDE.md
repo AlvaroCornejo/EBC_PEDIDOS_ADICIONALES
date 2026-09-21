@@ -59,14 +59,10 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 - `puedeVerKardex`: boolean — solo rol CONS, da acceso a vista Kardex
 - `puedeVerComparativo`: boolean — acceso a Comparativo OC / Ingresos al Almacén
 - `puedeVerVentas`: boolean — acceso a Venta & TIP por Operación
-- `puedeVerPronosticoVenta`: boolean — acceso a Pronóstico de Venta (scoped por `operations`, igual que `puedeVerVentas`)
 - `puedeVerCosteoRecetas`: boolean — acceso a Costeo de Recetas (scoped por `operations`, igual que `puedeVerVentas`)
-- `rolSeguimientoCompras`: '' | carga | aprobacion | consulta | admin — acceso a Aprobación y Seguimiento de Compras (scoped por `operations`, ver Sesión 8)
 - `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
 - `sociedadesCompra`: array — sociedades para ver Precios de Compra (códigos del catálogo `Sociedad`, ver sección "Sociedades y Operaciones")
 - `operations`: array — operaciones asignadas al usuario
-- `rolCaja`: '' | REGISTRO | CONSULTA — acceso a Cierre de Caja (ver Sesión 5)
-- `accesoOficina` / `accesoDepositos`: boolean — acceso a Envío a Oficina / Depósito Bancario
 
 ## Fuentes de datos
 
@@ -93,26 +89,16 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | CompraPareto / CompraRoc | `scripts/importCompras.js` | EBC COMPRAS HISTORICAS.xlsx | semanal |
 | ComparativoOC | `scripts/importComparativoOC.js` | COMPARATIVO OC INGRESOS.xlsx | diario |
 | VentasTip | `scripts/importVentasTip.js` | EBC VENTAS TIP RESUMEN.xlsx | diario |
-| VentaCanalDiaria | `scripts/importVentaCanalDiaria.js` (vía `sync-venta-canal.bat`) | EBC VENTAS CABECERA.xlsx | diario |
 | KardexBajaVenta | `scripts/importBajas.js` | data/*ADICIONALES.xlsx | diario |
-| MaestroLinea/Familia/SubFamilia/TipoItem/UM/Item/ItemSociedad | `scripts/importMaestroTablas.js` | EBC TABLAS PARA ITEMS.xlsx | manual (al actualizar el Excel) |
-| MaestroCuenta | `scripts/importPlanContable.js` | EBC PLAN CONTABLE.xlsx | manual (al actualizar el Excel) |
 | RecetaCosteo / RecetaCosteoDetalle | `scripts/importRecetasCosteo.js` (vía `sync-recetas-costeo.bat`) | EBC RECETAS.xlsx | diario |
-| SeguimientoCompraMovimiento / SeguimientoCompraOC | `scripts/importSeguimientoCompras.js` (vía `sync-seguimiento-compras.bat`) | EBC BASE SEGUIMIENTO DE COMPRAS.xlsx (hojas MOVIMIENTOS/OC) | diario |
 | FlujoMovimientoBancario / FlujoPagoERP | `scripts/importFlujoCaja.js` (vía `sync-flujo-caja.bat`) | Carpeta "EBC ESTADO DE CUENTA" (un .xlsx por sociedad+banco+moneda) + carpeta "EBC PAGOS ERP" (.csv, todas las sociedades), rutas globales en `Config` | diario |
-| TipoCambio | `scripts/syncTipoCambio.js` (vía `sync-tipo-cambio.bat`, paso 17/17 de `sync-master.bat`) | API pública SUNAT `https://api.apis.net.pe/v1/tipo-cambio-sunat?fecha=YYYY-MM-DD` (sin API key), campo `venta`. Rellena desde la fecha del movimiento más antiguo en `FlujoMovimientoBancario` hasta hoy, saltando fechas ya cargadas (idempotente) — usado por Flujo de Caja para "Todo en Soles". Sensible a rate-limit 429; reintenta con backoff. | diario |
+| TipoCambio | `scripts/syncTipoCambio.js` (vía `sync-tipo-cambio.bat`, paso 14/18 de `sync-master.bat`) | API pública SUNAT `https://api.apis.net.pe/v1/tipo-cambio-sunat?fecha=YYYY-MM-DD` (sin API key), campo `venta`. Rellena desde la fecha del movimiento más antiguo en `FlujoMovimientoBancario` hasta hoy, saltando fechas ya cargadas (idempotente) — usado por Flujo de Caja para "Todo en Soles". Sensible a rate-limit 429; reintenta con backoff. | diario |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
 > `routes/recetas.js`, montado en `/api/recetas`) — ese otro es el desglose recursivo de
 > recetas de planta desde `EBC JERARQUIA.xlsx`, usado en "Solicitud de Adicionales desde
 > Desglose". Nombres separados a propósito para no chocar.
-
-`scripts/importar-maestro-items.bat` corre ambos scripts en orden (con sus rutas de Box
-por defecto) — **no está en `sync-master.bat`**: ambos scripts hacen `deleteMany` +
-`insertMany` completo, así que automatizarlos a diario borraría los ítems creados vía el
-flujo de solicitudes de la app. Se ejecuta a mano en `C:\pedidos-app` solo cuando se
-actualiza alguno de los 2 Excel de origen.
 
 - Sync manual de items desde consola del navegador (admin logueado), si se necesita fuera del horario del bat:
 ```javascript
@@ -970,3 +956,58 @@ asignación de responsables, filtros del tablero, y subida real de un archivo a
 Box con link público — todos los datos de prueba (usuario, actividades, cierres,
 archivos en Box) se borraron al terminar. Las credenciales de Box configuradas
 quedaron guardadas (son las reales, no de prueba).
+
+### Sesión 16 — Borrado completo de 6 módulos (Cierre de Caja, Incluir Pagos,
+Pronóstico de Venta, Maestro de Ítems, Seguimiento de Compras, Venta por Canal)
+
+A pedido explícito del usuario se borraron por completo — código y datos — 6
+módulos/colecciones que ya no se usaban. Antes de tocar nada se grepearon todos
+los modelos por nombre (no solo por nombre de módulo, lección de la Sesión 9)
+para descartar dependencias cruzadas:
+
+- **Cierre de Caja** (`CajaConfig`/`CierreCaja`/`EnvioOficina`/`DepositoBancario`,
+  `routes/caja.js`, `scripts/migrarTurnosCaja.js`) — autocontenido, sin
+  dependencias externas.
+- **Incluir Pagos** / Obligaciones EBC (`ObligacionEBC`, `routes/obligacionesEBC.js`,
+  `scripts/syncObligaciones.js` + `sync-obligaciones.bat`) — solo *leía*
+  `PagoProgramacion` (nunca escribía), así que Gestión de Pagos no se vio afectada.
+- **Maestro de Ítems** (9 modelos `Maestro*`, `routes/maestro-items.js`,
+  `scripts/importMaestroTablas.js` + `importPlanContable.js` +
+  `importar-maestro-items.bat`) — autocontenido; el modelo `MaestroItem` es
+  distinto del modelo `Item` general (confirmado antes de borrar, para no
+  repetir el error de nombres compartidos).
+- **Pronóstico de Venta** (`VentaForecast`, `routes/pronostico-venta.js`) — se
+  encontró que `routes/seguimiento-compras.js` leía `VentaForecast` para la fila
+  "Pronóstico de Venta" del cuadro "OC por Grupo de Compra". Como el usuario
+  decidió borrar también Seguimiento de Compras en la misma sesión, dejó de ser
+  un problema.
+- **Seguimiento de Compras** (`SeguimientoCompraMovimiento`/`SeguimientoCompraOC`/
+  `GrupoCompraEspecial`, `routes/seguimiento-compras.js`,
+  `scripts/importSeguimientoCompras.js` + `sync-seguimiento-compras.bat`).
+- **Venta por Canal** (`VentaCanalDiaria`, `scripts/importVentaCanalDiaria.js` +
+  `sync-venta-canal.bat`) — quedó huérfana tras borrar Pronóstico de Venta y
+  Seguimiento de Compras (únicos 2 consumidores), se borró también a pedido del
+  usuario en vez de dejarla sincronizando datos que ya nadie consulta.
+
+**Alcance del borrado de código**: 19 modelos, 5 archivos de rutas (+ sus 5
+`app.use(...)` en `server.js`), 8 scripts de import/migración + 5 `.bat`, las 5
+funciones `view*` completas y sus helpers de nivel-módulo en `public/app.js`
+(`cj*`/`_cj*` de Cierre de Caja, `ebc*`/`_ebc*` de Obligaciones), los 5 nav items,
+la entrada `renderAdminCierreCaja` + su tab en Admin (las otras 4 no tenían tab
+propio de Admin), y los permisos de usuario `rolCaja`/`accesoOficina`/
+`accesoDepositos`/`rolObligaciones`/`companiasEBC`/`rolMaestroItems`/
+`sociedadesMaestros`/`puedeVerPronosticoVenta`/`rolSeguimientoCompras` en
+`models/User.js`, `routes/users.js`, `routes/auth.js` y el form de usuarios
+(incluidos los arrays `CAJA_ROLES`/`OBLIG_ROLES`/`MAESTRO_ROLES`/
+`SEGUIMIENTO_COMPRAS_ROLES`, que quedaron huérfanos al quitar los `<select>`
+que los usaban). `sync-master.bat` se renumeró de 21 a 18 pasos (se quitaron los
+pasos de Venta por Canal, EBC Obligaciones y Seguimiento de Compras).
+
+**Borrado de datos en MongoDB**: pendiente de ejecutar — el clasificador de
+auto-mode del entorno de desarrollo bloquea escrituras directas a producción,
+así que el `deleteMany`/drop de las colecciones (`cajaconfigs`, `cierrecajas`,
+`enviooficinas`, `depositobancarios`, `obligacionebcs`, las 9 `maestro*s`,
+`ventaforecasts`, `seguimientocompramovimientos`, `seguimientocompraocs`,
+`grupocompraespecials`, `ventacanaldiarias`) se dejó como script para correr en
+el servidor (CORPSERV-PRUEBA), mismo patrón que otras limpiezas puntuales de
+esta app.
