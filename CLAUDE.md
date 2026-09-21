@@ -863,7 +863,13 @@ tarea): `public/index.html`/`public/styles.css` tenían modificaciones sin commi
 (mover el botón "Recargar app" al panel deslizante móvil) — se dejaron intactas y
 fuera del commit de esta sesión.
 
-### Sesión 15 — Control de Actividades y Calendario de Cierre Contable
+### Sesión 15 — Control de Actividades y Calendario de Cierre Contable (eliminado por completo en la Sesión 17)
+
+**Se borró por completo en la Sesión 17** (código y datos, a pedido del usuario) —
+ver esa sección. Los modelos `Proceso`/`Actividad`/`CierreMensual`/`ActividadCierre`/
+`AsignacionResponsable`/`AsignacionConsulta`/`Adjunto`/`DiaNoLaborable` (y sus
+colecciones en Mongo), `routes/cierreContable.js`, `utils/fechaLima.js`,
+`utils/boxClient.js` y el nav item `cierreContable` ya no existen.
 
 Nuevo módulo para controlar las actividades del cierre contable mensual: qué hay
 que hacer, quién es responsable, cuándo vence, si requiere adjunto, y si ya se
@@ -1011,3 +1017,37 @@ así que el `deleteMany`/drop de las colecciones (`cajaconfigs`, `cierrecajas`,
 `grupocompraespecials`, `ventacanaldiarias`) se dejó como script para correr en
 el servidor (CORPSERV-PRUEBA), mismo patrón que otras limpiezas puntuales de
 esta app.
+
+### Sesión 17 — Borrado completo de Cierre Contable
+
+A pedido del usuario se borró por completo — código y datos — el módulo Cierre
+Contable (Sesión 15), que pese a la nota original de "no mergeado hasta
+aprobación" ya estaba en `main` y desplegado en producción. Se verificó primero
+que ningún otro módulo dependiera de sus 8 modelos, de `utils/fechaLima.js` ni
+de `utils/boxClient.js` (grep del nombre de cada modelo por todo el repo, no
+solo del nombre del módulo) — todos exclusivos, sin cruces.
+
+**Borrado**: los 8 modelos (`Proceso`, `Actividad`, `CierreMensual`,
+`ActividadCierre`, `AsignacionResponsable`, `AsignacionConsulta`, `Adjunto`,
+`DiaNoLaborable`), `routes/cierreContable.js` (+ su `app.use` en `server.js`),
+`utils/fechaLima.js`, `utils/boxClient.js`, `scripts/seedProcesos.js`, el nav
+item `cierreContable`, la función `viewCierreContable` completa con todos sus
+helpers `ccm*`/`_ccm*` (tablero, modales, las 6 sub-secciones de Admin), la
+llamada a `cargarAccesoCierreContable()` en `showApp()`, y el tab + panel
+"📅 Cierre Contable" de Admin. `cierreContableAcceso` nunca vivió en el JWT
+(se resolvía en vivo contra la BD, a propósito, según la Sesión 15) así que no
+había nada que quitar de `User`/`auth.js`/`users.js`.
+
+**Datos**: las 4 credenciales de Box (`boxClientId`, `boxClientSecret`,
+`boxEnterpriseId`, `cierreContableRutaBoxBase`) vivían como filas sueltas en la
+colección genérica `Config` (no un modelo propio) — quedan ahí sin uso salvo
+que se borren a mano. Los documentos de las 8 colecciones del módulo se borran
+igual que en la Sesión 16, con un script temporal de un solo uso en el
+servidor.
+
+También se detectó, sin relación a este borrado, que existe una base de datos
+Mongo separada (`cierre_caja`, en el mismo cluster Atlas "PedidosAdicionales")
+con colecciones (`cajas`, `mozos`, `sedes`, `turnos`, `sociedads`,
+`conteocajaoficinas`, `conciliacioncontables`) que no coinciden con ningún
+modelo de este repo ni de `payment_app` — no la usa nada de este proyecto. Se
+le informó al usuario para que decida si la borra directamente desde Atlas.
