@@ -399,6 +399,24 @@ router.get('/programaciones/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── PUT /api/pagos/programaciones/:id/comentario ─────────────────────────────
+// Editable solo desde Paso 1 (programador) y Paso 2 (aprobador); Paso 3-5
+// (pagador/autorizador) solo lo leen — la restricción es por rol, no por estado.
+router.put('/programaciones/:id/comentario', async (req, res) => {
+  try {
+    const prog = await PagoProgramacion.findById(req.params.id);
+    if (!prog) return res.status(404).json({ error: 'No encontrada' });
+    if (!checkSocAccess(req.user, prog.compania))
+      return res.status(403).json({ error: 'Sin acceso' });
+    const rol = req.user.rolPago || (req.user.role === 'ADMIN' ? 'admin' : '');
+    if (!['programador', 'aprobador', 'admin'].includes(rol))
+      return res.status(403).json({ error: 'No tiene permiso para editar el comentario' });
+    prog.comentario = String(req.body.comentario || '').slice(0, 2000);
+    await prog.save();
+    res.json({ ok: true, comentario: prog.comentario });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /api/pagos/cargar ────────────────────────────────────────────────────
 // Carga Q PROGRAMACION.csv — crea nueva programación
 router.post('/cargar', upload.single('archivo'), async (req, res) => {

@@ -4475,6 +4475,42 @@ async function renderPasoContent(paso, el) {
   if (paso === 'p5') await renderPaso5(el);
 }
 
+// Comentario de una PagoProgramacion — editable en Paso 1/2 (programador/aprobador/
+// admin, reforzado en el backend por rol), solo lectura en Paso 3/4/5.
+function renderComentarioProgramacion(el, prog, editable) {
+  if (!el) return;
+  if (!prog) { el.innerHTML = ''; return; }
+  if (!editable) {
+    el.innerHTML = prog.comentario ? `
+      <div class="card" style="padding:12px 14px;background:#f8fafc">
+        <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">💬 Comentario</label>
+        <div style="font-size:13px;white-space:pre-wrap">${esc(prog.comentario)}</div>
+      </div>` : '';
+    return;
+  }
+  el.innerHTML = `
+    <div class="card" style="padding:12px 14px">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px">💬 Comentario</label>
+      <textarea id="prog-comentario-input" class="form-control" rows="2"
+                style="width:100%;box-sizing:border-box;resize:vertical"
+                placeholder="Sin comentario">${esc(prog.comentario || '')}</textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:6px">
+        <button class="btn btn-outline btn-sm" id="prog-comentario-guardar">💾 Guardar comentario</button>
+      </div>
+    </div>`;
+  document.getElementById('prog-comentario-guardar').addEventListener('click', async () => {
+    const btn = document.getElementById('prog-comentario-guardar');
+    const val = document.getElementById('prog-comentario-input').value;
+    btn.disabled = true;
+    try {
+      await PUT(`/pagos/programaciones/${prog._id}/comentario`, { comentario: val });
+      prog.comentario = val;
+      toast('Comentario guardado', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+    btn.disabled = false;
+  });
+}
+
 async function renderPaso1(container) {
   // ── Estado compartido de esta vista ──
   let progActual   = null;   // programación cargada
@@ -4578,6 +4614,9 @@ async function renderPaso1(container) {
         </div>
       </div>
     </div>
+
+    <!-- Comentario de la programación (editable en Paso 1/2, solo lectura en 3-5) -->
+    <div id="pg-comentario-wrap" class="mb-16"></div>
 
     <!-- Lista de programaciones existentes -->
     <div id="pg-progs-lista" style="margin-bottom:12px"></div>
@@ -4774,6 +4813,7 @@ async function renderPaso1(container) {
     progActual = null;
     benefMap   = {};
     document.getElementById('pg-tabla-wrap').innerHTML = '';
+    document.getElementById('pg-comentario-wrap').innerHTML = '';
     document.getElementById('pg-filtros').style.display = 'none';
     document.getElementById('pg-footer-btns').style.display = 'none';
     document.getElementById('pg-res-fusion').innerHTML = '';
@@ -4832,6 +4872,7 @@ async function renderPaso1(container) {
       if (progActual?._id === id) {
         progActual = null;
         document.getElementById('pg-tabla-wrap').innerHTML = '';
+        document.getElementById('pg-comentario-wrap').innerHTML = '';
         document.getElementById('pg-filtros').style.display = 'none';
         const _fb = document.getElementById('pg-footer-btns'); if (_fb) _fb.style.display = 'none';
         renderResumenes();
@@ -4977,6 +5018,7 @@ async function renderPaso1(container) {
         btnWrap.style.display = 'none';
       }
     }
+    renderComentarioProgramacion(document.getElementById('pg-comentario-wrap'), progActual, !readOnly);
     poblarFiltros();
     renderResumenes();
     renderTabla();
@@ -5448,6 +5490,8 @@ async function renderPaso2(container) {
       </div>
     </div>
     <div id="ap2-lista" class="mb-16"></div>
+    <!-- Comentario de la programación (editable en Paso 1/2, solo lectura en 3-5) -->
+    <div id="ap2-comentario-wrap" class="mb-16"></div>
     <!-- Filtros (ocultos hasta abrir una programación) -->
     <div id="ap2-filtros" class="card mb-16" style="padding:12px;display:none">
       <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
@@ -5498,6 +5542,7 @@ async function renderPaso2(container) {
   document.getElementById('ap2-compania').addEventListener('change', async () => {
     ap2Prog = null;
     document.getElementById('ap2-wrap').innerHTML = '';
+    document.getElementById('ap2-comentario-wrap').innerHTML = '';
     document.getElementById('ap2-filtros').style.display = 'none';
     ap2RenderFooter();
     await ap2CargarLista();
@@ -5581,6 +5626,8 @@ async function renderPaso2(container) {
       ap2Prog      = await GET(`/pagos/programaciones/${id}`);
       ap2Promedios = ap2Prog.promediosPagos || {};
       await pgAdelantosResumen(ap2Prog.compania);
+      renderComentarioProgramacion(document.getElementById('ap2-comentario-wrap'), ap2Prog,
+        ['borrador', 'pendiente', 'aprobado'].includes(ap2Prog.estado));
       ap2PoblarFiltros();
       ap2RenderGrupos();
       ap2RenderFooter();
@@ -5919,6 +5966,7 @@ async function renderPaso2(container) {
       toast('✅ Programación aprobada', 'success');
       ap2Prog = null;
       document.getElementById('ap2-wrap').innerHTML = '';
+      document.getElementById('ap2-comentario-wrap').innerHTML = '';
       document.getElementById('ap2-filtros').style.display = 'none';
       ap2RenderFooter();
       await ap2CargarLista();
@@ -5945,6 +5993,7 @@ async function renderPaso2(container) {
       toast('Programación eliminada', 'success');
       ap2Prog = null;
       document.getElementById('ap2-wrap').innerHTML = '';
+      document.getElementById('ap2-comentario-wrap').innerHTML = '';
       document.getElementById('ap2-filtros').style.display = 'none';
       ap2RenderFooter();
       await ap2CargarLista();
@@ -6010,6 +6059,8 @@ async function renderPaso3(container) {
       </div>
     </div>
     <div id="p3-lista" class="mb-16"></div>
+    <!-- Comentario de la programación (solo lectura en Paso 3) -->
+    <div id="p3-comentario-wrap" class="mb-16"></div>
     <!-- Filtros -->
     <div id="p3-filtros" class="card mb-16" style="padding:12px;display:none">
       <div class="filter-bar" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
@@ -6060,6 +6111,7 @@ async function renderPaso3(container) {
   document.getElementById('p3-compania').addEventListener('change', async () => {
     p3Prog = null;
     document.getElementById('p3-wrap').innerHTML = '';
+    document.getElementById('p3-comentario-wrap').innerHTML = '';
     document.getElementById('p3-filtros').style.display = 'none';
     p3RenderFooter();
     await p3CargarLista();
@@ -6135,6 +6187,7 @@ async function renderPaso3(container) {
 
       p3ObsConError = new Set(); // limpiar errores al abrir programación
       p3CustomAgrups = [];       // limpiar agrupadores custom de la sesión anterior
+      renderComentarioProgramacion(document.getElementById('p3-comentario-wrap'), p3Prog, false);
       p3PoblarFiltros();
       p3RenderGrupos();
       p3RenderFooter();
@@ -6748,6 +6801,7 @@ async function renderPaso3(container) {
       toast('✅ Enviado a Autorización', 'success');
       p3Prog = null;
       document.getElementById('p3-wrap').innerHTML = '';
+      document.getElementById('p3-comentario-wrap').innerHTML = '';
       document.getElementById('p3-filtros').style.display = 'none';
       p3RenderFooter();
       await p3CargarLista();
@@ -6904,6 +6958,8 @@ async function renderPaso4(container) {
       </div>
     </div>
     <div id="p4-lista" class="mb-16"></div>
+    <!-- Comentario de la programación (solo lectura en Paso 4) -->
+    <div id="p4-comentario-wrap" class="mb-16"></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
       <button class="btn btn-outline btn-sm" onclick="imprimirVista('p4-wrap','Paso 4 — Autorización en Bancos')">🖨️ Imprimir</button>
       <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('p4-wrap','paso4-autorizacion')">📥 Bajar a Excel</button>
@@ -7314,6 +7370,7 @@ async function renderPaso4(container) {
     try {
       p4Prog = await GET(`/pagos/programaciones/${id}`);
       await pgAdelantosResumen(p4Prog.compania);
+      renderComentarioProgramacion(document.getElementById('p4-comentario-wrap'), p4Prog, false);
       p4ObsConError  = new Set();
       p4Marcados     = new Set((p4Prog.obligaciones || []).filter(o => o.marcado).map(o => String(o._id)));
       p4CustomAgrups = [];
@@ -7505,6 +7562,7 @@ async function renderPaso4(container) {
       toast('✅ Programación autorizada', 'success');
       p4Prog = null;
       document.getElementById('p4-wrap').innerHTML = '';
+      document.getElementById('p4-comentario-wrap').innerHTML = '';
       p4RenderFooter();
       await p4CargarLista();
     } catch(e) { toast(e.message, 'error'); }
@@ -7514,6 +7572,7 @@ async function renderPaso4(container) {
   document.getElementById('p4-compania').addEventListener('change', async () => {
     p4Prog = null;
     document.getElementById('p4-wrap').innerHTML = '';
+    document.getElementById('p4-comentario-wrap').innerHTML = '';
     p4RenderFooter();
     await p4CargarLista();
   });
@@ -7593,6 +7652,8 @@ async function renderPaso5(container) {
                oninput="clearTimeout(window._p5TC);window._p5TC=setTimeout(()=>p5RenderFooter(),300)">
       </div>
       <div id="p5-lista" style="margin-bottom:12px"></div>
+      <!-- Comentario de la programación (solo lectura en Paso 5) -->
+      <div id="p5-comentario-wrap" class="mb-16"></div>
       <!-- Dos columnas: izquierda=programación, derecha=movimiento bancario -->
       <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
         <!-- ── IZQUIERDA: Programación de pago ── -->
@@ -8070,6 +8131,7 @@ async function renderPaso5(container) {
     try {
       p5Prog = await GET(`/pagos/programaciones/${id}`);
       await pgAdelantosResumen(p5Prog.compania);
+      renderComentarioProgramacion(document.getElementById('p5-comentario-wrap'), p5Prog, false);
       p5RenderGrupos();
       // Auto-upsert de beneficiarios en Personas (en background, sin bloquear UI)
       {
@@ -8631,6 +8693,7 @@ async function renderPaso5(container) {
       toast('✅ Pago registrado', 'success');
       p5Prog = null;
       document.getElementById('p5-wrap').innerHTML = '';
+      document.getElementById('p5-comentario-wrap').innerHTML = '';
       p5RenderFooter();
       await p5CargarLista();
     } catch(e) { toast(e.message, 'error'); }
@@ -8646,6 +8709,7 @@ async function renderPaso5(container) {
       toast('🗑️ Programación eliminada', 'success');
       p5Prog = null;
       document.getElementById('p5-wrap').innerHTML = '';
+      document.getElementById('p5-comentario-wrap').innerHTML = '';
       p5RenderFooter();
       await p5CargarLista();
     } catch(e) { toast(e.message, 'error'); }
@@ -8655,6 +8719,7 @@ async function renderPaso5(container) {
   document.getElementById('p5-compania').addEventListener('change', async () => {
     p5Prog = null;
     document.getElementById('p5-wrap').innerHTML = '';
+    document.getElementById('p5-comentario-wrap').innerHTML = '';
     p5RenderFooter();
     await Promise.all([p5CargarLista(), p5CargarEstados()]);
   });

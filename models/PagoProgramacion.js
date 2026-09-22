@@ -57,6 +57,8 @@ const schema = new mongoose.Schema({
   estado:          { type: String, default: 'borrador',
                      enum: ['borrador','pendiente','aprobado','preparado','autorizado','pagado'] },
   promediosPagos:  { type: mongoose.Schema.Types.Mixed, default: {} },
+  // Editable desde Paso 1 y Paso 2 (programador/aprobador/admin); Paso 3-5 solo lectura.
+  comentario:      { type: String, default: '' },
   obligaciones: [obligacionSchema],
 });
 
