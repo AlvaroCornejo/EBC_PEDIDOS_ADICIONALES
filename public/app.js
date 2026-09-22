@@ -8765,6 +8765,11 @@ async function viewPlanillas(container) {
 
   const fmtMoney = v => 'S/ ' + (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtFecha = v => v ? new Date(v).toISOString().slice(0, 10) : '';
+  const calcDiasBrutos = fechaIngreso => {
+    if (!fechaIngreso || !planilla?.fechaPago) return 0;
+    const dias = Math.round((new Date(planilla.fechaPago) - new Date(fechaIngreso)) / 86400000);
+    return Math.max(0, Math.min(15, dias));
+  };
   const esManagerDeOperacion = op => esAdmin || (esManagerGlobal && (S.user.operations || []).includes(op));
 
   container.innerHTML = `
@@ -8905,19 +8910,21 @@ async function viewPlanillas(container) {
           <table class="data-table" style="font-size:12px">
             <thead><tr>
               <th>Código</th><th>Nombre</th><th>F. Ingreso</th><th>F. Cese</th><th>Tipo Doc</th><th>N° Doc</th>
-              <th>Básico</th><th>Asig. Familiar</th><th>Cargo</th><th></th>
+              <th>Básico</th><th>Asig. Familiar</th><th>Cargo</th><th>Esperado</th><th>Días Brutos</th><th></th>
             </tr></thead>
             <tbody>
               ${planilla.trabajadores.map((t, i) => `<tr data-idx="${i}">
                 <td><input class="form-control pl-t-f" data-f="codigo" value="${esc(t.codigo)}" ${editable ? '' : 'disabled'} style="width:80px"></td>
                 <td><input class="form-control pl-t-f" data-f="nombre" value="${esc(t.nombre)}" ${editable ? '' : 'disabled'} style="width:180px"></td>
-                <td><input type="date" class="form-control pl-t-f" data-f="fechaIngreso" value="${fmtFecha(t.fechaIngreso)}" ${editable ? '' : 'disabled'}></td>
+                <td><input type="date" class="form-control pl-t-f pl-t-fingreso" data-f="fechaIngreso" value="${fmtFecha(t.fechaIngreso)}" ${editable ? '' : 'disabled'}></td>
                 <td><input type="date" class="form-control pl-t-f" data-f="fechaCese" value="${fmtFecha(t.fechaCese)}" ${editable ? '' : 'disabled'}></td>
                 <td><input class="form-control pl-t-f" data-f="tipoDocumento" value="${esc(t.tipoDocumento)}" ${editable ? '' : 'disabled'} style="width:70px"></td>
                 <td><input class="form-control pl-t-f" data-f="numeroDocumento" value="${esc(t.numeroDocumento)}" ${editable ? '' : 'disabled'} style="width:100px"></td>
                 <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="basico" value="${t.basico ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
                 <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="asignacionFamiliar" value="${t.asignacionFamiliar ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
                 <td><input class="form-control pl-t-f" data-f="cargo" value="${esc(t.cargo)}" ${editable ? '' : 'disabled'} style="width:120px"></td>
+                <td><input class="form-control pl-t-f" data-f="esperado" value="${esc(t.esperado || '')}" ${editable ? '' : 'disabled'} style="width:90px"></td>
+                <td class="text-right pl-t-diasbrutos">${calcDiasBrutos(t.fechaIngreso)}</td>
                 <td>${editable ? `<button class="btn btn-outline btn-xs pl-t-del" data-idx="${i}">✕</button>` : ''}</td>
               </tr>`).join('')}
             </tbody>
@@ -8930,6 +8937,9 @@ async function viewPlanillas(container) {
           ${planilla.estado === 'borrador' ? '<button class="btn btn-success btn-sm" id="pl-t-pasar">➡️ Pasar a Manager</button>' : ''}
         </div>` : ''}
       </div>`;
+    root1.querySelectorAll('.pl-t-fingreso').forEach(el => el.addEventListener('input', () => {
+      el.closest('tr').querySelector('.pl-t-diasbrutos').textContent = calcDiasBrutos(el.value);
+    }));
     if (!editable) return;
 
     function leerTrabajadores() {
@@ -8942,12 +8952,13 @@ async function viewPlanillas(container) {
           tipoDocumento: get('tipoDocumento'), numeroDocumento: get('numeroDocumento'),
           basico: Number(get('basico')) || 0,
           asignacionFamiliar: Number(get('asignacionFamiliar')) || 0, cargo: get('cargo'),
+          esperado: get('esperado'), puntos: orig.puntos || 0,
         };
       });
     }
     document.getElementById('pl-t-add').addEventListener('click', () => {
       planilla.trabajadores = leerTrabajadores();
-      planilla.trabajadores.push({ codigo: '', nombre: '', fechaIngreso: today(), fechaCese: null, tipoDocumento: '', numeroDocumento: '', basico: 0, asignacionFamiliar: 0, cargo: '' });
+      planilla.trabajadores.push({ codigo: '', nombre: '', fechaIngreso: today(), fechaCese: null, tipoDocumento: '', numeroDocumento: '', basico: 0, asignacionFamiliar: 0, cargo: '', esperado: '' });
       renderPaso1(root1, puede);
     });
     root1.querySelectorAll('.pl-t-del').forEach(btn => btn.addEventListener('click', () => {
