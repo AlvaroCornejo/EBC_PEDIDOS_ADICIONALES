@@ -8910,7 +8910,7 @@ async function viewPlanillas(container) {
           <table class="data-table" style="font-size:12px">
             <thead><tr>
               <th>Código</th><th>Nombre</th><th>F. Ingreso</th><th>F. Cese</th><th>Tipo Doc</th><th>N° Doc</th>
-              <th>Básico</th><th>Asig. Familiar</th><th>Cargo</th><th>Esperado</th><th>Días Brutos</th><th></th>
+              <th>Básico</th><th>Asig. Familiar</th><th>Cargo</th><th>Esperado</th><th>Aporte AFP</th><th>Días Brutos</th><th></th>
             </tr></thead>
             <tbody>
               ${planilla.trabajadores.map((t, i) => `<tr data-idx="${i}">
@@ -8920,10 +8920,14 @@ async function viewPlanillas(container) {
                 <td><input type="date" class="form-control pl-t-f" data-f="fechaCese" value="${fmtFecha(t.fechaCese)}" ${editable ? '' : 'disabled'}></td>
                 <td><input class="form-control pl-t-f" data-f="tipoDocumento" value="${esc(t.tipoDocumento)}" ${editable ? '' : 'disabled'} style="width:70px"></td>
                 <td><input class="form-control pl-t-f" data-f="numeroDocumento" value="${esc(t.numeroDocumento)}" ${editable ? '' : 'disabled'} style="width:100px"></td>
-                <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="basico" value="${t.basico ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
-                <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="asignacionFamiliar" value="${t.asignacionFamiliar ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
+                <td><input type="number" step="0.01" class="form-control pl-t-f pl-t-basico" data-f="basico" value="${t.basico ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
+                <td><input type="number" step="0.01" class="form-control pl-t-f pl-t-asigfam" data-f="asignacionFamiliar" value="${t.asignacionFamiliar ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
                 <td><input class="form-control pl-t-f" data-f="cargo" value="${esc(t.cargo)}" ${editable ? '' : 'disabled'} style="width:120px"></td>
                 <td><input class="form-control pl-t-f" data-f="esperado" value="${esc(t.esperado || '')}" ${editable ? '' : 'disabled'} style="width:90px"></td>
+                <td style="display:flex;gap:2px;align-items:center">
+                  <input type="number" step="0.01" class="form-control pl-t-f pl-t-afp" data-f="aporteAFP" value="${t.aporteAFP ?? 0}" ${editable ? '' : 'disabled'} style="width:80px">
+                  ${editable ? `<button type="button" class="btn btn-outline btn-xs pl-t-afp-recalc" title="Recalcular 13% de Básico + Asig. Familiar">↺</button>` : ''}
+                </td>
                 <td class="text-right pl-t-diasbrutos">${calcDiasBrutos(t.fechaIngreso)}</td>
                 <td>${editable ? `<button class="btn btn-outline btn-xs pl-t-del" data-idx="${i}">✕</button>` : ''}</td>
               </tr>`).join('')}
@@ -8942,6 +8946,13 @@ async function viewPlanillas(container) {
     }));
     if (!editable) return;
 
+    root1.querySelectorAll('.pl-t-afp-recalc').forEach(btn => btn.addEventListener('click', () => {
+      const tr = btn.closest('tr');
+      const basico = Number(tr.querySelector('.pl-t-basico').value) || 0;
+      const asigFam = Number(tr.querySelector('.pl-t-asigfam').value) || 0;
+      tr.querySelector('.pl-t-afp').value = Math.round((basico + asigFam) * 0.13 * 100) / 100;
+    }));
+
     function leerTrabajadores() {
       return Array.from(root1.querySelectorAll('tbody tr')).map((tr, i) => {
         const orig = planilla.trabajadores[i] || {};
@@ -8953,12 +8964,13 @@ async function viewPlanillas(container) {
           basico: Number(get('basico')) || 0,
           asignacionFamiliar: Number(get('asignacionFamiliar')) || 0, cargo: get('cargo'),
           esperado: get('esperado'), puntos: orig.puntos || 0,
+          aporteAFP: Number(get('aporteAFP')) || 0,
         };
       });
     }
     document.getElementById('pl-t-add').addEventListener('click', () => {
       planilla.trabajadores = leerTrabajadores();
-      planilla.trabajadores.push({ codigo: '', nombre: '', fechaIngreso: today(), fechaCese: null, tipoDocumento: '', numeroDocumento: '', basico: 0, asignacionFamiliar: 0, cargo: '', esperado: '' });
+      planilla.trabajadores.push({ codigo: '', nombre: '', fechaIngreso: today(), fechaCese: null, tipoDocumento: '', numeroDocumento: '', basico: 0, asignacionFamiliar: 0, cargo: '', esperado: '', aporteAFP: 0 });
       renderPaso1(root1, puede);
     });
     root1.querySelectorAll('.pl-t-del').forEach(btn => btn.addEventListener('click', () => {
@@ -9169,6 +9181,7 @@ async function viewPlanillas(container) {
               ${PL_OCURRENCIAS.map(([, l]) => `<th class="text-right">${l}</th>`).join('')}
               <th class="text-right">Días Netos</th><th class="text-right">Bolsa</th>
               <th class="text-right">Extra</th><th class="text-right">Descuento</th>
+              <th class="text-right">Aporte AFP</th>
               <th class="text-right">Estimado</th>
             </tr></thead>
             <tbody>
@@ -9180,6 +9193,7 @@ async function viewPlanillas(container) {
                 <td class="text-right">${fmtMoney(t.bolsaTrabajador)}</td>
                 <td class="text-right">${fmtMoney(t.extraMonto)}</td>
                 <td class="text-right">${fmtMoney(t.descuentoMonto)}</td>
+                <td class="text-right">${fmtMoney(t.aporteAFP)}</td>
                 <td class="text-right" style="font-weight:700">${fmtMoney(t.montoEstimado)}</td>
               </tr>`).join('')}
             </tbody>

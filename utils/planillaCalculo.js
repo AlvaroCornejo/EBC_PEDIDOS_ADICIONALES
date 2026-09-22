@@ -50,7 +50,8 @@ function calcularTrabajador(t, fechaPago, bolsaOperacion, totalPuntosOperacion) 
     + (Number(t.asignacionFamiliar) || 0)
     + bolsaTrabajador
     + (Number(t.extraMonto) || 0)
-    - (Number(t.descuentoMonto) || 0);
+    - (Number(t.descuentoMonto) || 0)
+    - (Number(t.aporteAFP) || 0);
 
   return {
     diasPorTipo,

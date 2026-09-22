@@ -20,6 +20,7 @@ const trabajadorSchema = new mongoose.Schema({
   numeroDocumento:   { type: String, default: '' },
   basico:            { type: Number, default: 0 },
   asignacionFamiliar:{ type: Number, default: 0 },
+  aporteAFP:         { type: Number, default: 0 }, // 13% de Básico + Asig. Familiar, editable por trabajador
   cargo:             { type: String, default: '' },
 
   // Paso 2 — Manager: hasta 3 rangos por tipo de ocurrencia.

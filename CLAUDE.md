@@ -1130,3 +1130,23 @@ form de usuarios: `rolPlanilla` (select, mismo patrón que `rolPago`) y
 pasar por los 4 pasos) la hace el usuario en producción, como en el resto de
 módulos de esta app — no fue posible levantar el servidor con Mongo real
 desde este entorno de desarrollo.
+
+**Carga real inicial (2Q setiembre 2026)**: 208 trabajadores en las 6
+operaciones (CDLAO, PLANTA, CORPFK, CDL28, AASI, CORPQ), desde
+`TRABAJDORES VALIDADOS.xlsx` del usuario, vía script temporal (no
+commiteado permanentemente). La columna `ESPERADO` del Excel trae un número
+por trabajador (no una categoría del catálogo) — se decidió cargarlo
+directo como `trabajador.esperado` desde el Paso 1 en vez de que el GAF lo
+elija de `PlanillaEsperado` en el Paso 3 (ese catálogo/flujo se mantiene por
+si se necesita para otras operaciones sin este dato precargado). Se
+multiplicó x2 el `esperado` de estos 208 registros a pedido del usuario
+(otro script temporal). `Sueldo Referencial` se quitó del modelo poco
+después — era el mismo valor que `Esperado`.
+
+**Aporte AFP**: campo nuevo en el trabajador, `aporteAFP` (Number, editable
+en el Paso 1, con botón "↺" que recalcula 13% de Básico + Asig. Familiar
+sobre los valores actuales de esas dos celdas — no se recalcula solo,
+hay que darle click después de cambiar Básico/Asig. Familiar). Se resta en
+la fórmula del Monto Estimado (`utils/planillaCalculo.js`):
+`Estimado = prorrateo + Asig.Familiar + Bolsa + Extra − Descuento − Aporte AFP`.
+Los 208 trabajadores ya cargados se rellenaron con 13% vía script temporal.
