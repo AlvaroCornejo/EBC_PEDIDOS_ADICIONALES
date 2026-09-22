@@ -19,7 +19,6 @@ const trabajadorSchema = new mongoose.Schema({
   tipoDocumento:     { type: String, default: '' },
   numeroDocumento:   { type: String, default: '' },
   basico:            { type: Number, default: 0 },
-  sueldoReferencial: { type: Number, default: 0 },
   asignacionFamiliar:{ type: Number, default: 0 },
   cargo:             { type: String, default: '' },
 

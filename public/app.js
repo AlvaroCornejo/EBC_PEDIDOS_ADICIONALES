@@ -8905,7 +8905,7 @@ async function viewPlanillas(container) {
           <table class="data-table" style="font-size:12px">
             <thead><tr>
               <th>Código</th><th>Nombre</th><th>F. Ingreso</th><th>F. Cese</th><th>Tipo Doc</th><th>N° Doc</th>
-              <th>Básico</th><th>Sueldo Ref.</th><th>Asig. Familiar</th><th>Cargo</th><th></th>
+              <th>Básico</th><th>Asig. Familiar</th><th>Cargo</th><th></th>
             </tr></thead>
             <tbody>
               ${planilla.trabajadores.map((t, i) => `<tr data-idx="${i}">
@@ -8916,7 +8916,6 @@ async function viewPlanillas(container) {
                 <td><input class="form-control pl-t-f" data-f="tipoDocumento" value="${esc(t.tipoDocumento)}" ${editable ? '' : 'disabled'} style="width:70px"></td>
                 <td><input class="form-control pl-t-f" data-f="numeroDocumento" value="${esc(t.numeroDocumento)}" ${editable ? '' : 'disabled'} style="width:100px"></td>
                 <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="basico" value="${t.basico ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
-                <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="sueldoReferencial" value="${t.sueldoReferencial ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
                 <td><input type="number" step="0.01" class="form-control pl-t-f" data-f="asignacionFamiliar" value="${t.asignacionFamiliar ?? 0}" ${editable ? '' : 'disabled'} style="width:90px"></td>
                 <td><input class="form-control pl-t-f" data-f="cargo" value="${esc(t.cargo)}" ${editable ? '' : 'disabled'} style="width:120px"></td>
                 <td>${editable ? `<button class="btn btn-outline btn-xs pl-t-del" data-idx="${i}">✕</button>` : ''}</td>
@@ -8941,14 +8940,14 @@ async function viewPlanillas(container) {
           _id: orig._id, codigo: get('codigo'), nombre: get('nombre'),
           fechaIngreso: get('fechaIngreso'), fechaCese: get('fechaCese') || null,
           tipoDocumento: get('tipoDocumento'), numeroDocumento: get('numeroDocumento'),
-          basico: Number(get('basico')) || 0, sueldoReferencial: Number(get('sueldoReferencial')) || 0,
+          basico: Number(get('basico')) || 0,
           asignacionFamiliar: Number(get('asignacionFamiliar')) || 0, cargo: get('cargo'),
         };
       });
     }
     document.getElementById('pl-t-add').addEventListener('click', () => {
       planilla.trabajadores = leerTrabajadores();
-      planilla.trabajadores.push({ codigo: '', nombre: '', fechaIngreso: today(), fechaCese: null, tipoDocumento: '', numeroDocumento: '', basico: 0, sueldoReferencial: 0, asignacionFamiliar: 0, cargo: '' });
+      planilla.trabajadores.push({ codigo: '', nombre: '', fechaIngreso: today(), fechaCese: null, tipoDocumento: '', numeroDocumento: '', basico: 0, asignacionFamiliar: 0, cargo: '' });
       renderPaso1(root1, puede);
     });
     root1.querySelectorAll('.pl-t-del').forEach(btn => btn.addEventListener('click', () => {

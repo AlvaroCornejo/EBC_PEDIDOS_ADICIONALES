@@ -1092,10 +1092,14 @@ Fórmulas confirmadas con el usuario:
   trabajador (para buscar sus puntos) **se asigna a mano** en el Paso 3, no
   se deriva del cargo.
 - Monto estimado = (Básico / 15 × días netos) + Asignación Familiar (no se
-  prorratea) + parte de la Bolsa + Extra − Descuento. `Sueldo Referencial`
-  es solo informativo, no entra en la fórmula.
+  prorratea) + parte de la Bolsa + Extra − Descuento.
 - Verificado con un script de prueba local contra valores de ejemplo antes
   de darla por buena (ver historial de esta sesión).
+
+**`Sueldo Referencial` se quitó del todo** (modelo, ruta, frontend) poco
+después del lanzamiento — el usuario aclaró que era lo mismo que `Esperado`
+(ambos se cargaron con el mismo valor desde la columna `ESPERADO` del Excel
+de la carga inicial), así que no hacía falta duplicarlo como campo aparte.
 
 **Backend** (`routes/planillas.js`, montado en `/api/planillas`): acceso vía
 `rolPlanilla` (`''|rrhh|gaf|admin`, corporativo — ve todas las operaciones,

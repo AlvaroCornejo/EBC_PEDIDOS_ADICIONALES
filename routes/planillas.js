@@ -129,7 +129,7 @@ router.post('/', async (req, res) => {
       .map(t => ({
         codigo: t.codigo, nombre: t.nombre, fechaIngreso: t.fechaIngreso,
         tipoDocumento: t.tipoDocumento, numeroDocumento: t.numeroDocumento,
-        basico: t.basico, sueldoReferencial: t.sueldoReferencial, asignacionFamiliar: t.asignacionFamiliar,
+        basico: t.basico, asignacionFamiliar: t.asignacionFamiliar,
         cargo: t.cargo,
       }));
 
