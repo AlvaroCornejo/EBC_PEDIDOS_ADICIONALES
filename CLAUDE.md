@@ -1185,3 +1185,36 @@ misma forma quedaba incluido gratis la próxima vez que se hiciera clic en
 - **Paso 3/4/5** (`p3RenderGrupos`, `p4ObRow`, `p5TablaObs`): columna
   "Comentario" de solo texto (sin input), junto a "Observaciones" donde
   existe esa columna — nunca se envía de vuelta al backend desde ahí.
+
+### Sesión 20 — Paso 2: ventana de pagos intercompany (QUIASMO/FACTORIAL K/FRQ1)
+
+Botón "🔗 Intercompany" en la barra superior de Paso 2 (`ap2AbrirIntercompany`,
+junto a Contraer/Beneficiarios/Obligaciones) abre un modal con una matriz de
+3 sociedades fijas (`QUIASMO`, `FACTORIAL K`, `FRQ1` — hardcodeadas, no es
+configurable) × columnas: Total a pagar S/, Pago a cada una de las otras 2,
+y Neto (= total − pagos a las otras 2), más fila de totales por columna.
+
+**Detección de "pago entre ellas"**: el beneficiario (`PagarA`) de una
+obligación es literalmente el nombre de otra de las 3 (comparación
+`trim().toUpperCase()`) — no hay un catálogo/flag separado para esto.
+
+**Sin endpoint nuevo** — todo el cálculo es client-side dentro de
+`ap2AbrirIntercompany`:
+1. `GET /pagos/fecha-pago` para la semana/año actual (misma que usa Paso 1).
+2. Por cada una de las 3 sociedades: `GET /pagos/programaciones?compania=X`
+   y se busca la que tenga ese `semana`+`año` (no la que esté abierta en el
+   Paso 2 en ese momento — son 3 sociedades a la vez, independientes de cuál
+   programación individual se esté viendo); si no hay ninguna esa semana,
+   la fila queda en 0 con nota "Sin programación esta semana".
+3. `GET /pagos/programaciones/:id` para el detalle completo de cada una.
+4. Solo se suman obligaciones con `seleccionado:true`, convertidas a soles
+   con el T/C que trae el propio modal (input `#ic-tc`, precargado con el
+   T/C de Paso 2 pero editable y recalculable ahí mismo — botón
+   "🔄 Recalcular" — sin afectar el T/C de la vista de Paso 2).
+
+**Limitación conocida, no resuelta**: `GET /pagos/programaciones?compania=`
+devuelve 403 si el usuario no tiene esa sociedad en `sociedadesPago` —  si
+un aprobador no tiene acceso a las 3, esa fila se muestra igual como "Sin
+programación esta semana" (el `catch` no distingue 403 de "no existe"). En
+la práctica no fue un problema porque quien usa este botón normalmente
+tiene acceso a las 3 sociedades relacionadas.

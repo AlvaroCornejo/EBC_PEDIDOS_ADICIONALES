@@ -5455,6 +5455,7 @@ async function renderPaso2(container) {
                  oninput="clearTimeout(window._ap2TC);window._ap2TC=setTimeout(ap2Refresh,300)">
         </div>
         <div style="margin-left:auto;align-self:flex-end;display:flex;gap:6px">
+          <button class="btn btn-outline btn-sm" onclick="ap2AbrirIntercompany()" title="Pagos entre QUIASMO / FACTORIAL K / FRQ1">🔗 Intercompany</button>
           <button class="btn btn-outline btn-sm" onclick="ap2Expandir(0)" title="Contraer todo">▸ Contraer</button>
           <button class="btn btn-outline btn-sm" onclick="ap2Expandir(1)" title="Expandir hasta beneficiarios">≡ Beneficiarios</button>
           <button class="btn btn-outline btn-sm" onclick="ap2Expandir(2)" title="Expandir hasta obligaciones">≣ Obligaciones</button>
@@ -5880,6 +5881,95 @@ async function renderPaso2(container) {
       const arr = d.previousElementSibling?.querySelector('.ap2-ben-arr');
       if (arr) arr.textContent = nivel >= 2 ? '▾' : '▸';
     });
+  };
+
+  // ── Ventana flotante: pagos entre QUIASMO / FACTORIAL K / FRQ1 ──────────────
+  // Detecta "pago entre ellas" cuando el beneficiario (PagarA) de una obligación
+  // es literalmente el nombre de otra de las 3 sociedades. Usa la programación
+  // de cada sociedad para la semana/año actual (misma "Fecha de pago" de Paso 1).
+  window.ap2AbrirIntercompany = async function() {
+    const EMPRESAS = ['QUIASMO', 'FACTORIAL K', 'FRQ1'];
+    const tcInicial = parseFloat(document.getElementById('ap2-tc')?.value) || 3.700;
+
+    openModal('🔗 Pagos entre QUIASMO / FACTORIAL K / FRQ1', `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <label style="font-size:12px;color:var(--text-muted)">T/C</label>
+        <input id="ic-tc" type="number" step="0.001" min="0" class="form-control" style="width:90px" value="${tcInicial}">
+        <button class="btn btn-outline btn-sm" id="ic-recalcular">🔄 Recalcular</button>
+      </div>
+      <div id="ic-tabla" style="min-height:60px">Cargando...</div>
+    `, null, { medium: true });
+
+    async function calcularYRender() {
+      const tabla = document.getElementById('ic-tabla');
+      tabla.innerHTML = 'Cargando...';
+      const tc = parseFloat(document.getElementById('ic-tc')?.value) || 1;
+      let fp;
+      try { fp = await GET('/pagos/fecha-pago'); }
+      catch (e) { tabla.innerHTML = `<p style="color:red">${e.message}</p>`; return; }
+
+      const porEmpresa = {};
+      for (const emp of EMPRESAS) {
+        try {
+          const progs = await GET(`/pagos/programaciones?compania=${encodeURIComponent(emp)}`);
+          const match = progs.find(p => p.semana === fp.semana && p.año === fp.año);
+          porEmpresa[emp] = match ? await GET(`/pagos/programaciones/${match._id}`) : null;
+        } catch (e) { porEmpresa[emp] = null; }
+      }
+
+      const totS = ob => (ob.moneda === 'LO' ? ob.monto : ob.monto * tc);
+      const filas = EMPRESAS.map(emp => {
+        const prog = porEmpresa[emp];
+        const obs  = (prog?.obligaciones || []).filter(o => o.seleccionado);
+        const total = obs.reduce((s, o) => s + totS(o), 0);
+        const pagos = {};
+        EMPRESAS.forEach(otra => {
+          pagos[otra] = otra === emp ? 0 : obs
+            .filter(o => (o.pagarA || '').trim().toUpperCase() === otra)
+            .reduce((s, o) => s + totS(o), 0);
+        });
+        const descuento = EMPRESAS.reduce((s, otra) => s + pagos[otra], 0);
+        return { emp, sinProg: !prog, total, pagos, neto: total - descuento };
+      });
+
+      const totales = { total: 0, neto: 0 };
+      EMPRESAS.forEach(e => { totales[e] = 0; });
+      filas.forEach(f => {
+        totales.total += f.total;
+        totales.neto  += f.neto;
+        EMPRESAS.forEach(e => { totales[e] += f.pagos[e]; });
+      });
+
+      tabla.innerHTML = `
+        <table class="data-table" style="font-size:12px">
+          <thead><tr>
+            <th>Sociedad</th>
+            <th class="text-right">Total a pagar S/</th>
+            ${EMPRESAS.map(e => `<th class="text-right">Pago a ${esc(e)}</th>`).join('')}
+            <th class="text-right">Neto S/</th>
+          </tr></thead>
+          <tbody>
+            ${filas.map(f => `
+              <tr>
+                <td>${esc(f.emp)}${f.sinProg ? '<br><span style="color:var(--text-muted);font-size:10px">Sin programación esta semana</span>' : ''}</td>
+                <td class="text-right">${fmtN(f.total)}</td>
+                ${EMPRESAS.map(e => `<td class="text-right">${e === f.emp ? '—' : fmtN(f.pagos[e])}</td>`).join('')}
+                <td class="text-right fw-semibold">${fmtN(f.neto)}</td>
+              </tr>`).join('')}
+          </tbody>
+          <tfoot style="border-top:2px solid var(--border);background:var(--bg-secondary);font-weight:700">
+            <tr>
+              <td style="padding:4px 8px">TOTAL</td>
+              <td class="text-right" style="padding:4px 8px">${fmtN(totales.total)}</td>
+              ${EMPRESAS.map(e => `<td class="text-right" style="padding:4px 8px">${fmtN(totales[e])}</td>`).join('')}
+              <td class="text-right" style="padding:4px 8px;color:var(--primary)">${fmtN(totales.neto)}</td>
+            </tr>
+          </tfoot>
+        </table>`;
+    }
+
+    await calcularYRender();
+    document.getElementById('ic-recalcular').addEventListener('click', calcularYRender);
   };
 
   window.ap2ToggleOb = function(id, benKey, val) {
