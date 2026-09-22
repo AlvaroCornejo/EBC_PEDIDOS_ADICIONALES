@@ -1151,33 +1151,37 @@ la fórmula del Monto Estimado (`utils/planillaCalculo.js`):
 `Estimado = prorrateo + Asig.Familiar + Bolsa + Extra − Descuento − Aporte AFP`.
 Los 208 trabajadores ya cargados se rellenaron con 13% vía script temporal.
 
-### Sesión 19 — Gestión de Pagos: comentario editable en Paso 1/2, solo lectura en 3-5
+### Sesión 19 — Gestión de Pagos: comentario por obligación, editable en Paso 1/2, solo lectura en 3-5
 
-Campo nuevo `comentario` (String) en `PagoProgramacion`, uno por programación
-(no por obligación). Editable desde **Paso 1 y Paso 2** por rol (`programador`/
-`aprobador`/`admin` vía `rolPago`), **solo lectura en Paso 3/4/5** (`pagador`/
-`autorizador`) — la restricción real es por ROL, no por el tab/estado en que se
-esté mirando: un `pagador` que abra Paso 1 o 2 (los tabs son visibles para
-cualquiera con acceso a Gestión de Pagos) ve el mismo campo pero de solo
-lectura, y si de algún modo intentara guardar el backend lo rechaza
-(`PUT /api/pagos/programaciones/:id/comentario`, 403 si el rol no es de la
-lista). Se decidió así (rol, no paso) porque es el mismo criterio que ya usa
-todo el resto del módulo (`PAGO_ROLES`: programador=Paso1, aprobador=Paso2,
-pagador=Paso3y5, autorizador=Paso4).
+Campo nuevo `comentario` (String) en `obligacionSchema` (dentro de
+`PagoProgramacion.obligaciones[]`) — **por obligación, no por programación**.
+Primer intento de la sesión lo puso a nivel de programación entera (un solo
+campo para toda la semana); el usuario corrigió que debía ser por línea/
+obligación, así que ese diseño se revirtió por completo (modelo, endpoint
+dedicado, función compartida `renderComentarioProgramacion` y sus 5 `<div
+id="...-comentario-wrap">` — nada de eso quedó) antes de rehacerlo como se
+describe abajo.
 
-**Frontend**: función compartida `renderComentarioProgramacion(el, prog, editable)`
-(justo antes de `renderPaso1`) — un solo lugar en vez de repetir el HTML/lógica
-en los 5 pasos. Cada paso tiene su propio `<div id="{prefijo}-comentario-wrap">`
-(`pg-`/`ap2-`/`p3-`/`p4-`/`p5-`) y llama la función al abrir una programación
-(mismo punto donde ya se cargaba `progActual`/`ap2Prog`/`p3Prog`/`p4Prog`/`p5Prog`)
-y la limpia (`.innerHTML=''`) en cada punto donde esas variables vuelven a `null`
-(cambio de sociedad, eliminar, aprobar/preparar/autorizar/pagar) — se armó
-grepeando cada ocurrencia de `xxProg = null` por paso para no dejar ninguna sin
-limpiar (quedó una vista con el comentario de la programación anterior "pegado"
-en un intento inicial, antes de cubrir los 3 puntos de reset de Paso 2 y los 2
-de Paso 3).
-- **Paso 1**: editable = `!progActual._readOnly` (mismo flag que ya gobierna el
-  resto de la vista — estado borrador/pendiente).
-- **Paso 2**: editable = `['borrador','pendiente','aprobado'].includes(estado)`
-  (mismo rango que ya usa el botón "Guardar" de ese paso).
-- **Paso 3/4/5**: siempre `false` (solo lectura), sin importar el estado.
+**Sin endpoint nuevo**: en vez de un `PUT` dedicado, se reutilizó el mismo
+mecanismo que ya usan `PUT /programaciones/:id/guardar` (Paso 1, y también
+usado por `ap2Guardar` en Paso 2) y `PUT /programaciones/:id/aprobar`
+(Paso 2) — ambos ya recibían `selecciones: [{id, seleccionado}]` y hacían
+`prog.obligaciones.id(id).seleccionado = ...`; solo se agregó `comentario`
+a esa misma forma (`if (comentario !== undefined) ob.comentario = ...`,
+tope 500 caracteres). El frontend ya mantenía `progActual.obligaciones`/
+`ap2Prog.obligaciones` como la fuente de verdad en memoria (mutada
+directamente por los `<select>`/checkboxes existentes, ej. `pgActGrupo`) —
+así que un input de comentario por fila que mutara `ob.comentario` de la
+misma forma quedaba incluido gratis la próxima vez que se hiciera clic en
+"Guardar"/"Aprobar", sin tocar esos botones.
+
+- **Paso 1** (`renderTabla`): columna nueva "Comentario" con `<input>` por
+  fila (`oninput="pgActComentario(idx,this.value)"`, mismo patrón de índice
+  que ya usa `pgToggleObl`/`data-idx` sobre `obligacionesFiltradas()`).
+- **Paso 2** (`ap2RenderGrupos`): columna nueva en la tabla de obligaciones
+  por beneficiario, `ap2ActComentario(id, valor)` busca por `_id` en
+  `ap2Prog.obligaciones` (no hay índice de fila estable ahí, a diferencia
+  de Paso 1).
+- **Paso 3/4/5** (`p3RenderGrupos`, `p4ObRow`, `p5TablaObs`): columna
+  "Comentario" de solo texto (sin input), junto a "Observaciones" donde
+  existe esa columna — nunca se envía de vuelta al backend desde ahí.

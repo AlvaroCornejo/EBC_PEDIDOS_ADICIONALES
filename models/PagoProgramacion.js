@@ -13,6 +13,9 @@ const obligacionSchema = new mongoose.Schema({
   grupo:           { type: String, default: 'OTROS' },
   detalleGrupo:    { type: String, default: 'OTROS' },
   seleccionado:    { type: Boolean, default: false },
+  // Editable en Paso 1 y Paso 2 (programador/aprobador/admin, via /guardar y
+  // /aprobar); Paso 3-5 solo lo leen. Por obligación, no por programación.
+  comentario:      { type: String, default: '' },
   // Checkbox de trabajo en Paso 4 (Autorización) — selección del usuario para
   // Imprimir/Bajar a Excel un subconjunto; se persiste para que no se pierda
   // al volver a abrir la semana (independiente del estado de la programación).
@@ -57,8 +60,6 @@ const schema = new mongoose.Schema({
   estado:          { type: String, default: 'borrador',
                      enum: ['borrador','pendiente','aprobado','preparado','autorizado','pagado'] },
   promediosPagos:  { type: mongoose.Schema.Types.Mixed, default: {} },
-  // Editable desde Paso 1 y Paso 2 (programador/aprobador/admin); Paso 3-5 solo lectura.
-  comentario:      { type: String, default: '' },
   obligaciones: [obligacionSchema],
 });
 
