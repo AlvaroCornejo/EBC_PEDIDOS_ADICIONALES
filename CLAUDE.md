@@ -92,7 +92,8 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | KardexBajaVenta | `scripts/importBajas.js` | data/*ADICIONALES.xlsx | diario |
 | RecetaCosteo / RecetaCosteoDetalle | `scripts/importRecetasCosteo.js` (vía `sync-recetas-costeo.bat`) | EBC RECETAS.xlsx | diario |
 | FlujoMovimientoBancario / FlujoPagoERP | `scripts/importFlujoCaja.js` (vía `sync-flujo-caja.bat`) | Carpeta "EBC ESTADO DE CUENTA" (un .xlsx por sociedad+banco+moneda) + carpeta "EBC PAGOS ERP" (.csv, todas las sociedades), rutas globales en `Config` | diario |
-| TipoCambio | `scripts/syncTipoCambio.js` (vía `sync-tipo-cambio.bat`, paso 14/18 de `sync-master.bat`) | API pública SUNAT `https://api.apis.net.pe/v1/tipo-cambio-sunat?fecha=YYYY-MM-DD` (sin API key), campo `venta`. Rellena desde la fecha del movimiento más antiguo en `FlujoMovimientoBancario` hasta hoy, saltando fechas ya cargadas (idempotente) — usado por Flujo de Caja para "Todo en Soles". Sensible a rate-limit 429; reintenta con backoff. | diario |
+| TipoCambio | `scripts/syncTipoCambio.js` (vía `sync-tipo-cambio.bat`, paso 14/19 de `sync-master.bat`) | API pública SUNAT `https://api.apis.net.pe/v1/tipo-cambio-sunat?fecha=YYYY-MM-DD` (sin API key), campo `venta`. Rellena desde la fecha del movimiento más antiguo en `FlujoMovimientoBancario` hasta hoy, saltando fechas ya cargadas (idempotente) — usado por Flujo de Caja para "Todo en Soles". Sensible a rate-limit 429; reintenta con backoff. | diario |
+| InventarioDiario | `scripts/importInventarioDiario.js` (vía `sync-inventario-diario.bat`, paso 19/19 de `sync-master.bat`) | EBC SALDO AL DIA.xlsx (hoja "CONTEO") | diario, reemplazo completo (sin historia) |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
@@ -1218,3 +1219,40 @@ un aprobador no tiene acceso a las 3, esa fila se muestra igual como "Sin
 programación esta semana" (el `catch` no distingue 403 de "no existe"). En
 la práctica no fue un problema porque quien usa este botón normalmente
 tiene acceso a las 3 sociedades relacionadas.
+
+### Sesión 21 — Inventarios Diarios (módulo nuevo)
+
+Consulta nueva, de solo lectura: conteo físico vs. saldo de sistema por
+operación y almacén/área, desde `EBC SALDO AL DIA.xlsx` (hoja "CONTEO",
+columnas `ALMACEN`/`AREA`/`IDINVENTARIO`/`ITEM`/`CONTEO`/`SALDO` — `ALMACEN`
+es el código de operación, `AREA` es el almacén/área específico dentro de
+esa operación, ej. GBSRQ tiene "ALMACEN CENTRAL", "BAR", "CAVA", etc.).
+**Se reemplaza por completo en cada import — no guarda historia**, a pedido
+explícito del usuario (`deleteMany({}) + insertMany`, mismo patrón que
+`importSeguimientoCompras.js` pero sin filtrar por sociedad/operación ya que
+el Excel trae todas las operaciones juntas en un solo archivo).
+
+**Modelo** (`models/InventarioDiario.js`): `{operacion, almacen, item, conteo, saldo}`,
+sin índice único (se borra y reinserta todo en cada corrida).
+
+**Backend** (`routes/inventarios.js`, montado en `/api/inventarios`). Acceso:
+`accesoInventarios` (boolean) + `operations` — el usuario **solo ve las
+operaciones que ya tiene autorizadas** (mismo criterio que Bajas/Consumos en
+`routes/movimientos.js`), ADMIN ve todas.
+- `GET /operaciones` — operaciones autorizadas que tienen inventario cargado.
+- `GET /almacenes?operacion=` — almacenes/áreas distintos de esa operación.
+- `GET /resumen?operacion=&almacen=` — filas con `item`/`nombre` (join contra
+  `Item` por `operacion+item`)/`conteo`/`saldo`/`diferencia` (`conteo-saldo`,
+  calculada al vuelo, no se guarda). `almacen` es opcional — sin ese filtro
+  trae todos los almacenes de la operación (columna Almacén visible en la
+  tabla); con un almacén específico esa columna se oculta.
+
+**Frontend**: nav item `inventarios` → `viewInventarios` (selector Operación
++ Almacén, "— Todos —" por defecto). Diferencias distintas de 0 se resaltan
+en rojo.
+
+**Sync**: `scripts/importInventarioDiario.js` (columnas resueltas por
+nombre, no posición, mismo criterio que el resto de imports de esta app) +
+`sync-inventario-diario.bat`, paso 19/19 de `sync-master.bat` (nuevo, antes
+eran 18 pasos). Ruta por defecto del servidor:
+`C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC SALDOS\EBC SALDO AL DIA.xlsx`.

@@ -278,6 +278,7 @@ const NAV_ITEMS = [
   { id: 'pl',             label: 'PL',              icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoEERR' },
   { id: 'conciliacion',   label: 'Conciliación Cobranzas', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoConciliacion' },
   { id: 'saldo-banco',    label: 'Saldos Bancarios', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoSaldoBanco' },
+  { id: 'inventarios',    label: 'Inventarios Diarios', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -348,7 +349,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -12671,6 +12672,91 @@ async function viewSaldoBanco(container) {
   cargar();
 }
 
+// ─── View: Inventarios Diarios ─────────────────────────────────────
+async function viewInventarios(container) {
+  let operaciones = [];
+  let operacionActual = '', almacenActual = '';
+  const fmt = v => (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">📦 Inventarios Diarios</div></div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="inv-operacion" class="form-control" style="width:160px"><option value="">— Seleccionar —</option></select>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Almacén</label>
+            <select id="inv-almacen" class="form-control" style="width:200px"><option value="">— Todos —</option></select>
+          </div>
+        </div>
+      </div>
+      <div id="inv-content"></div>
+    </div>`;
+
+  const root = document.getElementById('inv-content');
+
+  try {
+    operaciones = await GET('/inventarios/operaciones');
+    const sel = document.getElementById('inv-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; await cargarAlmacenes(); await cargar(); }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+  document.getElementById('inv-operacion').addEventListener('change', async e => {
+    operacionActual = e.target.value;
+    almacenActual = '';
+    document.getElementById('inv-almacen').innerHTML = '<option value="">— Todos —</option>';
+    await cargarAlmacenes();
+    await cargar();
+  });
+  document.getElementById('inv-almacen').addEventListener('change', e => { almacenActual = e.target.value; cargar(); });
+
+  async function cargarAlmacenes() {
+    if (!operacionActual) return;
+    try {
+      const almacenes = await GET(`/inventarios/almacenes?operacion=${encodeURIComponent(operacionActual)}`);
+      document.getElementById('inv-almacen').innerHTML = '<option value="">— Todos —</option>' + almacenes.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function cargar() {
+    if (!operacionActual) { root.innerHTML = ''; return; }
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual });
+      if (almacenActual) params.set('almacen', almacenActual);
+      const filas = await GET(`/inventarios/resumen?${params}`);
+      render(filas);
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function render(filas) {
+    if (!filas.length) { root.innerHTML = '<div class="empty-state"><p>Sin datos de inventario para los filtros elegidos.</p></div>'; return; }
+    root.innerHTML = `
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:13px">
+            <thead><tr>
+              ${!almacenActual ? '<th>Almacén</th>' : ''}
+              <th>Ítem</th><th>Nombre</th>
+              <th class="text-right">Conteo</th><th class="text-right">Saldo</th><th class="text-right">Diferencia</th>
+            </tr></thead>
+            <tbody>
+              ${filas.map(f => `<tr>
+                ${!almacenActual ? `<td>${esc(f.almacen)}</td>` : ''}
+                <td>${esc(f.item)}</td><td>${esc(f.nombre)}</td>
+                <td class="text-right">${fmt(f.conteo)}</td>
+                <td class="text-right">${fmt(f.saldo)}</td>
+                <td class="text-right" style="${f.diferencia !== 0 ? 'color:#ef4444;font-weight:700' : ''}">${fmt(f.diferencia)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+}
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -14266,6 +14352,11 @@ function showUserModal(user, onSave, opts = {}) {
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🧮 <strong>Planillas (Manager de sus operaciones)</strong></span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-inventarios" ${user?.accesoInventarios?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>📦 <strong>Inventarios Diarios</strong></span>
+          </label>
         </div>
       </div>
       <div id="um-error" class="msg-error hidden"></div>
@@ -14327,6 +14418,7 @@ function showUserModal(user, onSave, opts = {}) {
       accesoSaldoBanco:     !isAdmin && (document.getElementById('um-saldo-banco')?.checked ?? false),
       accesoFlujoCaja:      !isAdmin && (document.getElementById('um-flujo-caja')?.checked ?? false),
       accesoPlanillas:      !isAdmin && (document.getElementById('um-planillas')?.checked ?? false),
+      accesoInventarios:    !isAdmin && (document.getElementById('um-inventarios')?.checked ?? false),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       operations: operacionesDerivadas,

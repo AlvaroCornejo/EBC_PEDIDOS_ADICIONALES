@@ -37,6 +37,7 @@ const userSchema = new mongoose.Schema({
   // 4) usa accesoPlanillas + operations (mismo patrón que accesoBajas/etc.).
   rolPlanilla:      { type: String, default: '', enum: ['', 'rrhh', 'gaf', 'admin'] },
   accesoPlanillas:  { type: Boolean, default: false },
+  accesoInventarios: { type: Boolean, default: false }, // scoped por `operations`
 });
 
 module.exports = mongoose.model('User', userSchema);

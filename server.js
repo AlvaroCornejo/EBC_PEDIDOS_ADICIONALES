@@ -62,6 +62,7 @@ app.use('/api/movimientos', require('./routes/movimientos'));
 app.use('/api/recetas',    require('./routes/recetas'));
 app.use('/api/recetas-costeo', require('./routes/recetas-costeo'));
 app.use('/api/saldo-banco', require('./routes/saldoBanco'));
+app.use('/api/inventarios', require('./routes/inventarios'));
 app.use('/api/proyeccion',      require('./routes/proyeccion'));
 app.use('/api/eerr',            require('./routes/eerr'));
 app.use('/api/conciliacion',    require('./routes/conciliacion'));
