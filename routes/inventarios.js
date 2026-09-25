@@ -66,7 +66,7 @@ router.get('/resumen', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Inventario Semanal — histórico por semana, agrupado por Grupo Compra
+// Inventario Semanal — histórico por semana, agrupado por Grupo (columna GRUPO de MAESTRO_ITEMS)
 // ═══════════════════════════════════════════════════════════════════════
 
 // ── GET /semanal/operaciones ─────────────────────────────────────────────
@@ -106,12 +106,12 @@ async function agregarSemanal(operacion, almacen, campo) {
   const maestro = new Map((await ItemMaestro.find({ item: { $in: [...new Set(docs.map(d => d.item))] } }).lean())
     .map(i => [i.item, i]));
 
-  // item -> {nombre, grupoCompra, porSemana: {clave: valor}}
+  // item -> {nombre, grupo, porSemana: {clave: valor}}
   const porItem = new Map();
   docs.forEach(d => {
     if (!porItem.has(d.item)) {
       const m = maestro.get(d.item);
-      porItem.set(d.item, { item: d.item, nombre: m?.nombre || '', grupoCompra: m?.grupoCompra || 'SIN GRUPO', porSemana: {} });
+      porItem.set(d.item, { item: d.item, nombre: m?.nombre || '', grupo: m?.grupo || 'SIN GRUPO', porSemana: {} });
     }
     const entry = porItem.get(d.item);
     const k = claveSemana(d.anio, d.semana);
@@ -120,8 +120,8 @@ async function agregarSemanal(operacion, almacen, campo) {
 
   const porGrupo = new Map();
   porItem.forEach(it => {
-    if (!porGrupo.has(it.grupoCompra)) porGrupo.set(it.grupoCompra, { grupoCompra: it.grupoCompra, porSemana: {}, items: [] });
-    const grupo = porGrupo.get(it.grupoCompra);
+    if (!porGrupo.has(it.grupo)) porGrupo.set(it.grupo, { grupo: it.grupo, porSemana: {}, items: [] });
+    const grupo = porGrupo.get(it.grupo);
     grupo.items.push(it);
     semanas.forEach(s => {
       const k = claveSemana(s.anio, s.semana);
@@ -132,7 +132,7 @@ async function agregarSemanal(operacion, almacen, campo) {
   return { semanas, porGrupo };
 }
 
-// ── GET /semanal/grupos?operacion=&almacen= — catálogo de Grupo Compra ──
+// ── GET /semanal/grupos?operacion=&almacen= — catálogo de Grupo ──
 router.get('/semanal/grupos', async (req, res) => {
   try {
     const { operacion, almacen } = req.query;
@@ -144,7 +144,7 @@ router.get('/semanal/grupos', async (req, res) => {
 });
 
 // ── GET /semanal/resumen?operacion=&almacen=&grupo=&modo=cantidad|importe ──
-// Filas = Grupo Compra (con drill-down a Ítem, ambos ordenados de mayor a
+// Filas = Grupo (con drill-down a Ítem, ambos ordenados de mayor a
 // menor por su total en el rango), columnas = semana. Suma todos los
 // almacenes de la operación si no se especifica uno.
 router.get('/semanal/resumen', async (req, res) => {
@@ -158,7 +158,7 @@ router.get('/semanal/resumen', async (req, res) => {
     const { semanas, porGrupo } = await agregarSemanal(operacion, almacen, campo);
 
     let gruposFiltrados = [...porGrupo.values()];
-    if (grupo) gruposFiltrados = gruposFiltrados.filter(g => g.grupoCompra === grupo);
+    if (grupo) gruposFiltrados = gruposFiltrados.filter(g => g.grupo === grupo);
 
     const totalPorSemana = {};
     semanas.forEach(s => {
