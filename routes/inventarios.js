@@ -93,7 +93,7 @@ router.get('/semanal/almacenes', async (req, res) => {
 const claveSemana = (anio, semana) => `${anio}-${String(semana).padStart(2, '0')}`;
 const totalDe = porSemana => Object.values(porSemana).reduce((s, v) => s + v, 0);
 
-/** Trae y agrupa los datos de InventarioSemanal — compartido por /semanal/grupos y /semanal/resumen. */
+/** Trae los datos de InventarioSemanal por ítem — compartido por /semanal/grupos y /semanal/resumen. */
 async function agregarSemanal(operacion, almacen, campo) {
   const filter = { operacion };
   if (almacen) filter.almacen = almacen;
@@ -106,47 +106,41 @@ async function agregarSemanal(operacion, almacen, campo) {
   const maestro = new Map((await ItemMaestro.find({ item: { $in: [...new Set(docs.map(d => d.item))] } }).lean())
     .map(i => [i.item, i]));
 
-  // item -> {nombre, grupo, porSemana: {clave: valor}}
+  // item -> {nombre, grupo, grupoCompra, porSemana: {clave: valor}}
+  // `grupo` (columna GRUPO de MAESTRO_ITEMS) es el filtro que elige el usuario;
+  // `grupoCompra` (columna GRUPOCOMPRA) es la que agrupa las filas de la tabla —
+  // son dos clasificaciones distintas del mismo ítem, a propósito.
   const porItem = new Map();
   docs.forEach(d => {
     if (!porItem.has(d.item)) {
       const m = maestro.get(d.item);
-      porItem.set(d.item, { item: d.item, nombre: m?.nombre || '', grupo: m?.grupo || 'SIN GRUPO', porSemana: {} });
+      porItem.set(d.item, { item: d.item, nombre: m?.nombre || '', grupo: m?.grupo || 'SIN GRUPO', grupoCompra: m?.grupoCompra || 'SIN GRUPO', porSemana: {} });
     }
     const entry = porItem.get(d.item);
     const k = claveSemana(d.anio, d.semana);
     entry.porSemana[k] = (entry.porSemana[k] || 0) + (d[campo] || 0);
   });
 
-  const porGrupo = new Map();
-  porItem.forEach(it => {
-    if (!porGrupo.has(it.grupo)) porGrupo.set(it.grupo, { grupo: it.grupo, porSemana: {}, items: [] });
-    const grupo = porGrupo.get(it.grupo);
-    grupo.items.push(it);
-    semanas.forEach(s => {
-      const k = claveSemana(s.anio, s.semana);
-      grupo.porSemana[k] = (grupo.porSemana[k] || 0) + (it.porSemana[k] || 0);
-    });
-  });
-
-  return { semanas, porGrupo };
+  return { semanas, porItem };
 }
 
-// ── GET /semanal/grupos?operacion=&almacen= — catálogo de Grupo ──
+// ── GET /semanal/grupos?operacion=&almacen= — catálogo de Grupo (para el filtro) ──
 router.get('/semanal/grupos', async (req, res) => {
   try {
     const { operacion, almacen } = req.query;
     if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-    const { porGrupo } = await agregarSemanal(operacion, almacen, 'conteo');
-    res.json([...porGrupo.keys()].sort());
+    const { porItem } = await agregarSemanal(operacion, almacen, 'conteo');
+    res.json([...new Set([...porItem.values()].map(it => it.grupo))].sort());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── GET /semanal/resumen?operacion=&almacen=&grupo=&modo=cantidad|importe ──
-// Filas = Grupo (con drill-down a Ítem, ambos ordenados de mayor a
-// menor por su total en el rango), columnas = semana. Suma todos los
-// almacenes de la operación si no se especifica uno.
+// El filtro `grupo` (columna GRUPO) elige qué ítems entran; las filas de la
+// tabla se agrupan por `grupoCompra` (columna GRUPOCOMPRA) — con drill-down
+// a Ítem, ambos ordenados de mayor a menor por su total en el rango.
+// Columnas = semana. Suma todos los almacenes de la operación si no se
+// especifica uno.
 router.get('/semanal/resumen', async (req, res) => {
   try {
     const { operacion, almacen, grupo } = req.query;
@@ -155,18 +149,29 @@ router.get('/semanal/resumen', async (req, res) => {
     if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
 
-    const { semanas, porGrupo } = await agregarSemanal(operacion, almacen, campo);
+    const { semanas, porItem } = await agregarSemanal(operacion, almacen, campo);
 
-    let gruposFiltrados = [...porGrupo.values()];
-    if (grupo) gruposFiltrados = gruposFiltrados.filter(g => g.grupo === grupo);
+    let items = [...porItem.values()];
+    if (grupo) items = items.filter(it => it.grupo === grupo);
+
+    const porGrupoCompra = new Map();
+    items.forEach(it => {
+      if (!porGrupoCompra.has(it.grupoCompra)) porGrupoCompra.set(it.grupoCompra, { grupoCompra: it.grupoCompra, porSemana: {}, items: [] });
+      const g = porGrupoCompra.get(it.grupoCompra);
+      g.items.push(it);
+      semanas.forEach(s => {
+        const k = claveSemana(s.anio, s.semana);
+        g.porSemana[k] = (g.porSemana[k] || 0) + (it.porSemana[k] || 0);
+      });
+    });
 
     const totalPorSemana = {};
     semanas.forEach(s => {
       const k = claveSemana(s.anio, s.semana);
-      totalPorSemana[k] = gruposFiltrados.reduce((sum, g) => sum + (g.porSemana[k] || 0), 0);
+      totalPorSemana[k] = [...porGrupoCompra.values()].reduce((sum, g) => sum + (g.porSemana[k] || 0), 0);
     });
 
-    const grupos = gruposFiltrados
+    const grupos = [...porGrupoCompra.values()]
       .map(g => ({ ...g, items: g.items.sort((a, b) => totalDe(b.porSemana) - totalDe(a.porSemana)) }))
       .sort((a, b) => totalDe(b.porSemana) - totalDe(a.porSemana));
 

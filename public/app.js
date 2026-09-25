@@ -12863,9 +12863,9 @@ async function viewInventarioSemanal(container) {
             </tr></thead>
             <tbody>
               ${data.grupos.map(g => {
-                const abierto = gruposAbiertos.has(g.grupo);
-                const filaGrupo = `<tr class="is-grupo-row" data-grupo="${esc(g.grupo)}" style="cursor:pointer;font-weight:700;background:#f8fafc">
-                  <td>${abierto ? '▾' : '▸'} ${esc(g.grupo)}</td>
+                const abierto = gruposAbiertos.has(g.grupoCompra);
+                const filaGrupo = `<tr class="is-grupo-row" data-grupo="${esc(g.grupoCompra)}" style="cursor:pointer;font-weight:700;background:#f8fafc">
+                  <td>${abierto ? '▾' : '▸'} ${esc(g.grupoCompra)}</td>
                   ${semanas.map(s => `<td class="text-right">${fmt(g.porSemana[s.clave])}</td>`).join('')}
                 </tr>`;
                 const filasItems = abierto ? g.items.map(it => `<tr>
