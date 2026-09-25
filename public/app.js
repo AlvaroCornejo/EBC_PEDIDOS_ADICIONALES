@@ -12761,7 +12761,7 @@ async function viewInventarios(container) {
 // ─── View: Inventario Semanal ───────────────────────────────────────
 async function viewInventarioSemanal(container) {
   let operaciones = [];
-  let operacionActual = '', almacenActual = '', modoActual = 'cantidad';
+  let operacionActual = '', almacenActual = '', grupoActual = '', modoActual = 'cantidad';
   let data = null;
   let gruposAbiertos = new Set();
   const fmt = v => (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: modoActual === 'importe' ? 2 : 0, maximumFractionDigits: modoActual === 'importe' ? 2 : 0 });
@@ -12777,6 +12777,9 @@ async function viewInventarioSemanal(container) {
           </div>
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Almacén</label>
             <select id="is-almacen" class="form-control" style="width:200px"><option value="">— Todos —</option></select>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Grupo Compra</label>
+            <select id="is-grupo" class="form-control" style="width:200px"><option value="">— Todos —</option></select>
           </div>
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Mostrar</label>
             <select id="is-modo" class="form-control" style="width:140px">
@@ -12795,17 +12798,26 @@ async function viewInventarioSemanal(container) {
     operaciones = await GET('/inventarios/semanal/operaciones');
     const sel = document.getElementById('is-operacion');
     sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; await cargarAlmacenes(); await cargar(); }
+    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; await cargarAlmacenes(); await cargarGrupos(); await cargar(); }
   } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
 
   document.getElementById('is-operacion').addEventListener('change', async e => {
     operacionActual = e.target.value;
-    almacenActual = '';
+    almacenActual = ''; grupoActual = '';
     document.getElementById('is-almacen').innerHTML = '<option value="">— Todos —</option>';
+    document.getElementById('is-grupo').innerHTML = '<option value="">— Todos —</option>';
     await cargarAlmacenes();
+    await cargarGrupos();
     await cargar();
   });
-  document.getElementById('is-almacen').addEventListener('change', e => { almacenActual = e.target.value; cargar(); });
+  document.getElementById('is-almacen').addEventListener('change', async e => {
+    almacenActual = e.target.value;
+    grupoActual = '';
+    document.getElementById('is-grupo').innerHTML = '<option value="">— Todos —</option>';
+    await cargarGrupos();
+    cargar();
+  });
+  document.getElementById('is-grupo').addEventListener('change', e => { grupoActual = e.target.value; cargar(); });
   document.getElementById('is-modo').addEventListener('change', e => { modoActual = e.target.value; cargar(); });
 
   async function cargarAlmacenes() {
@@ -12816,12 +12828,23 @@ async function viewInventarioSemanal(container) {
     } catch (e) { toast(e.message, 'error'); }
   }
 
+  async function cargarGrupos() {
+    if (!operacionActual) return;
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual });
+      if (almacenActual) params.set('almacen', almacenActual);
+      const grupos = await GET(`/inventarios/semanal/grupos?${params}`);
+      document.getElementById('is-grupo').innerHTML = '<option value="">— Todos —</option>' + grupos.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   async function cargar() {
     if (!operacionActual) { root.innerHTML = ''; return; }
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
       const params = new URLSearchParams({ operacion: operacionActual, modo: modoActual });
       if (almacenActual) params.set('almacen', almacenActual);
+      if (grupoActual) params.set('grupo', grupoActual);
       data = await GET(`/inventarios/semanal/resumen?${params}`);
       render();
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }

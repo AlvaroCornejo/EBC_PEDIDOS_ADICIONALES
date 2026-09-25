@@ -91,61 +91,84 @@ router.get('/semanal/almacenes', async (req, res) => {
 });
 
 const claveSemana = (anio, semana) => `${anio}-${String(semana).padStart(2, '0')}`;
+const totalDe = porSemana => Object.values(porSemana).reduce((s, v) => s + v, 0);
 
-// ── GET /semanal/resumen?operacion=&almacen=&modo=cantidad|importe ──────
-// Filas = Grupo Compra (con drill-down a Ítem), columnas = semana. Suma
-// todos los almacenes de la operación si no se especifica uno.
-router.get('/semanal/resumen', async (req, res) => {
+/** Trae y agrupa los datos de InventarioSemanal — compartido por /semanal/grupos y /semanal/resumen. */
+async function agregarSemanal(operacion, almacen, campo) {
+  const filter = { operacion };
+  if (almacen) filter.almacen = almacen;
+  const docs = await InventarioSemanal.find(filter).lean();
+
+  const semanasSet = new Map(); // clave -> {anio, semana}
+  docs.forEach(d => semanasSet.set(claveSemana(d.anio, d.semana), { anio: d.anio, semana: d.semana }));
+  const semanas = [...semanasSet.values()].sort((a, b) => a.anio - b.anio || a.semana - b.semana);
+
+  const maestro = new Map((await ItemMaestro.find({ item: { $in: [...new Set(docs.map(d => d.item))] } }).lean())
+    .map(i => [i.item, i]));
+
+  // item -> {nombre, grupoCompra, porSemana: {clave: valor}}
+  const porItem = new Map();
+  docs.forEach(d => {
+    if (!porItem.has(d.item)) {
+      const m = maestro.get(d.item);
+      porItem.set(d.item, { item: d.item, nombre: m?.nombre || '', grupoCompra: m?.grupoCompra || 'SIN GRUPO', porSemana: {} });
+    }
+    const entry = porItem.get(d.item);
+    const k = claveSemana(d.anio, d.semana);
+    entry.porSemana[k] = (entry.porSemana[k] || 0) + (d[campo] || 0);
+  });
+
+  const porGrupo = new Map();
+  porItem.forEach(it => {
+    if (!porGrupo.has(it.grupoCompra)) porGrupo.set(it.grupoCompra, { grupoCompra: it.grupoCompra, porSemana: {}, items: [] });
+    const grupo = porGrupo.get(it.grupoCompra);
+    grupo.items.push(it);
+    semanas.forEach(s => {
+      const k = claveSemana(s.anio, s.semana);
+      grupo.porSemana[k] = (grupo.porSemana[k] || 0) + (it.porSemana[k] || 0);
+    });
+  });
+
+  return { semanas, porGrupo };
+}
+
+// ── GET /semanal/grupos?operacion=&almacen= — catálogo de Grupo Compra ──
+router.get('/semanal/grupos', async (req, res) => {
   try {
     const { operacion, almacen } = req.query;
+    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
+    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const { porGrupo } = await agregarSemanal(operacion, almacen, 'conteo');
+    res.json([...porGrupo.keys()].sort());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /semanal/resumen?operacion=&almacen=&grupo=&modo=cantidad|importe ──
+// Filas = Grupo Compra (con drill-down a Ítem, ambos ordenados de mayor a
+// menor por su total en el rango), columnas = semana. Suma todos los
+// almacenes de la operación si no se especifica uno.
+router.get('/semanal/resumen', async (req, res) => {
+  try {
+    const { operacion, almacen, grupo } = req.query;
     const modo = req.query.modo === 'importe' ? 'importe' : 'cantidad';
     const campo = modo === 'importe' ? 'importe' : 'conteo';
     if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
     if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
 
-    const filter = { operacion };
-    if (almacen) filter.almacen = almacen;
-    const docs = await InventarioSemanal.find(filter).lean();
+    const { semanas, porGrupo } = await agregarSemanal(operacion, almacen, campo);
 
-    const semanasSet = new Map(); // clave -> {anio, semana}
-    docs.forEach(d => semanasSet.set(claveSemana(d.anio, d.semana), { anio: d.anio, semana: d.semana }));
-    const semanas = [...semanasSet.values()].sort((a, b) => a.anio - b.anio || a.semana - b.semana);
-
-    const maestro = new Map((await ItemMaestro.find({ item: { $in: [...new Set(docs.map(d => d.item))] } }).lean())
-      .map(i => [i.item, i]));
-
-    // item -> {nombre, grupoCompra, porSemana: {clave: valor}}
-    const porItem = new Map();
-    docs.forEach(d => {
-      if (!porItem.has(d.item)) {
-        const m = maestro.get(d.item);
-        porItem.set(d.item, { item: d.item, nombre: m?.nombre || '', grupoCompra: m?.grupoCompra || 'SIN GRUPO', porSemana: {} });
-      }
-      const entry = porItem.get(d.item);
-      const k = claveSemana(d.anio, d.semana);
-      entry.porSemana[k] = (entry.porSemana[k] || 0) + (d[campo] || 0);
-    });
-
-    const porGrupo = new Map();
-    porItem.forEach(it => {
-      if (!porGrupo.has(it.grupoCompra)) porGrupo.set(it.grupoCompra, { grupoCompra: it.grupoCompra, porSemana: {}, items: [] });
-      const grupo = porGrupo.get(it.grupoCompra);
-      grupo.items.push(it);
-      semanas.forEach(s => {
-        const k = claveSemana(s.anio, s.semana);
-        grupo.porSemana[k] = (grupo.porSemana[k] || 0) + (it.porSemana[k] || 0);
-      });
-    });
+    let gruposFiltrados = [...porGrupo.values()];
+    if (grupo) gruposFiltrados = gruposFiltrados.filter(g => g.grupoCompra === grupo);
 
     const totalPorSemana = {};
     semanas.forEach(s => {
       const k = claveSemana(s.anio, s.semana);
-      totalPorSemana[k] = [...porGrupo.values()].reduce((sum, g) => sum + (g.porSemana[k] || 0), 0);
+      totalPorSemana[k] = gruposFiltrados.reduce((sum, g) => sum + (g.porSemana[k] || 0), 0);
     });
 
-    const grupos = [...porGrupo.values()]
-      .map(g => ({ ...g, items: g.items.sort((a, b) => a.nombre.localeCompare(b.nombre)) }))
-      .sort((a, b) => a.grupoCompra.localeCompare(b.grupoCompra));
+    const grupos = gruposFiltrados
+      .map(g => ({ ...g, items: g.items.sort((a, b) => totalDe(b.porSemana) - totalDe(a.porSemana)) }))
+      .sort((a, b) => totalDe(b.porSemana) - totalDe(a.porSemana));
 
     res.json({
       semanas: semanas.map(s => ({ clave: claveSemana(s.anio, s.semana), anio: s.anio, semana: s.semana })),
