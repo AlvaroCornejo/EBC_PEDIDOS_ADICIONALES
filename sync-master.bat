@@ -25,6 +25,7 @@
 ::    18. Saldos Bancarios (carpeta Descargas, "movimiento*" de hoy) -> MongoDB
 ::    19. Inventarios Diarios (EBC SALDO AL DIA.xlsx, reemplaza todo) -> MongoDB
 ::    20. EBC Items (Maestro + Por Operacion, reemplaza todo)     -> MongoDB
+::    21. Inventario Semanal (EBC CONTEOS.xlsx, reemplaza todo)   -> MongoDB
 :: ============================================================
 
 setlocal
@@ -46,123 +47,129 @@ echo ============================================================
 
 :: -- 1. Sync Excel ADICIONALES --
 echo.
-echo [1/20] Sync Excel Pedidos (ADICIONALES + git push)
+echo [1/21] Sync Excel Pedidos (ADICIONALES + git push)
 call "%APP%\sync-excel.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-excel & set ERRORES=1) else echo  OK
 
 :: -- 2. OC Ingresos Actualizacion --
 echo.
-echo [2/20] OC Ingresos Actualizacion
+echo [2/21] OC Ingresos Actualizacion
 call "%APP%\sync-oc-ingresos.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-oc-ingresos & set ERRORES=1) else echo  OK
 
 :: -- 3. Comparativo OC -> MongoDB --
 echo.
-echo [3/20] Comparativo OC
+echo [3/21] Comparativo OC
 call "%APP%\sync-comparativo.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-comparativo & set ERRORES=1) else echo  OK
 
 :: -- 4. Ventas / TIP -> MongoDB --
 echo.
-echo [4/20] Ventas / TIP
+echo [4/21] Ventas / TIP
 call "%APP%\sync-ventas.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-ventas & set ERRORES=1) else echo  OK
 
 :: -- 5. Bajas -> MongoDB --
 echo.
-echo [5/20] Bajas
+echo [5/21] Bajas
 call "%APP%\sync-bajas.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-bajas & set ERRORES=1) else echo  OK
 
 :: -- 6. Compras Historicas -> MongoDB --
 echo.
-echo [6/20] Compras Historicas
+echo [6/21] Compras Historicas
 call "%APP%\scripts\ejecutar-importacion.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en importacion compras & set ERRORES=1) else echo  OK
 
 :: -- 7. Items -> MongoDB --
 echo.
-echo [7/20] Items
+echo [7/21] Items
 call "%APP%\sync-items.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-items & set ERRORES=1) else echo  OK
 
 :: -- 8. Recetas Planta -> MongoDB --
 echo.
-echo [8/20] Recetas Planta
+echo [8/21] Recetas Planta
 call "%APP%\sync-recetas.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-recetas & set ERRORES=1) else echo  OK
 
 :: -- 9. EBC EERR (Estado de Resultados) -> MongoDB --
 echo.
-echo [9/20] EBC EERR - Estado de Resultados
+echo [9/21] EBC EERR - Estado de Resultados
 call "%APP%\sync-eerr.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-eerr ^& set ERRORES=1) else echo  OK
 
 :: -- 10. EBC EERR Costo de Venta (Detalle) -> MongoDB --
 echo.
-echo [10/20] EBC EERR Costo de Venta - Detalle
+echo [10/21] EBC EERR Costo de Venta - Detalle
 call "%APP%\sync-costoventa.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-costoventa & set ERRORES=1) else echo  OK
 
 :: -- 11. Conciliacion de Cobranzas (EECC + Cobranza + TC) -> MongoDB --
 echo.
-echo [11/20] Conciliacion de Cobranzas
+echo [11/21] Conciliacion de Cobranzas
 call "%APP%\sync-conciliacion.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-conciliacion ^& set ERRORES=1) else echo  OK
 
 :: -- 12. Costeo de Recetas -> MongoDB --
 echo.
-echo [12/20] Costeo de Recetas
+echo [12/21] Costeo de Recetas
 call "%APP%\sync-recetas-costeo.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-recetas-costeo & set ERRORES=1) else echo  OK
 
 :: -- 13. Flujo de Caja -> MongoDB --
 echo.
-echo [13/20] Flujo de Caja
+echo [13/21] Flujo de Caja
 call "%APP%\sync-flujo-caja.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-flujo-caja & set ERRORES=1) else echo  OK
 
 :: -- 14. Tipo de Cambio (SUNAT) -> MongoDB --
 echo.
-echo [14/20] Tipo de Cambio
+echo [14/21] Tipo de Cambio
 call "%APP%\sync-tipo-cambio.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-tipo-cambio & set ERRORES=1) else echo  OK
 
 :: -- 15. EBC Pagos (promedios) -> MongoDB --
 echo.
-echo [15/20] EBC Pagos - Promedios
+echo [15/21] EBC Pagos - Promedios
 call "%APP%\sync-pagos-promedios.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-pagos-promedios & set ERRORES=1) else echo  OK
 
 :: -- 16. EBC Adelantos (Por Rendir) -> MongoDB --
 echo.
-echo [16/20] EBC Adelantos - Por Rendir
+echo [16/21] EBC Adelantos - Por Rendir
 call "%APP%\sync-adelantos.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-adelantos & set ERRORES=1) else echo  OK
 
 :: -- 17. EBC Programacion (por sociedad, solo martes) -> MongoDB --
 echo.
-echo [17/20] EBC Programacion - por sociedad (solo martes)
+echo [17/21] EBC Programacion - por sociedad (solo martes)
 call "%APP%\sync-programacion.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-programacion & set ERRORES=1) else echo  OK
 
 :: -- 18. Saldos Bancarios (carpeta Descargas, archivos "movimiento*" de hoy) -> MongoDB --
 echo.
-echo [18/20] Saldos Bancarios
+echo [18/21] Saldos Bancarios
 call "%APP%\sync-saldo-banco.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-saldo-banco & set ERRORES=1) else echo  OK
 
 :: -- 19. Inventarios Diarios (reemplaza todo) -> MongoDB --
 echo.
-echo [19/20] Inventarios Diarios
+echo [19/21] Inventarios Diarios
 call "%APP%\sync-inventario-diario.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-inventario-diario & set ERRORES=1) else echo  OK
 
 :: -- 20. EBC Items (Maestro + Por Operacion, reemplaza todo) -> MongoDB --
 echo.
-echo [20/20] EBC Items
+echo [20/21] EBC Items
 call "%APP%\sync-ebc-items.bat"
 if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-ebc-items & set ERRORES=1) else echo  OK
+
+:: -- 21. Inventario Semanal (reemplaza todo) -> MongoDB --
+echo.
+echo [21/21] Inventario Semanal
+call "%APP%\sync-inventario-semanal.bat"
+if %ERRORLEVEL% NEQ 0 (echo  ERROR en sync-inventario-semanal & set ERRORES=1) else echo  OK
 
 :: -- Resumen --
 echo.

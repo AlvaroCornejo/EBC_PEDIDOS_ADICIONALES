@@ -279,6 +279,7 @@ const NAV_ITEMS = [
   { id: 'conciliacion',   label: 'Conciliación Cobranzas', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoConciliacion' },
   { id: 'saldo-banco',    label: 'Saldos Bancarios', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoSaldoBanco' },
   { id: 'inventarios',    label: 'Inventarios Diarios', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
+  { id: 'inventario-semanal', label: 'Inventario Semanal', icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
   { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -349,7 +350,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -12754,6 +12755,117 @@ async function viewInventarios(container) {
           </table>
         </div>
       </div>`;
+  }
+}
+
+// ─── View: Inventario Semanal ───────────────────────────────────────
+async function viewInventarioSemanal(container) {
+  let operaciones = [];
+  let operacionActual = '', almacenActual = '', modoActual = 'cantidad';
+  let data = null;
+  let gruposAbiertos = new Set();
+  const fmt = v => (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: modoActual === 'importe' ? 2 : 0, maximumFractionDigits: modoActual === 'importe' ? 2 : 0 });
+  const labelSem = s => `S${s.semana}/${String(s.anio).slice(-2)}`;
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">📊 Inventario Semanal</div></div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="is-operacion" class="form-control" style="width:160px"><option value="">— Seleccionar —</option></select>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Almacén</label>
+            <select id="is-almacen" class="form-control" style="width:200px"><option value="">— Todos —</option></select>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Mostrar</label>
+            <select id="is-modo" class="form-control" style="width:140px">
+              <option value="cantidad">Cantidades</option>
+              <option value="importe">Importes</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div id="is-content"></div>
+    </div>`;
+
+  const root = document.getElementById('is-content');
+
+  try {
+    operaciones = await GET('/inventarios/semanal/operaciones');
+    const sel = document.getElementById('is-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; await cargarAlmacenes(); await cargar(); }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+  document.getElementById('is-operacion').addEventListener('change', async e => {
+    operacionActual = e.target.value;
+    almacenActual = '';
+    document.getElementById('is-almacen').innerHTML = '<option value="">— Todos —</option>';
+    await cargarAlmacenes();
+    await cargar();
+  });
+  document.getElementById('is-almacen').addEventListener('change', e => { almacenActual = e.target.value; cargar(); });
+  document.getElementById('is-modo').addEventListener('change', e => { modoActual = e.target.value; cargar(); });
+
+  async function cargarAlmacenes() {
+    if (!operacionActual) return;
+    try {
+      const almacenes = await GET(`/inventarios/semanal/almacenes?operacion=${encodeURIComponent(operacionActual)}`);
+      document.getElementById('is-almacen').innerHTML = '<option value="">— Todos —</option>' + almacenes.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function cargar() {
+    if (!operacionActual) { root.innerHTML = ''; return; }
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const params = new URLSearchParams({ operacion: operacionActual, modo: modoActual });
+      if (almacenActual) params.set('almacen', almacenActual);
+      data = await GET(`/inventarios/semanal/resumen?${params}`);
+      render();
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function render() {
+    if (!data || !data.grupos.length) { root.innerHTML = '<div class="empty-state"><p>Sin datos para los filtros elegidos.</p></div>'; return; }
+    const semanas = data.semanas;
+    root.innerHTML = `
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:13px">
+            <thead><tr>
+              <th>Grupo Compra / Ítem</th>
+              ${semanas.map(s => `<th class="text-right">${esc(labelSem(s))}</th>`).join('')}
+            </tr></thead>
+            <tbody>
+              ${data.grupos.map(g => {
+                const abierto = gruposAbiertos.has(g.grupoCompra);
+                const filaGrupo = `<tr class="is-grupo-row" data-grupo="${esc(g.grupoCompra)}" style="cursor:pointer;font-weight:700;background:#f8fafc">
+                  <td>${abierto ? '▾' : '▸'} ${esc(g.grupoCompra)}</td>
+                  ${semanas.map(s => `<td class="text-right">${fmt(g.porSemana[s.clave])}</td>`).join('')}
+                </tr>`;
+                const filasItems = abierto ? g.items.map(it => `<tr>
+                  <td style="padding-left:28px;color:var(--text-muted)">${esc(it.item)} — ${esc(it.nombre)}</td>
+                  ${semanas.map(s => `<td class="text-right">${fmt(it.porSemana[s.clave])}</td>`).join('')}
+                </tr>`).join('') : '';
+                return filaGrupo + filasItems;
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:700;border-top:2px solid var(--border)">
+                <td>TOTAL</td>
+                ${semanas.map(s => `<td class="text-right">${fmt(data.totalPorSemana[s.clave])}</td>`).join('')}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>`;
+    root.querySelectorAll('.is-grupo-row').forEach(tr => tr.addEventListener('click', () => {
+      const g = tr.dataset.grupo;
+      if (gruposAbiertos.has(g)) gruposAbiertos.delete(g); else gruposAbiertos.add(g);
+      render();
+    }));
   }
 }
 

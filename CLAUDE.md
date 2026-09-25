@@ -93,8 +93,9 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | RecetaCosteo / RecetaCosteoDetalle | `scripts/importRecetasCosteo.js` (vía `sync-recetas-costeo.bat`) | EBC RECETAS.xlsx | diario |
 | FlujoMovimientoBancario / FlujoPagoERP | `scripts/importFlujoCaja.js` (vía `sync-flujo-caja.bat`) | Carpeta "EBC ESTADO DE CUENTA" (un .xlsx por sociedad+banco+moneda) + carpeta "EBC PAGOS ERP" (.csv, todas las sociedades), rutas globales en `Config` | diario |
 | TipoCambio | `scripts/syncTipoCambio.js` (vía `sync-tipo-cambio.bat`, paso 14/19 de `sync-master.bat`) | API pública SUNAT `https://api.apis.net.pe/v1/tipo-cambio-sunat?fecha=YYYY-MM-DD` (sin API key), campo `venta`. Rellena desde la fecha del movimiento más antiguo en `FlujoMovimientoBancario` hasta hoy, saltando fechas ya cargadas (idempotente) — usado por Flujo de Caja para "Todo en Soles". Sensible a rate-limit 429; reintenta con backoff. | diario |
-| InventarioDiario | `scripts/importInventarioDiario.js` (vía `sync-inventario-diario.bat`, paso 19/20 de `sync-master.bat`) | EBC SALDO AL DIA.xlsx (hoja "CONTEO") | diario, reemplazo completo (sin historia) |
-| ItemMaestro / ItemPorOperacion | `scripts/importEbcItems.js` (vía `sync-ebc-items.bat`, paso 20/20 de `sync-master.bat`) | EBC ITEMS.xlsx (hojas "MAESTRO_ITEMS" e "ITEMS_POR_OPERACION") | diario, reemplazo completo |
+| InventarioDiario | `scripts/importInventarioDiario.js` (vía `sync-inventario-diario.bat`, paso 19/21 de `sync-master.bat`) | EBC SALDO AL DIA.xlsx (hoja "CONTEO") | diario, reemplazo completo (sin historia) |
+| ItemMaestro / ItemPorOperacion | `scripts/importEbcItems.js` (vía `sync-ebc-items.bat`, paso 20/21 de `sync-master.bat`) | EBC ITEMS.xlsx (hojas "MAESTRO_ITEMS" e "ITEMS_POR_OPERACION") | diario, reemplazo completo |
+| InventarioSemanal | `scripts/importInventarioSemanal.js` (vía `sync-inventario-semanal.bat`, paso 21/21 de `sync-master.bat`) | EBC CONTEOS.xlsx (hoja "CONTEO", ya trae varias semanas) | diario, reemplazo completo (sin historia propia) |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
@@ -1254,7 +1255,7 @@ en rojo.
 
 **Sync**: `scripts/importInventarioDiario.js` (columnas resueltas por
 nombre, no posición, mismo criterio que el resto de imports de esta app) +
-`sync-inventario-diario.bat`, paso 19/20 de `sync-master.bat`. Ruta por
+`sync-inventario-diario.bat`, paso 19/21 de `sync-master.bat`. Ruta por
 defecto del servidor:
 `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC SALDOS\EBC SALDO AL DIA.xlsx`.
 
@@ -1263,7 +1264,7 @@ del conteo quedaban sin nombre porque la colección `Item` (sincronizada
 desde los ADICIONALES por operación) no tenía todos los códigos. El usuario
 indicó que ya sube diariamente `EBC ITEMS.xlsx` (2 hojas) a
 `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC ITEMS\` — se agregó
-`scripts/importEbcItems.js` (+ `sync-ebc-items.bat`, paso 20/20) que
+`scripts/importEbcItems.js` (+ `sync-ebc-items.bat`, paso 20/21) que
 reemplaza por completo 2 colecciones nuevas: `ItemMaestro` (hoja
 "MAESTRO_ITEMS", catálogo global `item→nombre`, sin operación — **esta es
 la fuente que ahora usa `GET /inventarios/resumen`** para el nombre, en vez
@@ -1272,3 +1273,33 @@ importada pero todavía sin usar en ninguna consulta, guardada por si hace
 falta más adelante). No confundir estos modelos nuevos con el `Item`
 existente (fuente distinta, ADICIONALES) ni con los modelos `Maestro*`
 borrados en la Sesión 16 (otro módulo, otro propósito, ya no existen).
+
+**Inventario Semanal** (segunda consulta del mismo módulo, misma sesión):
+histórico de conteo/importe por semana, desde `EBC CONTEOS.xlsx` (hoja
+"CONTEO", columnas `SOCIEDAD/OPERACION/ALMACEN/ITEM/AÑO/SEMANA/CONTEO/IMPORTE`
+— el propio Excel ya trae varias semanas juntas). Mismo criterio de
+"reemplaza todo, sin historia propia en Mongo" que Inventarios Diarios.
+
+Modelo `InventarioSemanal` (`{operacion, almacen, item, anio, semana, conteo,
+importe}`), importado por `scripts/importInventarioSemanal.js` +
+`sync-inventario-semanal.bat`, paso 21/21 de `sync-master.bat` (default
+`...\EBC SALDOS\EBC CONTEOS.xlsx`, misma carpeta que `EBC SALDO AL DIA.xlsx`).
+
+**Backend**: `GET /inventarios/semanal/operaciones`, `GET
+/inventarios/semanal/almacenes?operacion=`, `GET
+/inventarios/semanal/resumen?operacion=&almacen=&modo=cantidad|importe` (en
+el mismo `routes/inventarios.js`, comparte `accesoInventarios`+`operations`).
+El resumen agrupa por `ItemMaestro.grupoCompra` (reutilizado, no se creó un
+campo de grupo propio) — items sin match en `ItemMaestro` caen en
+"SIN GRUPO". Sin `almacen` en el query, suma todos los almacenes de la
+operación. Devuelve `{semanas:[{clave,anio,semana}], grupos:[{grupoCompra,
+porSemana,items:[{item,nombre,porSemana}]}], totalPorSemana}` — todo ya
+sumado en el backend, el frontend solo pinta.
+
+**Frontend**: nav item nuevo `inventario-semanal` (mismo permiso
+`accesoInventarios` que Inventarios Diarios — se consideró la misma familia
+de módulo, no se creó un permiso separado) → `viewInventarioSemanal`:
+selector Operación/Almacén/Cantidades-o-Importes, tabla con **filas =
+Grupo Compra** (clic para expandir/colapsar a sus Ítems, patrón
+`gruposAbiertos` con `Set`, sin pedir nada al servidor de nuevo) y
+**columnas = semana** (`S{semana}/{año corto}`), fila TOTAL al final.
