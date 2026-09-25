@@ -12778,7 +12778,7 @@ async function viewInventarioSemanal(container) {
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Almacén</label>
             <select id="is-almacen" class="form-control" style="width:200px"><option value="">— Todos —</option></select>
           </div>
-          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Grupo Compra</label>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Grupo</label>
             <select id="is-grupo" class="form-control" style="width:200px"><option value="">— Todos —</option></select>
           </div>
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Mostrar</label>
