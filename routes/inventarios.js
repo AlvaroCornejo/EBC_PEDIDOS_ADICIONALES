@@ -2,7 +2,7 @@ const express = require('express');
 const auth = require('../middleware/auth');
 
 const InventarioDiario = require('../models/InventarioDiario');
-const Item = require('../models/Item');
+const ItemMaestro = require('../models/ItemMaestro');
 
 const router = express.Router();
 router.use(auth);
@@ -54,7 +54,7 @@ router.get('/resumen', async (req, res) => {
     if (almacen) filter.almacen = almacen;
     const docs = await InventarioDiario.find(filter).sort({ almacen: 1, item: 1 }).lean();
 
-    const nombres = new Map((await Item.find({ operacion, item: { $in: [...new Set(docs.map(d => d.item))] } }, 'item nombre').lean())
+    const nombres = new Map((await ItemMaestro.find({ item: { $in: [...new Set(docs.map(d => d.item))] } }, 'item nombre').lean())
       .map(i => [i.item, i.nombre]));
 
     res.json(docs.map(d => ({

@@ -93,7 +93,8 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | RecetaCosteo / RecetaCosteoDetalle | `scripts/importRecetasCosteo.js` (vía `sync-recetas-costeo.bat`) | EBC RECETAS.xlsx | diario |
 | FlujoMovimientoBancario / FlujoPagoERP | `scripts/importFlujoCaja.js` (vía `sync-flujo-caja.bat`) | Carpeta "EBC ESTADO DE CUENTA" (un .xlsx por sociedad+banco+moneda) + carpeta "EBC PAGOS ERP" (.csv, todas las sociedades), rutas globales en `Config` | diario |
 | TipoCambio | `scripts/syncTipoCambio.js` (vía `sync-tipo-cambio.bat`, paso 14/19 de `sync-master.bat`) | API pública SUNAT `https://api.apis.net.pe/v1/tipo-cambio-sunat?fecha=YYYY-MM-DD` (sin API key), campo `venta`. Rellena desde la fecha del movimiento más antiguo en `FlujoMovimientoBancario` hasta hoy, saltando fechas ya cargadas (idempotente) — usado por Flujo de Caja para "Todo en Soles". Sensible a rate-limit 429; reintenta con backoff. | diario |
-| InventarioDiario | `scripts/importInventarioDiario.js` (vía `sync-inventario-diario.bat`, paso 19/19 de `sync-master.bat`) | EBC SALDO AL DIA.xlsx (hoja "CONTEO") | diario, reemplazo completo (sin historia) |
+| InventarioDiario | `scripts/importInventarioDiario.js` (vía `sync-inventario-diario.bat`, paso 19/20 de `sync-master.bat`) | EBC SALDO AL DIA.xlsx (hoja "CONTEO") | diario, reemplazo completo (sin historia) |
+| ItemMaestro / ItemPorOperacion | `scripts/importEbcItems.js` (vía `sync-ebc-items.bat`, paso 20/20 de `sync-master.bat`) | EBC ITEMS.xlsx (hojas "MAESTRO_ITEMS" e "ITEMS_POR_OPERACION") | diario, reemplazo completo |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
@@ -1253,6 +1254,21 @@ en rojo.
 
 **Sync**: `scripts/importInventarioDiario.js` (columnas resueltas por
 nombre, no posición, mismo criterio que el resto de imports de esta app) +
-`sync-inventario-diario.bat`, paso 19/19 de `sync-master.bat` (nuevo, antes
-eran 18 pasos). Ruta por defecto del servidor:
+`sync-inventario-diario.bat`, paso 19/20 de `sync-master.bat`. Ruta por
+defecto del servidor:
 `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC SALDOS\EBC SALDO AL DIA.xlsx`.
+
+**Nombre del ítem — cambio de fuente**: al probar el módulo, muchos ítems
+del conteo quedaban sin nombre porque la colección `Item` (sincronizada
+desde los ADICIONALES por operación) no tenía todos los códigos. El usuario
+indicó que ya sube diariamente `EBC ITEMS.xlsx` (2 hojas) a
+`C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC ITEMS\` — se agregó
+`scripts/importEbcItems.js` (+ `sync-ebc-items.bat`, paso 20/20) que
+reemplaza por completo 2 colecciones nuevas: `ItemMaestro` (hoja
+"MAESTRO_ITEMS", catálogo global `item→nombre`, sin operación — **esta es
+la fuente que ahora usa `GET /inventarios/resumen`** para el nombre, en vez
+de `Item`) e `ItemPorOperacion` (hoja "ITEMS_POR_OPERACION", con operación —
+importada pero todavía sin usar en ninguna consulta, guardada por si hace
+falta más adelante). No confundir estos modelos nuevos con el `Item`
+existente (fuente distinta, ADICIONALES) ni con los modelos `Maestro*`
+borrados en la Sesión 16 (otro módulo, otro propósito, ya no existen).
