@@ -5892,20 +5892,36 @@ async function renderPaso2(container) {
   window.ap2AbrirIntercompany = async function() {
     const EMPRESAS = ['QUIASMO', 'FACTORIAL K', 'FRQ1'];
     const tcInicial = parseFloat(document.getElementById('ap2-tc')?.value) || 3.700;
+    let porEmpresa = null; // cache de las programaciones ya traídas, para no re-pedirlas al cambiar TC/grupos
+    let gruposCatalogo = [];
+    try { gruposCatalogo = await GET('/pagos/grupos'); } catch (e) { /* filtro queda vacío si falla */ }
+    let gruposSeleccionados = new Set(gruposCatalogo.map(g => g.nombre)); // todos marcados por defecto
 
     openModal('🔗 Pagos entre QUIASMO / FACTORIAL K / FRQ1', `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <label style="font-size:12px;color:var(--text-muted)">T/C</label>
         <input id="ic-tc" type="number" step="0.001" min="0" class="form-control" style="width:90px" value="${tcInicial}">
         <button class="btn btn-outline btn-sm" id="ic-recalcular">🔄 Recalcular</button>
       </div>
+      ${gruposCatalogo.length ? `
+      <div style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <label style="font-size:12px;color:var(--text-muted)">Grupos de Proveedores</label>
+          <button type="button" class="btn btn-outline btn-xs" id="ic-grupo-todos">Marcar todos</button>
+          <button type="button" class="btn btn-outline btn-xs" id="ic-grupo-ninguno">Desmarcar todos</button>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;border:1px solid var(--border);border-radius:6px;padding:8px 10px;max-height:90px;overflow-y:auto">
+          ${gruposCatalogo.map(g => `
+            <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer">
+              <input type="checkbox" class="ic-grupo-chk" value="${esc(g.nombre)}" checked style="width:13px;height:13px;accent-color:var(--primary)">
+              ${esc(g.nombre)}
+            </label>`).join('')}
+        </div>
+      </div>` : ''}
       <div id="ic-tabla" style="min-height:60px">Cargando...</div>
     `, null, { medium: true });
 
-    async function calcularYRender() {
-      const tabla = document.getElementById('ic-tabla');
-      tabla.innerHTML = 'Cargando...';
-      const tc = parseFloat(document.getElementById('ic-tc')?.value) || 1;
+    async function cargarDatos() {
       // Usa la semana de la programación abierta en Paso 2 (la que se está
       // viendo), no "la semana actual" — antes siempre traía fecha-pago
       // (semana en curso), así que al abrir Intercompany sobre una semana
@@ -5914,11 +5930,9 @@ async function renderPaso2(container) {
       if (ap2Prog?.semana && ap2Prog?.año) {
         fp = { semana: ap2Prog.semana, año: ap2Prog.año };
       } else {
-        try { fp = await GET('/pagos/fecha-pago'); }
-        catch (e) { tabla.innerHTML = `<p style="color:red">${e.message}</p>`; return; }
+        fp = await GET('/pagos/fecha-pago');
       }
-
-      const porEmpresa = {};
+      porEmpresa = {};
       for (const emp of EMPRESAS) {
         try {
           const progs = await GET(`/pagos/programaciones?compania=${encodeURIComponent(emp)}`);
@@ -5926,11 +5940,15 @@ async function renderPaso2(container) {
           porEmpresa[emp] = match ? await GET(`/pagos/programaciones/${match._id}`) : null;
         } catch (e) { porEmpresa[emp] = null; }
       }
+    }
 
+    function render() {
+      const tabla = document.getElementById('ic-tabla');
+      const tc = parseFloat(document.getElementById('ic-tc')?.value) || 1;
       const totS = ob => (ob.moneda === 'LO' ? ob.monto : ob.monto * tc);
       const filas = EMPRESAS.map(emp => {
         const prog = porEmpresa[emp];
-        const obs  = (prog?.obligaciones || []).filter(o => o.seleccionado);
+        const obs  = (prog?.obligaciones || []).filter(o => o.seleccionado && (!gruposCatalogo.length || gruposSeleccionados.has(o.grupo)));
         const total = obs.reduce((s, o) => s + totS(o), 0);
         const pagos = {};
         EMPRESAS.forEach(otra => {
@@ -5980,8 +5998,28 @@ async function renderPaso2(container) {
         </table>`;
     }
 
-    await calcularYRender();
-    document.getElementById('ic-recalcular').addEventListener('click', calcularYRender);
+    async function cargarYRender() {
+      document.getElementById('ic-tabla').innerHTML = 'Cargando...';
+      try { await cargarDatos(); render(); }
+      catch (e) { document.getElementById('ic-tabla').innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+    }
+
+    function actualizarGruposSeleccionados() {
+      gruposSeleccionados = new Set([...document.querySelectorAll('.ic-grupo-chk:checked')].map(c => c.value));
+      render();
+    }
+    document.querySelectorAll('.ic-grupo-chk').forEach(chk => chk.addEventListener('change', actualizarGruposSeleccionados));
+    document.getElementById('ic-grupo-todos')?.addEventListener('click', () => {
+      document.querySelectorAll('.ic-grupo-chk').forEach(chk => { chk.checked = true; });
+      actualizarGruposSeleccionados();
+    });
+    document.getElementById('ic-grupo-ninguno')?.addEventListener('click', () => {
+      document.querySelectorAll('.ic-grupo-chk').forEach(chk => { chk.checked = false; });
+      actualizarGruposSeleccionados();
+    });
+
+    await cargarYRender();
+    document.getElementById('ic-recalcular').addEventListener('click', cargarYRender);
   };
 
   window.ap2ToggleOb = function(id, benKey, val) {
