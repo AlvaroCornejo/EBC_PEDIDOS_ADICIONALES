@@ -10,6 +10,10 @@ const COLORS = {
   atender:  { bg: '#0891b2', label: '🛒 LISTO PARA ATENDER' },
   planta:   { bg: '#7c3aed', label: '🏭 LISTO PARA ATENDER' },
   atendido: { bg: '#16a34a', label: '📦 PEDIDO ATENDIDO'   },
+  // Indicadores GAF (utils/kpiNotificaciones.js)
+  kpiRojo:         { bg: '#dc2626', label: '🔴 KPI EN ROJO' },
+  kpiRecordatorio: { bg: '#4361ee', label: '⏰ CAPTURA POR VENCER' },
+  kpiVencido:      { bg: '#64748b', label: '⚪ CAPTURAS VENCIDAS SIN DATO' },
 };
 
 const fmt = (n, dec = 2) =>
@@ -45,7 +49,7 @@ function badgeHtml(estado) {
  *   linkLabel   - texto del botón
  *   appUrl      - URL base de la aplicación (process.env.APP_URL o '')
  */
-function buildEmailHtml({ tipo, titulo, mensaje, pedido, linkUrl, linkLabel, appUrl = '' }) {
+function buildEmailHtml({ tipo, titulo, mensaje, pedido, linkUrl, linkLabel, appUrl = '', sistema = 'Pedidos Adicionales', icono = '📦' }) {
   const color = COLORS[tipo] || COLORS.nueva;
   const total = pedido
     ? pedido.lineas.reduce((s, l) => s + (l.cantidadSolicitada || 0) * (l.costoUnitario || 0), 0)
@@ -125,7 +129,7 @@ function buildEmailHtml({ tipo, titulo, mensaje, pedido, linkUrl, linkLabel, app
         <!-- HEADER -->
         <tr>
           <td style="background:#1a1f3a;border-radius:10px 10px 0 0;padding:20px 28px;text-align:center">
-            <div style="font-size:22px;font-weight:700;color:#fff;letter-spacing:1px">📦 Pedidos Adicionales</div>
+            <div style="font-size:22px;font-weight:700;color:#fff;letter-spacing:1px">${icono} ${esc(sistema)}</div>
             <div style="font-size:12px;color:#a5b4fc;margin-top:4px">Sistema de Gestión Operacional</div>
           </td>
         </tr>
@@ -161,7 +165,7 @@ function buildEmailHtml({ tipo, titulo, mensaje, pedido, linkUrl, linkLabel, app
         <tr>
           <td style="background:#f8faff;border-top:1px solid #e5e7eb;border-radius:0 0 10px 10px;padding:16px 28px;text-align:center">
             <p style="margin:0;font-size:11px;color:#9ca3af">
-              Este correo fue generado automáticamente por el Sistema de Pedidos Adicionales.<br>
+              Este correo fue generado automáticamente por el Sistema de ${esc(sistema)}.<br>
               Por favor no responda directamente a este mensaje.
             </p>
           </td>

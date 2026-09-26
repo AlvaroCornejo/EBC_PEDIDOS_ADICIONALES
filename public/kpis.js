@@ -369,8 +369,23 @@ function kpiGraficoHistorico(el, puntos, k) {
   });
 }
 
-// Etapa 5 (exportación): se completa en la siguiente etapa.
-function kpiExportarExcel() { toast('La exportación a Excel se habilita en la siguiente etapa', 'info'); }
+// Descarga el Excel de lo que se está viendo (mismos filtros; el backend aplica los permisos).
+async function kpiExportarExcel() {
+  const d = _kpiDash;
+  const q = new URLSearchParams({ ...(d.mes && { mes: d.mes }), ...(d.area && { area: d.area }), ...(d.unidad && { unidad: d.unidad }) });
+  const btn = document.getElementById('kd-excel');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Generando…'; }
+  try {
+    const res = await fetch(`${API}/kpis/exportar?${q}`, { headers: { Authorization: `Bearer ${S.token}` } });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Error ${res.status}`);
+    const nombre = decodeURIComponent((res.headers.get('Content-Disposition') || '').split("''")[1] || 'Indicadores GAF.xlsx');
+    const url = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement('a'), { href: url, download: nombre });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) { toast(err.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '📥 Excel'; } }
+}
 
 // ─── Semáforo ─────────────────────────────────────────────────────
 const KPI_COLORES = {
@@ -734,10 +749,38 @@ const KPI_REGLAS = {
   PEOR: 'El peor color presente',
 };
 
-async function kpiRenderAdminGeneral(el) {
+async function kpiRenderAdminGeneral(raiz) {
+  let el = raiz;
   el.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
-  let cfg;
-  try { cfg = await GET('/kpis/config'); } catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  let cfg, usuarios;
+  try { [cfg, usuarios] = await Promise.all([GET('/kpis/config'), GET('/kpis/responsables')]); }
+  catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  el.innerHTML = `
+    <div class="card" style="padding:16px;max-width:720px;margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:10px">Avisos (notificación en la app + correo)</div>
+      <ul class="text-muted" style="font-size:12px;margin:0 0 12px 18px;padding:0">
+        <li>KPI en rojo: aviso inmediato a los destinatarios de alertas.</li>
+        <li>Cada mañana (tarea diaria de las 6:00): recordatorio a cada responsable de lo que vence pronto,
+          y resumen a los destinatarios de alertas de lo vencido sin dato. Ningún aviso se repite.</li>
+      </ul>
+      <div class="form-group" style="max-width:260px"><label>Días de aviso antes del vencimiento</label>
+        <input type="number" min="0" max="30" id="kg-dias" value="${cfg.kpiDiasAviso}"></div>
+      <div class="form-group"><label>Destinatarios de alertas</label>
+        <div class="text-muted" style="font-size:11px;margin-bottom:6px">Los administradores de Indicadores siempre las reciben. Marque aquí a quién más (por ejemplo, la GAF o la gerencia general como lectores globales).</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 16px;max-height:140px;overflow:auto">
+          ${usuarios.map(u => `<label style="display:flex;align-items:center;gap:5px;font-weight:normal;font-size:13px">
+            <input type="checkbox" class="kg-alerta" value="${esc(u.id)}" ${cfg.kpiAlertaUsuarios.includes(u.id) ? 'checked' : ''}> ${esc(u.username)}${u.email ? '' : ' <span title="Sin correo: solo recibirá la notificación en la app">⚠️</span>'}</label>`).join('')}
+        </div>
+      </div>
+      <div class="flex gap-8" style="flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" id="kg-avisos-guardar">💾 Guardar avisos</button>
+        <button class="btn btn-outline btn-sm" id="kg-avisos-ejecutar">▶ Enviar avisos pendientes ahora</button>
+      </div>
+      <div id="kg-avisos-res" style="font-size:13px;margin-top:8px"></div>
+    </div>`;
+  const cont = document.createElement('div');
+  el.appendChild(cont);
+  el = cont;
   el.innerHTML = `
     <div class="card" style="padding:16px;max-width:720px;margin-bottom:16px">
       <div class="section-title" style="margin-bottom:10px">Resumen del área en el dashboard</div>
@@ -767,6 +810,20 @@ async function kpiRenderAdminGeneral(el) {
       <button class="btn btn-primary btn-sm" id="kg-guardar" style="margin-top:10px">💾 Guardar</button>
     </div>`;
   const $ = (id) => document.getElementById(id);
+  $('kg-avisos-guardar').addEventListener('click', async () => {
+    try {
+      await PUT('/kpis/config', { kpiDiasAviso: Number($('kg-dias').value), kpiAlertaUsuarios: [...document.querySelectorAll('.kg-alerta:checked')].map(c => c.value) });
+      toast('Avisos guardados', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  $('kg-avisos-ejecutar').addEventListener('click', async () => {
+    if (!confirm('¿Enviar ahora los recordatorios y avisos de vencidos pendientes? Es la misma tarea que corre cada mañana; lo ya avisado no se repite.')) return;
+    $('kg-avisos-res').textContent = '⏳ Enviando…';
+    try {
+      const r = await POST('/kpis/notificaciones/ejecutar', {});
+      $('kg-avisos-res').innerHTML = `✅ ${r.recordatorios} recordatorio(s) y ${r.vencidos} vencido(s) avisados en ${r.correos} mensaje(s).`;
+    } catch (err) { $('kg-avisos-res').innerHTML = `<span style="color:#dc2626">❌ ${esc(err.message)}</span>`; }
+  });
   $('kg-regla').addEventListener('change', async e => {
     try { await PUT('/kpis/config', { kpiReglaResumen: e.target.value }); toast('Regla actualizada', 'success'); }
     catch (err) { toast(err.message, 'error'); }
@@ -774,7 +831,7 @@ async function kpiRenderAdminGeneral(el) {
   $('kg-guardar').addEventListener('click', async () => {
     const body = { kpiBoxCarpetaId: $('kg-carpeta').value };
     if (cfg.puedeEditarBox) body.box = { clientId: $('kg-client').value, clientSecret: $('kg-secret').value, enterpriseId: $('kg-enterprise').value };
-    try { await PUT('/kpis/config', body); toast('Configuración guardada', 'success'); kpiRenderAdminGeneral(el); }
+    try { await PUT('/kpis/config', body); toast('Configuración guardada', 'success'); kpiRenderAdminGeneral(raiz); }
     catch (err) { $('kg-error').textContent = err.message; $('kg-error').classList.remove('hidden'); }
   });
   $('kg-probar').addEventListener('click', async () => {

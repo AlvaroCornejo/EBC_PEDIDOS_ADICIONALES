@@ -95,7 +95,7 @@ async function construirTablero(acc, { mes, area, unidad, hoy = P.hoyLima() } = 
         registrado: !!reg, registroId: reg?._id || null, valor: reg?.valor ?? null, meta,
         corregido: !!reg?.corregido, comentario: reg?.comentario || '', adjuntos: reg?.adjuntos.length || 0,
         anterior: ant ? { periodo: ant.periodo, valor: ant.valor } : null,
-        variacion: reg && ant ? reg.valor - ant.valor : null,
+        variacion: reg && ant ? Math.round((reg.valor - ant.valor) * 1e6) / 1e6 : null, // sin ruido de coma flotante
         mejora: reg && ant ? esMejora(k, meta, reg.valor, ant.valor) : null,
         tendencia: ventanas.get(id).map(p => {
           const r = indice.get(`${id}|${u}|${p}`);

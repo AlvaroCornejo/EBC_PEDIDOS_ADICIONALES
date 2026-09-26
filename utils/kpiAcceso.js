@@ -62,4 +62,15 @@ function soloAdmin(req, res, next) {
   next();
 }
 
-module.exports = { resolverAcceso, requiereAcceso, soloAdmin };
+// Acceso de sistema (todas las áreas activas) para procesos sin usuario, como la tarea
+// diaria de notificaciones. Misma forma que resolverAcceso.
+async function accesoSistema() {
+  const areas = new Set(await KpiArea.distinct('codigo', { activo: true }));
+  return {
+    userId: 'SISTEMA', username: 'SISTEMA', esAdmin: true, esLector: false, lectura: areas, captura: areas,
+    puedeVer: (a) => areas.has(a), puedeCapturar: (a) => areas.has(a),
+    filtroAreas: (campo = 'areaCodigo') => ({ [campo]: { $in: [...areas] } }),
+  };
+}
+
+module.exports = { resolverAcceso, requiereAcceso, soloAdmin, accesoSistema };

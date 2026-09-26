@@ -15,6 +15,8 @@ const { validarMeta, REGLAS_RESUMEN } = require('../utils/kpiSemaforo');
 const { metaVigente, versionesPorKpi } = require('../utils/kpiMetas');
 const { hoyLima } = require('../utils/kpiPeriodo');
 const { construirTablero, pendientesDeCaptura, historico } = require('../utils/kpiTablero');
+const { generarExcel } = require('../utils/kpiExcel');
+const { ejecutarDiario } = require('../utils/kpiNotificaciones');
 
 // Indicadores de Gestión del Back Office (GAF). Montado en /api/kpis.
 // Todo acceso a datos pasa por req.kpi (utils/kpiAcceso.js), resuelto en vivo.
@@ -255,7 +257,7 @@ router.get('/responsables', soloAdmin, async (req, res) => {
 // ─── Configuración del módulo (admin) ─────────────────────────────
 // Llaves propias en el Config genérico. Las credenciales de Box son compartidas con el
 // resto de la app: solo el ADMIN de la app las cambia, y el secreto nunca se devuelve.
-const CFG_KPI = { kpiBoxCarpetaId: '', kpiReglaResumen: 'MAS_FRECUENTE_PISO_AMBAR' };
+const CFG_KPI = { kpiBoxCarpetaId: '', kpiReglaResumen: 'MAS_FRECUENTE_PISO_AMBAR', kpiDiasAviso: 3, kpiAlertaUsuarios: [] };
 const CFG_BOX = ['boxClientId', 'boxClientSecret', 'boxEnterpriseId'];
 
 router.get('/config', soloAdmin, async (req, res) => {
@@ -273,12 +275,21 @@ router.get('/config', soloAdmin, async (req, res) => {
 
 router.put('/config', soloAdmin, async (req, res) => {
   try {
-    const { kpiBoxCarpetaId, kpiReglaResumen, box: cred } = req.body;
+    const { kpiBoxCarpetaId, kpiReglaResumen, kpiDiasAviso, kpiAlertaUsuarios, box: cred } = req.body;
     if (kpiReglaResumen !== undefined && !REGLAS_RESUMEN.includes(kpiReglaResumen)) return res.status(400).json({ error: 'Regla de resumen inválida' });
     if (kpiBoxCarpetaId !== undefined && !/^\d*$/.test(String(kpiBoxCarpetaId).trim())) return res.status(400).json({ error: 'El ID de carpeta de Box es numérico' });
+    if (kpiDiasAviso !== undefined && !(Number.isInteger(Number(kpiDiasAviso)) && kpiDiasAviso >= 0 && kpiDiasAviso <= 30)) {
+      return res.status(400).json({ error: 'Los días de aviso previo van de 0 a 30' });
+    }
+    if (kpiAlertaUsuarios !== undefined && (!Array.isArray(kpiAlertaUsuarios)
+      || await User.countDocuments({ id: { $in: kpiAlertaUsuarios } }) !== new Set(kpiAlertaUsuarios).size)) {
+      return res.status(400).json({ error: 'Destinatarios de alertas inválidos' });
+    }
     const cambios = {
       ...(kpiBoxCarpetaId !== undefined && { kpiBoxCarpetaId: String(kpiBoxCarpetaId).trim() }),
       ...(kpiReglaResumen !== undefined && { kpiReglaResumen }),
+      ...(kpiDiasAviso !== undefined && { kpiDiasAviso: Number(kpiDiasAviso) }),
+      ...(kpiAlertaUsuarios !== undefined && { kpiAlertaUsuarios: [...new Set(kpiAlertaUsuarios)] }),
     };
     if (cred) {
       if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo el administrador de la app cambia las credenciales de Box' });
@@ -324,6 +335,23 @@ router.get('/definiciones/:id/historico', async (req, res) => {
     if (!h) return res.status(404).json({ error: 'KPI no encontrado' });
     res.json(h);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /exportar?mes=&area=&unidad= — Excel de lo que el usuario ve (mismo acceso por área).
+router.get('/exportar', async (req, res) => {
+  try {
+    const { mes, area, unidad } = req.query;
+    const { buffer, nombre } = await generarExcel(req.kpi, { mes, area, unidad, usuario: req.kpi.username });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(nombre)}`);
+    res.send(Buffer.from(buffer));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /notificaciones/ejecutar — corre ahora la tarea diaria (la misma de sync-master.bat).
+router.post('/notificaciones/ejecutar', soloAdmin, async (req, res) => {
+  try { res.json(await ejecutarDiario()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Captura, registros, auditoría y correcciones.

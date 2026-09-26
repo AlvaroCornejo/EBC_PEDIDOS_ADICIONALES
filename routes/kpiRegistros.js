@@ -7,6 +7,7 @@ const KpiRegistro    = require('../models/KpiRegistro');
 const KpiAuditoria   = require('../models/KpiAuditoria');
 const Config         = require('../models/Config');
 const box = require('../utils/boxClient'); // se usa como objeto para que las pruebas lo reemplacen
+const notif = require('../utils/kpiNotificaciones');
 const { soloAdmin } = require('../utils/kpiAcceso');
 const { calcularSemaforo } = require('../utils/kpiSemaforo');
 const { metaVigente, snapshot, versionesPorKpi } = require('../utils/kpiMetas');
@@ -168,6 +169,9 @@ router.post('/registros', conArchivos, async (req, res) => {
     }
     await auditar(registro, 'CREACION', req, { despues: estado(registro) });
     res.json(registro);
+    if (registro.semaforo === 'ROJO') {
+      notif.avisarRojo(registro, c.kpi.nombre).catch(err => console.error('[kpis] aviso rojo:', err.message));
+    }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -257,6 +261,11 @@ router.put('/registros/:id/corregir', soloAdmin, async (req, res) => {
     }
     await auditar(r, 'CORRECCION', req, { antes, despues, motivo });
     res.json(r);
+    if (semaforo === 'ROJO' && antes.semaforo !== 'ROJO') {
+      const kpi = await KpiDefinicion.findById(r.kpiId, { nombre: 1 }).lean();
+      notif.avisarRojo(r, kpi?.nombre || '', { correccion: true, usuario: req.kpi.username })
+        .catch(err => console.error('[kpis] aviso rojo:', err.message));
+    }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

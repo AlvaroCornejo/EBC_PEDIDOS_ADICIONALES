@@ -1446,3 +1446,39 @@ memoria con usuarios de prueba (credenciales en el propio archivo).
   semáforo y anillo blanco, meta como línea escalonada rotulada, tooltip con cruz, y
   tabla de registros que abre el modal de registro). Variación coloreada por mejora, no
   por subida.
+
+**Etapa 5 — Notificaciones y exportación a Excel**:
+- `utils/kpiNotificaciones.js`, mismo modelo que Pedidos Adicionales (`sendPush` +
+  `sendEmail` + `buildEmailHtml`, que ganó los tipos `kpiRojo`/`kpiRecordatorio`/
+  `kpiVencido` y los parámetros opcionales `sistema`/`icono` — default "Pedidos
+  Adicionales", sin cambio para los correos existentes):
+  - `avisarRojo`: inmediato al registrar (o al corregir hacia rojo), sin bloquear la
+    respuesta, a los **destinatarios de alertas** = admins de Indicadores (rol ADMIN o
+    kpiRol admin) + `kpiAlertaUsuarios` (Config, ej. la GAF como lectora global).
+  - `ejecutarDiario`: RECORDATORIO a cada responsable (activo) por lo que vence dentro de
+    `kpiDiasAviso` días (Config, default 3) + resumen de VENCIDOS sin dato a los
+    destinatarios de alertas. **Cada destinatario solo recibe lo de las áreas que puede ver**
+    (`resolverAcceso`), para que un destinatario adicional con acceso parcial no reciba
+    datos de otras áreas por correo. Nada se repite: `KpiNotificacion` (único por
+    tipo+clave+destinatario, clave = kpiId|unidad|periodo).
+  - Tarea: `scripts/kpiNotificaciones.js` → `sync-kpi-notificaciones.bat`, **paso 22/22 de
+    `sync-master.bat`** (6:00 AM). También `POST /kpis/notificaciones/ejecutar` (admin, botón
+    en Configuración → General y Box). `accesoSistema()` en `utils/kpiAcceso.js` da acceso a
+    todas las áreas a procesos sin usuario.
+- `utils/kpiExcel.js` + `GET /kpis/exportar?mes=&area=&unidad=`: arma el Excel con el MISMO
+  `construirTablero`/`pendientesDeCaptura` y el mismo acceso del usuario (nunca incluye
+  áreas no asignadas). Hojas Resumen / Detalle / Tendencia 12 periodos (formato largo) /
+  Pendientes; `#,##0.00`, fechas `dd/mm/yyyy`, semáforo pintado en la celda.
+- Pruebas: 74 en total (`npm test`), con `sendPush`/`sendEmail`/Box simulados.
+
+**Puesta en producción de Indicadores GAF (pendiente, la hace el usuario)**:
+1. Mergear `feature/indicadores-gaf` a `main` (auto-deploy a DigitalOcean).
+2. Una sola vez: `node scripts/seedKpis.js` (áreas + 40 KPIs; idempotente).
+3. En el servidor CORPSERV-PRUEBA: `git pull origin main` (los bats no se actualizan solos)
+   para que `sync-master.bat` incluya el paso 22.
+4. En la app: Configuración → General y Box → ID de carpeta de Box (+ Probar conexión);
+   destinatarios de alertas; Catálogo → unidades y responsables de cada KPI; Admin →
+   Usuarios → accesos por área.
+5. Recomendado: rotar la contraseña SMTP y el secreto de Box (antes del fix de la Etapa 3
+   cualquier usuario autenticado podía leerlos en `GET /api/config`).
+6. Efecto colateral en toda la app: "eliminar usuario" ahora desactiva (sin borrado físico).
