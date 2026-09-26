@@ -1385,3 +1385,39 @@ memoria con usuarios de prueba (credenciales en el propio archivo).
 - Frontend: Configuración → Catálogo de KPIs (filtros área/texto/inactivos, agrupado por
   área, alertas "⚠ Sin unidades" / "⚠ Sin responsable"), modal de KPI y modal de Metas
   (historial de versiones + nueva versión, general o por unidad).
+
+**Etapa 3 — Registro inmutable con auditoría y evidencia en Box**:
+- `KpiRegistro`: uno por `kpiId+periodo+unidadCodigo` (índice único). Copia congelada de
+  unidad/sentido/tipoCaptura/frecuencia y de la **meta vigente en su periodo** (`meta`,
+  snapshot) → el historial nunca se recalcula. `periodoInicio` ('YYYY-MM-DD') para filtrar
+  y ordenar semanales y mensuales juntos (como texto '2026-W39' > '2026-12', no sirve).
+  **Inmutable en el modelo**: hooks bloquean todo update/delete; `save()` de un documento
+  existente solo pasa con `doc.$locals.correccionAutorizada = true` (lo pone únicamente la
+  ruta de corrección). `optimisticConcurrency` para correcciones simultáneas.
+- `KpiAuditoria`: CREACION / CORRECCION (antes, después, motivo, usuario, fecha y hora) /
+  ADJUNTO. Nunca se edita ni se borra (bloqueado en el modelo).
+- Rutas en `routes/kpiRegistros.js` (montado dentro de `routes/kpis.js`, tras
+  `requiereAcceso`): `GET /captura/opciones` (KPIs con Captura, con unidades, meta y los
+  últimos 13 periodos), `POST /registros/evaluar` (resultado+semáforo sin guardar),
+  `POST /registros` (multipart: `datos` JSON + `archivos`; exige `confirmado:true`,
+  comentario si queda en ROJO, no acepta periodos futuros), `GET /registros`,
+  `GET /registros/:id` (+ auditoría), `GET /registros/:id/adjuntos/:fileId`,
+  `PUT /registros/:id/corregir` (solo admin, motivo obligatorio, recalcula con la meta
+  congelada), `POST /registros/:id/adjuntos` (solo admin, motivo). **No existe ningún
+  PUT/PATCH/DELETE directo sobre /registros/:id.** KPI con registros ya no puede cambiar
+  frecuencia, unidad de medida ni área.
+- **Box** (`utils/boxClient.js`, recuperado del Cierre Contable y generalizado): subida vía
+  API a `{kpiBoxCarpetaId}/{área}/{KPI}/{periodo}/{unidad}/`. **Sin links compartidos
+  públicos** (a diferencia de Cierre Contable): la descarga pasa por la app, que valida el
+  área y devuelve la URL temporal de Box (`urlDescarga`, 302 → Location). Si el registro no
+  se guarda, lo subido se elimina de Box. Config: `GET/PUT /kpis/config` (carpeta y regla de
+  resumen: admin de Indicadores; credenciales de Box: solo ADMIN de la app, el secreto nunca
+  se devuelve) y `POST /kpis/config/probar-box`.
+- **Fix de seguridad preexistente**: `GET /api/config` devolvía `smtpPass` y
+  `boxClientSecret` a cualquier usuario autenticado; ahora se omiten para no-ADMIN.
+- Frontend: pestañas Captura (resultado y semáforo en vivo vía `/evaluar`, confirmación
+  "Una vez registrado, este valor no podrá modificarse"), Registros (filtros, detalle con
+  evidencia, bitácora en línea de tiempo y, para admin, Corregir / Agregar evidencia) y
+  Configuración → General y Box. `styles.css` oculta todo `input[type=file]`: usar
+  `kpiSelectorArchivosHtml()` (botón + lista).
+- Demo: `tests/servidor-demo.js` simula Box en memoria y genera 12 periodos de historial.

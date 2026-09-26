@@ -4,11 +4,14 @@ const authMiddleware = require('../middleware/auth');
 const KpiArea        = require('../models/KpiArea');
 const KpiDefinicion  = require('../models/KpiDefinicion');
 const KpiMetaVersion = require('../models/KpiMetaVersion');
+const KpiRegistro    = require('../models/KpiRegistro');
+const Config         = require('../models/Config');
+const box            = require('../utils/boxClient');
 const Sociedad       = require('../models/Sociedad');
 const Operacion      = require('../models/Operacion');
 const User           = require('../models/User');
 const { resolverAcceso, requiereAcceso, soloAdmin } = require('../utils/kpiAcceso');
-const { validarMeta } = require('../utils/kpiSemaforo');
+const { validarMeta, REGLAS_RESUMEN } = require('../utils/kpiSemaforo');
 const { metaVigente, versionesPorKpi } = require('../utils/kpiMetas');
 const { hoyLima } = require('../utils/kpiPeriodo');
 
@@ -205,6 +208,12 @@ router.put('/definiciones/:id', soloAdmin, async (req, res) => {
     if (resto.sentido !== undefined && resto.sentido !== kpi.sentido) {
       return res.status(400).json({ error: 'El sentido de un KPI no se puede cambiar: cree un KPI nuevo' });
     }
+    // Con registros, cambiar frecuencia/unidad/área mezclaría historiales incomparables.
+    const fijos = { frecuencia: 'la frecuencia', unidad: 'la unidad de medida', areaCodigo: 'el área' };
+    const cambia = Object.keys(fijos).find(k => resto[k] !== undefined && resto[k] !== kpi[k]);
+    if (cambia && await KpiRegistro.exists({ kpiId: kpi._id })) {
+      return res.status(400).json({ error: `El KPI ya tiene registros: no se puede cambiar ${fijos[cambia]}. Cree un KPI nuevo y desactive este.` });
+    }
     const { error, datos } = await validarDefinicion(resto, kpi);
     if (error) return res.status(400).json({ error });
     Object.assign(kpi, datos);
@@ -241,5 +250,57 @@ router.get('/responsables', soloAdmin, async (req, res) => {
     res.json(users);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ─── Configuración del módulo (admin) ─────────────────────────────
+// Llaves propias en el Config genérico. Las credenciales de Box son compartidas con el
+// resto de la app: solo el ADMIN de la app las cambia, y el secreto nunca se devuelve.
+const CFG_KPI = { kpiBoxCarpetaId: '', kpiReglaResumen: 'MAS_FRECUENTE_PISO_AMBAR' };
+const CFG_BOX = ['boxClientId', 'boxClientSecret', 'boxEnterpriseId'];
+
+router.get('/config', soloAdmin, async (req, res) => {
+  try {
+    const docs = await Config.find({ key: { $in: [...Object.keys(CFG_KPI), ...CFG_BOX] } }).lean();
+    const v = Object.fromEntries(docs.map(d => [d.key, d.value]));
+    res.json({
+      ...Object.fromEntries(Object.entries(CFG_KPI).map(([k, def]) => [k, v[k] ?? def])),
+      reglasResumen: REGLAS_RESUMEN,
+      box: { clientId: v.boxClientId || '', enterpriseId: v.boxEnterpriseId || '', secretConfigurado: !!v.boxClientSecret },
+      puedeEditarBox: req.user.role === 'ADMIN',
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.put('/config', soloAdmin, async (req, res) => {
+  try {
+    const { kpiBoxCarpetaId, kpiReglaResumen, box: cred } = req.body;
+    if (kpiReglaResumen !== undefined && !REGLAS_RESUMEN.includes(kpiReglaResumen)) return res.status(400).json({ error: 'Regla de resumen inválida' });
+    if (kpiBoxCarpetaId !== undefined && !/^\d*$/.test(String(kpiBoxCarpetaId).trim())) return res.status(400).json({ error: 'El ID de carpeta de Box es numérico' });
+    const cambios = {
+      ...(kpiBoxCarpetaId !== undefined && { kpiBoxCarpetaId: String(kpiBoxCarpetaId).trim() }),
+      ...(kpiReglaResumen !== undefined && { kpiReglaResumen }),
+    };
+    if (cred) {
+      if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo el administrador de la app cambia las credenciales de Box' });
+      if (cred.clientId !== undefined) cambios.boxClientId = String(cred.clientId).trim();
+      if (cred.enterpriseId !== undefined) cambios.boxEnterpriseId = String(cred.enterpriseId).trim();
+      if (cred.clientSecret) cambios.boxClientSecret = String(cred.clientSecret).trim(); // vacío = no cambiar
+    }
+    for (const [key, value] of Object.entries(cambios)) {
+      await Config.findOneAndUpdate({ key }, { value }, { upsert: true });
+    }
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/config/probar-box', soloAdmin, async (req, res) => {
+  try {
+    const carpeta = (await Config.findOne({ key: 'kpiBoxCarpetaId' }).lean())?.value;
+    if (!carpeta) return res.status(400).json({ error: 'Primero configure el ID de la carpeta de Box' });
+    res.json(await box.probarConexion(carpeta));
+  } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+// Captura, registros, auditoría y correcciones.
+router.use(require('./kpiRegistros'));
 
 module.exports = router;

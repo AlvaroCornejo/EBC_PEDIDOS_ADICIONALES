@@ -18,9 +18,17 @@ async function getConfigObj() {
   return cfg;
 }
 
+// Credenciales que nunca se devuelven a un no-ADMIN (antes GET /api/config las exponía a
+// cualquier usuario autenticado).
+const SECRETOS = ['smtpPass', 'boxClientSecret'];
+
 // GET /api/config
 router.get('/', async (req, res) => {
-  try { res.json(await getConfigObj()); }
+  try {
+    const cfg = await getConfigObj();
+    if (req.user.role !== 'ADMIN') SECRETOS.forEach(k => delete cfg[k]);
+    res.json(cfg);
+  }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -68,6 +68,7 @@ async function viewIndicadores(container) {
   const tabs = [
     { id: 'dashboard', label: '📊 Dashboard' },
     ...(S.kpi.areas.some(a => a.nivel === 'CAPTURA') ? [{ id: 'captura', label: '✍️ Captura' }] : []),
+    { id: 'registros', label: '🗒️ Registros' },
     ...(S.kpi.esAdmin ? [{ id: 'config', label: '⚙️ Configuración' }] : []),
   ];
   container.innerHTML = `
@@ -80,7 +81,7 @@ async function viewIndicadores(container) {
       ${tabs.map((t, i) => `<div id="kpi-tab-${t.id}" class="tab-panel${i ? '' : ' active'}"></div>`).join('')}
     </div>`;
 
-  const renderers = { dashboard: kpiRenderDashboard, captura: kpiRenderCaptura, config: kpiRenderConfig };
+  const renderers = { dashboard: kpiRenderDashboard, captura: kpiRenderCaptura, registros: kpiRenderRegistros, config: kpiRenderConfig };
   const cargados = new Set();
   const abrir = (id) => {
     container.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
@@ -104,9 +105,336 @@ function kpiRenderDashboard(el) {
     </div>`;
 }
 
-// ─── Captura (Etapa 3) ────────────────────────────────────────────
-function kpiRenderCaptura(el) {
-  el.innerHTML = `<div class="card" style="padding:16px"><p class="text-muted" style="font-size:13px">La captura de valores se habilita en la siguiente etapa.</p></div>`;
+// ─── Semáforo ─────────────────────────────────────────────────────
+const KPI_COLORES = {
+  VERDE:    { bg: '#dcfce7', fg: '#166534', punto: '#16a34a', label: 'Verde' },
+  AMBAR:    { bg: '#fef3c7', fg: '#92400e', punto: '#d97706', label: 'Ámbar' },
+  ROJO:     { bg: '#fee2e2', fg: '#991b1b', punto: '#dc2626', label: 'Rojo' },
+  SIN_DATO: { bg: '#f1f5f9', fg: '#475569', punto: '#94a3b8', label: 'Sin dato' },
+  null:     { bg: '#eef2ff', fg: '#3730a3', punto: '#6366f1', label: 'Informativo' },
+};
+function kpiBadgeSemaforo(s) {
+  const c = KPI_COLORES[s ?? 'null'] || KPI_COLORES.null;
+  return `<span class="badge" style="background:${c.bg};color:${c.fg};white-space:nowrap">
+    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c.punto};margin-right:4px"></span>${c.label}</span>`;
+}
+
+// POST multipart (el helper api() de app.js solo manda JSON).
+async function kpiPostMultipart(path, datos, archivos) {
+  const fd = new FormData();
+  fd.append('datos', JSON.stringify(datos));
+  for (const f of archivos || []) fd.append('archivos', f);
+  const res = await fetch(API + path, { method: 'POST', headers: { Authorization: `Bearer ${S.token}` }, body: fd });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  return data;
+}
+
+// styles.css oculta todos los input[type=file]: se usa un botón que lo abre + la lista elegida.
+const kpiSelectorArchivosHtml = (id) => `
+  <input type="file" id="${id}" multiple>
+  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('${id}').click()">📎 Elegir archivos</button>
+  <span id="${id}-lista" class="text-muted" style="font-size:12px;margin-left:8px">Ningún archivo</span>`;
+function kpiBindSelectorArchivos(id) {
+  const input = document.getElementById(id);
+  input.addEventListener('change', () => {
+    document.getElementById(`${id}-lista`).textContent = input.files.length
+      ? [...input.files].map(f => `${f.name} (${f.size < 1048576 ? `${kpiFmtNum(f.size / 1024, 0)} KB` : `${kpiFmtNum(f.size / 1048576, 1)} MB`})`).join(', ') : 'Ningún archivo';
+  });
+}
+
+async function kpiAbrirAdjunto(registroId, fileId) {
+  try {
+    const { url } = await GET(`/kpis/registros/${registroId}/adjuntos/${encodeURIComponent(fileId)}`);
+    window.open(url, '_blank', 'noopener');
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+// ─── Captura ──────────────────────────────────────────────────────
+async function kpiRenderCaptura(el) {
+  el.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
+  let opciones;
+  try { opciones = await GET('/kpis/captura/opciones'); } catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  if (!opciones.length) {
+    el.innerHTML = `<div class="card text-muted" style="padding:16px;font-size:13px">No hay KPIs para capturar en tus áreas
+      (o aún no tienen unidades asignadas en el catálogo).</div>`;
+    return;
+  }
+  const areas = Object.fromEntries(S.kpi.areas.map(a => [a.codigo, a.nombre]));
+  const porArea = [...new Set(opciones.map(k => k.areaCodigo))];
+
+  el.innerHTML = `
+    <div class="card" style="padding:18px;max-width:760px">
+      <div class="form-group"><label>KPI *</label>
+        <select id="kc-kpi"><option value="">— Seleccione —</option>
+          ${porArea.map(a => `<optgroup label="${esc(areas[a] || a)}">
+            ${opciones.filter(k => k.areaCodigo === a).map(k => `<option value="${k._id}">${esc(k.codigo)} — ${esc(k.nombre)}</option>`).join('')}
+          </optgroup>`).join('')}
+        </select>
+      </div>
+      <div id="kc-info" class="text-muted" style="font-size:12px;margin:-4px 0 12px"></div>
+      <div id="kc-resto" style="display:none">
+        <div class="flex gap-12" style="flex-wrap:wrap">
+          <div class="form-group" style="flex:1;min-width:200px"><label>Periodo *</label><select id="kc-periodo"></select></div>
+          <div class="form-group" style="flex:1;min-width:160px"><label>Unidad *</label><select id="kc-unidad"></select></div>
+        </div>
+        <div id="kc-ya" class="msg-info hidden" style="margin-bottom:12px"></div>
+        <div id="kc-valores" class="flex gap-12" style="flex-wrap:wrap"></div>
+        <div id="kc-resultado" style="font-size:13px;margin:-4px 0 12px"></div>
+        <div class="form-group"><label>Comentario <span id="kc-com-oblig" style="color:#dc2626;display:none">* (obligatorio: resultado en rojo)</span></label>
+          <textarea id="kc-comentario" rows="3" maxlength="2000"></textarea></div>
+        <div class="form-group"><label>Evidencia (opcional, se guarda en Box)</label>
+          <div>${kpiSelectorArchivosHtml('kc-archivos')}</div>
+          <div class="text-muted" style="font-size:11px;margin-top:4px">Hasta 5 archivos de 20 MB cada uno.</div></div>
+        <div id="kc-error" class="msg-error hidden"></div>
+        <button class="btn btn-primary" id="kc-revisar">Revisar y registrar</button>
+      </div>
+    </div>`;
+
+  const $ = (id) => document.getElementById(id);
+  kpiBindSelectorArchivos('kc-archivos');
+  let kpi = null, registrados = new Set();
+
+  const datosForm = () => ({
+    kpiId: kpi._id, periodo: $('kc-periodo').value, unidadCodigo: $('kc-unidad').value,
+    ...(kpi.tipoCaptura === 'RATIO'
+      ? { numerador: $('kc-num').value, denominador: $('kc-den').value }
+      : { valor: $('kc-valor').value }),
+  });
+
+  const pintarYaRegistrado = () => {
+    const ya = registrados.has(`${$('kc-periodo').value}|${$('kc-unidad').value}`);
+    $('kc-ya').classList.toggle('hidden', !ya);
+    $('kc-ya').textContent = ya ? 'Este KPI ya está registrado para ese periodo y unidad. Revísalo en la pestaña Registros.' : '';
+    $('kc-revisar').disabled = ya;
+  };
+
+  // Resultado y semáforo en vivo (el backend es quien calcula: mismo criterio que al guardar).
+  let evalSeq = 0;
+  const evaluar = async () => {
+    const d = datosForm();
+    const vacio = kpi.tipoCaptura === 'RATIO' ? (d.numerador === '' || d.denominador === '') : d.valor === '';
+    if (vacio) { $('kc-resultado').innerHTML = ''; $('kc-com-oblig').style.display = 'none'; return null; }
+    const seq = ++evalSeq;
+    try {
+      const r = await POST('/kpis/registros/evaluar', d);
+      if (seq !== evalSeq) return null;
+      $('kc-resultado').innerHTML = `Resultado: <strong>${kpiFmtValor(r.valor, kpi.unidad)}</strong> ${kpiBadgeSemaforo(r.semaforo)}
+        <span class="text-muted">Meta del periodo: ${kpiTextoMeta(kpi.sentido, kpi.unidad, r.meta)}</span>`;
+      $('kc-com-oblig').style.display = r.comentarioObligatorio ? 'inline' : 'none';
+      return r;
+    } catch (err) {
+      if (seq === evalSeq) $('kc-resultado').innerHTML = `<span style="color:#dc2626">${esc(err.message)}</span>`;
+      return null;
+    }
+  };
+
+  $('kc-kpi').addEventListener('change', async () => {
+    kpi = opciones.find(k => k._id === $('kc-kpi').value) || null;
+    $('kc-resto').style.display = kpi ? 'block' : 'none';
+    if (!kpi) { $('kc-info').innerHTML = ''; return; }
+    $('kc-info').innerHTML = `${KPI_FRECUENCIAS[kpi.frecuencia]} · ${KPI_SENTIDOS[kpi.sentido]} · Meta: ${kpiTextoMeta(kpi.sentido, kpi.unidad, kpi.metaVigente)}
+      ${kpi.formula ? `<br>Fórmula: ${esc(kpi.formula)}` : ''}`;
+    $('kc-periodo').innerHTML = kpi.periodos.map(p => `<option value="${p.periodo}" ${p.periodo === kpi.periodoSugerido ? 'selected' : ''}>
+      ${esc(p.etiqueta)}${kpi.frecuencia === 'SEMANAL' ? ` (${kpiFmtFecha(p.inicio).slice(0, 5)} – ${kpiFmtFecha(p.fin).slice(0, 5)})` : ''}${p.periodo > kpi.periodoSugerido ? ' — en curso' : ''}</option>`).join('');
+    $('kc-unidad').innerHTML = kpi.unidades.map(u => `<option value="${esc(u)}">${esc(u)}</option>`).join('');
+    const campo = (id, label) => `<div class="form-group" style="flex:1;min-width:150px"><label>${label} *</label><input type="number" step="any" id="${id}"></div>`;
+    $('kc-valores').innerHTML = kpi.tipoCaptura === 'RATIO'
+      ? campo('kc-num', 'Numerador') + campo('kc-den', 'Denominador')
+      : campo('kc-valor', `Valor (${KPI_UNIDADES[kpi.unidad]})`);
+    $('kc-valores').querySelectorAll('input').forEach(i => i.addEventListener('input', evaluar));
+    $('kc-resultado').innerHTML = '';
+    try {
+      const regs = await GET(`/kpis/registros?kpiId=${kpi._id}`);
+      registrados = new Set(regs.map(r => `${r.periodo}|${r.unidadCodigo}`));
+    } catch { registrados = new Set(); }
+    pintarYaRegistrado();
+  });
+  $('kc-periodo').addEventListener('change', () => { pintarYaRegistrado(); evaluar(); });
+  $('kc-unidad').addEventListener('change', () => { pintarYaRegistrado(); evaluar(); });
+
+  $('kc-revisar').addEventListener('click', async () => {
+    const errEl = $('kc-error');
+    errEl.classList.add('hidden');
+    const r = await evaluar();
+    if (!r) { errEl.textContent = 'Complete el valor para continuar.'; errEl.classList.remove('hidden'); return; }
+    const comentario = $('kc-comentario').value.trim();
+    if (r.comentarioObligatorio && !comentario) { errEl.textContent = 'El resultado queda en rojo: el comentario es obligatorio.'; errEl.classList.remove('hidden'); return; }
+    const archivos = [...$('kc-archivos').files];
+    const d = datosForm();
+    const periodo = kpi.periodos.find(p => p.periodo === d.periodo);
+
+    openModal('Confirmar registro', `
+      <table style="font-size:14px;margin-bottom:14px"><tbody>
+        <tr><td class="text-muted" style="padding:3px 16px 3px 0">KPI</td><td><strong>${esc(kpi.codigo)}</strong> — ${esc(kpi.nombre)}</td></tr>
+        <tr><td class="text-muted" style="padding:3px 16px 3px 0">Periodo</td><td>${esc(periodo?.etiqueta || d.periodo)}</td></tr>
+        <tr><td class="text-muted" style="padding:3px 16px 3px 0">Unidad</td><td>${esc(d.unidadCodigo)}</td></tr>
+        ${kpi.tipoCaptura === 'RATIO' ? `<tr><td class="text-muted" style="padding:3px 16px 3px 0">Cálculo</td><td>${kpiFmtAuto(d.numerador)} ÷ ${kpiFmtAuto(d.denominador)}${kpi.unidad === '%' ? ' × 100' : ''}</td></tr>` : ''}
+        <tr><td class="text-muted" style="padding:3px 16px 3px 0">Resultado</td><td><strong>${kpiFmtValor(r.valor, kpi.unidad)}</strong> ${kpiBadgeSemaforo(r.semaforo)}</td></tr>
+        <tr><td class="text-muted" style="padding:3px 16px 3px 0">Meta</td><td>${kpiTextoMeta(kpi.sentido, kpi.unidad, r.meta)}</td></tr>
+        ${comentario ? `<tr><td class="text-muted" style="padding:3px 16px 3px 0">Comentario</td><td>${esc(comentario)}</td></tr>` : ''}
+        ${archivos.length ? `<tr><td class="text-muted" style="padding:3px 16px 3px 0">Evidencia</td><td>${archivos.map(f => esc(f.name)).join(', ')}</td></tr>` : ''}
+      </tbody></table>
+      <div class="msg-error" style="font-weight:600">⚠️ Una vez registrado, este valor no podrá modificarse.</div>
+      <div id="kc-conf-error" class="msg-error hidden" style="margin-top:8px"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Volver</button>
+        <button class="btn btn-primary" id="kc-confirmar">✔ Registrar</button>
+      </div>`);
+    $('kc-confirmar').addEventListener('click', async () => {
+      const btn = $('kc-confirmar');
+      btn.disabled = true; btn.textContent = archivos.length ? '⏳ Subiendo evidencia…' : '⏳ Registrando…';
+      try {
+        await kpiPostMultipart('/kpis/registros', { ...d, comentario, confirmado: true }, archivos);
+        closeModal();
+        toast('Valor registrado', 'success');
+        kpiRenderCaptura(el); // formulario limpio
+      } catch (err) {
+        $('kc-conf-error').textContent = err.message; $('kc-conf-error').classList.remove('hidden');
+        btn.disabled = false; btn.textContent = '✔ Registrar';
+      }
+    });
+  });
+}
+
+// ─── Registros (historial) ────────────────────────────────────────
+let _kpiRegFiltro = { area: '', kpiId: '', desde: '', hasta: '' };
+
+async function kpiRenderRegistros(el) {
+  el.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
+  let kpis;
+  try { kpis = await GET('/kpis/definiciones'); } catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  const f = _kpiRegFiltro;
+  el.innerHTML = `
+    <div class="flex gap-12 items-center mb-16" style="flex-wrap:wrap">
+      <select id="kr-area" style="width:auto"><option value="">Todas mis áreas</option>
+        ${S.kpi.areas.map(a => `<option value="${esc(a.codigo)}" ${f.area === a.codigo ? 'selected' : ''}>${esc(a.nombre)}</option>`).join('')}</select>
+      <select id="kr-kpi" style="width:auto;max-width:320px"></select>
+      <label style="font-weight:normal;font-size:13px">Desde <input type="month" id="kr-desde" value="${f.desde}" style="width:auto"></label>
+      <label style="font-weight:normal;font-size:13px">Hasta <input type="month" id="kr-hasta" value="${f.hasta}" style="width:auto"></label>
+    </div>
+    <div id="kr-tabla"></div>`;
+  const $ = (id) => document.getElementById(id);
+  const pintarKpis = () => {
+    $('kr-kpi').innerHTML = `<option value="">Todos los KPIs</option>` + kpis.filter(k => !f.area || k.areaCodigo === f.area)
+      .map(k => `<option value="${k._id}" ${f.kpiId === k._id ? 'selected' : ''}>${esc(k.codigo)} — ${esc(k.nombre)}</option>`).join('');
+  };
+  const cargar = async () => {
+    $('kr-tabla').innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
+    // desde/hasta por mes; el backend filtra por la fecha de inicio de cada periodo.
+    const q = new URLSearchParams({ ...(f.area && { area: f.area }), ...(f.kpiId && { kpiId: f.kpiId }),
+      ...(f.desde && { desde: f.desde }), ...(f.hasta && { hasta: f.hasta }) });
+    let regs;
+    try { regs = await GET(`/kpis/registros?${q}`); } catch (err) { $('kr-tabla').innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+    $('kr-tabla').innerHTML = !regs.length ? `<div class="card text-muted" style="padding:16px">Sin registros con ese filtro.</div>` : `
+      <div class="card"><div class="table-wrap"><table>
+        <thead><tr><th>Periodo</th><th>KPI</th><th>Unidad</th><th style="text-align:right">Valor</th><th>Meta</th><th>Semáforo</th><th>Comentario</th><th>Registrado</th></tr></thead>
+        <tbody>${regs.map(r => `<tr class="kr-fila" data-id="${r._id}" style="cursor:pointer">
+          <td style="white-space:nowrap">${esc(kpiEtiquetaPeriodo(r.periodo))}</td>
+          <td><strong>${esc(r.kpiCodigo)}</strong> ${esc(kpis.find(k => k._id === r.kpiId)?.nombre || '')}</td>
+          <td>${esc(r.unidadCodigo)}</td>
+          <td style="text-align:right;white-space:nowrap">${kpiFmtValor(r.valor, r.unidad)}</td>
+          <td style="font-size:12px">${kpiTextoMeta(r.sentido, r.unidad, r.meta)}</td>
+          <td>${kpiBadgeSemaforo(r.semaforo)}${r.corregido ? ' <span class="badge" style="background:#fef3c7;color:#92400e" title="Corregido por el administrador">✏️ corregido</span>' : ''}</td>
+          <td style="font-size:12px;max-width:260px">${esc((r.comentario || '').slice(0, 90))}${(r.comentario || '').length > 90 ? '…' : ''}${r.adjuntos.length ? ` <span title="Evidencia">📎${r.adjuntos.length}</span>` : ''}</td>
+          <td style="font-size:12px;white-space:nowrap">${esc(r.registradoPorNombre)}<div class="text-muted">${kpiFmtFecha(r.registradoEn)}</div></td>
+        </tr>`).join('')}</tbody>
+      </table></div></div>`;
+    $('kr-tabla').querySelectorAll('.kr-fila').forEach(tr => tr.addEventListener('click', () => kpiModalRegistro(tr.dataset.id, cargar)));
+  };
+  pintarKpis();
+  $('kr-area').addEventListener('change', e => { f.area = e.target.value; f.kpiId = ''; pintarKpis(); cargar(); });
+  $('kr-kpi').addEventListener('change', e => { f.kpiId = e.target.value; cargar(); });
+  $('kr-desde').addEventListener('change', e => { f.desde = e.target.value; cargar(); });
+  $('kr-hasta').addEventListener('change', e => { f.hasta = e.target.value; cargar(); });
+  cargar();
+}
+
+// 'Set 2026' / 'S39 2026' (misma regla que utils/kpiPeriodo.js: etiqueta).
+function kpiEtiquetaPeriodo(p) {
+  const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic'];
+  let m = /^(\d{4})-(\d{2})$/.exec(p);
+  if (m) return `${MESES[Number(m[2]) - 1]} ${m[1]}`;
+  m = /^(\d{4})-W(\d{2})$/.exec(p);
+  return m ? `S${Number(m[2])} ${m[1]}` : p;
+}
+
+// Detalle de un registro: datos, evidencia, bitácora y (admin) corrección.
+async function kpiModalRegistro(id, alCambiar) {
+  let r;
+  try { r = await GET(`/kpis/registros/${id}`); } catch (err) { toast(err.message, 'error'); return; }
+  const fechaHora = (d) => `${kpiFmtFecha(d)} ${fmtTime(d)}`;
+  const txtEstado = (e) => !e ? '—' : e.adjuntos ? `Evidencia: ${e.adjuntos.map(esc).join(', ')}`
+    : `${kpiFmtValor(e.valor, r.unidad)}${e.numerador != null ? ` (${kpiFmtAuto(e.numerador)} ÷ ${kpiFmtAuto(e.denominador)})` : ''} ${kpiBadgeSemaforo(e.semaforo)}${e.comentario ? `<div class="text-muted" style="font-size:12px">“${esc(e.comentario)}”</div>` : ''}`;
+  const ACC = { CREACION: '🆕 Registro', CORRECCION: '✏️ Corrección', ADJUNTO: '📎 Evidencia agregada' };
+
+  openModal(`${r.kpiCodigo} · ${kpiEtiquetaPeriodo(r.periodo)} · ${r.unidadCodigo}`, `
+    <div class="flex gap-12 items-center" style="flex-wrap:wrap;margin-bottom:10px">
+      <div style="font-size:24px;font-weight:700">${kpiFmtValor(r.valor, r.unidad)}</div>
+      ${kpiBadgeSemaforo(r.semaforo)}
+      ${r.corregido ? `<span class="badge" style="background:#fef3c7;color:#92400e">✏️ Corregido ${r.nCorrecciones} ${r.nCorrecciones === 1 ? 'vez' : 'veces'}</span>` : ''}
+    </div>
+    <div style="font-size:13px;margin-bottom:12px">
+      ${r.tipoCaptura === 'RATIO' ? `<div>Cálculo: ${kpiFmtAuto(r.numerador)} ÷ ${kpiFmtAuto(r.denominador)}${r.unidad === '%' ? ' × 100' : ''}</div>` : ''}
+      <div>Meta del periodo: ${kpiTextoMeta(r.sentido, r.unidad, r.meta)}</div>
+      <div class="text-muted">Registrado por ${esc(r.registradoPorNombre)} el ${fechaHora(r.registradoEn)}</div>
+    </div>
+    ${r.comentario ? `<div class="card" style="padding:10px 12px;font-size:13px;margin-bottom:12px">💬 ${esc(r.comentario)}</div>` : ''}
+    ${r.adjuntos.length ? `<div style="margin-bottom:12px"><div class="section-title" style="font-size:12px;margin-bottom:6px">Evidencia</div>
+      ${r.adjuntos.map(a => `<button class="btn btn-xs btn-outline" style="margin:2px" onclick="kpiAbrirAdjunto('${r._id}','${esc(a.boxFileId)}')">📎 ${esc(a.nombreOriginal)}</button>`).join('')}</div>` : ''}
+    <div class="section-title" style="font-size:12px;margin-bottom:6px">Historial (bitácora de auditoría)</div>
+    <div class="kpi-bitacora" style="border-left:2px solid var(--border);padding-left:12px">
+      ${r.auditoria.map(a => `<div style="margin-bottom:12px;font-size:13px">
+        <div><strong>${ACC[a.accion]}</strong> · ${esc(a.usuarioNombre)} · <span class="text-muted">${fechaHora(a.fechaHora)}</span></div>
+        ${a.accion === 'CORRECCION'
+          ? `<div style="margin-top:3px">Antes: ${txtEstado(a.antes)}</div><div>Después: ${txtEstado(a.despues)}</div>`
+          : `<div style="margin-top:3px">${txtEstado(a.despues)}</div>`}
+        ${a.motivo ? `<div class="text-muted" style="font-size:12px">Motivo: ${esc(a.motivo)}</div>` : ''}
+      </div>`).join('')}
+    </div>
+    ${S.kpi.esAdmin ? `
+      <details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">✏️ Corregir (administrador)</summary>
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-top:8px">
+          <div class="flex gap-12" style="flex-wrap:wrap">
+            ${r.tipoCaptura === 'RATIO'
+              ? `<div class="form-group" style="flex:1;min-width:130px"><label>Numerador</label><input type="number" step="any" id="kx-num" value="${r.numerador}"></div>
+                 <div class="form-group" style="flex:1;min-width:130px"><label>Denominador</label><input type="number" step="any" id="kx-den" value="${r.denominador}"></div>`
+              : `<div class="form-group" style="flex:1;min-width:130px"><label>Valor</label><input type="number" step="any" id="kx-valor" value="${r.valor}"></div>`}
+          </div>
+          <div class="form-group"><label>Comentario</label><textarea id="kx-comentario" rows="2">${esc(r.comentario)}</textarea></div>
+          <div class="form-group"><label>Motivo de la corrección *</label><input type="text" id="kx-motivo"></div>
+          <div class="text-muted" style="font-size:11px;margin-bottom:8px">Queda en la bitácora con el valor anterior, el nuevo, tu usuario y la hora. El semáforo se recalcula con la meta del periodo.</div>
+          <button class="btn btn-primary btn-sm" id="kx-corregir">Guardar corrección</button>
+        </div>
+      </details>
+      <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600">📎 Agregar evidencia (administrador)</summary>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:8px">
+          <div style="margin-bottom:8px">${kpiSelectorArchivosHtml('kx-archivos')}</div>
+          <div class="form-group"><label>Motivo *</label><input type="text" id="kx-adj-motivo"></div>
+          <button class="btn btn-outline btn-sm" id="kx-adjuntar">Subir evidencia</button>
+        </div>
+      </details>` : ''}
+    <div id="kx-error" class="msg-error hidden" style="margin-top:8px"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Cerrar</button></div>`, null, { wide: true });
+
+  if (!S.kpi.esAdmin) return;
+  const $ = (i) => document.getElementById(i);
+  kpiBindSelectorArchivos('kx-archivos');
+  const error = (m) => { $('kx-error').textContent = m; $('kx-error').classList.remove('hidden'); };
+  const listo = (msg) => { toast(msg, 'success'); kpiModalRegistro(id, alCambiar); alCambiar?.(); };
+  $('kx-corregir').addEventListener('click', async () => {
+    const body = { comentario: $('kx-comentario').value, motivo: $('kx-motivo').value,
+      ...(r.tipoCaptura === 'RATIO' ? { numerador: $('kx-num').value, denominador: $('kx-den').value } : { valor: $('kx-valor').value }) };
+    if (!confirm('¿Guardar la corrección? Quedará registrada en la bitácora de auditoría.')) return;
+    try { await PUT(`/kpis/registros/${id}/corregir`, body); listo('Registro corregido'); }
+    catch (err) { error(err.message); }
+  });
+  $('kx-adjuntar').addEventListener('click', async () => {
+    const archivos = [...$('kx-archivos').files];
+    if (!archivos.length) return error('Seleccione al menos un archivo');
+    try { await kpiPostMultipart(`/kpis/registros/${id}/adjuntos`, { motivo: $('kx-adj-motivo').value }, archivos); listo('Evidencia agregada'); }
+    catch (err) { error(err.message); }
+  });
 }
 
 // ─── Configuración (solo admin de Indicadores) ────────────────────
@@ -114,6 +442,7 @@ function kpiRenderConfig(el) {
   const secciones = [
     { id: 'catalogo', label: '📋 Catálogo de KPIs', render: kpiRenderAdminCatalogo },
     { id: 'areas',    label: '🗂️ Áreas',            render: kpiRenderAdminAreas },
+    { id: 'general',  label: '🔧 General y Box',    render: kpiRenderAdminGeneral },
   ];
   el.innerHTML = `
     <div class="flex gap-8 mb-16">
@@ -129,6 +458,65 @@ function kpiRenderConfig(el) {
   };
   el.querySelectorAll('.kpi-cfg-sec').forEach(b => b.addEventListener('click', () => abrir(b.dataset.sec)));
   abrir('catalogo');
+}
+
+// ─── General y Box (admin) ────────────────────────────────────────
+const KPI_REGLAS = {
+  MAS_FRECUENTE_PISO_AMBAR: 'Color más frecuente; con algún KPI en rojo, al menos ámbar',
+  MAS_FRECUENTE: 'Color más frecuente',
+  PEOR: 'El peor color presente',
+};
+
+async function kpiRenderAdminGeneral(el) {
+  el.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
+  let cfg;
+  try { cfg = await GET('/kpis/config'); } catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  el.innerHTML = `
+    <div class="card" style="padding:16px;max-width:720px;margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:10px">Resumen del área en el dashboard</div>
+      <select id="kg-regla">${cfg.reglasResumen.map(r => `<option value="${r}" ${cfg.kpiReglaResumen === r ? 'selected' : ''}>${esc(KPI_REGLAS[r] || r)}</option>`).join('')}</select>
+      <div class="text-muted" style="font-size:11px;margin-top:4px">Los KPIs informativos no cuentan; los empates se resuelven hacia el color más grave.</div>
+    </div>
+    <div class="card" style="padding:16px;max-width:720px">
+      <div class="section-title" style="margin-bottom:10px">Evidencias en Box</div>
+      <div class="form-group"><label>ID de la carpeta de Box</label>
+        <div class="flex gap-8"><input type="text" id="kg-carpeta" value="${esc(cfg.kpiBoxCarpetaId)}" placeholder="Ej. 312345678901" style="max-width:240px">
+        <button class="btn btn-outline btn-sm" id="kg-probar">Probar conexión</button></div>
+        <div class="text-muted" style="font-size:11px;margin-top:4px">Es el número al final de la URL de la carpeta en Box (…/folder/<strong>312345678901</strong>).
+          Dentro se crean subcarpetas Área / KPI / Periodo / Unidad. La carpeta debe estar compartida con la cuenta de servicio de la app de Box.</div>
+        <div id="kg-probar-res" style="font-size:13px;margin-top:6px"></div>
+      </div>
+      <details ${cfg.box.clientId ? '' : 'open'}><summary style="cursor:pointer;font-weight:600;font-size:13px">Credenciales de la app de Box ${cfg.box.secretConfigurado ? '✅' : '⚠️ sin configurar'}</summary>
+        ${cfg.puedeEditarBox ? `
+          <div class="text-muted" style="font-size:11px;margin:6px 0">Compartidas con toda la app. El secreto nunca se muestra: déjelo vacío para no cambiarlo.</div>
+          <div class="flex gap-12" style="flex-wrap:wrap">
+            <div class="form-group" style="flex:1;min-width:200px"><label>Client ID</label><input type="text" id="kg-client" value="${esc(cfg.box.clientId)}"></div>
+            <div class="form-group" style="flex:1;min-width:200px"><label>Client Secret</label><input type="password" id="kg-secret" placeholder="${cfg.box.secretConfigurado ? '●●●●●● (sin cambios)' : ''}" autocomplete="new-password"></div>
+            <div class="form-group" style="flex:1;min-width:160px"><label>Enterprise ID</label><input type="text" id="kg-enterprise" value="${esc(cfg.box.enterpriseId)}"></div>
+          </div>`
+          : `<div class="text-muted" style="font-size:12px;margin-top:6px">Solo el administrador de la app puede cambiarlas.</div>`}
+      </details>
+      <div id="kg-error" class="msg-error hidden" style="margin-top:8px"></div>
+      <button class="btn btn-primary btn-sm" id="kg-guardar" style="margin-top:10px">💾 Guardar</button>
+    </div>`;
+  const $ = (id) => document.getElementById(id);
+  $('kg-regla').addEventListener('change', async e => {
+    try { await PUT('/kpis/config', { kpiReglaResumen: e.target.value }); toast('Regla actualizada', 'success'); }
+    catch (err) { toast(err.message, 'error'); }
+  });
+  $('kg-guardar').addEventListener('click', async () => {
+    const body = { kpiBoxCarpetaId: $('kg-carpeta').value };
+    if (cfg.puedeEditarBox) body.box = { clientId: $('kg-client').value, clientSecret: $('kg-secret').value, enterpriseId: $('kg-enterprise').value };
+    try { await PUT('/kpis/config', body); toast('Configuración guardada', 'success'); kpiRenderAdminGeneral(el); }
+    catch (err) { $('kg-error').textContent = err.message; $('kg-error').classList.remove('hidden'); }
+  });
+  $('kg-probar').addEventListener('click', async () => {
+    $('kg-probar-res').innerHTML = '⏳ Probando…';
+    try {
+      const r = await POST('/kpis/config/probar-box', {});
+      $('kg-probar-res').innerHTML = `<span style="color:#166534">✅ Conectado a la carpeta “${esc(r.nombre)}”</span>`;
+    } catch (err) { $('kg-probar-res').innerHTML = `<span style="color:#dc2626">❌ ${esc(err.message)}</span>`; }
+  });
 }
 
 // ─── Catálogo de KPIs (admin) ─────────────────────────────────────

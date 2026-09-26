@@ -18,6 +18,9 @@ async function iniciar() {
   mongod = await MongoMemoryServer.create();
   await mongoose.connect(mongod.getUri());
   app = require('../server');
+  // Índices (únicos incluidos) antes de las pruebas: sin esto la unicidad dependería de
+  // que Mongoose termine de crearlos en segundo plano.
+  await Promise.all(Object.values(mongoose.models).map(m => m.init()));
   return app;
 }
 
