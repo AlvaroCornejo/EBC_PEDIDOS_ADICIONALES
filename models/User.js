@@ -38,6 +38,22 @@ const userSchema = new mongoose.Schema({
   rolPlanilla:      { type: String, default: '', enum: ['', 'rrhh', 'gaf', 'admin'] },
   accesoPlanillas:  { type: Boolean, default: false },
   accesoInventarios: { type: Boolean, default: false }, // scoped por `operations`
+  // false = sin acceso a nada de EBC (login rechazado y tokens vigentes invalidados
+  // por middleware/auth.js). Reemplaza el borrado físico: el historial que referencia
+  // al usuario (auditoría de Indicadores GAF, etc.) sigue siendo válido.
+  activo: { type: Boolean, default: true },
+  // Indicadores GAF: 'admin' = catálogo, metas y correcciones (además del rol ADMIN
+  // de la app); 'lector' = ve todas las áreas sin capturar. Los demás usuarios
+  // acceden solo a las áreas de `kpiAreas`, cada una con su nivel.
+  kpiRol:   { type: String, default: '', enum: ['', 'admin', 'lector'] },
+  kpiAreas: {
+    type: [{
+      _id:   false,
+      area:  { type: String, required: true },
+      nivel: { type: String, required: true, enum: ['CAPTURA', 'LECTURA'] },
+    }],
+    default: [],
+  },
 });
 
 module.exports = mongoose.model('User', userSchema);

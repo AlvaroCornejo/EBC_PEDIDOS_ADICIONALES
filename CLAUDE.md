@@ -1306,3 +1306,179 @@ selector Operación/Almacén/Cantidades-o-Importes, tabla con **filas =
 Grupo Compra** (clic para expandir/colapsar a sus Ítems, patrón
 `gruposAbiertos` con `Set`, sin pedir nada al servidor de nuevo) y
 **columnas = semana** (`S{semana}/{año corto}`), fila TOTAL al final.
+
+### Sesión 22 — Indicadores GAF, Etapa 1: usuarios y permisos (rama `feature/indicadores-gaf`)
+
+Módulo nuevo **Indicadores de Gestión del Back Office (GAF)**: KPIs periódicos por área
+(Compras, Tesorería, Contabilidad, TI, Proyectos, Costos/Inventarios) con dashboard de
+semáforos. Se construye por etapas en la rama `feature/indicadores-gaf` — **no se mergea a
+`main` hasta que el usuario lo apruebe** (main se autodespliega). Plan acordado: 1) usuarios
+y permisos, 2) catálogo de KPIs con metas versionadas, 3) registro inmutable con auditoría,
+4) dashboard, 5) notificaciones (mismo modelo `sendPush`+`sendEmail`) y exportación Excel.
+Decisiones del usuario: unidades = el catálogo `Sociedad`/`Operacion` existente, **sin
+distinguir grupo propio vs. cadena de cafeterías** (se descartó a pedido del usuario) y cada
+KPI aplica solo a las unidades que se le asignen (no todas las operaciones tendrán todos los
+KPIs); frecuencia solo SEMANAL o MENSUAL (sin "por evento"); umbrales ámbar por defecto en
+el seed, editables; KPIs sin meta = informativos (sin semáforo).
+
+**Desactivación de usuarios (afecta a TODA la app)**: `User.activo` (default `true`). A
+pedido del usuario, desactivar = sin acceso a nada de EBC. `DELETE /api/users/:id` ya **no
+borra**: pone `activo:false` (sin borrado físico, para no romper historiales/auditoría); se
+reactiva con `PUT /api/users/:id {activo:true}`. Login rechaza inactivos (403) y
+`middleware/auth.js` invalida de inmediato los tokens vigentes (el JWT dura 24h) vía
+`utils/usuariosInactivos.js` — Set de ids inactivos cacheado 30 s, invalidado por
+`routes/users.js` al cambiar `activo`. En Admin → Usuarios el botón ✕ pasó a 🚫 Desactivar /
+✅ Reactivar, y los inactivos se listan al final atenuados.
+
+**Permisos del módulo**: `User.kpiRol` (`''|admin|lector`) + `User.kpiAreas`
+(`[{area, nivel: CAPTURA|LECTURA}]`), editables en el form de usuario (sección "🎯
+Indicadores GAF", oculta para ADMIN). Rol ADMIN de la app = admin de Indicadores. Se
+resuelven **en vivo contra la base en cada request** (`utils/kpiAcceso.js`:
+`resolverAcceso`/`requiereAcceso`/`soloAdmin`, deja `req.kpi` con `lectura`/`captura`/
+`filtroAreas()`), nunca desde el JWT. Toda consulta de datos del módulo debe filtrar con
+`req.kpi.filtroAreas()`. Áreas: modelo `KpiArea` (`{codigo, nombre, orden, activo}`, sin
+DELETE), seed idempotente `KpiArea.asegurarSeed()` llamado al arrancar `server.js`.
+Rutas en `routes/kpis.js` (`/api/kpis`): `GET /mi-acceso`, `GET/POST /areas`,
+`PUT /areas/:codigo`.
+
+**Frontend**: módulo en archivo propio `public/kpis.js` (cargado después de `app.js`,
+prefijo `kpi*`), nav `indicadores` con `extraPerm: 'kpiAcceso'` (lo llena
+`cargarAccesoKpis()` en `showApp()`). Pestañas Dashboard / Captura (placeholders hasta las
+etapas 3-4) / Configuración (solo admin: áreas). Helpers de formato peruano `kpiFmtNum`
+(coma de miles, punto decimal) y `kpiFmtFecha` (dd/mm/aaaa, hora Lima).
+
+**Pruebas** (primeras del repo): `npm test` → `node --test` sobre `tests/*.test.js`, con
+`supertest` + `mongodb-memory-server-core` (devDependencies; la variante `-core` no descarga
+MongoDB en `npm install`, solo al correr pruebas — no afecta el build de DigitalOcean).
+`server.js` ahora exporta `app` y solo conecta/escucha si se ejecuta directo. 13 pruebas de
+la Etapa 1 (desactivación, tokens invalidados, áreas asignadas, lector, admin).
+**Demo local sin tocar Atlas**: `node tests/servidor-demo.js` → http://localhost:3100, base en
+memoria con usuarios de prueba (credenciales en el propio archivo).
+
+**Etapa 2 — Catálogo de KPIs con metas versionadas**:
+- `KpiDefinicion` (`codigo` único e inmutable, `areaCodigo`, `unidad` % / S/ / US$ / dias /
+  horas / numero / pp, `frecuencia` SEMANAL|MENSUAL, `tipoCaptura` DIRECTO|RATIO — RATIO =
+  numerador÷denominador, × 100 si la unidad es %, `sentido` MAYOR|MENOR|RANGO — **inmutable**,
+  las metas se interpretan según él —, `nivelAmbito` SOCIEDAD|OPERACION + `unidades[]`,
+  `responsables[]` (User.id), `fuente`, `plazoCapturaDias` = días después del cierre del
+  periodo, `activo`). Sin DELETE.
+- `KpiMetaVersion` (`kpiId`, `unidadCodigo` '' = todas, `vigenteDesde` 'YYYY-MM-DD', `meta`/
+  `umbralAmbar` o `rangoMin`/`rangoMax`/`tolerancia`, `motivo` obligatorio). **Append-only
+  forzado en el modelo**: hooks `pre` de update/delete/save lanzan error (Mongoose 9: las
+  hooks ya no reciben `next`, se bloquea con `throw`). Resolución en `utils/kpiMetas.js:
+  metaVigente()` — la versión específica de la unidad gana sobre la general; dentro de cada
+  una, la de `vigenteDesde` más reciente ≤ inicio del periodo.
+- Reglas puras (sin BD, reutilizadas en etapas 3-4): `utils/kpiSemaforo.js`
+  (`calcularSemaforo`, `validarMeta`, `resumenArea` con 3 reglas configurables — default
+  MAS_FRECUENTE_PISO_AMBAR, empates al color más grave, EPS para errores de redondeo de
+  ratios) y `utils/kpiPeriodo.js` (periodos 'YYYY-MM' / 'YYYY-Www' ISO, rangos, vencimiento,
+  navegación, etiqueta 'Set 2026' / 'S39 2026'; fechas como texto para no depender de la
+  zona horaria del servidor).
+- Seed: `utils/kpiSeed.js` (40 KPIs, 33 con meta y 7 informativos; umbrales ámbar por
+  defecto propuestos; sin unidades ni responsables — los asigna el admin) +
+  `scripts/seedKpis.js` (idempotente, **correr una vez en producción tras el deploy**).
+- Rutas: `GET /definiciones` (filtrado por áreas visibles; inactivos solo admin con
+  `?inactivos=1`), `GET /definiciones/:id` (KPI de área no asignada → **404**, no 403, para
+  no revelar que existe), `POST /definiciones`, `PUT /definiciones/:id`,
+  `POST /definiciones/:id/metas`, `GET /responsables` (admin; `/api/users` es solo ADMIN de
+  la app y el admin de Indicadores puede no serlo).
+- Frontend: Configuración → Catálogo de KPIs (filtros área/texto/inactivos, agrupado por
+  área, alertas "⚠ Sin unidades" / "⚠ Sin responsable"), modal de KPI y modal de Metas
+  (historial de versiones + nueva versión, general o por unidad).
+
+**Etapa 3 — Registro inmutable con auditoría y evidencia en Box**:
+- `KpiRegistro`: uno por `kpiId+periodo+unidadCodigo` (índice único). Copia congelada de
+  unidad/sentido/tipoCaptura/frecuencia y de la **meta vigente en su periodo** (`meta`,
+  snapshot) → el historial nunca se recalcula. `periodoInicio` ('YYYY-MM-DD') para filtrar
+  y ordenar semanales y mensuales juntos (como texto '2026-W39' > '2026-12', no sirve).
+  **Inmutable en el modelo**: hooks bloquean todo update/delete; `save()` de un documento
+  existente solo pasa con `doc.$locals.correccionAutorizada = true` (lo pone únicamente la
+  ruta de corrección). `optimisticConcurrency` para correcciones simultáneas.
+- `KpiAuditoria`: CREACION / CORRECCION (antes, después, motivo, usuario, fecha y hora) /
+  ADJUNTO. Nunca se edita ni se borra (bloqueado en el modelo).
+- Rutas en `routes/kpiRegistros.js` (montado dentro de `routes/kpis.js`, tras
+  `requiereAcceso`): `GET /captura/opciones` (KPIs con Captura, con unidades, meta y los
+  últimos 13 periodos), `POST /registros/evaluar` (resultado+semáforo sin guardar),
+  `POST /registros` (multipart: `datos` JSON + `archivos`; exige `confirmado:true`,
+  comentario si queda en ROJO, no acepta periodos futuros), `GET /registros`,
+  `GET /registros/:id` (+ auditoría), `GET /registros/:id/adjuntos/:fileId`,
+  `PUT /registros/:id/corregir` (solo admin, motivo obligatorio, recalcula con la meta
+  congelada), `POST /registros/:id/adjuntos` (solo admin, motivo). **No existe ningún
+  PUT/PATCH/DELETE directo sobre /registros/:id.** KPI con registros ya no puede cambiar
+  frecuencia, unidad de medida ni área.
+- **Box** (`utils/boxClient.js`, recuperado del Cierre Contable y generalizado): subida vía
+  API a `{kpiBoxCarpetaId}/{área}/{KPI}/{periodo}/{unidad}/`. **Sin links compartidos
+  públicos** (a diferencia de Cierre Contable): la descarga pasa por la app, que valida el
+  área y devuelve la URL temporal de Box (`urlDescarga`, 302 → Location). Si el registro no
+  se guarda, lo subido se elimina de Box. Config: `GET/PUT /kpis/config` (carpeta y regla de
+  resumen: admin de Indicadores; credenciales de Box: solo ADMIN de la app, el secreto nunca
+  se devuelve) y `POST /kpis/config/probar-box`.
+- **Fix de seguridad preexistente**: `GET /api/config` devolvía `smtpPass` y
+  `boxClientSecret` a cualquier usuario autenticado; ahora se omiten para no-ADMIN.
+- Frontend: pestañas Captura (resultado y semáforo en vivo vía `/evaluar`, confirmación
+  "Una vez registrado, este valor no podrá modificarse"), Registros (filtros, detalle con
+  evidencia, bitácora en línea de tiempo y, para admin, Corregir / Agregar evidencia) y
+  Configuración → General y Box. `styles.css` oculta todo `input[type=file]`: usar
+  `kpiSelectorArchivosHtml()` (botón + lista).
+- Demo: `tests/servidor-demo.js` simula Box en memoria y genera 12 periodos de historial.
+
+**Etapa 4 — Dashboard con semáforos**:
+- Todo el cálculo en `utils/kpiTablero.js` (compartido con la exportación y las
+  notificaciones de la Etapa 5), siempre acotado a `acc.lectura`; recibe `hoy` como
+  parámetro para probar con fechas fijas.
+  - **Periodo de referencia**: el filtro es un mes; KPI mensual → ese mes; semanal → la
+    última semana ISO que *empieza* dentro del mes sin pasar de hoy (`periodoReferencia`).
+  - **Estados** de KPI×unidad: VERDE/AMBAR/ROJO/null (informativo) si hay registro;
+    SIN_DATO (gris) si venció el plazo sin registro; PENDIENTE si aún está en plazo (no
+    cuenta para el resumen); **NO_EXIGIBLE si venció antes de `creadoEn` del KPI** — sin
+    esto, los 40 KPIs del seed aparecerían con 12 meses en gris el día que se carguen.
+  - `construirTablero` (áreas con color resumen según `kpiReglaResumen`, conteos, filas
+    KPI×unidad con valor, meta, variación vs. periodo anterior y `mejora` según el sentido
+    — en RANGO, acercarse al rango —, tendencia de 12 periodos), `pendientesDeCaptura`
+    (últimos 12 periodos cerrados, vencidos sin registro, agrupados por responsable
+    activo; "Sin responsable" al final; `incluirPorVencer` para recordatorios) e
+    `historico` (n periodos hasta el actual, con meta por periodo).
+- Rutas: `GET /dashboard?mes=&area=&unidad=`, `GET /pendientes`,
+  `GET /definiciones/:id/historico?unidad=&n=` (área no visible → 404).
+- Frontend (pestaña Dashboard, navegación interna `_kpiDash`): portada con tarjetas por
+  área + panel de pendientes → detalle de área (tabla con mini gráfico SVG) → detalle de
+  KPI (gráfico histórico SVG propio, sin librerías: una serie gris, puntos con color del
+  semáforo y anillo blanco, meta como línea escalonada rotulada, tooltip con cruz, y
+  tabla de registros que abre el modal de registro). Variación coloreada por mejora, no
+  por subida.
+
+**Etapa 5 — Notificaciones y exportación a Excel**:
+- `utils/kpiNotificaciones.js`, mismo modelo que Pedidos Adicionales (`sendPush` +
+  `sendEmail` + `buildEmailHtml`, que ganó los tipos `kpiRojo`/`kpiRecordatorio`/
+  `kpiVencido` y los parámetros opcionales `sistema`/`icono` — default "Pedidos
+  Adicionales", sin cambio para los correos existentes):
+  - `avisarRojo`: inmediato al registrar (o al corregir hacia rojo), sin bloquear la
+    respuesta, a los **destinatarios de alertas** = admins de Indicadores (rol ADMIN o
+    kpiRol admin) + `kpiAlertaUsuarios` (Config, ej. la GAF como lectora global).
+  - `ejecutarDiario`: RECORDATORIO a cada responsable (activo) por lo que vence dentro de
+    `kpiDiasAviso` días (Config, default 3) + resumen de VENCIDOS sin dato a los
+    destinatarios de alertas. **Cada destinatario solo recibe lo de las áreas que puede ver**
+    (`resolverAcceso`), para que un destinatario adicional con acceso parcial no reciba
+    datos de otras áreas por correo. Nada se repite: `KpiNotificacion` (único por
+    tipo+clave+destinatario, clave = kpiId|unidad|periodo).
+  - Tarea: `scripts/kpiNotificaciones.js` → `sync-kpi-notificaciones.bat`, **paso 22/22 de
+    `sync-master.bat`** (6:00 AM). También `POST /kpis/notificaciones/ejecutar` (admin, botón
+    en Configuración → General y Box). `accesoSistema()` en `utils/kpiAcceso.js` da acceso a
+    todas las áreas a procesos sin usuario.
+- `utils/kpiExcel.js` + `GET /kpis/exportar?mes=&area=&unidad=`: arma el Excel con el MISMO
+  `construirTablero`/`pendientesDeCaptura` y el mismo acceso del usuario (nunca incluye
+  áreas no asignadas). Hojas Resumen / Detalle / Tendencia 12 periodos (formato largo) /
+  Pendientes; `#,##0.00`, fechas `dd/mm/yyyy`, semáforo pintado en la celda.
+- Pruebas: 74 en total (`npm test`), con `sendPush`/`sendEmail`/Box simulados.
+
+**Puesta en producción de Indicadores GAF (pendiente, la hace el usuario)**:
+1. Mergear `feature/indicadores-gaf` a `main` (auto-deploy a DigitalOcean).
+2. Una sola vez: `node scripts/seedKpis.js` (áreas + 40 KPIs; idempotente).
+3. En el servidor CORPSERV-PRUEBA: `git pull origin main` (los bats no se actualizan solos)
+   para que `sync-master.bat` incluya el paso 22.
+4. En la app: Configuración → General y Box → ID de carpeta de Box (+ Probar conexión);
+   destinatarios de alertas; Catálogo → unidades y responsables de cada KPI; Admin →
+   Usuarios → accesos por área.
+5. Recomendado: rotar la contraseña SMTP y el secreto de Box (antes del fix de la Etapa 3
+   cualquier usuario autenticado podía leerlos en `GET /api/config`).
+6. Efecto colateral en toda la app: "eliminar usuario" ahora desactiva (sin borrado físico).

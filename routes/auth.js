@@ -36,6 +36,7 @@ router.post('/login', async (req, res) => {
     if (!user || !await bcrypt.compare(password, user.password)) {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     }
+    if (user.activo === false) return res.status(403).json({ error: 'Usuario desactivado. Contacte al administrador.' });
     const token = jwt.sign(buildPayload(user), SECRET, { expiresIn: '24h' });
     res.json({
       token,

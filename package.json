@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "npx nodemon server.js"
+    "dev": "npx nodemon server.js",
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\""
   },
   "engines": {
     "node": ">=18"
@@ -24,5 +25,9 @@
     "nodemailer": "^8.0.7",
     "uuid": "^9.0.0",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "mongodb-memory-server-core": "^11.3.0",
+    "supertest": "^7.3.0"
   }
 }
