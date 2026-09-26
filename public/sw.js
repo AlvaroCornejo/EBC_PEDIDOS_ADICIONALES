@@ -1,5 +1,5 @@
-const CACHE = 'pedidos-v4';
-const STATIC = ['/', '/app.js', '/styles.css', '/manifest.json', '/icon.svg'];
+const CACHE = 'pedidos-v5';
+const STATIC = ['/', '/app.js', '/kpis.js', '/styles.css', '/manifest.json', '/icon.svg'];
 
 // Instalar: cachear recursos estáticos
 self.addEventListener('install', e => {

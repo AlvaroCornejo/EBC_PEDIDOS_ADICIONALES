@@ -1306,3 +1306,49 @@ selector Operación/Almacén/Cantidades-o-Importes, tabla con **filas =
 Grupo Compra** (clic para expandir/colapsar a sus Ítems, patrón
 `gruposAbiertos` con `Set`, sin pedir nada al servidor de nuevo) y
 **columnas = semana** (`S{semana}/{año corto}`), fila TOTAL al final.
+
+### Sesión 22 — Indicadores GAF, Etapa 1: usuarios y permisos (rama `feature/indicadores-gaf`)
+
+Módulo nuevo **Indicadores de Gestión del Back Office (GAF)**: KPIs periódicos por área
+(Compras, Tesorería, Contabilidad, TI, Proyectos, Costos/Inventarios) con dashboard de
+semáforos. Se construye por etapas en la rama `feature/indicadores-gaf` — **no se mergea a
+`main` hasta que el usuario lo apruebe** (main se autodespliega). Plan acordado: 1) usuarios
+y permisos, 2) catálogo de KPIs con metas versionadas, 3) registro inmutable con auditoría,
+4) dashboard, 5) notificaciones (mismo modelo `sendPush`+`sendEmail`) y exportación Excel.
+Decisiones del usuario: sociedades = el catálogo `Sociedad` existente (se le agregará la
+marca grupo propio / cadena de cafeterías); frecuencia solo SEMANAL o MENSUAL (sin "por
+evento"); umbrales ámbar por defecto en el seed, editables; KPIs sin meta = informativos.
+
+**Desactivación de usuarios (afecta a TODA la app)**: `User.activo` (default `true`). A
+pedido del usuario, desactivar = sin acceso a nada de EBC. `DELETE /api/users/:id` ya **no
+borra**: pone `activo:false` (sin borrado físico, para no romper historiales/auditoría); se
+reactiva con `PUT /api/users/:id {activo:true}`. Login rechaza inactivos (403) y
+`middleware/auth.js` invalida de inmediato los tokens vigentes (el JWT dura 24h) vía
+`utils/usuariosInactivos.js` — Set de ids inactivos cacheado 30 s, invalidado por
+`routes/users.js` al cambiar `activo`. En Admin → Usuarios el botón ✕ pasó a 🚫 Desactivar /
+✅ Reactivar, y los inactivos se listan al final atenuados.
+
+**Permisos del módulo**: `User.kpiRol` (`''|admin|lector`) + `User.kpiAreas`
+(`[{area, nivel: CAPTURA|LECTURA}]`), editables en el form de usuario (sección "🎯
+Indicadores GAF", oculta para ADMIN). Rol ADMIN de la app = admin de Indicadores. Se
+resuelven **en vivo contra la base en cada request** (`utils/kpiAcceso.js`:
+`resolverAcceso`/`requiereAcceso`/`soloAdmin`, deja `req.kpi` con `lectura`/`captura`/
+`filtroAreas()`), nunca desde el JWT. Toda consulta de datos del módulo debe filtrar con
+`req.kpi.filtroAreas()`. Áreas: modelo `KpiArea` (`{codigo, nombre, orden, activo}`, sin
+DELETE), seed idempotente `KpiArea.asegurarSeed()` llamado al arrancar `server.js`.
+Rutas en `routes/kpis.js` (`/api/kpis`): `GET /mi-acceso`, `GET/POST /areas`,
+`PUT /areas/:codigo`.
+
+**Frontend**: módulo en archivo propio `public/kpis.js` (cargado después de `app.js`,
+prefijo `kpi*`), nav `indicadores` con `extraPerm: 'kpiAcceso'` (lo llena
+`cargarAccesoKpis()` en `showApp()`). Pestañas Dashboard / Captura (placeholders hasta las
+etapas 3-4) / Configuración (solo admin: áreas). Helpers de formato peruano `kpiFmtNum`
+(coma de miles, punto decimal) y `kpiFmtFecha` (dd/mm/aaaa, hora Lima).
+
+**Pruebas** (primeras del repo): `npm test` → `node --test` sobre `tests/*.test.js`, con
+`supertest` + `mongodb-memory-server-core` (devDependencies; la variante `-core` no descarga
+MongoDB en `npm install`, solo al correr pruebas — no afecta el build de DigitalOcean).
+`server.js` ahora exporta `app` y solo conecta/escucha si se ejecuta directo. 13 pruebas de
+la Etapa 1 (desactivación, tokens invalidados, áreas asignadas, lector, admin).
+**Demo local sin tocar Atlas**: `node tests/servidor-demo.js` → http://localhost:3100, base en
+memoria con usuarios de prueba (credenciales en el propio archivo).

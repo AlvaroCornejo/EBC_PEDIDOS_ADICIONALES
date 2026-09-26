@@ -67,20 +67,28 @@ app.use('/api/proyeccion',      require('./routes/proyeccion'));
 app.use('/api/eerr',            require('./routes/eerr'));
 app.use('/api/conciliacion',    require('./routes/conciliacion'));
 app.use('/api/sociedades',      require('./routes/sociedades'));
+app.use('/api/kpis',            require('./routes/kpis'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-connectDB().then(async () => {
-  await initUsers();
-  app.listen(PORT, () => {
-    console.log(`\n=== Sistema de Pedidos ===`);
-    console.log(`URL: http://localhost:${PORT}`);
-    console.log(`\nUsuarios por defecto (solo primer arranque):`);
-    console.log(`  admin / admin123`);
-    console.log(`  aprobador / apr123`);
-    console.log(`  compras / ate123`);
-    console.log(`  AASI / AASI123`);
-    console.log(`  CDLAO / CDLAO123`);
-    console.log(`  CDL28 / CDL28123\n`);
+// Exportado para las pruebas (tests/), que usan `app` contra una base en memoria
+// sin pasar por connectDB ni app.listen.
+module.exports = app;
+
+if (require.main === module) {
+  connectDB().then(async () => {
+    await initUsers();
+    await require('./models/KpiArea').asegurarSeed();
+    app.listen(PORT, () => {
+      console.log(`\n=== Sistema de Pedidos ===`);
+      console.log(`URL: http://localhost:${PORT}`);
+      console.log(`\nUsuarios por defecto (solo primer arranque):`);
+      console.log(`  admin / admin123`);
+      console.log(`  aprobador / apr123`);
+      console.log(`  compras / ate123`);
+      console.log(`  AASI / AASI123`);
+      console.log(`  CDLAO / CDLAO123`);
+      console.log(`  CDL28 / CDL28123\n`);
+    });
   });
-});
+}

@@ -280,7 +280,9 @@ const NAV_ITEMS = [
   { id: 'saldo-banco',    label: 'Saldos Bancarios', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoSaldoBanco' },
   { id: 'inventarios',    label: 'Inventarios Diarios', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
   { id: 'inventario-semanal', label: 'Inventario Semanal', icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
-  { id: 'admin',          label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
+  // kpiAcceso no viaja en el JWT: lo llena cargarAccesoKpis() (public/kpis.js) en showApp().
+  { id: 'indicadores',    label: 'Indicadores GAF', icon: '🎯', roles: [ROLES.ADMIN], extraPerm: 'kpiAcceso' },
+  { id: 'admin',         label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
 function canSeeNav(n) {
@@ -350,7 +352,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, indicadores: viewIndicadores, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -14308,9 +14310,13 @@ async function renderAdminItems(container) {
 async function renderAdminUsuarios(container) {
   container.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
   let users = [];
-  try { users = await GET('/users'); } catch (err) { toast(err.message, 'error'); }
+  try {
+    [users, S.kpiAreasCatalogo] = await Promise.all([GET('/users'), GET('/kpis/areas').catch(() => [])]);
+  } catch (err) { toast(err.message, 'error'); }
 
-  users.sort((a, b) => (a.username || '').localeCompare(b.username || '', 'es', { sensitivity: 'base' }));
+  // Activos primero; los desactivados quedan al final, atenuados.
+  users.sort((a, b) => (a.activo === false) - (b.activo === false)
+    || (a.username || '').localeCompare(b.username || '', 'es', { sensitivity: 'base' }));
 
   const allOps = [...new Set(users.flatMap(u => u.operations || []))];
 
@@ -14326,18 +14332,21 @@ async function renderAdminUsuarios(container) {
             <th>Usuario</th><th>Email</th><th>Operaciones</th><th class="col-actions">Acciones</th>
           </tr></thead>
           <tbody>
-            ${users.map(u => `<tr data-uid="${u.id}">
-              <td><strong>${esc(u.username)}</strong></td>
+            ${users.map(u => { const inactivo = u.activo === false; return `<tr data-uid="${u.id}" ${inactivo?'style="opacity:.55"':''}>
+              <td><strong>${esc(u.username)}</strong>
+                ${inactivo ? `<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:6px">Inactivo</span>` : ''}</td>
               <td>${esc(u.email)}</td>
               <td>${(u.operations||[]).map(o=>`<span class="badge" style="background:#f0fdf4;color:#166534;margin-right:4px">${esc(o)}</span>`).join('')}</td>
               <td class="col-actions">
                 <div class="flex gap-8 justify-center">
                   <button class="btn btn-xs btn-outline edit-user-btn" data-uid="${u.id}" title="Editar">✏️</button>
                   <button class="btn btn-xs btn-outline copy-user-btn" data-uid="${u.id}" title="Copiar usuario">📋</button>
-                  <button class="btn btn-xs btn-danger del-user-btn" data-uid="${u.id}" ${u.id===S.user.id?'disabled':''}>✕</button>
+                  ${inactivo
+                    ? `<button class="btn btn-xs btn-outline react-user-btn" data-uid="${u.id}" title="Reactivar">✅</button>`
+                    : `<button class="btn btn-xs btn-danger del-user-btn" data-uid="${u.id}" title="Desactivar" ${u.id===S.user.id?'disabled':''}>🚫</button>`}
                 </div>
               </td>
-            </tr>`).join('')}
+            </tr>`; }).join('')}
           </tbody>
         </table>
       </div>
@@ -14359,10 +14368,20 @@ async function renderAdminUsuarios(container) {
   });
   container.querySelectorAll('.del-user-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      if (!confirm('¿Eliminar usuario?')) return;
+      const u = users.find(u => u.id === btn.dataset.uid);
+      if (!confirm(`¿Desactivar a ${u?.username}?\n\nPerderá el acceso a toda la aplicación de inmediato. No se borra: se puede reactivar después.`)) return;
       try {
         await DEL(`/users/${btn.dataset.uid}`);
-        toast('Usuario eliminado', 'success');
+        toast('Usuario desactivado', 'success');
+        renderAdminUsuarios(container);
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
+  container.querySelectorAll('.react-user-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await PUT(`/users/${btn.dataset.uid}`, { activo: true });
+        toast('Usuario reactivado', 'success');
         renderAdminUsuarios(container);
       } catch (err) { toast(err.message, 'error'); }
     });
@@ -14542,6 +14561,26 @@ function showUserModal(user, onSave, opts = {}) {
           </label>
         </div>
       </div>
+      <div id="um-kpi-section" class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
+        <label style="display:block;font-weight:600;margin-bottom:10px;color:var(--text-muted)">🎯 Indicadores GAF</label>
+        <select id="um-kpi-rol" style="margin-bottom:10px">
+          ${[['', 'Acceso por área (tabla de abajo)'], ['lector', 'Lector global — ve todas las áreas, no captura'], ['admin', 'Administrador de Indicadores — catálogo, metas y correcciones']]
+            .map(([k,v]) => `<option value="${k}" ${(user?.kpiRol||'')===k?'selected':''}>${v}</option>`).join('')}
+        </select>
+        <div id="um-kpi-areas" style="display:grid;grid-template-columns:1fr 170px;gap:6px 12px;align-items:center">
+          ${(S.kpiAreasCatalogo||[]).filter(a => a.activo !== false).map(a => {
+            const nivel = (user?.kpiAreas||[]).find(x => x.area === a.codigo)?.nivel || '';
+            return `<span style="font-size:13px">${esc(a.nombre)}</span>
+              <select class="um-kpi-area" data-area="${esc(a.codigo)}">
+                ${[['', '— Sin acceso —'], ['LECTURA', 'Lectura'], ['CAPTURA', 'Captura']]
+                  .map(([k,v]) => `<option value="${k}" ${nivel===k?'selected':''}>${v}</option>`).join('')}
+              </select>`;
+          }).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">
+          Captura: registra valores de los KPIs del área y los ve. Lectura: solo ve el dashboard y el detalle del área.
+        </div>
+      </div>
       <div id="um-error" class="msg-error hidden"></div>
     </form>
     <div class="modal-footer">
@@ -14557,9 +14596,14 @@ function showUserModal(user, onSave, opts = {}) {
     const isAdmin = role === ROLES.ADMIN;
     document.getElementById('um-socs-section').style.display   = isAdmin ? 'none' : 'block';
     document.getElementById('um-permisos-extra').style.display = isAdmin ? 'none' : 'block';
+    // El ADMIN de la app ya tiene acceso total a Indicadores.
+    document.getElementById('um-kpi-section').style.display = isAdmin ? 'none' : 'block';
+    // Lector global y admin de Indicadores ven todas las áreas: la tabla por área no aplica.
+    document.getElementById('um-kpi-areas').style.display = document.getElementById('um-kpi-rol').value ? 'none' : 'grid';
   }
   syncRoleUI();
   document.getElementById('um-role').addEventListener('change', syncRoleUI);
+  document.getElementById('um-kpi-rol').addEventListener('change', syncRoleUI);
 
   // Marcar/desmarcar una sociedad marca/desmarca por defecto todas sus operaciones, pero
   // cada operación se puede seguir ajustando individualmente después (no queda bloqueada).
@@ -14591,7 +14635,18 @@ function showUserModal(user, onSave, opts = {}) {
     const sociedadesPago = [...new Set([...socMarcadas, ...socConOperacion])];
     const sociedadesCompra = (!isAdmin && document.getElementById('um-precios')?.checked) ? sociedadesPago : [];
     const sociedadesConciliacion = (!isAdmin && document.getElementById('um-conciliacion')?.checked) ? sociedadesPago : [];
+    const kpiRol = isAdmin ? '' : document.getElementById('um-kpi-rol').value;
+    const selsKpi = [...document.querySelectorAll('.um-kpi-area')];
+    const areasEnForm = new Set(selsKpi.map(sel => sel.dataset.area));
+    const kpiAreas = (isAdmin || kpiRol) ? [] : [
+      ...selsKpi.filter(sel => sel.value).map(sel => ({ area: sel.dataset.area, nivel: sel.value })),
+      // Asignaciones a áreas hoy desactivadas: no se muestran, pero se conservan por si se reactivan.
+      ...(user?.kpiAreas || []).filter(a => !areasEnForm.has(a.area)),
+    ];
     const data = {
+      kpiRol,
+      // Si el catálogo de áreas no cargó, no se envía (evita borrar las asignaciones existentes).
+      ...((S.kpiAreasCatalogo || []).length && { kpiAreas }),
       username: document.getElementById('um-username').value.trim(),
       email: document.getElementById('um-email').value.trim(),
       role,
@@ -15758,7 +15813,7 @@ async function showApp() {
   if (_installPrompt) document.getElementById('install-btn').classList.remove('hidden');
   // Botón Comentarios en sidebar footer: visible para todos los roles
   document.getElementById('sb-comentarios-btn').style.display = '';
-  await loadSociedades();
+  await Promise.all([loadSociedades(), cargarAccesoKpis()]);
   renderNav();
   // Navigate to default view
   const role = S.user.role;
