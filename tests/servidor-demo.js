@@ -66,7 +66,14 @@ box.probarConexion = async () => ({ id: '0', nombre: 'Box simulado (demo)' });
   // Ámbito y responsables de ejemplo, e historial: los últimos 12 periodos cerrados, salvo
   // el más reciente de algunos KPIs (para que haya pendientes de captura). Valores
   // deterministas alrededor de la meta.
-  await KpiDefinicion.updateMany({}, { unidades: ['GB', 'ERSAC'], responsables: ['demo-captura'] });
+  // creadoEn hacia atrás: si no, ningún periodo pasado sería exigible (no habría grises ni pendientes).
+  await KpiDefinicion.updateMany({}, { unidades: ['GB', 'ERSAC'], responsables: ['demo-captura'], creadoEn: new Date('2025-01-01') });
+  await KpiDefinicion.updateMany({ areaCodigo: 'TI' }, { responsables: [] }); // para ver el grupo "Sin responsable"
+  // Las metas de la carga inicial rigen desde 2026; en la demo se extienden hacia atrás.
+  for (const v of await KpiMetaVersion.find().lean()) {
+    const { _id, creadoEn, ...resto } = v;
+    await KpiMetaVersion.create({ ...resto, vigenteDesde: '2024-01-01', motivo: 'Demo: histórico' });
+  }
   const kpis = await KpiDefinicion.find().lean();
   const hoy = P.hoyLima();
   let semilla = 7;

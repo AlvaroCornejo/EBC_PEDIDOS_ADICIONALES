@@ -14,6 +14,7 @@ const { resolverAcceso, requiereAcceso, soloAdmin } = require('../utils/kpiAcces
 const { validarMeta, REGLAS_RESUMEN } = require('../utils/kpiSemaforo');
 const { metaVigente, versionesPorKpi } = require('../utils/kpiMetas');
 const { hoyLima } = require('../utils/kpiPeriodo');
+const { construirTablero, pendientesDeCaptura, historico } = require('../utils/kpiTablero');
 
 // Indicadores de Gestión del Back Office (GAF). Montado en /api/kpis.
 // Todo acceso a datos pasa por req.kpi (utils/kpiAcceso.js), resuelto en vivo.
@@ -298,6 +299,31 @@ router.post('/config/probar-box', soloAdmin, async (req, res) => {
     if (!carpeta) return res.status(400).json({ error: 'Primero configure el ID de la carpeta de Box' });
     res.json(await box.probarConexion(carpeta));
   } catch (err) { res.status(502).json({ error: err.message }); }
+});
+
+// ─── Dashboard ────────────────────────────────────────────────────
+// Todo se calcula en utils/kpiTablero.js, siempre acotado a las áreas visibles (req.kpi).
+router.get('/dashboard', async (req, res) => {
+  try {
+    const { mes, area, unidad } = req.query;
+    res.json(await construirTablero(req.kpi, { mes, area, unidad }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/pendientes', async (req, res) => {
+  try {
+    const { area, unidad } = req.query;
+    res.json(await pendientesDeCaptura(req.kpi, { area, unidad }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/definiciones/:id/historico', async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ error: 'KPI no encontrado' });
+    const h = await historico(req.kpi, req.params.id, { unidad: req.query.unidad, n: req.query.n });
+    if (!h) return res.status(404).json({ error: 'KPI no encontrado' });
+    res.json(h);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Captura, registros, auditoría y correcciones.

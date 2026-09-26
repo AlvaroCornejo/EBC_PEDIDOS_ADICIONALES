@@ -1421,3 +1421,28 @@ memoria con usuarios de prueba (credenciales en el propio archivo).
   Configuración → General y Box. `styles.css` oculta todo `input[type=file]`: usar
   `kpiSelectorArchivosHtml()` (botón + lista).
 - Demo: `tests/servidor-demo.js` simula Box en memoria y genera 12 periodos de historial.
+
+**Etapa 4 — Dashboard con semáforos**:
+- Todo el cálculo en `utils/kpiTablero.js` (compartido con la exportación y las
+  notificaciones de la Etapa 5), siempre acotado a `acc.lectura`; recibe `hoy` como
+  parámetro para probar con fechas fijas.
+  - **Periodo de referencia**: el filtro es un mes; KPI mensual → ese mes; semanal → la
+    última semana ISO que *empieza* dentro del mes sin pasar de hoy (`periodoReferencia`).
+  - **Estados** de KPI×unidad: VERDE/AMBAR/ROJO/null (informativo) si hay registro;
+    SIN_DATO (gris) si venció el plazo sin registro; PENDIENTE si aún está en plazo (no
+    cuenta para el resumen); **NO_EXIGIBLE si venció antes de `creadoEn` del KPI** — sin
+    esto, los 40 KPIs del seed aparecerían con 12 meses en gris el día que se carguen.
+  - `construirTablero` (áreas con color resumen según `kpiReglaResumen`, conteos, filas
+    KPI×unidad con valor, meta, variación vs. periodo anterior y `mejora` según el sentido
+    — en RANGO, acercarse al rango —, tendencia de 12 periodos), `pendientesDeCaptura`
+    (últimos 12 periodos cerrados, vencidos sin registro, agrupados por responsable
+    activo; "Sin responsable" al final; `incluirPorVencer` para recordatorios) e
+    `historico` (n periodos hasta el actual, con meta por periodo).
+- Rutas: `GET /dashboard?mes=&area=&unidad=`, `GET /pendientes`,
+  `GET /definiciones/:id/historico?unidad=&n=` (área no visible → 404).
+- Frontend (pestaña Dashboard, navegación interna `_kpiDash`): portada con tarjetas por
+  área + panel de pendientes → detalle de área (tabla con mini gráfico SVG) → detalle de
+  KPI (gráfico histórico SVG propio, sin librerías: una serie gris, puntos con color del
+  semáforo y anillo blanco, meta como línea escalonada rotulada, tooltip con cruz, y
+  tabla de registros que abre el modal de registro). Variación coloreada por mejora, no
+  por subida.

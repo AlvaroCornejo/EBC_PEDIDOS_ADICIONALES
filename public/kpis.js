@@ -92,18 +92,285 @@ async function viewIndicadores(container) {
   abrir(tabs[0].id);
 }
 
-// ─── Dashboard (Etapa 4) ──────────────────────────────────────────
-function kpiRenderDashboard(el) {
+// ─── Dashboard ────────────────────────────────────────────────────
+// Navegación interna: portada (tarjetas por área + pendientes) → área → KPI.
+let _kpiDash = { mes: '', area: '', unidad: '', vista: 'portada', areaSel: '', kpiSel: '', unidadSel: '' };
+
+async function kpiRenderDashboard(el) {
+  const d = _kpiDash;
   el.innerHTML = `
-    <div class="card" style="padding:16px">
-      <div class="section-title" style="margin-bottom:10px">Tus áreas</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">
-        ${S.kpi.areas.map(a => `<span class="badge" style="background:${a.nivel === 'CAPTURA' ? '#eef2ff;color:#3730a3' : '#f1f5f9;color:#475569'}">
-          ${esc(a.nombre)} · ${a.nivel === 'CAPTURA' ? 'Captura' : 'Lectura'}</span>`).join('')}
-      </div>
-      <p class="text-muted" style="font-size:13px;margin-top:14px">El dashboard con semáforos se habilita cuando esté cargado el catálogo de KPIs.</p>
-    </div>`;
+    <div class="flex gap-12 items-center mb-16" style="flex-wrap:wrap">
+      <label style="font-weight:normal;font-size:13px">Periodo <input type="month" id="kd-mes" value="${d.mes}" style="width:auto"></label>
+      <select id="kd-area" style="width:auto"><option value="">Todas mis áreas</option>
+        ${S.kpi.areas.map(a => `<option value="${esc(a.codigo)}" ${d.area === a.codigo ? 'selected' : ''}>${esc(a.nombre)}</option>`).join('')}</select>
+      <select id="kd-unidad" style="width:auto"><option value="">Todas las sociedades / operaciones</option></select>
+      <button class="btn btn-outline btn-sm" id="kd-excel" style="margin-left:auto" title="Exporta lo que estás viendo">📥 Excel</button>
+    </div>
+    <div id="kd-cuerpo"><div class="loading-overlay"><span class="spinner spinner-dark"></span></div></div>`;
+  const $ = (id) => document.getElementById(id);
+
+  let t;
+  try {
+    t = await GET(`/kpis/dashboard?${new URLSearchParams({ ...(d.mes && { mes: d.mes }), ...(d.area && { area: d.area }), ...(d.unidad && { unidad: d.unidad }) })}`);
+  } catch (err) { $('kd-cuerpo').innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  d.mes = t.mes;
+  $('kd-mes').value = t.mes;
+  $('kd-unidad').innerHTML += t.unidades.map(u => `<option value="${esc(u)}" ${d.unidad === u ? 'selected' : ''}>${esc(u)}</option>`).join('');
+
+  const recargar = () => kpiRenderDashboard(el);
+  $('kd-mes').addEventListener('change', e => { d.mes = e.target.value; recargar(); });
+  $('kd-area').addEventListener('change', e => { d.area = e.target.value; d.vista = e.target.value ? 'area' : 'portada'; d.areaSel = e.target.value; recargar(); });
+  $('kd-unidad').addEventListener('change', e => { d.unidad = e.target.value; recargar(); });
+  $('kd-excel').addEventListener('click', () => kpiExportarExcel());
+
+  const ir = (cambios) => { Object.assign(d, cambios); pintar(); };
+  const pintar = () => {
+    const cuerpo = $('kd-cuerpo');
+    if (d.vista === 'kpi') return kpiDashDetalleKpi(cuerpo, t, ir);
+    const area = t.areas.find(a => a.codigo === d.areaSel);
+    if (d.vista === 'area' && area) return kpiDashDetalleArea(cuerpo, t, area, ir);
+    d.vista = 'portada';
+    kpiDashPortada(cuerpo, t, ir);
+  };
+  pintar();
 }
+
+function kpiDashConteo(conteo, pendientes) {
+  const item = (c, n) => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:12px">
+    <span style="width:8px;height:8px;border-radius:50%;background:${KPI_COLORES[c].punto}"></span>${n} ${KPI_COLORES[c].label.toLowerCase()}</span>`;
+  return ['VERDE', 'AMBAR', 'ROJO', 'SIN_DATO'].map(c => item(c, conteo[c])).join('')
+    + (pendientes ? `<span class="text-muted" style="font-size:12px">${pendientes} en plazo</span>` : '');
+}
+
+function kpiDashPortada(el, t, ir) {
+  el.innerHTML = `
+    <div class="text-muted" style="font-size:12px;margin-bottom:10px">Resultados de ${esc(t.etiquetaMes)}
+      (los KPIs semanales muestran la última semana que empieza en el mes).</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-bottom:22px">
+      ${t.areas.map(a => {
+        const c = KPI_COLORES[a.color ?? 'SIN_DATO'];
+        const nKpis = a.kpis.reduce((s, k) => s + k.filas.length, 0);
+        return `<button class="card kd-area" data-area="${esc(a.codigo)}" style="text-align:left;padding:0;cursor:pointer;border:1px solid var(--border);overflow:hidden;font:inherit">
+          <div style="height:6px;background:${a.color ? c.punto : '#e2e8f0'}"></div>
+          <div style="padding:14px 16px">
+            <div class="flex items-center justify-between" style="gap:8px;margin-bottom:10px">
+              <strong style="font-size:15px">${esc(a.nombre)}</strong>
+              ${a.color ? kpiBadgeSemaforo(a.color) : '<span class="text-muted" style="font-size:12px">Sin KPIs medidos</span>'}
+            </div>
+            <div>${kpiDashConteo(a.conteo, a.pendientes)}</div>
+            <div class="text-muted" style="font-size:11px;margin-top:8px">${nKpis} indicador${nKpis === 1 ? '' : 'es'} por unidad${a.informativos ? ` · ${a.informativos} informativo${a.informativos === 1 ? '' : 's'}` : ''}</div>
+          </div>
+        </button>`;
+      }).join('') || '<div class="text-muted">Sin áreas para mostrar.</div>'}
+    </div>
+    <div id="kd-pendientes"></div>`;
+  el.querySelectorAll('.kd-area').forEach(b => b.addEventListener('click', () => ir({ vista: 'area', areaSel: b.dataset.area })));
+  kpiDashPendientes(document.getElementById('kd-pendientes'));
+}
+
+async function kpiDashPendientes(el) {
+  const d = _kpiDash;
+  let p;
+  try { p = await GET(`/kpis/pendientes?${new URLSearchParams({ ...(d.area && { area: d.area }), ...(d.unidad && { unidad: d.unidad }) })}`); }
+  catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  el.innerHTML = `
+    <div class="section-title" style="margin-bottom:8px">Pendientes de captura <span class="text-muted" style="font-weight:normal">(${p.total} vencido${p.total === 1 ? '' : 's'}, últimos 12 periodos)</span></div>
+    ${!p.total ? `<div class="card text-muted" style="padding:14px;font-size:13px">✅ No hay capturas vencidas.</div>` : `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">
+      ${p.grupos.map(g => `<div class="card" style="padding:12px 14px">
+        <div class="flex items-center justify-between" style="margin-bottom:6px">
+          <strong>${g.responsableId ? '👤' : '⚠️'} ${esc(g.responsable)}</strong>
+          <span class="badge" style="background:#f1f5f9;color:#475569">${g.items.length}</span>
+        </div>
+        <div style="max-height:220px;overflow:auto">
+          ${g.items.map(i => `<div style="font-size:12px;padding:4px 0;border-top:1px solid var(--border)">
+            <strong>${esc(i.codigo)}</strong> ${esc(i.nombre)} · ${esc(i.unidad)} · ${esc(i.etiqueta)}
+            <div class="text-muted">Venció ${kpiFmtFecha(i.vence)} · ${i.diasAtraso} día${i.diasAtraso === 1 ? '' : 's'} de atraso</div>
+          </div>`).join('')}
+        </div>
+      </div>`).join('')}
+    </div>`}`;
+}
+
+// Variación vs. el periodo anterior, coloreada por si es mejora (no por si sube).
+function kpiDashVariacion(f, unidad) {
+  if (f.variacion == null) return '<span class="text-muted">—</span>';
+  if (f.variacion === 0) return '<span class="text-muted">= 0</span>';
+  const flecha = f.variacion > 0 ? '▲' : '▼';
+  const color = f.mejora === true ? '#166534' : f.mejora === false ? '#b91c1c' : 'var(--text-muted)';
+  const u = unidad === '%' ? ' pp' : unidad === 'S/' || unidad === 'US$' ? '' : ` ${KPI_UNIDADES[unidad]}`;
+  const valor = unidad === 'S/' || unidad === 'US$' ? kpiFmtValor(Math.abs(f.variacion), unidad) : kpiFmtAuto(Math.abs(f.variacion)) + u;
+  return `<span style="color:${color};white-space:nowrap" title="vs. ${esc(kpiEtiquetaPeriodo(f.anterior.periodo))}: ${kpiFmtValor(f.anterior.valor, unidad)}">${flecha} ${valor}</span>`;
+}
+
+// Mini gráfico de 12 periodos: línea neutra, meta como referencia, último punto con su color.
+function kpiSparkline(tendencia, meta, sentido) {
+  const W = 120, H = 32, pad = 4;
+  const vals = tendencia.map(p => p.valor).filter(v => v != null);
+  if (!vals.length) return '<span class="text-muted" style="font-size:11px">sin historial</span>';
+  const ref = meta ? (sentido === 'RANGO' ? [meta.rangoMin, meta.rangoMax] : [meta.meta]).filter(v => v != null) : [];
+  let min = Math.min(...vals, ...ref), max = Math.max(...vals, ...ref);
+  if (min === max) { min -= 1; max += 1; }
+  const x = (i) => pad + (i * (W - 2 * pad)) / (tendencia.length - 1);
+  const y = (v) => H - pad - ((v - min) / (max - min)) * (H - 2 * pad);
+  let path = '', abierto = false;
+  tendencia.forEach((p, i) => {
+    if (p.valor == null) { abierto = false; return; }
+    path += `${abierto ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.valor).toFixed(1)}`;
+    abierto = true;
+  });
+  const iu = tendencia.map(p => p.valor != null).lastIndexOf(true);
+  const ultimo = tendencia[iu];
+  const c = KPI_COLORES[ultimo.semaforo ?? 'null'];
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tendencia de 12 periodos">
+    ${ref.map(v => `<line x1="${pad}" x2="${W - pad}" y1="${y(v)}" y2="${y(v)}" stroke="#94a3b8" stroke-width="1"/>`).join('')}
+    <path d="${path}" fill="none" stroke="#64748b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(iu)}" cy="${y(ultimo.valor)}" r="4" fill="${c.punto}" stroke="#fff" stroke-width="2"/>
+  </svg>`;
+}
+
+function kpiDashDetalleArea(el, t, area, ir) {
+  const filas = area.kpis.flatMap(k => k.filas.map(f => ({ k, f })));
+  el.innerHTML = `
+    <div class="flex items-center gap-12" style="margin-bottom:12px;flex-wrap:wrap">
+      ${_kpiDash.area ? '' : `<button class="btn btn-outline btn-sm" id="kd-volver">← Todas las áreas</button>`}
+      <strong style="font-size:17px">${esc(area.nombre)}</strong> ${area.color ? kpiBadgeSemaforo(area.color) : ''}
+      <span>${kpiDashConteo(area.conteo, area.pendientes)}</span>
+    </div>
+    ${!filas.length ? `<div class="card text-muted" style="padding:16px">Esta área no tiene KPIs activos con unidades asignadas.</div>` : `
+    <div class="card"><div class="table-wrap"><table>
+      <thead><tr><th>KPI</th><th>Unidad</th><th>Periodo</th><th style="text-align:right">Valor</th><th>Meta</th><th>Semáforo</th><th>Var. vs anterior</th><th>Últimos 12</th></tr></thead>
+      <tbody>${filas.map(({ k, f }) => `<tr class="kd-fila" data-kpi="${k._id}" data-unidad="${esc(f.unidad)}" style="cursor:pointer">
+        <td><strong>${esc(k.codigo)}</strong> ${esc(k.nombre)}</td>
+        <td>${esc(f.unidad)}</td>
+        <td style="white-space:nowrap">${esc(f.etiqueta)}</td>
+        <td style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${f.registrado ? kpiFmtValor(f.valor, k.unidad) : '—'}
+          ${f.corregido ? ' <span title="Corregido">✏️</span>' : ''}${f.adjuntos ? ' <span title="Con evidencia">📎</span>' : ''}${f.comentario ? ` <span title="${esc(f.comentario)}">💬</span>` : ''}</td>
+        <td style="font-size:12px">${kpiTextoMeta(k.sentido, k.unidad, f.meta)}</td>
+        <td>${kpiDashEstado(f)}</td>
+        <td>${kpiDashVariacion(f, k.unidad)}</td>
+        <td>${kpiSparkline(f.tendencia, f.meta, k.sentido)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div></div>`}`;
+  document.getElementById('kd-volver')?.addEventListener('click', () => ir({ vista: 'portada' }));
+  el.querySelectorAll('.kd-fila').forEach(tr => tr.addEventListener('click', () =>
+    ir({ vista: 'kpi', areaSel: area.codigo, kpiSel: tr.dataset.kpi, unidadSel: tr.dataset.unidad })));
+}
+
+function kpiDashEstado(f) {
+  if (f.estado === 'PENDIENTE') return `<span class="text-muted" style="font-size:12px;white-space:nowrap">En plazo · vence ${kpiFmtFecha(f.vence).slice(0, 5)}</span>`;
+  if (f.estado === 'NO_EXIGIBLE') return '<span class="text-muted">—</span>';
+  return kpiBadgeSemaforo(f.estado);
+}
+
+async function kpiDashDetalleKpi(el, t, ir) {
+  const d = _kpiDash;
+  el.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
+  let hst;
+  try { hst = await GET(`/kpis/definiciones/${d.kpiSel}/historico?unidad=${encodeURIComponent(d.unidadSel)}&n=24`); }
+  catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  const k = hst.kpi;
+  const area = t.areas.find(a => a.codigo === k.areaCodigo);
+  const puntos = hst.puntos;
+
+  el.innerHTML = `
+    <div class="flex items-center gap-12" style="margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" id="kd-volver">← ${esc(area?.nombre || 'Área')}</button>
+      <strong style="font-size:17px">${esc(k.codigo)} — ${esc(k.nombre)}</strong>
+      ${k.unidades.length > 1 ? `<select id="kd-kpi-unidad" style="width:auto">${k.unidades.map(u => `<option ${u === hst.unidad ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select>` : `<span class="badge" style="background:#f1f5f9;color:#475569">${esc(hst.unidad)}</span>`}
+    </div>
+    <div class="text-muted" style="font-size:12px;margin-bottom:12px">${KPI_FRECUENCIAS[k.frecuencia]} · ${KPI_SENTIDOS[k.sentido]} · ${KPI_UNIDADES[k.unidad]}${k.fuente ? ` · Fuente: ${esc(k.fuente)}` : ''}${k.formula ? `<br>Fórmula: ${esc(k.formula)}` : ''}</div>
+    <div class="card" style="padding:14px 16px;margin-bottom:16px;position:relative">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Histórico de ${puntos.length} periodos · ${esc(hst.unidad)}</div>
+      <div id="kd-grafico"></div>
+    </div>
+    <div class="card"><div class="table-wrap"><table>
+      <thead><tr><th>Periodo</th><th style="text-align:right">Valor</th><th>Meta</th><th>Semáforo</th><th>Comentario</th><th>Registrado</th></tr></thead>
+      <tbody>${[...puntos].reverse().map(p => `<tr ${p.registroId ? `class="kd-reg" data-id="${p.registroId}" style="cursor:pointer"` : ''}>
+        <td style="white-space:nowrap">${esc(p.etiqueta)}</td>
+        <td style="text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${p.valor != null ? kpiFmtValor(p.valor, k.unidad) : '—'}${p.corregido ? ' <span title="Corregido por el administrador">✏️</span>' : ''}</td>
+        <td style="font-size:12px">${kpiTextoMeta(k.sentido, k.unidad, p.meta)}</td>
+        <td>${kpiDashEstado(p)}</td>
+        <td style="font-size:12px;max-width:320px">${esc(p.comentario)}${p.adjuntos.length ? p.adjuntos.map(a => ` <a href="#" onclick="event.stopPropagation();kpiAbrirAdjunto('${p.registroId}','${esc(a.boxFileId)}');return false" title="${esc(a.nombreOriginal)}">📎</a>`).join('') : ''}</td>
+        <td style="font-size:12px;white-space:nowrap">${p.registroId ? `${esc(p.registradoPorNombre)}<div class="text-muted">${kpiFmtFecha(p.registradoEn)}</div>` : ''}</td>
+      </tr>`).join('')}</tbody>
+    </table></div></div>`;
+
+  kpiGraficoHistorico(document.getElementById('kd-grafico'), puntos, k);
+  document.getElementById('kd-volver').addEventListener('click', () => ir({ vista: 'area' }));
+  document.getElementById('kd-kpi-unidad')?.addEventListener('change', e => ir({ unidadSel: e.target.value }));
+  el.querySelectorAll('.kd-reg').forEach(tr => tr.addEventListener('click', () => kpiModalRegistro(tr.dataset.id, () => ir({}))));
+}
+
+// Gráfico histórico: una serie (sin leyenda), meta como línea escalonada de referencia
+// (cambia si hubo nueva versión), puntos con el color del semáforo, tooltip al pasar.
+function kpiGraficoHistorico(el, puntos, k) {
+  const W = Math.max(el.clientWidth || 640, 320), H = 240;
+  const m = { t: 12, r: 44, b: 28, l: 56 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const metaDe = (p) => !p.meta ? [] : k.sentido === 'RANGO' ? [p.meta.rangoMin, p.meta.rangoMax] : [p.meta.meta];
+  const vals = [...puntos.map(p => p.valor), ...puntos.flatMap(metaDe)].filter(v => v != null);
+  if (!vals.length) { el.innerHTML = '<div class="text-muted" style="font-size:13px;padding:30px 0;text-align:center">Aún no hay registros para graficar.</div>'; return; }
+
+  // Escala con ticks "limpios".
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const paso0 = (hi - lo) / 4, mag = 10 ** Math.floor(Math.log10(paso0));
+  const paso = [1, 2, 2.5, 5, 10].map(f => f * mag).find(s => s >= paso0);
+  lo = Math.floor(lo / paso) * paso; hi = Math.ceil(hi / paso) * paso;
+  const ticks = []; for (let v = lo; v <= hi + paso / 2; v += paso) ticks.push(+v.toFixed(6));
+  const x = (i) => m.l + (puntos.length === 1 ? iw / 2 : (i * iw) / (puntos.length - 1));
+  const y = (v) => m.t + ih - ((v - lo) / (hi - lo)) * ih;
+  const cada = Math.ceil(puntos.length / Math.max(Math.floor(iw / 70), 1)); // etiquetas X sin chocar
+
+  let linea = '', abierto = false;
+  puntos.forEach((p, i) => { if (p.valor == null) { abierto = false; return; } linea += `${abierto ? 'L' : 'M'}${x(i)},${y(p.valor)}`; abierto = true; });
+  const escalon = (idx) => { // línea de meta escalonada por periodo
+    let d = '';
+    puntos.forEach((p, i) => {
+      const v = metaDe(p)[idx]; if (v == null) return;
+      const x0 = i === 0 ? x(0) : (x(i - 1) + x(i)) / 2, x1 = i === puntos.length - 1 ? x(i) : (x(i) + x(i + 1)) / 2;
+      d += `M${x0},${y(v)}H${x1}`;
+    });
+    return d;
+  };
+  const ultimaMeta = [...puntos].reverse().find(p => metaDe(p).length);
+
+  el.innerHTML = `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block;overflow:visible" role="img" aria-label="Histórico de ${esc(k.nombre)}">
+    ${ticks.map(v => `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="#eef2f7" stroke-width="1"/>
+      <text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="#64748b" style="font-variant-numeric:tabular-nums">${kpiFmtAuto(v)}</text>`).join('')}
+    ${puntos.map((p, i) => i % cada === 0 || i === puntos.length - 1
+      ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" font-size="11" fill="#64748b">${esc(p.etiqueta.replace(' 20', " '"))}</text>` : '').join('')}
+    ${[0, 1].map(idx => `<path d="${escalon(idx)}" stroke="#475569" stroke-width="1.5" fill="none"/>`).join('')}
+    ${ultimaMeta ? `<text x="${W - m.r + 6}" y="${y(metaDe(ultimaMeta)[0]) + 4}" font-size="11" fill="#475569">Meta</text>` : ''}
+    <path d="${linea}" fill="none" stroke="#64748b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${puntos.map((p, i) => p.valor != null
+      ? `<circle cx="${x(i)}" cy="${y(p.valor)}" r="5" fill="${KPI_COLORES[p.estado ?? 'null'].punto}" stroke="#fff" stroke-width="2"/>`
+      : p.estado === 'SIN_DATO' ? `<circle cx="${x(i)}" cy="${m.t + ih}" r="4" fill="#fff" stroke="#94a3b8" stroke-width="2"/>` : '').join('')}
+    <line id="kd-cruz" x1="0" x2="0" y1="${m.t}" y2="${m.t + ih}" stroke="#94a3b8" stroke-width="1" visibility="hidden"/>
+    ${puntos.map((p, i) => `<rect class="kd-hit" data-i="${i}" x="${x(i) - iw / puntos.length / 2}" y="${m.t}" width="${iw / puntos.length}" height="${ih}" fill="transparent"/>`).join('')}
+  </svg>
+  <div id="kd-tip" style="position:absolute;display:none;pointer-events:none;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.12);padding:8px 10px;font-size:12px;z-index:5"></div>`;
+
+  const tip = el.querySelector('#kd-tip'), cruz = el.querySelector('#kd-cruz'), svg = el.querySelector('svg');
+  el.querySelectorAll('.kd-hit').forEach(r => {
+    r.addEventListener('mouseenter', () => {
+      const p = puntos[r.dataset.i];
+      cruz.setAttribute('x1', x(+r.dataset.i)); cruz.setAttribute('x2', x(+r.dataset.i)); cruz.setAttribute('visibility', 'visible');
+      tip.innerHTML = `<strong>${esc(p.etiqueta)}</strong><br>${p.valor != null ? kpiFmtValor(p.valor, k.unidad) : 'Sin registro'} ${kpiDashEstado(p)}<br>
+        <span class="text-muted">Meta: ${kpiTextoMeta(k.sentido, k.unidad, p.meta)}</span>${p.corregido ? '<br>✏️ Corregido' : ''}`;
+      tip.style.display = 'block';
+      const escala = svg.getBoundingClientRect().width / W;
+      const px = x(+r.dataset.i) * escala;
+      tip.style.left = `${Math.min(px + 16, svg.getBoundingClientRect().width - tip.offsetWidth)}px`;
+      tip.style.top = '36px';
+    });
+    r.addEventListener('mouseleave', () => { tip.style.display = 'none'; cruz.setAttribute('visibility', 'hidden'); });
+  });
+}
+
+// Etapa 5 (exportación): se completa en la siguiente etapa.
+function kpiExportarExcel() { toast('La exportación a Excel se habilita en la siguiente etapa', 'info'); }
 
 // ─── Semáforo ─────────────────────────────────────────────────────
 const KPI_COLORES = {
