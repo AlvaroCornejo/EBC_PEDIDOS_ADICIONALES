@@ -5906,9 +5906,17 @@ async function renderPaso2(container) {
       const tabla = document.getElementById('ic-tabla');
       tabla.innerHTML = 'Cargando...';
       const tc = parseFloat(document.getElementById('ic-tc')?.value) || 1;
+      // Usa la semana de la programación abierta en Paso 2 (la que se está
+      // viendo), no "la semana actual" — antes siempre traía fecha-pago
+      // (semana en curso), así que al abrir Intercompany sobre una semana
+      // pasada (u otra distinta a la actual) siempre salía en 0.
       let fp;
-      try { fp = await GET('/pagos/fecha-pago'); }
-      catch (e) { tabla.innerHTML = `<p style="color:red">${e.message}</p>`; return; }
+      if (ap2Prog?.semana && ap2Prog?.año) {
+        fp = { semana: ap2Prog.semana, año: ap2Prog.año };
+      } else {
+        try { fp = await GET('/pagos/fecha-pago'); }
+        catch (e) { tabla.innerHTML = `<p style="color:red">${e.message}</p>`; return; }
+      }
 
       const porEmpresa = {};
       for (const emp of EMPRESAS) {
