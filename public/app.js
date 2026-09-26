@@ -5935,7 +5935,9 @@ async function renderPaso2(container) {
         const pagos = {};
         EMPRESAS.forEach(otra => {
           pagos[otra] = otra === emp ? 0 : obs
-            .filter(o => (o.pagarA || '').trim().toUpperCase() === otra)
+            // El PagarA real trae razón social completa (ej. "FACTORIAL K SAC"),
+            // no el nombre exacto de la sociedad — se busca que lo contenga.
+            .filter(o => (o.pagarA || '').trim().toUpperCase().includes(otra))
             .reduce((s, o) => s + totS(o), 0);
         });
         const descuento = EMPRESAS.reduce((s, otra) => s + pagos[otra], 0);

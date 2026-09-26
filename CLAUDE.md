@@ -1198,8 +1198,11 @@ configurable) × columnas: Total a pagar S/, Pago a cada una de las otras 2,
 y Neto (= total − pagos a las otras 2), más fila de totales por columna.
 
 **Detección de "pago entre ellas"**: el beneficiario (`PagarA`) de una
-obligación es literalmente el nombre de otra de las 3 (comparación
-`trim().toUpperCase()`) — no hay un catálogo/flag separado para esto.
+obligación **contiene** el nombre de otra de las 3 (comparación
+`.trim().toUpperCase().includes(otra)`, no exacta — el `PagarA` real trae
+razón social completa, ej. "FACTORIAL K SAC", no "FACTORIAL K" a secas; con
+comparación exacta esos pagos nunca se detectaban, bug real encontrado en
+producción y corregido) — no hay un catálogo/flag separado para esto.
 
 **Sin endpoint nuevo** — todo el cálculo es client-side dentro de
 `ap2AbrirIntercompany`:
