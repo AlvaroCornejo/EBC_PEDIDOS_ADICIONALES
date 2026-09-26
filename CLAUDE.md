@@ -1315,9 +1315,11 @@ semáforos. Se construye por etapas en la rama `feature/indicadores-gaf` — **n
 `main` hasta que el usuario lo apruebe** (main se autodespliega). Plan acordado: 1) usuarios
 y permisos, 2) catálogo de KPIs con metas versionadas, 3) registro inmutable con auditoría,
 4) dashboard, 5) notificaciones (mismo modelo `sendPush`+`sendEmail`) y exportación Excel.
-Decisiones del usuario: sociedades = el catálogo `Sociedad` existente (se le agregará la
-marca grupo propio / cadena de cafeterías); frecuencia solo SEMANAL o MENSUAL (sin "por
-evento"); umbrales ámbar por defecto en el seed, editables; KPIs sin meta = informativos.
+Decisiones del usuario: unidades = el catálogo `Sociedad`/`Operacion` existente, **sin
+distinguir grupo propio vs. cadena de cafeterías** (se descartó a pedido del usuario) y cada
+KPI aplica solo a las unidades que se le asignen (no todas las operaciones tendrán todos los
+KPIs); frecuencia solo SEMANAL o MENSUAL (sin "por evento"); umbrales ámbar por defecto en
+el seed, editables; KPIs sin meta = informativos (sin semáforo).
 
 **Desactivación de usuarios (afecta a TODA la app)**: `User.activo` (default `true`). A
 pedido del usuario, desactivar = sin acceso a nada de EBC. `DELETE /api/users/:id` ya **no
@@ -1352,3 +1354,34 @@ MongoDB en `npm install`, solo al correr pruebas — no afecta el build de Digit
 la Etapa 1 (desactivación, tokens invalidados, áreas asignadas, lector, admin).
 **Demo local sin tocar Atlas**: `node tests/servidor-demo.js` → http://localhost:3100, base en
 memoria con usuarios de prueba (credenciales en el propio archivo).
+
+**Etapa 2 — Catálogo de KPIs con metas versionadas**:
+- `KpiDefinicion` (`codigo` único e inmutable, `areaCodigo`, `unidad` % / S/ / US$ / dias /
+  horas / numero / pp, `frecuencia` SEMANAL|MENSUAL, `tipoCaptura` DIRECTO|RATIO — RATIO =
+  numerador÷denominador, × 100 si la unidad es %, `sentido` MAYOR|MENOR|RANGO — **inmutable**,
+  las metas se interpretan según él —, `nivelAmbito` SOCIEDAD|OPERACION + `unidades[]`,
+  `responsables[]` (User.id), `fuente`, `plazoCapturaDias` = días después del cierre del
+  periodo, `activo`). Sin DELETE.
+- `KpiMetaVersion` (`kpiId`, `unidadCodigo` '' = todas, `vigenteDesde` 'YYYY-MM-DD', `meta`/
+  `umbralAmbar` o `rangoMin`/`rangoMax`/`tolerancia`, `motivo` obligatorio). **Append-only
+  forzado en el modelo**: hooks `pre` de update/delete/save lanzan error (Mongoose 9: las
+  hooks ya no reciben `next`, se bloquea con `throw`). Resolución en `utils/kpiMetas.js:
+  metaVigente()` — la versión específica de la unidad gana sobre la general; dentro de cada
+  una, la de `vigenteDesde` más reciente ≤ inicio del periodo.
+- Reglas puras (sin BD, reutilizadas en etapas 3-4): `utils/kpiSemaforo.js`
+  (`calcularSemaforo`, `validarMeta`, `resumenArea` con 3 reglas configurables — default
+  MAS_FRECUENTE_PISO_AMBAR, empates al color más grave, EPS para errores de redondeo de
+  ratios) y `utils/kpiPeriodo.js` (periodos 'YYYY-MM' / 'YYYY-Www' ISO, rangos, vencimiento,
+  navegación, etiqueta 'Set 2026' / 'S39 2026'; fechas como texto para no depender de la
+  zona horaria del servidor).
+- Seed: `utils/kpiSeed.js` (40 KPIs, 33 con meta y 7 informativos; umbrales ámbar por
+  defecto propuestos; sin unidades ni responsables — los asigna el admin) +
+  `scripts/seedKpis.js` (idempotente, **correr una vez en producción tras el deploy**).
+- Rutas: `GET /definiciones` (filtrado por áreas visibles; inactivos solo admin con
+  `?inactivos=1`), `GET /definiciones/:id` (KPI de área no asignada → **404**, no 403, para
+  no revelar que existe), `POST /definiciones`, `PUT /definiciones/:id`,
+  `POST /definiciones/:id/metas`, `GET /responsables` (admin; `/api/users` es solo ADMIN de
+  la app y el admin de Indicadores puede no serlo).
+- Frontend: Configuración → Catálogo de KPIs (filtros área/texto/inactivos, agrupado por
+  área, alertas "⚠ Sin unidades" / "⚠ Sin responsable"), modal de KPI y modal de Metas
+  (historial de versiones + nueva versión, general o por unidad).

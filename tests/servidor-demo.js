@@ -26,7 +26,12 @@ const { MongoMemoryServer } = require('mongodb-memory-server-core');
   for (const codigo of ['GB', 'ERSAC', 'MUVON', 'QUIASMO', 'FACTORIAL K', 'FRQ1']) {
     await Sociedad.create({ codigo, nombre: codigo });
   }
-  await Operacion.create({ codigo: 'GBGOL', nombre: 'GBGOL', sociedadCodigo: 'GB' });
+  await Operacion.insertMany([
+    { codigo: 'GBGOL', nombre: 'GBGOL', sociedadCodigo: 'GB' },
+    { codigo: 'GBPLANTA', nombre: 'GBPLANTA', sociedadCodigo: 'GB' },
+    { codigo: 'CDLAO', nombre: 'CDLAO', sociedadCodigo: 'FACTORIAL K' },
+  ]);
+  await require('../utils/kpiSeed').sembrarKpis('SEED');
 
   const password = await bcrypt.hash('demo123', 4);
   const base = { password, mustChangePassword: false };

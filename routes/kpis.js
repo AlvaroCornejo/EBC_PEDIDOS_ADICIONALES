@@ -1,7 +1,16 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const authMiddleware = require('../middleware/auth');
-const KpiArea = require('../models/KpiArea');
+const KpiArea        = require('../models/KpiArea');
+const KpiDefinicion  = require('../models/KpiDefinicion');
+const KpiMetaVersion = require('../models/KpiMetaVersion');
+const Sociedad       = require('../models/Sociedad');
+const Operacion      = require('../models/Operacion');
+const User           = require('../models/User');
 const { resolverAcceso, requiereAcceso, soloAdmin } = require('../utils/kpiAcceso');
+const { validarMeta } = require('../utils/kpiSemaforo');
+const { metaVigente, versionesPorKpi } = require('../utils/kpiMetas');
+const { hoyLima } = require('../utils/kpiPeriodo');
 
 // Indicadores de Gestión del Back Office (GAF). Montado en /api/kpis.
 // Todo acceso a datos pasa por req.kpi (utils/kpiAcceso.js), resuelto en vivo.
@@ -60,6 +69,176 @@ router.put('/areas/:codigo', soloAdmin, async (req, res) => {
     const area = await KpiArea.findOneAndUpdate({ codigo: req.params.codigo }, update, { returnDocument: 'after' });
     if (!area) return res.status(404).json({ error: 'Área no encontrada' });
     res.json(area);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Catálogo de KPIs ─────────────────────────────────────────────
+const CAMPOS_META = ['meta', 'umbralAmbar', 'rangoMin', 'rangoMax', 'tolerancia'];
+const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+const numONull = (x) => (x === null || x === undefined || x === '' ? null : Number(x));
+
+// Normaliza y valida los campos editables de un KPI. `actual` = documento existente (PUT),
+// para validar combinaciones (ej. nivelAmbito + unidades) aunque solo venga uno de los dos.
+async function validarDefinicion(body, actual = null) {
+  const d = {};
+  const texto = (k) => { if (body[k] !== undefined) d[k] = String(body[k] ?? '').trim(); };
+  ['nombre', 'descripcion', 'formula', 'fuente'].forEach(texto);
+  for (const k of ['unidad', 'frecuencia', 'tipoCaptura', 'sentido', 'nivelAmbito', 'areaCodigo']) {
+    if (body[k] !== undefined) d[k] = body[k];
+  }
+  if (body.plazoCapturaDias !== undefined) d.plazoCapturaDias = Number(body.plazoCapturaDias);
+  if (body.activo !== undefined) d.activo = !!body.activo;
+  if (body.unidades !== undefined) d.unidades = Array.isArray(body.unidades) ? [...new Set(body.unidades.map(String))] : [];
+  if (body.responsables !== undefined) d.responsables = Array.isArray(body.responsables) ? [...new Set(body.responsables.map(String))] : [];
+
+  const f = { ...(actual?.toObject?.() || actual || {}), ...d }; // estado final
+  if (!f.nombre) return { error: 'El nombre es obligatorio' };
+  if (!(await KpiArea.exists({ codigo: f.areaCodigo }))) return { error: 'Área inválida' };
+  const enums = { unidad: 'UNIDADES', frecuencia: 'FRECUENCIAS', tipoCaptura: 'TIPOS_CAPTURA', sentido: 'SENTIDOS', nivelAmbito: 'NIVELES_AMBITO' };
+  for (const [campo, lista] of Object.entries(enums)) {
+    if (!KpiDefinicion[lista].includes(f[campo])) return { error: `Valor inválido para ${campo}` };
+  }
+  if (!Number.isInteger(f.plazoCapturaDias) || f.plazoCapturaDias < 0 || f.plazoCapturaDias > 60) {
+    return { error: 'El plazo de captura debe ser un número entero de días entre 0 y 60' };
+  }
+  const Catalogo = f.nivelAmbito === 'OPERACION' ? Operacion : Sociedad;
+  const validas = new Set(await Catalogo.distinct('codigo'));
+  const invalidas = (f.unidades || []).filter(u => !validas.has(u));
+  if (invalidas.length) return { error: `Unidades inexistentes para el nivel ${f.nivelAmbito}: ${invalidas.join(', ')}` };
+  if (f.responsables?.length) {
+    const existentes = await User.countDocuments({ id: { $in: f.responsables }, activo: { $ne: false } });
+    if (existentes !== f.responsables.length) return { error: 'Algún responsable no existe o está desactivado' };
+  }
+  return { datos: d };
+}
+
+// Campos de meta de un body, validados según el sentido del KPI.
+function leerMeta(body, sentido) {
+  const m = {};
+  for (const k of CAMPOS_META) m[k] = numONull(body[k]);
+  if (sentido === 'RANGO') { m.meta = null; m.umbralAmbar = null; }
+  else { m.rangoMin = null; m.rangoMax = null; m.tolerancia = null; }
+  const error = validarMeta(sentido, m);
+  return error ? { error } : { meta: m };
+}
+
+const hayMeta = (m) => CAMPOS_META.some(k => m[k] !== null);
+
+// Busca un KPI visible para el usuario. Un KPI de un área no asignada responde 404 (no 403)
+// para no revelar ni siquiera que existe.
+async function kpiVisible(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) { res.status(404).json({ error: 'KPI no encontrado' }); return null; }
+  const kpi = await KpiDefinicion.findById(req.params.id);
+  if (!kpi || !req.kpi.puedeVer(kpi.areaCodigo) || (!kpi.activo && !req.kpi.esAdmin)) {
+    res.status(404).json({ error: 'KPI no encontrado' });
+    return null;
+  }
+  return kpi;
+}
+
+// GET /definiciones?area=&inactivos=1 — solo áreas visibles; los inactivos solo para admin.
+router.get('/definiciones', async (req, res) => {
+  try {
+    const filtro = { ...req.kpi.filtroAreas() };
+    if (req.query.area) {
+      if (!req.kpi.puedeVer(req.query.area)) return res.json([]);
+      filtro.areaCodigo = req.query.area;
+    }
+    if (!(req.kpi.esAdmin && req.query.inactivos === '1')) filtro.activo = true;
+    const kpis = await KpiDefinicion.find(filtro).sort({ areaCodigo: 1, codigo: 1 }).lean();
+    const versiones = await versionesPorKpi(kpis.map(k => k._id));
+    const hoy = hoyLima();
+    res.json(kpis.map(k => {
+      const vs = versiones.get(String(k._id)) || [];
+      return {
+        ...k,
+        metaVigente: metaVigente(vs, '', hoy),
+        metasPorUnidad: [...new Set(vs.filter(v => v.unidadCodigo).map(v => v.unidadCodigo))],
+      };
+    }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/definiciones/:id', async (req, res) => {
+  try {
+    const kpi = await kpiVisible(req, res);
+    if (!kpi) return;
+    const versiones = await KpiMetaVersion.find({ kpiId: kpi._id }).sort({ vigenteDesde: -1, creadoEn: -1 }).lean();
+    res.json({ ...kpi.toObject(), versiones, metaVigente: metaVigente(versiones, '', hoyLima()) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /definiciones — crea el KPI y, si viene, su primera versión de meta.
+router.post('/definiciones', soloAdmin, async (req, res) => {
+  try {
+    const codigo = String(req.body.codigo || '').trim().toUpperCase();
+    if (!codigo) return res.status(400).json({ error: 'El código es obligatorio' });
+    if (await KpiDefinicion.exists({ codigo })) return res.status(400).json({ error: 'Ya existe un KPI con ese código' });
+    const base = { unidad: '%', frecuencia: 'MENSUAL', tipoCaptura: 'DIRECTO', nivelAmbito: 'SOCIEDAD', plazoCapturaDias: 8, unidades: [], responsables: [] };
+    const { error, datos } = await validarDefinicion({ ...base, ...req.body });
+    if (error) return res.status(400).json({ error });
+
+    const lm = leerMeta(req.body, datos.sentido);
+    if (lm.error) return res.status(400).json({ error: lm.error });
+    const vigenteDesde = req.body.vigenteDesde || `${hoyLima().slice(0, 7)}-01`;
+    if (hayMeta(lm.meta) && !RE_FECHA.test(vigenteDesde)) return res.status(400).json({ error: 'Fecha de vigencia inválida' });
+
+    const kpi = await KpiDefinicion.create({ ...datos, codigo, creadoPor: req.kpi.username });
+    if (hayMeta(lm.meta)) {
+      await KpiMetaVersion.create({ kpiId: kpi._id, vigenteDesde, ...lm.meta, motivo: 'Meta inicial', creadoPor: req.kpi.username });
+    }
+    res.json(kpi);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /definiciones/:id — todo menos el código y las metas (que se versionan aparte).
+// Sin DELETE: un KPI se desactiva con { activo: false }.
+router.put('/definiciones/:id', soloAdmin, async (req, res) => {
+  try {
+    const kpi = await kpiVisible(req, res);
+    if (!kpi) return;
+    const { codigo, ...resto } = req.body;
+    if (codigo !== undefined && String(codigo).trim().toUpperCase() !== kpi.codigo) {
+      return res.status(400).json({ error: 'El código de un KPI no se puede cambiar' });
+    }
+    // Las versiones de meta se interpretan según el sentido: cambiarlo las dejaría sin sentido.
+    if (resto.sentido !== undefined && resto.sentido !== kpi.sentido) {
+      return res.status(400).json({ error: 'El sentido de un KPI no se puede cambiar: cree un KPI nuevo' });
+    }
+    const { error, datos } = await validarDefinicion(resto, kpi);
+    if (error) return res.status(400).json({ error });
+    Object.assign(kpi, datos);
+    await kpi.save();
+    res.json(kpi);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /definiciones/:id/metas — nueva versión de meta/umbrales (nunca se edita una existente).
+router.post('/definiciones/:id/metas', soloAdmin, async (req, res) => {
+  try {
+    const kpi = await kpiVisible(req, res);
+    if (!kpi) return;
+    const { vigenteDesde, unidadCodigo = '', motivo } = req.body;
+    if (!RE_FECHA.test(vigenteDesde || '')) return res.status(400).json({ error: 'Indique la fecha de vigencia (dd/mm/aaaa)' });
+    if (!String(motivo || '').trim()) return res.status(400).json({ error: 'El motivo del cambio es obligatorio' });
+    if (unidadCodigo && !kpi.unidades.includes(unidadCodigo)) {
+      return res.status(400).json({ error: 'La unidad no pertenece al ámbito del KPI' });
+    }
+    const lm = leerMeta(req.body, kpi.sentido);
+    if (lm.error) return res.status(400).json({ error: lm.error });
+    const version = await KpiMetaVersion.create({
+      kpiId: kpi._id, unidadCodigo, vigenteDesde, ...lm.meta,
+      motivo: String(motivo).trim(), creadoPor: req.kpi.username,
+    });
+    res.json(version);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /responsables — usuarios activos elegibles como responsables de captura (admin).
+router.get('/responsables', soloAdmin, async (req, res) => {
+  try {
+    const users = await User.find({ activo: { $ne: false } }, { id: 1, username: 1, email: 1, _id: 0 }).sort({ username: 1 }).lean();
+    res.json(users);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
