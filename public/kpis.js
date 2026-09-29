@@ -406,8 +406,12 @@ async function kpiPostMultipart(path, datos, archivos) {
   const fd = new FormData();
   fd.append('datos', JSON.stringify(datos));
   for (const f of archivos || []) fd.append('archivos', f);
-  const res = await fetch(API + path, { method: 'POST', headers: { Authorization: `Bearer ${S.token}` }, body: fd });
-  const data = await res.json().catch(() => ({}));
+  let res;
+  try { res = await fetch(API + path, { method: 'POST', headers: { Authorization: `Bearer ${S.token}` }, body: fd }); }
+  catch { throw Object.assign(new Error('Se perdió la conexión con el servidor'), { sinRespuesta: true }); }
+  const data = await res.json().catch(() => null);
+  // Sin JSON = respondió el proxy de DigitalOcean (504, 502…), no la app: no se sabe si se guardó.
+  if (!data) throw Object.assign(new Error(`El servidor no respondió a tiempo (Error ${res.status})`), { sinRespuesta: true });
   if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
   return data;
 }
@@ -497,8 +501,9 @@ async function kpiAbrirAdjunto(registroId, fileId) {
 // ─── Captura ──────────────────────────────────────────────────────
 async function kpiRenderCaptura(el) {
   el.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
-  let opciones;
-  try { opciones = await GET('/kpis/captura/opciones'); } catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+  let opciones, cfgCaptura;
+  try { [opciones, cfgCaptura] = await Promise.all([GET('/kpis/captura/opciones'), GET('/kpis/captura/config')]); }
+  catch (err) { el.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
   if (!opciones.length) {
     el.innerHTML = `<div class="card text-muted" style="padding:16px;font-size:13px">No hay KPIs para capturar en tus áreas
       (o aún no tienen unidades asignadas en el catálogo).</div>`;
@@ -528,15 +533,17 @@ async function kpiRenderCaptura(el) {
         <div class="form-group"><label>Comentario <span id="kc-com-oblig" style="color:#dc2626;display:none">* (obligatorio: resultado en rojo)</span></label>
           <textarea id="kc-comentario" rows="3" maxlength="2000"></textarea></div>
         <div class="form-group"><label>Evidencia (opcional, se guarda en Box)</label>
-          ${kpiZonaEvidenciaHtml('kc-archivos')}
-          <div class="text-muted" style="font-size:11px;margin-top:4px">Hasta 5 archivos de 20 MB cada uno.</div></div>
+          ${cfgCaptura.evidenciaHabilitada ? `${kpiZonaEvidenciaHtml('kc-archivos')}
+          <div class="text-muted" style="font-size:11px;margin-top:4px">Hasta 5 archivos de 20 MB cada uno.</div>`
+          : `<div class="msg-info" style="font-size:12px">La evidencia en Box aún no está configurada: puedes registrar sin adjuntos y el administrador
+              podrá agregarlos después.${S.kpi.esAdmin ? ' Configúrala en Configuración → General y Box.' : ''}</div>`}</div>
         <div id="kc-error" class="msg-error hidden"></div>
         <button class="btn btn-primary" id="kc-revisar">Revisar y registrar</button>
       </div>
     </div>`;
 
   const $ = (id) => document.getElementById(id);
-  const evidencia = kpiBindZonaEvidencia('kc-archivos', $('kc-resto'));
+  const evidencia = cfgCaptura.evidenciaHabilitada ? kpiBindZonaEvidencia('kc-archivos', $('kc-resto')) : { archivos: () => [] };
   let kpi = null, registrados = new Set();
 
   const datosForm = () => ({
@@ -634,6 +641,14 @@ async function kpiRenderCaptura(el) {
         toast('Valor registrado', 'success');
         kpiRenderCaptura(el); // formulario limpio
       } catch (err) {
+        // Si la conexión se cortó (ej. 504 del proxy), no se sabe si el servidor alcanzó a
+        // guardar: se consulta antes de dejar reintentar, para no confundir al usuario.
+        if (err.sinRespuesta) {
+          const guardado = await GET(`/kpis/registros?kpiId=${kpi._id}&unidad=${encodeURIComponent(d.unidadCodigo)}`)
+            .then(rs => rs.some(x => x.periodo === d.periodo)).catch(() => null);
+          if (guardado) { closeModal(); toast('El valor sí quedó registrado (la conexión se cortó al final)', 'success'); kpiRenderCaptura(el); return; }
+          err.message += guardado === false ? '. El valor NO se guardó: puedes intentar de nuevo.' : '. Revisa en la pestaña Registros si se guardó antes de reintentar.';
+        }
         $('kc-conf-error').textContent = err.message; $('kc-conf-error').classList.remove('hidden');
         btn.disabled = false; btn.textContent = '✔ Registrar';
       }

@@ -309,7 +309,7 @@ router.post('/config/probar-box', soloAdmin, async (req, res) => {
     const carpeta = (await Config.findOne({ key: 'kpiBoxCarpetaId' }).lean())?.value;
     if (!carpeta) return res.status(400).json({ error: 'Primero configure el ID de la carpeta de Box' });
     res.json(await box.probarConexion(carpeta));
-  } catch (err) { res.status(502).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── Dashboard ────────────────────────────────────────────────────

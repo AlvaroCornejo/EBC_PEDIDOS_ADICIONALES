@@ -13,6 +13,19 @@ dns.setDefaultResultOrder('ipv4first');
 
 let cachedToken = null; // { token, expiresAt }
 
+// Toda llamada a Box tiene tiempo límite: si Box no responde, el usuario recibe un error
+// claro en vez de que la petición quede colgada hasta que el proxy de DigitalOcean la corte
+// con un 504 sin explicación. La subida tiene más margen (archivos de hasta 20 MB).
+const TIMEOUT_MS = 20000, TIMEOUT_SUBIDA_MS = 60000;
+async function fetchBox(url, opts = {}, ms = TIMEOUT_MS) {
+  try {
+    return await fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') throw new Error(`Box no respondió en ${ms / 1000} s; intente de nuevo`);
+    throw new Error(`No se pudo conectar con Box (${err.cause?.code || err.message})`);
+  }
+}
+
 async function getBoxConfig() {
   const docs = await Config.find({ key: { $in: ['boxClientId', 'boxClientSecret', 'boxEnterpriseId'] } }).lean();
   return Object.fromEntries(docs.map(d => [d.key, d.value]));
@@ -22,7 +35,7 @@ async function getAccessToken() {
   if (cachedToken && cachedToken.expiresAt > Date.now() + 30000) return cachedToken.token;
   const cfg = await getBoxConfig();
   if (!cfg.boxClientId || !cfg.boxClientSecret) throw new Error('Box no está configurado (faltan las credenciales de la app de Box)');
-  const res = await fetch('https://api.box.com/oauth2/token', {
+  const res = await fetchBox('https://api.box.com/oauth2/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -40,7 +53,7 @@ async function getAccessToken() {
 
 async function boxFetch(url, opts = {}) {
   const token = await getAccessToken();
-  const res = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+  const res = await fetchBox(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`Box (${res.status}): ${data.message || JSON.stringify(data)}`);
   return data;
@@ -71,9 +84,9 @@ async function subirArchivo({ buffer, nombreOriginal, carpetaBaseId, segmentos =
   const form = new FormData();
   form.append('attributes', JSON.stringify({ name: nombre, parent: { id: folderId } }));
   form.append('file', new Blob([buffer]), nombre);
-  const res = await fetch('https://upload.box.com/api/2.0/files/content', {
+  const res = await fetchBox('https://upload.box.com/api/2.0/files/content', {
     method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form,
-  });
+  }, TIMEOUT_SUBIDA_MS);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`Box: no se pudo subir el archivo (${res.status}: ${data.message || ''})`);
   return { boxFileId: data.entries[0].id, nombre, ruta: segmentos.join('/') };
@@ -83,7 +96,7 @@ async function subirArchivo({ buffer, nombreOriginal, carpetaBaseId, segmentos =
 // ubicación; se devuelve esa URL en vez de seguirla.
 async function urlDescarga(fileId) {
   const token = await getAccessToken();
-  const res = await fetch(`https://api.box.com/2.0/files/${fileId}/content`, {
+  const res = await fetchBox(`https://api.box.com/2.0/files/${fileId}/content`, {
     headers: { Authorization: `Bearer ${token}` }, redirect: 'manual',
   });
   const location = res.headers.get('location');
@@ -94,7 +107,7 @@ async function urlDescarga(fileId) {
 // Solo para deshacer una subida cuando el registro no llegó a guardarse.
 async function eliminarArchivo(fileId) {
   const token = await getAccessToken();
-  await fetch(`https://api.box.com/2.0/files/${fileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+  await fetchBox(`https://api.box.com/2.0/files/${fileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
 }
 
 async function probarConexion(carpetaId) {

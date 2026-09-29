@@ -53,6 +53,7 @@ box.probarConexion = async () => ({ id: '0', nombre: 'Box simulado (demo)' });
     { codigo: 'CDLAO', nombre: 'CDLAO', sociedadCodigo: 'FACTORIAL K' },
   ]);
   await require('../utils/kpiSeed').sembrarKpis('SEED');
+  await require('../models/Config').create({ key: 'kpiBoxCarpetaId', value: '0' }); // Box simulado
 
   const password = await bcrypt.hash('demo123', 4);
   const base = { password, mustChangePassword: false };

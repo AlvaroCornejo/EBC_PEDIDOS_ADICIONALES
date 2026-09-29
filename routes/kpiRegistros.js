@@ -80,7 +80,12 @@ async function auditar(registro, accion, req, { antes = null, despues = null, mo
 
 async function subirAdjuntos(req, registroLike) {
   if (!req.files?.length) return [];
-  const carpeta = (await Config.findOne({ key: 'kpiBoxCarpetaId' }).lean())?.value;
+  const carpeta = await carpetaEvidencias();
+  if (!carpeta) {
+    const err = new Error('La evidencia en Box aún no está configurada (Configuración → General y Box). Registre sin evidencia o pida al administrador que la configure.');
+    err.status = 400;
+    throw err;
+  }
   const subidos = [];
   try {
     for (const f of req.files) {
@@ -97,6 +102,8 @@ async function subirAdjuntos(req, registroLike) {
   }
   return subidos;
 }
+
+const carpetaEvidencias = async () => (await Config.findOne({ key: 'kpiBoxCarpetaId' }).lean())?.value || '';
 
 async function descartarAdjuntos(adjuntos) {
   for (const a of adjuntos) await box.eliminarArchivo(a.boxFileId).catch(() => {});
@@ -125,6 +132,12 @@ router.get('/captura/opciones', async (req, res) => {
       };
     }));
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /captura/config — si se puede adjuntar evidencia (carpeta de Box configurada).
+router.get('/captura/config', async (req, res) => {
+  try { res.json({ evidenciaHabilitada: !!(await carpetaEvidencias()) }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST /registros/evaluar — calcula resultado y semáforo SIN guardar (para la confirmación).
@@ -157,7 +170,7 @@ router.post('/registros', conArchivos, async (req, res) => {
     };
     let adjuntos;
     try { adjuntos = await subirAdjuntos(req, base); }
-    catch (err) { return res.status(502).json({ error: `No se guardó el registro: ${err.message}` }); }
+    catch (err) { return res.status(err.status || 500).json({ error: `No se guardó el registro: ${err.message}` }); }
 
     let registro;
     try {
@@ -227,7 +240,7 @@ router.get('/registros/:id/adjuntos/:fileId', async (req, res) => {
     if (!r) return;
     if (!r.adjuntos.some(a => a.boxFileId === req.params.fileId)) return res.status(404).json({ error: 'Adjunto no encontrado' });
     res.json({ url: await box.urlDescarga(req.params.fileId) });
-  } catch (err) { res.status(502).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── Corrección (solo admin) ──────────────────────────────────────
@@ -281,7 +294,7 @@ router.post('/registros/:id/adjuntos', soloAdmin, conArchivos, async (req, res) 
     if (!req.files?.length) return res.status(400).json({ error: 'Adjunte al menos un archivo' });
     let nuevos;
     try { nuevos = await subirAdjuntos(req, r); }
-    catch (err) { return res.status(502).json({ error: err.message }); }
+    catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
     r.adjuntos.push(...nuevos);
     r.$locals.correccionAutorizada = true;
     await r.save();

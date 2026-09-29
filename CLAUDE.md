@@ -1482,3 +1482,18 @@ memoria con usuarios de prueba (credenciales en el propio archivo).
 5. Recomendado: rotar la contraseña SMTP y el secreto de Box (antes del fix de la Etapa 3
    cualquier usuario autenticado podía leerlos en `GET /api/config`).
 6. Efecto colateral en toda la app: "eliminar usuario" ahora desactiva (sin borrado físico).
+
+**Post-lanzamiento (29/09/2026)**:
+- Fix: el formulario de KPI y el filtro del Dashboard compartían ids (`kd-area`,
+  `kd-unidad`) → "Área inválida" al editar. El formulario usa prefijo `kdf-`;
+  `tests/frontend-ids.test.js` falla si `public/kpis.js` repite ids (las pestañas y
+  modales conviven en el DOM).
+- Evidencia: zona que acepta pegar imágenes (Ctrl+V en todo el formulario, renombradas
+  `captura-dd-mm-aaaa-hh-mm-ss.png`), arrastrar archivos, miniaturas y ✕
+  (`kpiZonaEvidenciaHtml`/`kpiBindZonaEvidencia`).
+- "Error 504" al registrar con evidencia: el proxy de DigitalOcean corta peticiones lentas
+  y responde sin JSON. Ahora: toda llamada a Box tiene tiempo límite (`fetchBox`, 20 s;
+  subida 60 s) con error claro; errores de Box → 500 (no 502/504) y carpeta no configurada
+  → 400 antes de tocar Box; `GET /kpis/captura/config` (`evidenciaHabilitada`) para avisar
+  en la captura; y si la respuesta no llega (`sinRespuesta` en `kpiPostMultipart`), la
+  pantalla consulta si el registro se guardó antes de dejar reintentar.

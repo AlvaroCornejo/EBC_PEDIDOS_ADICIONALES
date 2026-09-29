@@ -26,6 +26,7 @@ beforeEach(async () => {
   await h.limpiar();
   subidas.length = 0; eliminados.length = 0;
   await Sociedad.insertMany([{ codigo: 'GB', nombre: 'GB' }, { codigo: 'ERSAC', nombre: 'ERSAC' }]);
+  await require('../models/Config').create({ key: 'kpiBoxCarpetaId', value: '123' });
   const base = { areaCodigo: 'COMPRAS', frecuencia: 'MENSUAL', sentido: 'MAYOR', unidad: '%', unidades: ['GB', 'ERSAC'] };
   kpi      = await KpiDefinicion.create({ ...base, codigo: 'COM-02', nombre: 'OTIF' });
   kpiRatio = await KpiDefinicion.create({ ...base, codigo: 'COM-07', nombre: 'Match', tipoCaptura: 'RATIO' });
@@ -114,6 +115,35 @@ describe('Captura', () => {
 
     const dl = await u.get(`/api/kpis/registros/${r.body._id}/adjuntos/${r.body.adjuntos[0].boxFileId}`);
     assert.equal(dl.body.url, 'https://dl.box.test/f1');
+  });
+
+  it('sin carpeta de Box configurada: error claro (400), no se guarda nada y se avisa en la config de captura', async () => {
+    const Config = require('../models/Config');
+    await Config.collection.deleteMany({ key: 'kpiBoxCarpetaId' });
+    const u = await capturista();
+    assert.equal((await u.get('/api/kpis/captura/config')).body.evidenciaHabilitada, false);
+    const r = await u.post('/api/kpis/registros')
+      .field('datos', JSON.stringify({ kpiId: String(kpi._id), periodo: MES_PASADO, unidadCodigo: 'GB', valor: 96, confirmado: true }))
+      .attach('archivos', Buffer.from('x'), 'a.xlsm');
+    assert.equal(r.status, 400);
+    assert.match(r.body.error, /no está configurada/);
+    assert.equal(subidas.length, 0);
+    assert.equal(await KpiRegistro.countDocuments(), 0);
+    assert.equal((await registrar(u)).status, 200, 'sin evidencia sí se puede registrar');
+  });
+
+  it('si Box falla, responde 500 con el motivo (nunca 502/504) y no guarda', async () => {
+    const original = box.subirArchivo;
+    box.subirArchivo = async () => { throw new Error('Box no respondió en 60 s; intente de nuevo'); };
+    try {
+      const u = await capturista();
+      const r = await u.post('/api/kpis/registros')
+        .field('datos', JSON.stringify({ kpiId: String(kpi._id), periodo: MES_PASADO, unidadCodigo: 'GB', valor: 96, confirmado: true }))
+        .attach('archivos', Buffer.from('x'), 'a.pdf');
+      assert.equal(r.status, 500);
+      assert.match(r.body.error, /No se guardó el registro: Box no respondió/);
+      assert.equal(await KpiRegistro.countDocuments(), 0);
+    } finally { box.subirArchivo = original; }
   });
 
   it('si el registro no se guarda, la evidencia subida a Box se elimina', async () => {
