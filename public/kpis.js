@@ -952,91 +952,91 @@ function kpiModalDefinicion(kpi, ctx) {
   openModal(kpi ? `Editar ${kpi.codigo}` : 'Nuevo KPI', `
     <div class="flex gap-12">
       <div class="form-group" style="width:140px"><label>Código *</label>
-        <input type="text" id="kd-codigo" value="${esc(k.codigo || '')}" ${kpi ? 'disabled' : ''} style="text-transform:uppercase" placeholder="COM-08"></div>
-      <div class="form-group" style="flex:1"><label>Nombre *</label><input type="text" id="kd-nombre" value="${esc(k.nombre || '')}"></div>
+        <input type="text" id="kdf-codigo" value="${esc(k.codigo || '')}" ${kpi ? 'disabled' : ''} style="text-transform:uppercase" placeholder="COM-08"></div>
+      <div class="form-group" style="flex:1"><label>Nombre *</label><input type="text" id="kdf-nombre" value="${esc(k.nombre || '')}"></div>
     </div>
     <div class="flex gap-12">
       <div class="form-group" style="flex:1"><label>Área *</label>
-        <select id="kd-area">${ctx.areas.map(a => `<option value="${esc(a.codigo)}" ${a.codigo === k.areaCodigo ? 'selected' : ''}>${esc(a.nombre)}</option>`).join('')}</select></div>
+        <select id="kdf-area">${ctx.areas.map(a => `<option value="${esc(a.codigo)}" ${a.codigo === k.areaCodigo ? 'selected' : ''}>${esc(a.nombre)}</option>`).join('')}</select></div>
       <div class="form-group" style="flex:1"><label>Fuente del dato</label>
-        <input type="text" id="kd-fuente" list="kd-fuentes" value="${esc(k.fuente || '')}">
-        <datalist id="kd-fuentes">${KPI_FUENTES.map(f => `<option value="${esc(f)}">`).join('')}</datalist></div>
+        <input type="text" id="kdf-fuente" list="kdf-fuentes" value="${esc(k.fuente || '')}">
+        <datalist id="kdf-fuentes">${KPI_FUENTES.map(f => `<option value="${esc(f)}">`).join('')}</datalist></div>
     </div>
-    <div class="form-group"><label>Descripción</label><textarea id="kd-descripcion" rows="2">${esc(k.descripcion || '')}</textarea></div>
-    <div class="form-group"><label>Fórmula (explicación)</label><textarea id="kd-formula" rows="2" placeholder="Ej. OC entregadas completas y a tiempo / total de OC × 100">${esc(k.formula || '')}</textarea></div>
+    <div class="form-group"><label>Descripción</label><textarea id="kdf-descripcion" rows="2">${esc(k.descripcion || '')}</textarea></div>
+    <div class="form-group"><label>Fórmula (explicación)</label><textarea id="kdf-formula" rows="2" placeholder="Ej. OC entregadas completas y a tiempo / total de OC × 100">${esc(k.formula || '')}</textarea></div>
     <div class="flex gap-12" style="flex-wrap:wrap">
-      <div class="form-group" style="flex:1;min-width:130px"><label>Unidad</label><select id="kd-unidad">${opts(KPI_UNIDADES, k.unidad)}</select></div>
-      <div class="form-group" style="flex:1;min-width:130px"><label>Frecuencia</label><select id="kd-frecuencia">${opts(KPI_FRECUENCIAS, k.frecuencia)}</select></div>
+      <div class="form-group" style="flex:1;min-width:130px"><label>Unidad</label><select id="kdf-unidad">${opts(KPI_UNIDADES, k.unidad)}</select></div>
+      <div class="form-group" style="flex:1;min-width:130px"><label>Frecuencia</label><select id="kdf-frecuencia">${opts(KPI_FRECUENCIAS, k.frecuencia)}</select></div>
       <div class="form-group" style="flex:1;min-width:160px"><label>Tipo de captura</label>
-        <select id="kd-tipo">${opts({ DIRECTO: 'Valor directo', RATIO: 'Numerador / denominador' }, k.tipoCaptura)}</select></div>
-      <div class="form-group" style="flex:1;min-width:160px"><label>Sentido</label><select id="kd-sentido" ${kpi ? 'disabled title="Para cambiar el sentido cree un KPI nuevo: las metas vigentes dependen de él"' : ''}>${opts(KPI_SENTIDOS, k.sentido)}</select></div>
-      <div class="form-group" style="width:130px"><label>Plazo captura (días)</label><input type="number" min="0" max="60" id="kd-plazo" value="${k.plazoCapturaDias}"></div>
+        <select id="kdf-tipo">${opts({ DIRECTO: 'Valor directo', RATIO: 'Numerador / denominador' }, k.tipoCaptura)}</select></div>
+      <div class="form-group" style="flex:1;min-width:160px"><label>Sentido</label><select id="kdf-sentido" ${kpi ? 'disabled title="Para cambiar el sentido cree un KPI nuevo: las metas vigentes dependen de él"' : ''}>${opts(KPI_SENTIDOS, k.sentido)}</select></div>
+      <div class="form-group" style="width:130px"><label>Plazo captura (días)</label><input type="number" min="0" max="60" id="kdf-plazo" value="${k.plazoCapturaDias}"></div>
     </div>
-    <div class="text-muted" id="kd-ayuda-ratio" style="font-size:11px;margin:-6px 0 10px"></div>
+    <div class="text-muted" id="kdf-ayuda-ratio" style="font-size:11px;margin:-6px 0 10px"></div>
     ${kpi ? '' : `
       <div class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
         <label style="font-weight:600;color:var(--text-muted)">Meta inicial <span style="font-weight:normal">(vacía = KPI informativo, sin semáforo)</span></label>
-        <div id="kd-meta-campos"></div>
-        <div class="form-group" style="width:200px"><label>Vigente desde</label><input type="date" id="kd-vigente" value="${hoyMes}-01"></div>
+        <div id="kdf-meta-campos"></div>
+        <div class="form-group" style="width:200px"><label>Vigente desde</label><input type="date" id="kdf-vigente" value="${hoyMes}-01"></div>
       </div>`}
     <div class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
       <label style="font-weight:600;color:var(--text-muted)">Ámbito — a qué unidades aplica</label>
-      <select id="kd-nivel" style="width:auto;margin-bottom:8px">${opts({ SOCIEDAD: 'Por sociedad', OPERACION: 'Por operación' }, k.nivelAmbito)}</select>
-      <div id="kd-unidades" style="display:flex;flex-wrap:wrap;gap:6px 16px"></div>
+      <select id="kdf-nivel" style="width:auto;margin-bottom:8px">${opts({ SOCIEDAD: 'Por sociedad', OPERACION: 'Por operación' }, k.nivelAmbito)}</select>
+      <div id="kdf-unidades" style="display:flex;flex-wrap:wrap;gap:6px 16px"></div>
     </div>
     <div class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
       <label style="font-weight:600;color:var(--text-muted)">Responsables de captura</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px 16px;max-height:140px;overflow:auto">
         ${ctx.responsables.map(u => `<label style="display:flex;align-items:center;gap:5px;font-weight:normal;font-size:13px">
-          <input type="checkbox" class="kd-resp" value="${esc(u.id)}" ${k.responsables.includes(u.id) ? 'checked' : ''}> ${esc(u.username)}</label>`).join('')}
+          <input type="checkbox" class="kdf-resp" value="${esc(u.id)}" ${k.responsables.includes(u.id) ? 'checked' : ''}> ${esc(u.username)}</label>`).join('')}
       </div>
       <div class="text-muted" style="font-size:11px;margin-top:4px">Reciben los recordatorios. Para poder registrar, además necesitan nivel Captura en el área (Admin → Usuarios).</div>
     </div>
-    <div id="kd-error" class="msg-error hidden"></div>
+    <div id="kdf-error" class="msg-error hidden"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" id="kd-guardar">💾 Guardar</button>
+      <button class="btn btn-primary" id="kdf-guardar">💾 Guardar</button>
     </div>`, null, { wide: true });
 
   const $ = (id) => document.getElementById(id);
   const seleccionadas = new Set(k.unidades);
   const pintarUnidades = () => {
-    const lista = $('kd-nivel').value === 'OPERACION'
+    const lista = $('kdf-nivel').value === 'OPERACION'
       ? (S.sociedades || []).flatMap(s => (s.operaciones || []).map(o => o.codigo))
       : (S.sociedades || []).map(s => s.codigo);
-    $('kd-unidades').innerHTML = lista.map(c => `<label style="display:flex;align-items:center;gap:5px;font-weight:normal;font-size:13px">
-      <input type="checkbox" class="kd-uni" value="${esc(c)}" ${seleccionadas.has(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('')
+    $('kdf-unidades').innerHTML = lista.map(c => `<label style="display:flex;align-items:center;gap:5px;font-weight:normal;font-size:13px">
+      <input type="checkbox" class="kdf-uni" value="${esc(c)}" ${seleccionadas.has(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('')
       || '<span class="text-muted">No hay unidades en el catálogo de Sociedades y Operaciones.</span>';
   };
   const pintarAyuda = () => {
-    $('kd-ayuda-ratio').textContent = $('kd-tipo').value === 'RATIO'
-      ? `Se capturan numerador y denominador; la app calcula numerador ÷ denominador${$('kd-unidad').value === '%' ? ' × 100' : ''}.` : '';
+    $('kdf-ayuda-ratio').textContent = $('kdf-tipo').value === 'RATIO'
+      ? `Se capturan numerador y denominador; la app calcula numerador ÷ denominador${$('kdf-unidad').value === '%' ? ' × 100' : ''}.` : '';
   };
-  const pintarMeta = () => { if ($('kd-meta-campos')) $('kd-meta-campos').innerHTML = kpiCamposMetaHtml($('kd-sentido').value, 'kd'); };
+  const pintarMeta = () => { if ($('kdf-meta-campos')) $('kdf-meta-campos').innerHTML = kpiCamposMetaHtml($('kdf-sentido').value, 'kdf'); };
   pintarUnidades(); pintarAyuda(); pintarMeta();
-  $('kd-unidades').addEventListener('change', e => { if (e.target.checked) seleccionadas.add(e.target.value); else seleccionadas.delete(e.target.value); });
-  $('kd-nivel').addEventListener('change', () => { seleccionadas.clear(); pintarUnidades(); });
-  $('kd-tipo').addEventListener('change', pintarAyuda);
-  $('kd-unidad').addEventListener('change', pintarAyuda);
-  $('kd-sentido').addEventListener('change', pintarMeta);
+  $('kdf-unidades').addEventListener('change', e => { if (e.target.checked) seleccionadas.add(e.target.value); else seleccionadas.delete(e.target.value); });
+  $('kdf-nivel').addEventListener('change', () => { seleccionadas.clear(); pintarUnidades(); });
+  $('kdf-tipo').addEventListener('change', pintarAyuda);
+  $('kdf-unidad').addEventListener('change', pintarAyuda);
+  $('kdf-sentido').addEventListener('change', pintarMeta);
 
-  $('kd-guardar').addEventListener('click', async () => {
+  $('kdf-guardar').addEventListener('click', async () => {
     const body = {
-      nombre: $('kd-nombre').value, areaCodigo: $('kd-area').value, fuente: $('kd-fuente').value,
-      descripcion: $('kd-descripcion').value, formula: $('kd-formula').value,
-      unidad: $('kd-unidad').value, frecuencia: $('kd-frecuencia').value, tipoCaptura: $('kd-tipo').value,
-      plazoCapturaDias: Number($('kd-plazo').value),
-      nivelAmbito: $('kd-nivel').value, unidades: [...seleccionadas],
-      responsables: [...document.querySelectorAll('.kd-resp:checked')].map(c => c.value),
+      nombre: $('kdf-nombre').value, areaCodigo: $('kdf-area').value, fuente: $('kdf-fuente').value,
+      descripcion: $('kdf-descripcion').value, formula: $('kdf-formula').value,
+      unidad: $('kdf-unidad').value, frecuencia: $('kdf-frecuencia').value, tipoCaptura: $('kdf-tipo').value,
+      plazoCapturaDias: Number($('kdf-plazo').value),
+      nivelAmbito: $('kdf-nivel').value, unidades: [...seleccionadas],
+      responsables: [...document.querySelectorAll('.kdf-resp:checked')].map(c => c.value),
     };
-    if (!kpi) Object.assign(body, { codigo: $('kd-codigo').value, sentido: $('kd-sentido').value, vigenteDesde: $('kd-vigente').value, ...kpiLeerMeta('kd') });
+    if (!kpi) Object.assign(body, { codigo: $('kdf-codigo').value, sentido: $('kdf-sentido').value, vigenteDesde: $('kdf-vigente').value, ...kpiLeerMeta('kdf') });
     try {
       if (kpi) await PUT(`/kpis/definiciones/${kpi._id}`, body);
       else await POST('/kpis/definiciones', body);
       closeModal();
       toast('KPI guardado', 'success');
       ctx.recargar();
-    } catch (err) { $('kd-error').textContent = err.message; $('kd-error').classList.remove('hidden'); }
+    } catch (err) { $('kdf-error').textContent = err.message; $('kdf-error').classList.remove('hidden'); }
   });
 }
 
