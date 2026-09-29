@@ -11853,6 +11853,19 @@ async function viewPL(container) {
         const tb = colsD.reduce((s,c) => s + (b[c]||0), 0);
         return ta - tb;
       });
+      // Si hay muchos ítems, se muestran solo los 20 más negativos y los 20 más
+      // positivos (por su total con signo) — el resto se agrupa en una sola fila
+      // "OTROS", sumada columna por columna. Con 40 o menos no hace falta agrupar.
+      const N = 20;
+      let filas = data.datos;
+      if (data.datos.length > N * 2) {
+        const negativos = data.datos.slice(0, N);
+        const positivos = data.datos.slice(-N);
+        const otros = data.datos.slice(N, data.datos.length - N);
+        const otrosRow = { nombreItem: `OTROS (${otros.length} ítems)`, esOtros: true };
+        colsD.forEach(c => { otrosRow[c] = otros.reduce((s, r) => s + (r[c] || 0), 0); });
+        filas = [...negativos, otrosRow, ...positivos];
+      }
       const { h1, h2 } = _plDetalleHeaderCells();
       container.innerHTML = `<table style="width:${_plDetalleTableWidth()}px;border-collapse:collapse;font-size:12px;margin:2px 0 4px 0;table-layout:fixed">
         ${_plDetalleColgroup()}
@@ -11863,12 +11876,11 @@ async function viewPL(container) {
           </tr>
           <tr style="background:var(--bg-card)">${h2}</tr>
         </thead>
-        <tbody>${data.datos.slice(0,200).map(r => `
-          <tr style="border-bottom:1px solid var(--border)">
+        <tbody>${filas.map(r => `
+          <tr style="border-bottom:1px solid var(--border);${r.esOtros ? 'font-style:italic;color:var(--text-muted)' : ''}">
             <td style="width:340px;padding:3px 10px 3px 56px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.nombreItem)}</td>
             ${_plDetalleRowCells(r)}
           </tr>`).join('')}
-        ${data.datos.length>200?`<tr><td colspan="${_plDetalleColspan()}" style="padding:3px 16px;color:var(--text-muted);font-style:italic;font-size:11px">... y ${data.datos.length-200} más</td></tr>`:''}
         </tbody></table>`;
     } catch(e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
   }
