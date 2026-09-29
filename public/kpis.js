@@ -412,17 +412,79 @@ async function kpiPostMultipart(path, datos, archivos) {
   return data;
 }
 
-// styles.css oculta todos los input[type=file]: se usa un botón que lo abre + la lista elegida.
-const kpiSelectorArchivosHtml = (id) => `
-  <input type="file" id="${id}" multiple>
-  <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('${id}').click()">📎 Elegir archivos</button>
-  <span id="${id}-lista" class="text-muted" style="font-size:12px;margin-left:8px">Ningún archivo</span>`;
-function kpiBindSelectorArchivos(id) {
-  const input = document.getElementById(id);
-  input.addEventListener('change', () => {
-    document.getElementById(`${id}-lista`).textContent = input.files.length
-      ? [...input.files].map(f => `${f.name} (${f.size < 1048576 ? `${kpiFmtNum(f.size / 1024, 0)} KB` : `${kpiFmtNum(f.size / 1048576, 1)} MB`})`).join(', ') : 'Ningún archivo';
+// ─── Zona de evidencia: pegar (Ctrl+V), arrastrar o elegir archivos ──
+// Mismos límites que el backend (routes/kpiRegistros.js): 5 archivos de 20 MB.
+const KPI_MAX_ARCHIVOS = 5, KPI_MAX_BYTES = 20 * 1024 * 1024;
+const kpiFmtBytes = (b) => b < 1024 ? '< 1 KB' : b < 1048576 ? `${kpiFmtNum(b / 1024, 0)} KB` : `${kpiFmtNum(b / 1048576, 1)} MB`;
+
+// styles.css oculta todos los input[type=file]: se abre con el botón.
+const kpiZonaEvidenciaHtml = (id) => `
+  <div id="${id}-zona" tabindex="0" style="border:2px dashed var(--border);border-radius:8px;padding:12px;outline:none;transition:border-color .15s,background .15s">
+    <input type="file" id="${id}" multiple>
+    <div class="flex items-center gap-8" style="flex-wrap:wrap">
+      <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('${id}').click()">📎 Elegir archivos</button>
+      <span class="text-muted" style="font-size:12px">o pega una imagen con <strong>Ctrl+V</strong>, o arrastra archivos aquí</span>
+    </div>
+    <div id="${id}-lista" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+  </div>`;
+
+// Nombre legible para lo pegado desde el portapapeles (llega como "image.png").
+function kpiNombreCaptura(tipo, n) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date()).map(x => [x.type, x.value]));
+  const ext = (tipo.split('/')[1] || 'png').replace('jpeg', 'jpg');
+  return `captura-${p.day}-${p.month}-${p.year}-${p.hour}-${p.minute}-${p.second}${n ? `-${n + 1}` : ''}.${ext}`;
+}
+
+// Enlaza la zona. `areaPegado` = contenedor donde Ctrl+V agrega imágenes (el formulario
+// entero, para que funcione aunque el foco esté en el comentario; el texto se pega normal).
+// Devuelve { archivos() } con la lista actual.
+function kpiBindZonaEvidencia(id, areaPegado) {
+  const input = document.getElementById(id), zona = document.getElementById(`${id}-zona`), listaEl = document.getElementById(`${id}-lista`);
+  const lista = []; // { file, url }
+
+  const pintar = () => {
+    listaEl.innerHTML = lista.map((a, i) => `
+      <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;background:#fff;font-size:12px;max-width:100%">
+        ${a.url ? `<img src="${a.url}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:4px">` : '<span style="font-size:20px">📄</span>'}
+        <span style="max-width:220px;overflow-wrap:anywhere">${esc(a.file.name)}<br><span class="text-muted">${kpiFmtBytes(a.file.size)}</span></span>
+        <button type="button" class="btn btn-xs btn-outline" data-quitar="${i}" title="Quitar" style="padding:1px 6px">✕</button>
+      </div>`).join('');
+  };
+  const agregar = (files, desdePortapapeles = false) => {
+    let n = 0;
+    for (const f0 of files) {
+      if (lista.length >= KPI_MAX_ARCHIVOS) { toast(`Máximo ${KPI_MAX_ARCHIVOS} archivos por registro`, 'error'); break; }
+      if (f0.size > KPI_MAX_BYTES) { toast(`${f0.name}: supera 20 MB`, 'error'); continue; }
+      const f = desdePortapapeles ? new File([f0], kpiNombreCaptura(f0.type, n++), { type: f0.type }) : f0;
+      lista.push({ file: f, url: f.type.startsWith('image/') ? URL.createObjectURL(f) : null });
+    }
+    pintar();
+  };
+
+  input.addEventListener('change', () => { agregar([...input.files]); input.value = ''; });
+  listaEl.addEventListener('click', e => {
+    const b = e.target.closest('[data-quitar]');
+    if (!b) return;
+    const [quitado] = lista.splice(Number(b.dataset.quitar), 1);
+    if (quitado.url) URL.revokeObjectURL(quitado.url);
+    pintar();
   });
+  (areaPegado || zona).addEventListener('paste', e => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (!files.length) return; // texto: se pega normal en el campo que tenga el foco
+    e.preventDefault();
+    agregar(files, true);
+    toast(files.length === 1 ? 'Imagen agregada a la evidencia' : `${files.length} archivos agregados a la evidencia`, 'success');
+  });
+  const resaltar = (on) => { zona.style.borderColor = on ? 'var(--primary)' : 'var(--border)'; zona.style.background = on ? '#eef2ff' : ''; };
+  zona.addEventListener('dragover', e => { e.preventDefault(); resaltar(true); });
+  zona.addEventListener('dragleave', () => resaltar(false));
+  zona.addEventListener('drop', e => { e.preventDefault(); resaltar(false); agregar([...e.dataTransfer.files]); });
+  zona.addEventListener('focus', () => resaltar(true));
+  zona.addEventListener('blur', () => resaltar(false));
+
+  return { archivos: () => lista.map(a => a.file) };
 }
 
 async function kpiAbrirAdjunto(registroId, fileId) {
@@ -466,7 +528,7 @@ async function kpiRenderCaptura(el) {
         <div class="form-group"><label>Comentario <span id="kc-com-oblig" style="color:#dc2626;display:none">* (obligatorio: resultado en rojo)</span></label>
           <textarea id="kc-comentario" rows="3" maxlength="2000"></textarea></div>
         <div class="form-group"><label>Evidencia (opcional, se guarda en Box)</label>
-          <div>${kpiSelectorArchivosHtml('kc-archivos')}</div>
+          ${kpiZonaEvidenciaHtml('kc-archivos')}
           <div class="text-muted" style="font-size:11px;margin-top:4px">Hasta 5 archivos de 20 MB cada uno.</div></div>
         <div id="kc-error" class="msg-error hidden"></div>
         <button class="btn btn-primary" id="kc-revisar">Revisar y registrar</button>
@@ -474,7 +536,7 @@ async function kpiRenderCaptura(el) {
     </div>`;
 
   const $ = (id) => document.getElementById(id);
-  kpiBindSelectorArchivos('kc-archivos');
+  const evidencia = kpiBindZonaEvidencia('kc-archivos', $('kc-resto'));
   let kpi = null, registrados = new Set();
 
   const datosForm = () => ({
@@ -542,7 +604,7 @@ async function kpiRenderCaptura(el) {
     if (!r) { errEl.textContent = 'Complete el valor para continuar.'; errEl.classList.remove('hidden'); return; }
     const comentario = $('kc-comentario').value.trim();
     if (r.comentarioObligatorio && !comentario) { errEl.textContent = 'El resultado queda en rojo: el comentario es obligatorio.'; errEl.classList.remove('hidden'); return; }
-    const archivos = [...$('kc-archivos').files];
+    const archivos = evidencia.archivos();
     const d = datosForm();
     const periodo = kpi.periodos.find(p => p.periodo === d.periodo);
 
@@ -691,7 +753,7 @@ async function kpiModalRegistro(id, alCambiar) {
       </details>
       <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600">📎 Agregar evidencia (administrador)</summary>
         <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:8px">
-          <div style="margin-bottom:8px">${kpiSelectorArchivosHtml('kx-archivos')}</div>
+          <div style="margin-bottom:8px">${kpiZonaEvidenciaHtml('kx-archivos')}</div>
           <div class="form-group"><label>Motivo *</label><input type="text" id="kx-adj-motivo"></div>
           <button class="btn btn-outline btn-sm" id="kx-adjuntar">Subir evidencia</button>
         </div>
@@ -701,7 +763,7 @@ async function kpiModalRegistro(id, alCambiar) {
 
   if (!S.kpi.esAdmin) return;
   const $ = (i) => document.getElementById(i);
-  kpiBindSelectorArchivos('kx-archivos');
+  const evidenciaAdmin = kpiBindZonaEvidencia('kx-archivos', $('kx-archivos-zona').parentElement.parentElement);
   const error = (m) => { $('kx-error').textContent = m; $('kx-error').classList.remove('hidden'); };
   const listo = (msg) => { toast(msg, 'success'); kpiModalRegistro(id, alCambiar); alCambiar?.(); };
   $('kx-corregir').addEventListener('click', async () => {
@@ -712,7 +774,7 @@ async function kpiModalRegistro(id, alCambiar) {
     catch (err) { error(err.message); }
   });
   $('kx-adjuntar').addEventListener('click', async () => {
-    const archivos = [...$('kx-archivos').files];
+    const archivos = evidenciaAdmin.archivos();
     if (!archivos.length) return error('Seleccione al menos un archivo');
     try { await kpiPostMultipart(`/kpis/registros/${id}/adjuntos`, { motivo: $('kx-adj-motivo').value }, archivos); listo('Evidencia agregada'); }
     catch (err) { error(err.message); }
