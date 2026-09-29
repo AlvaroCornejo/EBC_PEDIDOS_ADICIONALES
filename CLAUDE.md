@@ -1488,9 +1488,9 @@ memoria con usuarios de prueba (credenciales en el propio archivo).
   `kd-unidad`) → "Área inválida" al editar. El formulario usa prefijo `kdf-`;
   `tests/frontend-ids.test.js` falla si `public/kpis.js` repite ids (las pestañas y
   modales conviven en el DOM).
-- Evidencia: zona que acepta pegar imágenes (Ctrl+V en todo el formulario, renombradas
-  `captura-dd-mm-aaaa-hh-mm-ss.png`), arrastrar archivos, miniaturas y ✕
-  (`kpiZonaEvidenciaHtml`/`kpiBindZonaEvidencia`).
+- Evidencia: se probó una zona para pegar imágenes (Ctrl+V) y arrastrar archivos, pero el
+  usuario prefirió volver a **solo adjuntar** con el botón "📎 Elegir archivos"
+  (`kpiSelectorArchivosHtml`/`kpiBindSelectorArchivos`, que devuelve `{ archivos() }`).
 - "Error 504" al registrar con evidencia: el proxy de DigitalOcean corta peticiones lentas
   y responde sin JSON. Ahora: toda llamada a Box tiene tiempo límite (`fetchBox`, 20 s;
   subida 60 s) con error claro; errores de Box → 500 (no 502/504) y carpeta no configurada
