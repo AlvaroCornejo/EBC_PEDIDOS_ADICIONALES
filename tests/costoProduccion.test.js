@@ -36,6 +36,7 @@ describe('Lectura del Excel de costo de producción', () => {
     assert.deepEqual(r.docs.map(d => [d.mes, d.cantidad, d.costoReal]), [[1, 100, 0.16], [9, 50, 0.2], [12, 10, 0.18]]);
     assert.equal(r.docs[0].costoReceta, 0.18);
     assert.equal(r.docs[0].item, '1187');
+    assert.equal(r.docs[0].operacion, 'PLANTA');
   });
 
   it('no guarda meses sin producción y marca ítems sin costo receta', () => {
@@ -65,12 +66,13 @@ describe('Lectura del Excel de costo de producción', () => {
 
 describe('Accesos a Costo de Producción', () => {
   beforeEach(async () => {
-    const base = { anio: 2026, mes: 1, cantidad: 10, costoReal: 1, costoReceta: 1.1, unidad: 'UND' };
+    const base = { operacion: 'PLANTA', anio: 2026, mes: 1, cantidad: 10, costoReal: 1, costoReceta: 1.1, unidad: 'UND' };
     await CostoProduccion.insertMany([
       { ...base, area: 'PANADERIA', item: '1', nombre: 'PAN' },
       { ...base, area: 'PREP', item: '2', nombre: 'SALSA' },
       { ...base, area: 'PREP', item: '2', nombre: 'SALSA', mes: 2 },
       { ...base, area: 'REPOSTERIA', item: '3', nombre: 'TORTA', anio: 2025 },
+      { ...base, operacion: 'GBPLANTA', area: 'PREP', item: '9', nombre: 'OTRA PLANTA' },
     ]);
   });
 
@@ -79,10 +81,12 @@ describe('Accesos a Costo de Producción', () => {
     assert.equal((await u.get('/api/costo-produccion/datos')).status, 403);
   });
 
-  it('ADMIN ve todas las áreas y el año más reciente por defecto', async () => {
+  it('ADMIN ve todas las operaciones y áreas, y el año más reciente por defecto', async () => {
     const a = await h.comoUsuario({ role: 'ADMIN' });
-    const r = await a.get('/api/costo-produccion/datos');
+    const r = await a.get('/api/costo-produccion/datos?operacion=PLANTA');
     assert.equal(r.status, 200);
+    assert.deepEqual(r.body.operaciones, ['GBPLANTA', 'PLANTA']);
+    assert.equal(r.body.operacion, 'PLANTA');
     assert.equal(r.body.anio, 2026);
     assert.deepEqual(r.body.anios, [2026, 2025]);
     assert.deepEqual(r.body.areas, ['PANADERIA', 'PREP']);
@@ -91,7 +95,7 @@ describe('Accesos a Costo de Producción', () => {
   });
 
   it('con áreas asignadas solo ve esas áreas', async () => {
-    const u = await h.comoUsuario({ accesoCostoProduccion: true, areasCostoProduccion: ['PREP'] });
+    const u = await h.comoUsuario({ accesoCostoProduccion: true, operations: ['PLANTA'], areasCostoProduccion: ['PREP'] });
     const r = await u.get('/api/costo-produccion/datos');
     assert.deepEqual(r.body.areas, ['PREP']);
     assert.ok(r.body.items.every(i => i.area === 'PREP'));
@@ -100,10 +104,27 @@ describe('Accesos a Costo de Producción', () => {
   });
 
   it('el permiso se aplica al instante, sin volver a iniciar sesión', async () => {
-    const u = await h.comoUsuario({ accesoCostoProduccion: true });
+    const u = await h.comoUsuario({ accesoCostoProduccion: true, operations: ['PLANTA'] });
     assert.equal((await u.get('/api/costo-produccion/datos')).status, 200);
     await User.updateOne({ id: u.user.id }, { accesoCostoProduccion: false });
     assert.equal((await u.get('/api/costo-produccion/datos')).status, 403);
+  });
+
+  it('solo ve las operaciones que tiene asignadas', async () => {
+    const u = await h.comoUsuario({ accesoCostoProduccion: true, operations: ['PLANTA', 'GBGOL'] });
+    const r = await u.get('/api/costo-produccion/datos');
+    assert.deepEqual(r.body.operaciones, ['PLANTA']);
+    assert.equal(r.body.operacion, 'PLANTA');
+    assert.ok(r.body.items.every(i => i.item !== '9'));
+    assert.equal((await u.get('/api/costo-produccion/datos?operacion=GBPLANTA')).status, 403);
+  });
+
+  it('con el permiso pero sin la operación PLANTA no ve datos', async () => {
+    const u = await h.comoUsuario({ accesoCostoProduccion: true, operations: ['GBGOL'] });
+    const r = await u.get('/api/costo-produccion/datos');
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.operaciones, []);
+    assert.deepEqual(r.body.items, []);
   });
 
   it('el catálogo de áreas es solo para ADMIN', async () => {

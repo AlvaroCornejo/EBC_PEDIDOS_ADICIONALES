@@ -62,7 +62,7 @@ function leerEstructura(ws) {
  * Devuelve { docs, meses, items, sinReceta } — docs: una fila por ítem × mes con producción
  * (cantidad > 0 y costo real > 0); los meses sin producción no se guardan.
  */
-function leerCostoProduccion(wb, anio) {
+function leerCostoProduccion(wb, anio, operacion = 'PLANTA') {
   const ws = wb.getWorksheet('Datos');
   if (!ws) throw new Error('No se encontró la hoja "Datos"');
   const { filaCab, col, meses } = leerEstructura(ws);
@@ -76,7 +76,7 @@ function leerCostoProduccion(wb, anio) {
     if (!item || !area || area === 'AREA') continue;
     const receta = numero(row.getCell(col.receta).value);
     const base = {
-      anio, area, item,
+      operacion, anio, area, item,
       nombre: String(cellVal(row.getCell(col.nombre).value) ?? '').trim(),
       unidad: col.unidad ? String(cellVal(row.getCell(col.unidad).value) ?? '').trim() : '',
       costoReceta: receta > 0 ? receta : null,

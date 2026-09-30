@@ -97,7 +97,7 @@ function cpEstilos() {
 
 async function viewCostoProduccion(container) {
   cpEstilos();
-  const st = { anio: null, area: 'ALL', mes: 0, sem: 'ALL', q: '', sort: 'imp', dir: 1 }; // mes 0 = acumulado
+  const st = { operacion: null, anio: null, area: 'ALL', mes: 0, sem: 'ALL', q: '', sort: 'imp', dir: 1 }; // mes 0 = acumulado
   let D = null; // respuesta de /datos
 
   container.innerHTML = `
@@ -118,12 +118,21 @@ async function viewCostoProduccion(container) {
   };
   const hideTip = () => { tip.hidden = true; };
 
-  async function cargar(anio) {
+  async function cargar(operacion, anio) {
     try {
-      D = await GET('/costo-produccion/datos' + (anio ? `?anio=${anio}` : ''));
+      const qs = new URLSearchParams();
+      if (operacion) qs.set('operacion', operacion);
+      if (anio) qs.set('anio', anio);
+      D = await GET('/costo-produccion/datos' + (qs.toString() ? `?${qs}` : ''));
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
-    if (!D.anio) { root.innerHTML = '<div class="empty-state"><p>Todavía no hay datos de costo de producción cargados.</p></div>'; return; }
-    st.anio = D.anio;
+    if (!D.operaciones.length) {
+      root.innerHTML = `<div class="empty-state"><p>${S.user.role === ROLES.ADMIN
+        ? 'Todavía no hay datos de costo de producción cargados.'
+        : 'No hay datos de costo de producción para tus operaciones. El acceso requiere tener asignada la operación (ej. PLANTA) en Admin → Usuarios.'}</p></div>`;
+      return;
+    }
+    if (!D.anio) { root.innerHTML = '<div class="empty-state"><p>Sin datos para el año elegido.</p></div>'; return; }
+    st.operacion = D.operacion; st.anio = D.anio;
     if (st.area !== 'ALL' && !D.areas.includes(st.area)) st.area = 'ALL';
     if (st.mes && !D.meses.includes(st.mes)) st.mes = 0;
     D.color = Object.fromEntries(D.areas.map((a, i) => [a, CP_COLORES[i % CP_COLORES.length]]));
@@ -134,13 +143,16 @@ async function viewCostoProduccion(container) {
 
   const mesesSel = () => st.mes ? [st.mes] : D.meses;
   const itemsSel = () => D.items.filter(it => st.area === 'ALL' || it.area === st.area);
-  const periodo = () => st.mes ? `${CP_MESES_L[st.mes]} ${D.anio}` : `acumulado ${CP_MESES_L[D.meses[0]].toLowerCase()} – ${CP_MESES_L[D.meses[D.meses.length - 1]].toLowerCase()} ${D.anio}`;
+  const periodo = () => st.mes ? `${D.operacion} · ${CP_MESES_L[st.mes]} ${D.anio}` : `${D.operacion} · acumulado ${CP_MESES_L[D.meses[0]].toLowerCase()} – ${CP_MESES_L[D.meses[D.meses.length - 1]].toLowerCase()} ${D.anio}`;
   const setMes = m => { st.mes = st.mes === m ? 0 : m; document.getElementById('cp-mes').value = st.mes; render(); };
 
   function esqueleto() {
     const seg = (id, opts, val) => `<div class="cp-seg" id="${id}">${opts.map(([v, l]) => `<button type="button" data-v="${esc(v)}" class="${v === val ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     root.innerHTML = `
       <div class="card cp-bar">
+        <div><label for="cp-op">Operación</label>${D.operaciones.length > 1
+          ? `<select id="cp-op" class="form-control" style="width:150px">${D.operaciones.map(o => `<option ${o === D.operacion ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`
+          : `<div class="form-control" style="font-weight:600;border-color:transparent;background:var(--bg);width:auto">${esc(D.operacion)}</div>`}</div>
         ${D.anios.length > 1 ? `<div><label for="cp-anio">Año</label><select id="cp-anio" class="form-control" style="width:100px">${D.anios.map(a => `<option ${a === D.anio ? 'selected' : ''}>${a}</option>`).join('')}</select></div>` : ''}
         <div><label for="cp-mes">Periodo</label><select id="cp-mes" class="form-control" style="width:190px">
           <option value="0">Acumulado del año</option>${D.meses.map(m => `<option value="${m}">${CP_MESES_L[m]}</option>`).join('')}</select></div>
@@ -170,7 +182,8 @@ async function viewCostoProduccion(container) {
       </div>
       <div class="cp-foot" id="cp-foot"></div>`;
 
-    document.getElementById('cp-anio')?.addEventListener('change', e => cargar(Number(e.target.value)));
+    document.getElementById('cp-op')?.addEventListener('change', e => cargar(e.target.value));
+    document.getElementById('cp-anio')?.addEventListener('change', e => cargar(st.operacion, Number(e.target.value)));
     const selMes = document.getElementById('cp-mes');
     selMes.value = st.mes;
     selMes.addEventListener('change', () => { st.mes = Number(selMes.value); render(); });

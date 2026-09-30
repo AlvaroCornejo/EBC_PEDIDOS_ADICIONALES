@@ -14583,7 +14583,7 @@ function showUserModal(user, onSave, opts = {}) {
               <label style="display:flex;align-items:center;gap:5px;font-weight:normal;cursor:pointer">
                 <input type="checkbox" class="um-cp-area" value="${esc(a)}" ${(user?.areasCostoProduccion || []).includes(a) ? 'checked' : ''}
                   style="width:13px;height:13px;accent-color:var(--primary)">${esc(a)}</label>`).join('')}
-            <span style="flex-basis:100%">Sin marcar ninguna = ve todas las áreas.</span>
+            <span style="flex-basis:100%">Sin marcar ninguna = ve todas las áreas. Solo ve las operaciones asignadas arriba (el Excel actual es de PLANTA).</span>
           </div>
         </div>
       </div>

@@ -1502,7 +1502,7 @@ memoria con usuarios de prueba (credenciales en el propio archivo).
 ### Sesión 23 — Costo de Producción de planta (módulo nuevo, rama `feature/costo-produccion`)
 
 Dashboard de costo receta vs. costo real de producción por ítem y mes, áreas de planta
-PANADERIA / PREP / REPOSTERIA. Distinto de **Costeo de Recetas** (`RecetaCosteo`, desde
+PANADERIA / PREP / REPOSTERIA, **operación PLANTA** (el archivo es de esa operación). Distinto de **Costeo de Recetas** (`RecetaCosteo`, desde
 EBC RECETAS.xlsx): este lee el Excel mensual que arma Planta.
 
 **Fuente**: `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC INDICADORES PLANTA\EBC COSTO DE PRODUCCION.xlsx`,
@@ -1514,19 +1514,22 @@ meses no se toca código. Costo receta viene como texto "S/ 0.96" (se parsea); e
 mes sin producción figura como 100 % de desviación). Ítems sin costo receta se guardan con
 `costoReceta: null` y quedan fuera de totales y semáforo.
 
-**Modelo** `CostoProduccion` `{anio, mes, area, item, nombre, unidad, costoReceta, cantidad, costoReal,
-cargadoEn}`. El Excel no dice el año: `importCostoProduccion.js [ruta] [anio]`, default año actual
-(Lima); reemplaza solo ese año (`deleteMany({anio})`).
+**Modelo** `CostoProduccion` `{operacion, anio, mes, area, item, nombre, unidad, costoReceta, cantidad, costoReal,
+cargadoEn}`. El Excel no dice el año: `importCostoProduccion.js [ruta] [anio] [operacion]`, default año actual
+(Lima) y operación PLANTA; reemplaza solo esa operación + año (`deleteMany({operacion, anio})`). Si
+más adelante llega el Excel de otra planta (ej. GBPLANTA), basta otra línea en el bat con su ruta y
+su código de operación.
 
-**Permisos**: `User.accesoCostoProduccion` + `User.areasCostoProduccion` ([] = todas). En el JWT solo
-viaja `accesoCostoProduccion` (para el nav); `routes/costoProduccion.js` resuelve acceso y áreas **en
+**Permisos**: `User.accesoCostoProduccion` + la operación en `User.operations` (mismo criterio que
+Inventarios: sin PLANTA asignada no ve nada) + `User.areasCostoProduccion` ([] = todas). En el JWT solo
+viaja `accesoCostoProduccion` (para el nav); `routes/costoProduccion.js` resuelve acceso, operaciones y áreas **en
 vivo contra la base** en cada request (un cambio rige sin re-login). ADMIN ve todo. Form de usuario:
 checkbox "🏭 Costo de Producción (planta)" + checkboxes de área (catálogo desde
 `GET /costo-produccion/areas`, solo ADMIN).
 
-**Rutas** (`/api/costo-produccion`): `GET /datos?anio=` → `{anios, anio, meses, areas, items:[{item,
+**Rutas** (`/api/costo-produccion`): `GET /datos?operacion=&anio=` → `{operaciones, operacion, anios, anio, meses, areas, items:[{item,
 nombre, area, unidad, costoReceta, meses:{[mes]:{cantidad,costoReal}}}], cargadoEn}` ya filtrado por
-áreas; `GET /areas`.
+operaciones y áreas (operación no autorizada → 403); `GET /areas`.
 
 **Frontend**: `public/costoProduccion.js` (prefijo `cp*`, cargado tras `kpis.js`, usa `kpiFmtFecha`),
 nav `costo-produccion`. Todo se calcula en el navegador (~200 ítems × ≤12 meses): desviación
