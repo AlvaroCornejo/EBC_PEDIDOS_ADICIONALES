@@ -20,6 +20,8 @@ async function codigosValidos() {
   return { ops: new Set(ops), socs: new Set(socs) };
 }
 const filtrarCodigos = (arr, validSet) => Array.isArray(arr) ? arr.filter(c => validSet.has(c)) : [];
+// Costo de Producción: áreas de planta como texto en mayúsculas, sin repetidos ([] = todas).
+const listaAreas = (arr) => Array.isArray(arr) ? [...new Set(arr.map(a => String(a).trim().toUpperCase()).filter(Boolean))] : [];
 
 // Indicadores GAF: una entrada por área (la última gana si viene repetida), solo
 // áreas existentes en el catálogo y niveles válidos.
@@ -45,12 +47,12 @@ router.get('/', adminOnly, async (req, res) => {
 
 router.post('/', adminOnly, async (req, res) => {
   try {
-    const { username, email, password, role, operations, puedeVerKardex, puedeVerComparativo, puedeVerVentas, puedeVerBajas, puedeVerCosteoRecetas, rolPago, sociedadesPago, sociedadesCompra, rolBCT, rol86, accesoBajas, accesoConsumos, accesoTransferencias, acceso86, transferenciaDestinos, accesoEERR, operacionesEERR, accesoConciliacion, sociedadesConciliacion, rolCambioReceta, accesoSaldoBanco, accesoFlujoCaja, rolPlanilla, accesoPlanillas, accesoInventarios, kpiRol, kpiAreas } = req.body;
+    const { username, email, password, role, operations, puedeVerKardex, puedeVerComparativo, puedeVerVentas, puedeVerBajas, puedeVerCosteoRecetas, rolPago, sociedadesPago, sociedadesCompra, rolBCT, rol86, accesoBajas, accesoConsumos, accesoTransferencias, acceso86, transferenciaDestinos, accesoEERR, operacionesEERR, accesoConciliacion, sociedadesConciliacion, rolCambioReceta, accesoSaldoBanco, accesoFlujoCaja, rolPlanilla, accesoPlanillas, accesoInventarios, accesoCostoProduccion, areasCostoProduccion, kpiRol, kpiAreas } = req.body;
     const exists = await User.findOne({ username });
     if (exists) return res.status(400).json({ error: 'El usuario ya existe' });
     if (kpiRol !== undefined && !KPI_ROLES.includes(kpiRol)) return res.status(400).json({ error: 'Rol de Indicadores inválido' });
     const { ops, socs } = await codigosValidos();
-    const user = new User({ id: uuidv4(), username, email: email || '', password: await bcrypt.hash(password, 10), role, operations: filtrarCodigos(operations, ops), puedeVerKardex: !!puedeVerKardex, puedeVerComparativo: !!puedeVerComparativo, puedeVerVentas: !!puedeVerVentas, puedeVerBajas: !!puedeVerBajas, puedeVerCosteoRecetas: !!puedeVerCosteoRecetas, rolPago: rolPago || '', sociedadesPago: filtrarCodigos(sociedadesPago, socs), sociedadesCompra: filtrarCodigos(sociedadesCompra, socs), rolBCT: rolBCT || '', rol86: rol86 || '', accesoBajas: !!accesoBajas, accesoConsumos: !!accesoConsumos, accesoTransferencias: !!accesoTransferencias, acceso86: !!acceso86, transferenciaDestinos: filtrarCodigos(transferenciaDestinos, ops), accesoEERR: !!accesoEERR, operacionesEERR: Array.isArray(operacionesEERR) ? operacionesEERR : [], accesoConciliacion: !!accesoConciliacion, sociedadesConciliacion: filtrarCodigos(sociedadesConciliacion, socs), rolCambioReceta: rolCambioReceta || '', accesoSaldoBanco: !!accesoSaldoBanco, accesoFlujoCaja: !!accesoFlujoCaja, rolPlanilla: rolPlanilla || '', accesoPlanillas: !!accesoPlanillas, accesoInventarios: !!accesoInventarios, kpiRol: kpiRol || '', kpiAreas: await filtrarKpiAreas(kpiAreas) });
+    const user = new User({ id: uuidv4(), username, email: email || '', password: await bcrypt.hash(password, 10), role, operations: filtrarCodigos(operations, ops), puedeVerKardex: !!puedeVerKardex, puedeVerComparativo: !!puedeVerComparativo, puedeVerVentas: !!puedeVerVentas, puedeVerBajas: !!puedeVerBajas, puedeVerCosteoRecetas: !!puedeVerCosteoRecetas, rolPago: rolPago || '', sociedadesPago: filtrarCodigos(sociedadesPago, socs), sociedadesCompra: filtrarCodigos(sociedadesCompra, socs), rolBCT: rolBCT || '', rol86: rol86 || '', accesoBajas: !!accesoBajas, accesoConsumos: !!accesoConsumos, accesoTransferencias: !!accesoTransferencias, acceso86: !!acceso86, transferenciaDestinos: filtrarCodigos(transferenciaDestinos, ops), accesoEERR: !!accesoEERR, operacionesEERR: Array.isArray(operacionesEERR) ? operacionesEERR : [], accesoConciliacion: !!accesoConciliacion, sociedadesConciliacion: filtrarCodigos(sociedadesConciliacion, socs), rolCambioReceta: rolCambioReceta || '', accesoSaldoBanco: !!accesoSaldoBanco, accesoFlujoCaja: !!accesoFlujoCaja, rolPlanilla: rolPlanilla || '', accesoPlanillas: !!accesoPlanillas, accesoInventarios: !!accesoInventarios, accesoCostoProduccion: !!accesoCostoProduccion, areasCostoProduccion: listaAreas(areasCostoProduccion), kpiRol: kpiRol || '', kpiAreas: await filtrarKpiAreas(kpiAreas) });
     await user.save();
     res.json(strip(user));
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -58,7 +60,7 @@ router.post('/', adminOnly, async (req, res) => {
 
 router.put('/:id', adminOnly, async (req, res) => {
   try {
-    const { username, email, password, role, operations, puedeVerKardex, puedeVerComparativo, puedeVerVentas, puedeVerBajas, puedeVerCosteoRecetas, rolPago, sociedadesPago, sociedadesCompra, rolBCT, rol86, accesoBajas, accesoConsumos, accesoTransferencias, acceso86, transferenciaDestinos, accesoEERR, operacionesEERR, accesoConciliacion, sociedadesConciliacion, rolCambioReceta, accesoSaldoBanco, accesoFlujoCaja, rolPlanilla, accesoPlanillas, accesoInventarios, activo, kpiRol, kpiAreas } = req.body;
+    const { username, email, password, role, operations, puedeVerKardex, puedeVerComparativo, puedeVerVentas, puedeVerBajas, puedeVerCosteoRecetas, rolPago, sociedadesPago, sociedadesCompra, rolBCT, rol86, accesoBajas, accesoConsumos, accesoTransferencias, acceso86, transferenciaDestinos, accesoEERR, operacionesEERR, accesoConciliacion, sociedadesConciliacion, rolCambioReceta, accesoSaldoBanco, accesoFlujoCaja, rolPlanilla, accesoPlanillas, accesoInventarios, accesoCostoProduccion, areasCostoProduccion, activo, kpiRol, kpiAreas } = req.body;
     if (activo === false && req.params.id === req.user.id) return res.status(400).json({ error: 'No puede desactivarse a sí mismo' });
     if (kpiRol !== undefined && !KPI_ROLES.includes(kpiRol)) return res.status(400).json({ error: 'Rol de Indicadores inválido' });
     const { ops, socs } = await codigosValidos();
@@ -93,6 +95,8 @@ router.put('/:id', adminOnly, async (req, res) => {
       ...(rolPlanilla !== undefined && { rolPlanilla: rolPlanilla || '' }),
       ...(accesoPlanillas !== undefined && { accesoPlanillas: !!accesoPlanillas }),
       ...(accesoInventarios !== undefined && { accesoInventarios: !!accesoInventarios }),
+      ...(accesoCostoProduccion !== undefined && { accesoCostoProduccion: !!accesoCostoProduccion }),
+      ...(areasCostoProduccion !== undefined && { areasCostoProduccion: listaAreas(areasCostoProduccion) }),
       ...(activo !== undefined && { activo: !!activo }),
       ...(kpiRol !== undefined && { kpiRol: kpiRol || '' }),
       ...(kpiAreas !== undefined && { kpiAreas: await filtrarKpiAreas(kpiAreas) }),

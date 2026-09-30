@@ -280,6 +280,7 @@ const NAV_ITEMS = [
   { id: 'saldo-banco',    label: 'Saldos Bancarios', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoSaldoBanco' },
   { id: 'inventarios',    label: 'Inventarios Diarios', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
   { id: 'inventario-semanal', label: 'Inventario Semanal', icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
+  { id: 'costo-produccion', label: 'Costo de Producción', icon: '🏭', roles: [ROLES.ADMIN], extraPerm: 'accesoCostoProduccion' },
   // kpiAcceso no viaja en el JWT: lo llena cargarAccesoKpis() (public/kpis.js) en showApp().
   { id: 'indicadores',    label: 'Indicadores GAF', icon: '🎯', roles: [ROLES.ADMIN], extraPerm: 'kpiAcceso' },
   { id: 'admin',         label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
@@ -352,7 +353,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, indicadores: viewIndicadores, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentasTip, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, 'costo-produccion': viewCostoProduccion, indicadores: viewIndicadores, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -14323,7 +14324,7 @@ async function renderAdminUsuarios(container) {
   container.innerHTML = `<div class="loading-overlay"><span class="spinner spinner-dark"></span></div>`;
   let users = [];
   try {
-    [users, S.kpiAreasCatalogo] = await Promise.all([GET('/users'), GET('/kpis/areas').catch(() => [])]);
+    [users, S.kpiAreasCatalogo, S.cpAreasCatalogo] = await Promise.all([GET('/users'), GET('/kpis/areas').catch(() => []), GET('/costo-produccion/areas').catch(() => [])]);
   } catch (err) { toast(err.message, 'error'); }
 
   // Activos primero; los desactivados quedan al final, atenuados.
@@ -14571,6 +14572,19 @@ function showUserModal(user, onSave, opts = {}) {
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>📦 <strong>Inventarios Diarios</strong></span>
           </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-costo-produccion" ${user?.accesoCostoProduccion?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🏭 <strong>Costo de Producción (planta)</strong></span>
+          </label>
+          <div id="um-cp-areas" style="margin-left:23px;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--text-muted)">
+            <span>Áreas:</span>
+            ${[...new Set([...(S.cpAreasCatalogo?.length ? S.cpAreasCatalogo : ['PANADERIA', 'PREP', 'REPOSTERIA']), ...(user?.areasCostoProduccion || [])])].map(a => `
+              <label style="display:flex;align-items:center;gap:5px;font-weight:normal;cursor:pointer">
+                <input type="checkbox" class="um-cp-area" value="${esc(a)}" ${(user?.areasCostoProduccion || []).includes(a) ? 'checked' : ''}
+                  style="width:13px;height:13px;accent-color:var(--primary)">${esc(a)}</label>`).join('')}
+            <span style="flex-basis:100%">Sin marcar ninguna = ve todas las áreas. Solo ve las operaciones asignadas arriba (el Excel actual es de PLANTA).</span>
+          </div>
         </div>
       </div>
       <div id="um-kpi-section" class="form-group" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">
@@ -14669,6 +14683,8 @@ function showUserModal(user, onSave, opts = {}) {
       accesoFlujoCaja:      !isAdmin && (document.getElementById('um-flujo-caja')?.checked ?? false),
       accesoPlanillas:      !isAdmin && (document.getElementById('um-planillas')?.checked ?? false),
       accesoInventarios:    !isAdmin && (document.getElementById('um-inventarios')?.checked ?? false),
+      accesoCostoProduccion: !isAdmin && (document.getElementById('um-costo-produccion')?.checked ?? false),
+      areasCostoProduccion: isAdmin ? [] : [...document.querySelectorAll('.um-cp-area:checked')].map(c => c.value),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
       operations: operacionesDerivadas,

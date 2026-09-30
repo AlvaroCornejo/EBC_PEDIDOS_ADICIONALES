@@ -2,6 +2,7 @@
 // la `app` real de server.js contra una MongoDB en memoria (se pierde al cerrar), con Box
 // simulado en memoria y 12 meses de registros de ejemplo.
 //   node tests/servidor-demo.js   → http://localhost:3100
+//   node tests/servidor-demo.js "<ruta EBC COSTO DE PRODUCCION.xlsx>"  → además carga Costo de Producción
 // Usuarios de prueba (contraseña de todos: demo123):
 //   demo.admin    ADMIN de la app
 //   demo.captura  Captura en Compras, Lectura en Tesorería
@@ -105,6 +106,20 @@ box.probarConexion = async () => ({ id: '0', nombre: 'Box simulado (demo)' });
     }
   }
   await KpiRegistro.insertMany(docs);
+
+  // Costo de Producción: si se pasa la ruta del Excel (node tests/servidor-demo.js "<ruta xlsx>"),
+  // se carga igual que el import diario (operación PLANTA). demo.captura ve solo PREP; demo.lector,
+  // todas las áreas; demo.sinkpi no tiene el permiso.
+  if (process.argv[2]) {
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(process.argv[2]);
+    const { docs: filas } = require('../utils/costoProduccionExcel').leerCostoProduccion(wb, Number(hoy.slice(0, 4)));
+    await require('../models/CostoProduccion').insertMany(filas);
+    await User.updateOne({ id: 'demo-captura' }, { accesoCostoProduccion: true, operations: ['PLANTA'], areasCostoProduccion: ['PREP'] });
+    await User.updateOne({ id: 'demo-lector' }, { accesoCostoProduccion: true, operations: ['PLANTA'] });
+    console.log(`Costo de Producción: ${filas.length} filas ítem×mes cargadas.`);
+  }
 
   const outer = express();
   outer.get('/demo-box/:id', (req, res) => {

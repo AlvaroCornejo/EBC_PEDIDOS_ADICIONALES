@@ -26,6 +26,7 @@ function buildPayload(user) {
     accesoFlujoCaja: !!user.accesoFlujoCaja,
     rolPlanilla: user.rolPlanilla || '', accesoPlanillas: !!user.accesoPlanillas,
     accesoInventarios: !!user.accesoInventarios,
+    accesoCostoProduccion: !!user.accesoCostoProduccion,
   };
 }
 

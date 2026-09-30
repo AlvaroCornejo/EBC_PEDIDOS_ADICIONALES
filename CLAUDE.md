@@ -96,6 +96,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | InventarioDiario | `scripts/importInventarioDiario.js` (vía `sync-inventario-diario.bat`, paso 19/21 de `sync-master.bat`) | EBC SALDO AL DIA.xlsx (hoja "CONTEO") | diario, reemplazo completo (sin historia) |
 | ItemMaestro / ItemPorOperacion | `scripts/importEbcItems.js` (vía `sync-ebc-items.bat`, paso 20/21 de `sync-master.bat`) | EBC ITEMS.xlsx (hojas "MAESTRO_ITEMS" e "ITEMS_POR_OPERACION") | diario, reemplazo completo |
 | InventarioSemanal | `scripts/importInventarioSemanal.js` (vía `sync-inventario-semanal.bat`, paso 21/21 de `sync-master.bat`) | EBC CONTEOS.xlsx (hoja "CONTEO", ya trae varias semanas) | diario, reemplazo completo (sin historia propia) |
+| CostoProduccion | `scripts/importCostoProduccion.js` (vía `sync-costo-produccion.bat`, paso 23/23 de `sync-master.bat`) | EBC COSTO DE PRODUCCION.xlsx (hoja "Datos", meses ENERO … DICIEMBRE en columnas) | diario, reemplaza el año actual (años anteriores se conservan) |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
@@ -1497,3 +1498,52 @@ memoria con usuarios de prueba (credenciales en el propio archivo).
   → 400 antes de tocar Box; `GET /kpis/captura/config` (`evidenciaHabilitada`) para avisar
   en la captura; y si la respuesta no llega (`sinRespuesta` en `kpiPostMultipart`), la
   pantalla consulta si el registro se guardó antes de dejar reintentar.
+
+### Sesión 23 — Costo de Producción de planta (módulo nuevo, rama `feature/costo-produccion`)
+
+Dashboard de costo receta vs. costo real de producción por ítem y mes, áreas de planta
+PANADERIA / PREP / REPOSTERIA, **operación PLANTA** (el archivo es de esa operación). Distinto de **Costeo de Recetas** (`RecetaCosteo`, desde
+EBC RECETAS.xlsx): este lee el Excel mensual que arma Planta.
+
+**Fuente**: `C:\Users\CORP.PROCESOS\Box\EBC\EBC AI\EBC AI BASES\EBC INDICADORES PLANTA\EBC COSTO DE PRODUCCION.xlsx`,
+hoja "Datos": fila de cabecera con `COD`/`AREA`/`DescripcionLocal`/`UND` y, encima, "COSTO RECETA"
++ un mes por bloque de 3 columnas (CANTIDAD / COSTO S/ / DESVIACIÓN). Los meses se detectan **por
+nombre** (ENERO … DICIEMBRE, SETIEMBRE o SEPTIEMBRE) en `utils/costoProduccionExcel.js`: al agregar
+meses no se toca código. Costo receta viene como texto "S/ 0.96" (se parsea); errores de Excel
+(#N/A, #DIV/0!) → null. Solo se guardan ítem×mes con cantidad > 0 y costo real > 0 (en el Excel un
+mes sin producción figura como 100 % de desviación). Ítems sin costo receta se guardan con
+`costoReceta: null` y quedan fuera de totales y semáforo.
+
+**Modelo** `CostoProduccion` `{operacion, anio, mes, area, item, nombre, unidad, costoReceta, cantidad, costoReal,
+cargadoEn}`. El Excel no dice el año: `importCostoProduccion.js [ruta] [anio] [operacion]`, default año actual
+(Lima) y operación PLANTA; reemplaza solo esa operación + año (`deleteMany({operacion, anio})`). Si
+más adelante llega el Excel de otra planta (ej. GBPLANTA), basta otra línea en el bat con su ruta y
+su código de operación.
+
+**Permisos**: `User.accesoCostoProduccion` + la operación en `User.operations` (mismo criterio que
+Inventarios: sin PLANTA asignada no ve nada) + `User.areasCostoProduccion` ([] = todas). En el JWT solo
+viaja `accesoCostoProduccion` (para el nav); `routes/costoProduccion.js` resuelve acceso, operaciones y áreas **en
+vivo contra la base** en cada request (un cambio rige sin re-login). ADMIN ve todo. Form de usuario:
+checkbox "🏭 Costo de Producción (planta)" + checkboxes de área (catálogo desde
+`GET /costo-produccion/areas`, solo ADMIN).
+
+**Rutas** (`/api/costo-produccion`): `GET /datos?operacion=&anio=` → `{operaciones, operacion, anios, anio, meses, areas, items:[{item,
+nombre, area, unidad, costoReceta, meses:{[mes]:{cantidad,costoReal}}}], cargadoEn}` ya filtrado por
+operaciones y áreas (operación no autorizada → 403); `GET /areas`.
+
+**Frontend**: `public/costoProduccion.js` (prefijo `cp*`, cargado tras `kpis.js`, usa `kpiFmtFecha`),
+nav `costo-produccion`. Todo se calcula en el navegador (~200 ítems × ≤12 meses): desviación
+ponderada = (Σ cant×receta − Σ cant×real) / Σ cant×receta; semáforo del Excel (verde ≥ 10 %,
+amarillo 0–9.99 %, rojo < 0). KPIs, tendencia por área (+ planta total), semáforo apilado por mes
+(clic en un mes filtra), top 8 sobrecostos / ahorros en S/, tabla ordenable con franja por mes.
+
+**Pruebas**: `tests/costoProduccion.test.js` (lectura del Excel con meses hasta diciembre, accesos
+por área, permiso en vivo). Demo: `node tests/servidor-demo.js "<ruta del xlsx>"` carga el Excel
+(demo.captura solo PREP, demo.lector todas).
+
+**Pendiente en la fuente**: en el Excel actual la columna CANTIDAD de AGOSTO trae el **valor en S/**
+(fórmula contra la columna F de AGOSTO.xlsx en vez de la de unidades) → agosto sale inflado en costo
+y en impacto S/ (la desviación % por ítem no se afecta). Se corrige en el Excel de Planta.
+
+**Puesta en producción**: mergear a `main`; en CORPSERV-PRUEBA `git pull origin main` (paso 23 del
+`sync-master.bat`); dar el permiso en Admin → Usuarios.
