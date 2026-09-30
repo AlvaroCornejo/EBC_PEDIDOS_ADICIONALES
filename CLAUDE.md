@@ -1547,3 +1547,24 @@ y en impacto S/ (la desviación % por ítem no se afecta). Se corrige en el Exce
 
 **Puesta en producción**: mergear a `main`; en CORPSERV-PRUEBA `git pull origin main` (paso 23 del
 `sync-master.bat`); dar el permiso en Admin → Usuarios.
+
+### Sesión 24 — sync-programacion-manual: correr Programación por sociedad cualquier día
+
+`sync-programacion.bat` (paso 20 de `sync-master.bat`) solo genera `PagoProgramacion`
+los martes. El usuario pidió lo mismo pero ejecutable a mano, cualquier día, desde CMD,
+**sin** agregarlo a `sync-master.bat`.
+
+En vez de duplicar los ~190 líneas de parseo/lógica, se extrajo todo a
+`utils/programacionSync.js` (mismo patrón que `utils/flujoCajaSync.js`: capa
+compartida entre el sync diario y la carga manual) — exporta `syncProgramacion(creadoPor)`
+y `ARCHIVO_POR_COMPANIA`. Ambos scripts quedan como wrappers finos:
+- `scripts/syncProgramacion.js` — conserva el filtro de martes, llama
+  `syncProgramacion('AUTOMATICO (sync-programacion)')`.
+- `scripts/syncProgramacionManual.js` (nuevo) — sin filtro de día, llama
+  `syncProgramacion('MANUAL (sync-programacion-manual)')`. El `creadoPor` distinto
+  permite diferenciar en Mongo qué programaciones se crearon por cuál vía.
+
+`sync-programacion-manual.bat` (nuevo, en la raíz) — **no está referenciado en
+`sync-master.bat`**, se corre a mano: `cd C:\pedidos-app && sync-programacion-manual.bat`.
+Mantiene la única protección real contra duplicados: por sociedad, si ya existe
+`PagoProgramacion` para la semana actual, no genera nada (esto no se tocó).
