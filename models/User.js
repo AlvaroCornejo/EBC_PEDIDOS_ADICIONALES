@@ -37,6 +37,7 @@ const userSchema = new mongoose.Schema({
   rolPlanilla:      { type: String, default: '', enum: ['', 'rrhh', 'gaf', 'admin'] },
   accesoPlanillas:  { type: Boolean, default: false },
   accesoInventarios: { type: Boolean, default: false }, // scoped por `operations`
+  accesoVentas: { type: Boolean, default: false }, // scoped por `operations`
   // Costo de Producción de planta: acceso + áreas de planta visibles ([] = todas).
   accesoCostoProduccion: { type: Boolean, default: false },
   areasCostoProduccion:  { type: [String], default: [] },

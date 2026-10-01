@@ -268,6 +268,7 @@ const NAV_ITEMS = [
   // comentarios solo en footer sidebar, no en nav principal
   { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
   { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerComparativo' },
+  { id: 'ventas',        label: 'Ventas',          icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'accesoVentas' },
   { id: 'recetas-costeo', label: 'Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['puedeVerCosteoRecetas', 'rolCambioReceta'] },
   { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
   { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
@@ -352,7 +353,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, 'costo-produccion': viewCostoProduccion, indicadores: viewIndicadores, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentas, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, 'costo-produccion': viewCostoProduccion, indicadores: viewIndicadores, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -12534,6 +12535,243 @@ async function viewInventarioSemanal(container) {
   }
 }
 
+// ─── View: Ventas ───────────────────────────────────────────────────
+async function viewVentas(container) {
+  let operaciones = [];
+  let operacionActual = '', fechaActual = today(), nSemanas = 12;
+  let dataDia = null, dataSemanas = null, dataComparativo = null, dataMensual = null, canalMensualSel = 'TOTAL';
+
+  const fmtMoney = v => 'S/ ' + (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmtNum = v => (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmtPct = v => v == null ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+  const fmtHHMM = v => {
+    const mins = Math.round((Number(v) || 0) * 24 * 60);
+    return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  };
+  const colorVar = v => v == null ? '' : (v < 0 ? 'color:#ef4444' : 'color:#16a34a');
+  const PERIODOS = [['dia', 'Día'], ['semana', 'Semana (a la fecha)'], ['mes', 'Mes (a la fecha)'], ['anio', 'Año (a la fecha)']];
+  const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic'];
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">🛒 Ventas</div></div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="vt-operacion" class="form-control" style="width:160px"><option value="">— Seleccionar —</option></select>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha</label>
+            <input type="date" id="vt-fecha" class="form-control" value="${fechaActual}" style="width:160px">
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">N° Semanas</label>
+            <input type="number" id="vt-nsemanas" class="form-control" value="${nSemanas}" min="1" max="52" style="width:90px">
+          </div>
+          <button class="btn btn-primary btn-sm" id="vt-cargar">🔍 Cargar</button>
+        </div>
+      </div>
+      <div id="vt-content"></div>
+    </div>`;
+
+  const root = document.getElementById('vt-content');
+
+  try {
+    operaciones = await GET('/ventas/operaciones');
+    const sel = document.getElementById('vt-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+  document.getElementById('vt-operacion').addEventListener('change', e => { operacionActual = e.target.value; });
+  document.getElementById('vt-fecha').addEventListener('change', e => { fechaActual = e.target.value; });
+  document.getElementById('vt-nsemanas').addEventListener('change', e => { nSemanas = Number(e.target.value) || 12; });
+  document.getElementById('vt-cargar').addEventListener('click', cargarTodo);
+
+  if (operacionActual) await cargarTodo();
+
+  async function cargarTodo() {
+    if (!operacionActual) return toast('Selecciona una operación', 'error');
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const [dia, semanas, comparativo, mensual] = await Promise.all([
+        GET(`/ventas/dia?operacion=${encodeURIComponent(operacionActual)}&fecha=${fechaActual}`),
+        GET(`/ventas/semanas?operacion=${encodeURIComponent(operacionActual)}&semanas=${nSemanas}`),
+        GET(`/ventas/semanal-comparativo?operacion=${encodeURIComponent(operacionActual)}&fecha=${fechaActual}`),
+        GET(`/ventas/mensual?operacion=${encodeURIComponent(operacionActual)}`),
+      ]);
+      dataDia = dia; dataSemanas = semanas; dataComparativo = comparativo; dataMensual = mensual;
+      canalMensualSel = 'TOTAL';
+      render();
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function filasCanal() {
+    // Orden de filas: TOTAL primero, luego canales reales, OTROS y CORTESIAS al final.
+    return ['TOTAL', ...dataDia.canales, 'CORTESIAS'];
+  }
+
+  function tablaResumen(titulo, metric, fmt) {
+    const filas = filasCanal();
+    return `
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div style="font-weight:700;margin-bottom:10px">${esc(titulo)}</div>
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px">
+            <thead>
+              <tr><th rowspan="2">Canal</th>${PERIODOS.map(([, l]) => `<th colspan="3" class="text-center" style="border-left:2px solid var(--border)">${esc(l)}</th>`).join('')}</tr>
+              <tr>${PERIODOS.map(() => `<th class="text-right" style="border-left:2px solid var(--border)">Valor</th><th class="text-right">vs Ant.</th><th class="text-right">vs Año Ant.</th>`).join('')}</tr>
+            </thead>
+            <tbody>
+              ${filas.map(canal => `<tr>
+                <td style="font-weight:${canal === 'TOTAL' ? '700' : '400'}">${esc(canal)}</td>
+                ${PERIODOS.map(([p]) => {
+                  const d = metric[canal]?.[p];
+                  if (!d) return '<td class="text-right" style="border-left:2px solid var(--border)">—</td><td class="text-right">—</td><td class="text-right">—</td>';
+                  return `<td class="text-right" style="border-left:2px solid var(--border)">${fmt(d.actual)}</td>
+                    <td class="text-right" style="${colorVar(d.varAnterior)}">${fmtPct(d.varAnterior)}</td>
+                    <td class="text-right" style="${colorVar(d.varAnioAnterior)}">${fmtPct(d.varAnioAnterior)}</td>`;
+                }).join('')}
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function tablaTip() {
+    const filas = [['total', 'Total'], ['efectivo', 'Efectivo'], ['tc', 'TC']];
+    return `
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div style="font-weight:700;margin-bottom:10px">TIP y Tasa TIP</div>
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr><th>Concepto</th>${PERIODOS.map(([, l]) => `<th class="text-center" style="border-left:2px solid var(--border)">${esc(l)}</th>`).join('')}</tr></thead>
+            <tbody>
+              ${filas.map(([k, l]) => `<tr>
+                <td>TIP ${esc(l)}</td>
+                ${PERIODOS.map(([p]) => `<td class="text-right" style="border-left:2px solid var(--border)">${fmtMoney(dataDia.tip[p]?.actual?.[k])}</td>`).join('')}
+              </tr>`).join('')}
+              ${filas.map(([k, l]) => `<tr>
+                <td style="color:var(--text-muted)">Tasa TIP ${esc(l)}</td>
+                ${PERIODOS.map(([p]) => `<td class="text-right" style="border-left:2px solid var(--border);color:var(--text-muted)">${fmtPct(dataDia.tasaTip[p]?.actual?.[k])}</td>`).join('')}
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function tablaTurno() {
+    return `
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div style="font-weight:700;margin-bottom:10px">Venta por Turno — ${esc(fechaActual)}</div>
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr><th>Turno</th><th class="text-right">S/</th><th class="text-right">%</th></tr></thead>
+            <tbody>
+              ${Object.keys(dataDia.turno).map(t => `<tr>
+                <td>${esc(t)}</td><td class="text-right">${fmtMoney(dataDia.turno[t])}</td><td class="text-right">${fmtPct(dataDia.turnoPct[t])}</td>
+              </tr>`).join('')}
+              <tr style="font-weight:700;border-top:2px solid var(--border)">
+                <td>TOTAL</td><td class="text-right">${fmtMoney(dataDia.turnoTotal)}</td><td class="text-right">100.0%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function tablaSemanas() {
+    const filas = ['TOTAL', ...dataSemanas.canales, 'CORTESIAS'];
+    return `
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div style="font-weight:700;margin-bottom:10px">Ventas Últimas ${dataSemanas.filas.length} Semanas</div>
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr><th>Canal</th>${dataSemanas.filas.map(f => `<th class="text-right">${esc(fmtFechaCorta(f.lunes))}</th>`).join('')}</tr></thead>
+            <tbody>
+              ${filas.map(canal => `<tr>
+                <td style="font-weight:${canal === 'TOTAL' ? '700' : '400'}">${esc(canal)}</td>
+                ${dataSemanas.filas.map(f => `<td class="text-right">${fmtMoney(f.porCanal[canal])}</td>`).join('')}
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function fmtFechaCorta(iso) {
+    const d = new Date(iso);
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  function tablaComparativo() {
+    return `
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div style="font-weight:700;margin-bottom:10px">
+          Semana Comparativa Año Anterior — ${fmtFechaCorta(dataComparativo.lunesActual)} al ${fmtFechaCorta(dataComparativo.domingoActual)}
+          vs. ${fmtFechaCorta(dataComparativo.lunesAnioAnt)} al ${fmtFechaCorta(dataComparativo.domingoAnioAnt)}
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr><th>Canal</th><th class="text-right">Actual</th><th class="text-right">Año Anterior</th><th class="text-right">Variación</th></tr></thead>
+            <tbody>
+              ${dataComparativo.filas.map(f => `<tr>
+                <td style="font-weight:${f.canal === 'TOTAL' ? '700' : '400'}">${esc(f.canal)}</td>
+                <td class="text-right">${fmtMoney(f.actual)}</td>
+                <td class="text-right">${fmtMoney(f.anioAnterior)}</td>
+                <td class="text-right" style="${colorVar(f.variacion)}">${fmtPct(f.variacion)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function tablaMensual() {
+    const anios = Object.keys(dataMensual.datos[canalMensualSel] || {}).sort();
+    return `
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div style="font-weight:700">Ventas Mensuales</div>
+          <select id="vt-canal-mensual" class="form-control" style="width:200px">
+            <option value="TOTAL" ${canalMensualSel === 'TOTAL' ? 'selected' : ''}>TOTAL</option>
+            ${dataMensual.canales.map(c => `<option value="${esc(c)}" ${canalMensualSel === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px">
+            <thead><tr><th>Año</th>${MESES.map(m => `<th class="text-right">${m}</th>`).join('')}<th class="text-right" style="font-weight:700">Total</th></tr></thead>
+            <tbody>
+              ${anios.map(anio => {
+                const fila = dataMensual.datos[canalMensualSel][anio];
+                return `<tr><td>${esc(anio)}</td>
+                  ${MESES.map((_, i) => `<td class="text-right">${fila[i + 1] != null ? fmtMoney(fila[i + 1]) : '—'}</td>`).join('')}
+                  <td class="text-right" style="font-weight:700">${fmtMoney(fila.total)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function render() {
+    if (!dataDia) { root.innerHTML = '<div class="empty-state"><p>Sin datos.</p></div>'; return; }
+    root.innerHTML = `
+      ${tablaResumen('Resumen del Día — Venta (S/)', dataDia.venta, fmtMoney)}
+      ${tablaResumen('Resumen del Día — Cantidad (PAX / Tickets)', dataDia.cantidad, fmtNum)}
+      ${tablaResumen('Resumen del Día — Ticket Promedio', dataDia.ticketProm, fmtMoney)}
+      ${tablaResumen('Resumen del Día — Permanencia', dataDia.permanencia, fmtHHMM)}
+      ${tablaTip()}
+      ${tablaTurno()}
+      ${tablaSemanas()}
+      ${tablaComparativo()}
+      ${tablaMensual()}
+    `;
+    document.getElementById('vt-canal-mensual')?.addEventListener('change', e => { canalMensualSel = e.target.value; render(); });
+  }
+}
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -14147,6 +14385,11 @@ function showUserModal(user, onSave, opts = {}) {
             <span>📦 <strong>Inventarios Diarios</strong></span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-ventas" ${user?.accesoVentas?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>🛒 <strong>Ventas</strong></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-costo-produccion" ${user?.accesoCostoProduccion?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🏭 <strong>Costo de Producción (planta)</strong></span>
@@ -14257,6 +14500,7 @@ function showUserModal(user, onSave, opts = {}) {
       accesoFlujoCaja:      !isAdmin && (document.getElementById('um-flujo-caja')?.checked ?? false),
       accesoPlanillas:      !isAdmin && (document.getElementById('um-planillas')?.checked ?? false),
       accesoInventarios:    !isAdmin && (document.getElementById('um-inventarios')?.checked ?? false),
+      accesoVentas:         !isAdmin && (document.getElementById('um-ventas')?.checked ?? false),
       accesoCostoProduccion: !isAdmin && (document.getElementById('um-costo-produccion')?.checked ?? false),
       areasCostoProduccion: isAdmin ? [] : [...document.querySelectorAll('.um-cp-area:checked')].map(c => c.value),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,

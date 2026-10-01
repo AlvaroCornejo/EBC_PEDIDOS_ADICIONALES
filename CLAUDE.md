@@ -1585,3 +1585,81 @@ se lee desde ningún lado del código.
 **Datos**: la colección `VentasTip` en MongoDB se borra con un script
 temporal de un solo uso en el servidor, mismo patrón que los borrados
 anteriores (Sesiones 16, 17).
+
+### Sesión 26 — Ventas (módulo nuevo, reemplaza a Venta & TIP de la Sesión 25)
+
+Dashboard de ventas por operación, diseñado a partir de un reporte Excel real
+que el usuario ya usa a diario (`CDLAO - Reporte de Ventas.xlsm`, hoja
+"REPORTE") — se tomó como referencia de **qué** consultas mostrar, no de qué
+canales usar (ese Excel desglosa delivery en RAPPI/PEDIDOS YA/OTROS
+DELIVERIES; la base real ya los trae agrupados en "DELIVERY" — se usan los
+canales tal como vienen en `EBC VENTAS.xlsx`).
+
+**Fuente de datos** — `EBC VENTAS.xlsx` (ruta servidor `...\EBC VENTAS\`),
+**se reemplaza todo en cada import, sin historia propia en Mongo** (el Excel
+ya trae el histórico completo desde 2020, mismo patrón que
+`InventarioSemanal`):
+- Hoja **VENTA**: `OPERACION, CANAL, FECHA, TIPODOCUMENTO (VENTA|CORTESIA),
+  TURNO (AL|CE|DE|LO), PAX, TICKETS, VENTA, PERMANENCIA`. La columna
+  `PERMANENCIA` la agregó el usuario durante esta sesión — suma de
+  permanencia en fracción de día por fila; se divide entre PAX o TICKETS
+  para el promedio (vacía en ~30% de filas donde no aplica — delivery/llevar).
+- Hoja **TIP**: `OPERACION, FECHA, TIP_EFE_SOL, TIP_TC_SOL, TIP_EFE_DOL` —
+  sin desglose por canal.
+
+**Reglas de negocio confirmadas con el usuario:**
+- **PAX vs. TICKETS**: `EN EL LOCAL` y `HABERES` usan PAX como divisor
+  (ticket promedio, permanencia promedio); todos los demás canales
+  (incluido OTROS) usan TICKETS.
+- **OTROS y CORTESIAS**: dos filas especiales al final de cada desglose por
+  canal. `OTROS` es un canal real de la base. `CORTESIAS` no es un canal —
+  es la suma de todas las filas con `TIPODOCUMENTO=CORTESIA` de cualquier
+  canal; los demás canales (incluido OTROS) solo suman `TIPODOCUMENTO=VENTA`.
+  El TOTAL no incluye ni OTROS ni CORTESIAS.
+- **Autorización por Operación** — `accesoVentas` (boolean) + `operations`,
+  mismo patrón que `accesoInventarios`.
+
+**Comparativos de período** (`utils/ventasRangos.js`, funciones puras sin
+dependencias): Semana/Mes/Año son siempre **"a la fecha"** (WTD/MTD/YTD), no
+el período completo. Para Día y Semana, "año anterior" usa como referencia
+`fecha − 364 días` (52 semanas exactas, para caer en el mismo día de la
+semana) — igual que el Excel de referencia (confirmado celda por celda: AD6/
+AE6/AF6/AG6/AH6/AI6 del reporte real calzan exacto con `rangoDia`/
+`rangoSemana`). Para Mes y Año, "año anterior" usa el mismo mes/día
+calendario del año pasado (sin ajustar por día de semana) — **esto se
+confirmó explícitamente con el usuario**, ya que el Excel de referencia no
+dejaba claro cuál de los dos criterios usar en esos dos casos. La semana
+empieza en lunes.
+
+**Modelos** (`models/`): `VentaDiaria` (`{operacion, canal, fecha,
+tipoDocumento, turno, pax, tickets, venta, permanencia}`) y `TipDiario`
+(`{operacion, fecha, tipEfeSol, tipTcSol, tipEfeDol}`). Sin índice único —
+reemplazo completo en cada import.
+
+**Backend** (`routes/ventas.js`, mismo mount `/api/ventas` del módulo
+borrado). Todos los cálculos (sumas, ratios, % variación) se hacen en Node
+sobre `.find().lean()` + `reduce`, sin pipelines de agregación Mongo — mismo
+estilo que `routes/inventarios.js`.
+- `GET /operaciones`
+- `GET /dia?operacion=&fecha=` — Resumen del Día: por canal, Venta/Cantidad
+  (PAX o Tickets)/Ticket Promedio/Permanencia × Día/Semana/Mes/Año, cada uno
+  con % variación vs. anterior y vs. año anterior; más TIP/Tasa TIP (sin
+  canal) y Venta por Turno del día (S/ y %, mapeo `AL=ALMUERZO, CE=CENA,
+  DE=DESAYUNO, LO=LONCHE`). Trae de Mongo un solo rango amplio (400 días
+  atrás) y recorta todos los sub-rangos en memoria, en vez de 11 queries.
+- `GET /semanas?operacion=&semanas=` (default 12) — serie semanal por canal.
+- `GET /semanal-comparativo?operacion=&fecha=` — semana que contiene la
+  fecha vs. misma semana (mismo mes/día calendario) del año anterior.
+- `GET /mensual?operacion=` — histórico mensual por canal y año completo
+  (el frontend filtra qué canal mostrar, sin pedir de nuevo al servidor).
+
+**Frontend**: nav item `ventas` (recuperado) → `viewVentas` — selector
+Operación/Fecha/N° Semanas, página con tarjetas apiladas en el mismo orden
+que el Excel de referencia: Resumen del Día (4 sub-tablas: Venta/Cantidad/
+Ticket Promedio/Permanencia, cada una con las 4 columnas de período ×
+valor+2 variaciones), TIP + Tasa TIP, Venta por Turno, Últimas Semanas,
+Semanal Comparativo Año Anterior, Mensual (con selector de Canal).
+
+**Sync**: `scripts/importVentas.js` + `sync-ventas.bat`, paso 23/23 de
+`sync-master.bat` (nuevo, antes eran 22 pasos). Columnas resueltas por
+nombre, no posición, mismo criterio que el resto de imports de esta app.
