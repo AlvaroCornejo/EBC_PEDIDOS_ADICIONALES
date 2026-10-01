@@ -58,8 +58,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 ## Permisos especiales (JWT)
 - `puedeVerKardex`: boolean — solo rol CONS, da acceso a vista Kardex
 - `puedeVerComparativo`: boolean — acceso a Comparativo OC / Ingresos al Almacén
-- `puedeVerVentas`: boolean — acceso a Venta & TIP por Operación
-- `puedeVerCosteoRecetas`: boolean — acceso a Costeo de Recetas (scoped por `operations`, igual que `puedeVerVentas`)
+- `puedeVerCosteoRecetas`: boolean — acceso a Costeo de Recetas (scoped por `operations`)
 - `puedeVerBajas`: boolean — acceso a Seguimiento de Bajas
 - `sociedadesCompra`: array — sociedades para ver Precios de Compra (códigos del catálogo `Sociedad`, ver sección "Sociedades y Operaciones")
 - `operations`: array — operaciones asignadas al usuario
@@ -88,7 +87,6 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | ItemVenta | `scripts/syncItems.js` (vía `sync-items.bat`) | data/EBC ITEMS_VENTA.xlsx | diario |
 | CompraPareto / CompraRoc | `scripts/importCompras.js` | EBC COMPRAS HISTORICAS.xlsx | semanal |
 | ComparativoOC | `scripts/importComparativoOC.js` | COMPARATIVO OC INGRESOS.xlsx | diario |
-| VentasTip | `scripts/importVentasTip.js` | EBC VENTAS TIP RESUMEN.xlsx | diario |
 | KardexBajaVenta | `scripts/importBajas.js` | data/*ADICIONALES.xlsx | diario |
 | RecetaCosteo / RecetaCosteoDetalle | `scripts/importRecetasCosteo.js` (vía `sync-recetas-costeo.bat`) | EBC RECETAS.xlsx | diario |
 | FlujoMovimientoBancario / FlujoPagoERP | `scripts/importFlujoCaja.js` (vía `sync-flujo-caja.bat`) | Carpeta "EBC ESTADO DE CUENTA" (un .xlsx por sociedad+banco+moneda) + carpeta "EBC PAGOS ERP" (.csv, todas las sociedades), rutas globales en `Config` | diario |
@@ -174,7 +172,6 @@ git pull origin main --no-edit
 Recuadro azul, solo visible para rol `OPERADOR_CONSULTA`:
 - Kardex (`puedeVerKardex`)
 - OC / Ingresos al Almacén (`puedeVerComparativo`)
-- Venta / TIP por Operación (`puedeVerVentas`)
 - Seguimiento de Bajas (`puedeVerBajas`)
 - Precios de Compra — activa las Sociedades Autorizadas (`puedeVerKardex` con `sociedadesCompra`)
 
@@ -200,7 +197,8 @@ Recuadro azul, solo visible para rol `OPERADOR_CONSULTA`:
 ### Sesión 3
 - Precios de Compra: fix filtro operacion en routes/compras.js (eliminado — acceso por sociedad)
 - Endpoint diagnóstico `/api/compras/muestra` para debug de datos importados
-- Venta & TIP: vista con tabs Evolución / Por Sede, granularidad Semanal/Mensual
+- Venta & TIP (módulo borrado por completo en una sesión posterior — ver
+  historial al final del archivo): vista con tabs Evolución / Por Sede, granularidad Semanal/Mensual
   - Modelo `VentasTip` con campos `añoN`, `mesN`, `añomes` para agrupación mensual
   - `importVentasTip.js` lee columnas AÑO_N y MES_N del Excel
   - Rutas: `/evolucion`, `/evolucion-mes`, `/por-sede`, `/por-sede-mes`
@@ -1568,3 +1566,22 @@ y `ARCHIVO_POR_COMPANIA`. Ambos scripts quedan como wrappers finos:
 `sync-master.bat`**, se corre a mano: `cd C:\pedidos-app && sync-programacion-manual.bat`.
 Mantiene la única protección real contra duplicados: por sociedad, si ya existe
 `PagoProgramacion` para la semana actual, no genera nada (esto no se tocó).
+
+### Sesión 25 — Borrado completo de Venta & TIP
+
+A pedido del usuario se borró por completo — código y datos — el módulo
+**Venta & TIP por Operación** (Sesión 3: evolución semanal/mensual de venta y
+% TIP, tabs Evolución/Por Sede). Se verificó primero que el modelo `VentasTip`
+solo lo usara `routes/ventas.js`, sin cruces con otros módulos.
+
+**Borrado**: `models/VentasTip.js`, `routes/ventas.js` (+ su `app.use` en
+`server.js`), `scripts/importVentasTip.js` + `sync-ventas.bat` (era el paso
+4/23 de `sync-master.bat`, ahora renumerado a 22 pasos), el nav item "Venta &
+TIP", la función `viewVentasTip` completa, y el permiso `puedeVerVentas` en
+`models/User.js`/`routes/users.js`/`routes/auth.js`/el checkbox del form de
+usuarios. `EBC VENTAS TIP RESUMEN.xlsx` (carpeta `EBC VENTAS` en Box) ya no
+se lee desde ningún lado del código.
+
+**Datos**: la colección `VentasTip` en MongoDB se borra con un script
+temporal de un solo uso en el servidor, mismo patrón que los borrados
+anteriores (Sesiones 16, 17).

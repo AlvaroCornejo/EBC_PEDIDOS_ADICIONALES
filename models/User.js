@@ -10,7 +10,6 @@ const userSchema = new mongoose.Schema({
   mustChangePassword: { type: Boolean, default: true },
   puedeVerKardex:      { type: Boolean, default: false },
   puedeVerComparativo: { type: Boolean, default: false },
-  puedeVerVentas:      { type: Boolean, default: false },
   puedeVerCosteoRecetas: { type: Boolean, default: false },
   puedeVerBajas:       { type: Boolean, default: false },
   rolPago:             { type: String, default: '' },

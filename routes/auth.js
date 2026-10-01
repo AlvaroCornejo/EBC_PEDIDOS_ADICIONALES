@@ -11,7 +11,7 @@ function buildPayload(user) {
   return {
     id: user.id, username: user.username, role: user.role, operations: user.operations,
     puedeVerKardex: !!user.puedeVerKardex, puedeVerComparativo: !!user.puedeVerComparativo,
-    puedeVerVentas: !!user.puedeVerVentas, puedeVerBajas: !!user.puedeVerBajas,
+    puedeVerBajas: !!user.puedeVerBajas,
     puedeVerCosteoRecetas: !!user.puedeVerCosteoRecetas,
     rolPago: user.rolPago || '',
     sociedadesPago: user.sociedadesPago || [], sociedadesCompra: user.sociedadesCompra || [],
