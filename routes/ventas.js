@@ -46,27 +46,30 @@ function enRango(fecha, rango) {
  */
 function agregarPorCanal(docs, canalesOrden) {
   const porCanal = {};
-  const vacio = () => ({ venta: 0, divisor: 0, permanencia: 0 });
+  const vacio = () => ({ venta: 0, divisor: 0, permanencia: 0, permDivisor: 0 });
   canalesOrden.forEach(c => { porCanal[c] = vacio(); });
   porCanal.TOTAL = vacio();
   porCanal.CORTESIAS = vacio();
 
   docs.forEach(d => {
     const div = divisorDe(d);
+    // Permanencia solo tiene dato real en EN EL LOCAL y HABERES, y siempre se divide
+    // entre TICKETS (no PAX, aunque esos canales usen PAX para el ticket promedio).
+    const esPermanencia = CANALES_PAX.has(d.canal);
     if (d.tipoDocumento === 'CORTESIA') {
       porCanal.CORTESIAS.venta += d.venta;
       porCanal.CORTESIAS.divisor += div;
-      porCanal.CORTESIAS.permanencia += d.permanencia;
+      if (esPermanencia) { porCanal.CORTESIAS.permanencia += d.permanencia; porCanal.CORTESIAS.permDivisor += d.tickets; }
       return;
     }
     if (!porCanal[d.canal]) porCanal[d.canal] = vacio(); // canal no previsto en el orden fijo
     porCanal[d.canal].venta += d.venta;
     porCanal[d.canal].divisor += div;
-    porCanal[d.canal].permanencia += d.permanencia;
+    if (esPermanencia) { porCanal[d.canal].permanencia += d.permanencia; porCanal[d.canal].permDivisor += d.tickets; }
     if (d.canal !== 'OTROS') {
       porCanal.TOTAL.venta += d.venta;
       porCanal.TOTAL.divisor += div;
-      porCanal.TOTAL.permanencia += d.permanencia;
+      if (esPermanencia) { porCanal.TOTAL.permanencia += d.permanencia; porCanal.TOTAL.permDivisor += d.tickets; }
     }
   });
   return porCanal;
@@ -79,7 +82,7 @@ function conDerivados(agregado) {
       venta: v.venta,
       cantidad: v.divisor,
       ticketProm: v.divisor > 0 ? v.venta / v.divisor : 0,
-      permanenciaProm: v.divisor > 0 ? v.permanencia / v.divisor : 0, // fracción de día
+      permanenciaProm: v.permDivisor > 0 ? v.permanencia / v.permDivisor : 0, // fracción de día
     };
   });
   return out;

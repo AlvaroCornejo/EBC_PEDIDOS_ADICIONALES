@@ -12618,16 +12618,23 @@ async function viewVentas(container) {
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
-  function filasCanal() {
+  function filasCanal(modo) {
     // Orden de filas: TOTAL primero, luego canales reales, OTROS y CORTESIAS al final.
+    // - 'reales': Cantidad y Ticket Promedio — un TOTAL no tiene sentido (mezcla PAX y
+    //   Tickets de canales distintos) ni OTROS/CORTESIAS (volumen casi nulo, promedios
+    //   erráticos) — se muestran solo los canales reales.
+    // - 'permanencia': solo tiene dato real EN EL LOCAL y HABERES; el resto de canales
+    //   no registra permanencia, así que no se muestran.
+    if (modo === 'reales') return dataDia.canales.filter(c => c !== 'OTROS');
+    if (modo === 'permanencia') return ['TOTAL', 'EN EL LOCAL', 'HABERES'];
     return ['TOTAL', ...dataDia.canales, 'CORTESIAS'];
   }
 
   // "Año (a la fecha)" no trae comparativo de año anterior (el rango no aplica —
   // ver utils/ventasRangos.js), así que esa sección solo muestra Actual/Anterior,
   // 2 columnas en vez de 3.
-  function tablaResumen(titulo, metric, fmt) {
-    const filas = filasCanal();
+  function tablaResumen(titulo, metric, fmt, modo) {
+    const filas = filasCanal(modo);
     return `
       <div class="card" style="padding:14px;margin-bottom:14px">
         <div style="font-weight:700;margin-bottom:10px">${esc(titulo)}</div>
@@ -12786,9 +12793,9 @@ async function viewVentas(container) {
     if (!dataDia) { root.innerHTML = '<div class="empty-state"><p>Sin datos.</p></div>'; return; }
     root.innerHTML = `
       ${tablaResumen('Resumen del Día — Venta (S/)', dataDia.venta, fmtMoney)}
-      ${tablaResumen('Resumen del Día — Cantidad (PAX / Tickets)', dataDia.cantidad, fmtNum)}
-      ${tablaResumen('Resumen del Día — Ticket Promedio', dataDia.ticketProm, fmtMoney)}
-      ${tablaResumen('Resumen del Día — Permanencia', dataDia.permanencia, fmtHHMM)}
+      ${tablaResumen('Resumen del Día — Cantidad (PAX / Tickets)', dataDia.cantidad, fmtNum, 'reales')}
+      ${tablaResumen('Resumen del Día — Ticket Promedio', dataDia.ticketProm, fmtMoney, 'reales')}
+      ${tablaResumen('Resumen del Día — Permanencia', dataDia.permanencia, fmtHHMM, 'permanencia')}
       ${tablaTip()}
       ${tablaTurno()}
       ${tablaSemanas()}
