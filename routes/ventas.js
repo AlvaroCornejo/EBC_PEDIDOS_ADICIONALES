@@ -173,26 +173,28 @@ router.get('/dia', async (req, res) => {
         const efectivo = sub.reduce((s, d) => s + d.tipEfeSol, 0);
         const tc = sub.reduce((s, d) => s + d.tipTcSol, 0);
         tip[periodo][k] = { total: efectivo + tc, efectivo, tc };
-        const ventaTotal = venta.TOTAL?.[periodo]?.[k] || 0;
-        tasaTip[periodo][k] = {
-          total: ventaTotal > 0 ? (efectivo + tc) / ventaTotal : 0,
-          efectivo: ventaTotal > 0 ? efectivo / ventaTotal : 0,
-          tc: ventaTotal > 0 ? tc / ventaTotal : 0,
-        };
+        // Tasa TIP: el TIP solo se cobra en mesa (EN EL LOCAL / HABERES), así que el
+        // denominador es la venta de esos dos canales, no la venta total de todos los canales.
+        const ventaLH = (venta['EN EL LOCAL']?.[periodo]?.[k] || 0) + (venta.HABERES?.[periodo]?.[k] || 0);
+        tasaTip[periodo][k] = { total: ventaLH > 0 ? (efectivo + tc) / ventaLH : 0 };
       });
       tip[periodo].varAnterior = variacion(tip[periodo].actual?.total, tip[periodo].anterior?.total);
       tip[periodo].varAnioAnterior = variacion(tip[periodo].actual?.total, tip[periodo].anioAnterior?.total);
     });
 
-    // Venta por Turno — solo el día seleccionado
-    const docsHoy = ventaDocs.filter(d => enRango(d.fecha, rDia.actual) && d.tipoDocumento === 'VENTA');
-    const turno = { DESAYUNO: 0, ALMUERZO: 0, LONCHE: 0, CENA: 0 };
-    docsHoy.forEach(d => { const l = TURNO_LABEL[d.turno]; if (l) turno[l] += d.venta; });
-    const turnoTotal = Object.values(turno).reduce((s, v) => s + v, 0);
-    const turnoPct = {};
-    Object.entries(turno).forEach(([k, v]) => { turnoPct[k] = turnoTotal > 0 ? v / turnoTotal : 0; });
+    // Venta por Turno — Día, Semana/Mes/Año "a la fecha" (solo período actual, sin comparativos)
+    const turnoPorPeriodo = {};
+    [['dia', rDia], ['semana', rSemana], ['mes', rMes], ['anio', rAnio]].forEach(([periodo, rango]) => {
+      const docsP = ventaDocs.filter(d => enRango(d.fecha, rango.actual) && d.tipoDocumento === 'VENTA');
+      const turno = { DESAYUNO: 0, ALMUERZO: 0, LONCHE: 0, CENA: 0 };
+      docsP.forEach(d => { const l = TURNO_LABEL[d.turno]; if (l) turno[l] += d.venta; });
+      const total = Object.values(turno).reduce((s, v) => s + v, 0);
+      const pct = {};
+      Object.entries(turno).forEach(([k, v]) => { pct[k] = total > 0 ? v / total : 0; });
+      turnoPorPeriodo[periodo] = { turno, total, pct };
+    });
 
-    res.json({ canales: canalesOrden, venta, cantidad, ticketProm, permanencia, tip, tasaTip, turno, turnoTotal, turnoPct });
+    res.json({ canales: canalesOrden, venta, cantidad, ticketProm, permanencia, tip, tasaTip, turnoPorPeriodo });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

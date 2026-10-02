@@ -12683,10 +12683,10 @@ async function viewVentas(container) {
                 <td>TIP ${esc(l)}</td>
                 ${PERIODOS.map(([p]) => `<td class="text-right" style="border-left:2px solid var(--border)">${fmtMoney(dataDia.tip[p]?.actual?.[k])}</td>`).join('')}
               </tr>`).join('')}
-              ${filas.map(([k, l]) => `<tr>
-                <td style="color:var(--text-muted)">Tasa TIP ${esc(l)}</td>
-                ${PERIODOS.map(([p]) => `<td class="text-right" style="border-left:2px solid var(--border);color:var(--text-muted)">${fmtPct(dataDia.tasaTip[p]?.actual?.[k])}</td>`).join('')}
-              </tr>`).join('')}
+              <tr>
+                <td style="color:var(--text-muted)">Tasa TIP</td>
+                ${PERIODOS.map(([p]) => `<td class="text-right" style="border-left:2px solid var(--border);color:var(--text-muted)">${fmtPct(dataDia.tasaTip[p]?.actual?.total)}</td>`).join('')}
+              </tr>
             </tbody>
           </table>
         </div>
@@ -12694,19 +12694,24 @@ async function viewVentas(container) {
   }
 
   function tablaTurno() {
+    const turnos = Object.keys(dataDia.turnoPorPeriodo.dia.turno);
     return `
       <div class="card" style="padding:14px;margin-bottom:14px">
         <div style="font-weight:700;margin-bottom:10px">Venta por Turno — ${esc(fechaActual)}</div>
         <div class="table-wrap">
-          <table class="data-table" style="font-size:12px;table-layout:fixed;width:340px">
-            <colgroup><col style="width:140px"><col style="width:100px"><col style="width:100px"></colgroup>
-            <thead><tr><th>Turno</th><th class="text-right">S/</th><th class="text-right">%</th></tr></thead>
+          <table class="data-table" style="font-size:12px">
+            <thead>
+              <tr><th rowspan="2">Turno</th>${PERIODOS.map(([, l]) => `<th colspan="2" class="text-center" style="border-left:2px solid var(--border);white-space:normal;line-height:1.3">${labelPeriodo2L(l)}</th>`).join('')}</tr>
+              <tr>${PERIODOS.map(() => `<th class="text-right" style="border-left:2px solid var(--border)">S/</th><th class="text-right">%</th>`).join('')}</tr>
+            </thead>
             <tbody>
-              ${Object.keys(dataDia.turno).map(t => `<tr>
-                <td>${esc(t)}</td><td class="text-right">${fmtMoney(dataDia.turno[t])}</td><td class="text-right">${fmtPct(dataDia.turnoPct[t])}</td>
+              ${turnos.map(t => `<tr>
+                <td>${esc(t)}</td>
+                ${PERIODOS.map(([p]) => `<td class="text-right" style="border-left:2px solid var(--border)">${fmtMoney(dataDia.turnoPorPeriodo[p].turno[t])}</td><td class="text-right">${fmtPct(dataDia.turnoPorPeriodo[p].pct[t])}</td>`).join('')}
               </tr>`).join('')}
               <tr style="font-weight:700;border-top:2px solid var(--border)">
-                <td>TOTAL</td><td class="text-right">${fmtMoney(dataDia.turnoTotal)}</td><td class="text-right">100.0%</td>
+                <td>TOTAL</td>
+                ${PERIODOS.map(([p]) => `<td class="text-right" style="border-left:2px solid var(--border)">${fmtMoney(dataDia.turnoPorPeriodo[p].total)}</td><td class="text-right">100.0%</td>`).join('')}
               </tr>
             </tbody>
           </table>
