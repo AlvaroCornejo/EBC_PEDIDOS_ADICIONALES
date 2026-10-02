@@ -12552,6 +12552,8 @@ async function viewVentas(container) {
   };
   const colorVar = v => v == null ? '' : (v < 0 ? 'color:#ef4444' : 'color:#16a34a');
   const PERIODOS = [['dia', 'Día'], ['semana', 'Semana (a la fecha)'], ['mes', 'Mes (a la fecha)'], ['anio', 'Año (a la fecha)']];
+  // Título en 2 líneas cuando la columna es angosta — evita que se superponga con la de al lado.
+  const labelPeriodo2L = l => l.includes('(') ? `${esc(l.split(' (')[0])}<br>(${esc(l.split(' (')[1])}` : esc(l);
   const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic'];
 
   container.innerHTML = `
@@ -12632,7 +12634,7 @@ async function viewVentas(container) {
         <div class="table-wrap">
           <table class="data-table" style="font-size:12px">
             <thead>
-              <tr><th rowspan="2">Canal</th>${PERIODOS.map(([p, l]) => `<th colspan="${p === 'anio' ? 2 : 3}" class="text-center" style="border-left:2px solid var(--border)">${esc(l)}</th>`).join('')}</tr>
+              <tr><th rowspan="2">Canal</th>${PERIODOS.map(([p, l]) => `<th colspan="${p === 'anio' ? 2 : 3}" class="text-center" style="border-left:2px solid var(--border);white-space:normal;line-height:1.3">${labelPeriodo2L(l)}</th>`).join('')}</tr>
               <tr>${PERIODOS.map(([p]) => p === 'anio'
                 ? `<th class="text-right" style="border-left:2px solid var(--border)">Actual</th><th class="text-right">Año Ant.</th>`
                 : `<th class="text-right" style="border-left:2px solid var(--border)">Actual</th><th class="text-right">Anterior</th><th class="text-right">Año Ant.</th>`).join('')}</tr>
@@ -12668,7 +12670,7 @@ async function viewVentas(container) {
         <div class="table-wrap">
           <table class="data-table" style="font-size:12px;table-layout:fixed;width:540px">
             <colgroup><col style="width:140px">${PERIODOS.map(() => '<col style="width:100px">').join('')}</colgroup>
-            <thead><tr><th>Concepto</th>${PERIODOS.map(([, l]) => `<th class="text-center" style="border-left:2px solid var(--border)">${esc(l)}</th>`).join('')}</tr></thead>
+            <thead><tr><th>Concepto</th>${PERIODOS.map(([, l]) => `<th class="text-center" style="border-left:2px solid var(--border);white-space:normal;line-height:1.3">${labelPeriodo2L(l)}</th>`).join('')}</tr></thead>
             <tbody>
               ${filas.map(([k, l]) => `<tr>
                 <td>TIP ${esc(l)}</td>
