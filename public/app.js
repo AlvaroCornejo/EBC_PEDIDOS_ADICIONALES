@@ -12556,6 +12556,18 @@ async function viewVentas(container) {
   const labelPeriodo2L = l => l.includes('(') ? `${esc(l.split(' (')[0])}<br>(${esc(l.split(' (')[1])}` : esc(l);
   const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic'];
 
+  // Cada tarjeta se puede ver como Tabla o como Gráfico. Los gráficos de composición y de
+  // serie en el tiempo abren en Gráfico; los resúmenes con muchas cifras abren en Tabla.
+  const vistas = {}, periodosGraf = {};
+  const VISTA_DEF = { turno: 'grafico', semanas: 'grafico', mensual: 'grafico' };
+  const vistaDe = k => vistas[k] || VISTA_DEF[k] || 'tabla';
+  const periodoDe = k => periodosGraf[k] || 'dia';
+  const cabecera = (key, titulo, extra = '') => `<div class="vc-head"><div style="font-weight:700">${titulo}</div>
+    <div class="vc-head-r">${extra}${vcSeg('vista:' + key, [['tabla', 'Tabla'], ['grafico', 'Gráfico']], vistaDe(key))}</div></div>`;
+  const selPeriodo = key => vcSeg('periodo:' + key, PERIODOS.map(([p, l]) => [p, l.split(' (')[0]]), periodoDe(key));
+  const fmtCompacto = v => vcCompacto(v);
+  const TURNO_COLOR = { DESAYUNO: ['#2a78d6', '#fff'], ALMUERZO: ['#eb6834', '#fff'], LONCHE: ['#1baf7a', '#0b0b0b'], CENA: ['#eda100', '#0b0b0b'] };
+
   container.innerHTML = `
     <div class="page-header"><div class="page-title">🛒 Ventas</div></div>
     <div class="page-body">
@@ -12632,11 +12644,14 @@ async function viewVentas(container) {
   // "Año (a la fecha)" no trae comparativo de año anterior (el rango no aplica —
   // ver utils/ventasRangos.js), así que esa sección solo muestra Actual/Anterior,
   // 2 columnas en vez de 3.
-  function tablaResumen(titulo, metric, fmt, modo) {
+  function tablaResumen(key, titulo, metric, fmt, modo) {
     const filas = filasCanal(modo);
+    if (vistaDe(key) === 'grafico') {
+      return `<div class="card" style="padding:14px;margin-bottom:14px">${cabecera(key, esc(titulo), selPeriodo(key))}<div class="vc-chart" id="vc-${key}"></div></div>`;
+    }
     return `
       <div class="card" style="padding:14px;margin-bottom:14px">
-        <div style="font-weight:700;margin-bottom:10px">${esc(titulo)}</div>
+        ${cabecera(key, esc(titulo))}
         <div class="table-wrap">
           <table class="data-table" style="font-size:12px">
             <thead>
@@ -12670,9 +12685,13 @@ async function viewVentas(container) {
 
   function tablaTip() {
     const filas = [['total', 'Total'], ['efectivo', 'Efectivo'], ['tc', 'TC']];
+    if (vistaDe('tip') === 'grafico') {
+      return `<div class="card" style="padding:14px;margin-bottom:14px">${cabecera('tip', 'TIP y Tasa TIP')}<div class="vc-chart" id="vc-tip"></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Cada barra muestra cómo se reparte el TIP entre efectivo y tarjeta; el % junto al período es la Tasa TIP.</div></div>`;
+    }
     return `
       <div class="card" style="padding:14px;margin-bottom:14px">
-        <div style="font-weight:700;margin-bottom:10px">TIP y Tasa TIP</div>
+        ${cabecera('tip', 'TIP y Tasa TIP')}
         <div class="table-wrap">
           <table class="data-table" style="font-size:12px;table-layout:fixed;width:540px">
             <colgroup><col style="width:140px">${PERIODOS.map(() => '<col style="width:100px">').join('')}</colgroup>
@@ -12694,9 +12713,13 @@ async function viewVentas(container) {
 
   function tablaTurno() {
     const turnos = Object.keys(dataDia.turnoPorPeriodo.dia.turno);
+    const titulo = `Venta por Turno — ${esc(fechaActual)}`;
+    if (vistaDe('turno') === 'grafico') {
+      return `<div class="card" style="padding:14px;margin-bottom:14px">${cabecera('turno', titulo)}<div class="vc-chart" id="vc-turno"></div></div>`;
+    }
     return `
       <div class="card" style="padding:14px;margin-bottom:14px">
-        <div style="font-weight:700;margin-bottom:10px">Venta por Turno — ${esc(fechaActual)}</div>
+        ${cabecera('turno', titulo)}
         <div class="table-wrap">
           <table class="data-table" style="font-size:12px">
             <thead>
@@ -12720,9 +12743,13 @@ async function viewVentas(container) {
 
   function tablaSemanas() {
     const filas = ['TOTAL', ...dataSemanas.canales, 'CORTESIAS'];
+    const titulo = `Ventas Últimas ${dataSemanas.filas.length} Semanas`;
+    if (vistaDe('semanas') === 'grafico') {
+      return `<div class="card" style="padding:14px;margin-bottom:14px">${cabecera('semanas', titulo)}<div class="vc-chart" id="vc-semanas"></div></div>`;
+    }
     return `
       <div class="card" style="padding:14px;margin-bottom:14px">
-        <div style="font-weight:700;margin-bottom:10px">Ventas Últimas ${dataSemanas.filas.length} Semanas</div>
+        ${cabecera('semanas', titulo)}
         <div class="table-wrap">
           <table class="data-table" style="font-size:12px">
             <thead><tr><th>Canal</th>${dataSemanas.filas.map(f => `<th class="text-right">${esc(fmtFechaCorta(f.lunes))}</th>`).join('')}</tr></thead>
@@ -12744,15 +12771,16 @@ async function viewVentas(container) {
 
   function tablaMensual() {
     const anios = Object.keys(dataMensual.datos[canalMensualSel] || {}).sort();
+    const selCanal = `<select id="vt-canal-mensual" class="form-control" style="width:200px">
+        <option value="TOTAL" ${canalMensualSel === 'TOTAL' ? 'selected' : ''}>TOTAL</option>
+        ${dataMensual.canales.map(c => `<option value="${esc(c)}" ${canalMensualSel === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+      </select>`;
+    if (vistaDe('mensual') === 'grafico') {
+      return `<div class="card" style="padding:14px;margin-bottom:14px">${cabecera('mensual', 'Ventas Mensuales', selCanal)}<div class="vc-chart" id="vc-mensual"></div></div>`;
+    }
     return `
       <div class="card" style="padding:14px;margin-bottom:14px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <div style="font-weight:700">Ventas Mensuales</div>
-          <select id="vt-canal-mensual" class="form-control" style="width:200px">
-            <option value="TOTAL" ${canalMensualSel === 'TOTAL' ? 'selected' : ''}>TOTAL</option>
-            ${dataMensual.canales.map(c => `<option value="${esc(c)}" ${canalMensualSel === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-          </select>
-        </div>
+        ${cabecera('mensual', 'Ventas Mensuales', selCanal)}
         <div class="table-wrap">
           <table class="data-table" style="font-size:12px">
             <thead><tr><th>Año</th>${MESES.map(m => `<th class="text-right">${m}</th>`).join('')}<th class="text-right" style="font-weight:700">Total</th></tr></thead>
@@ -12770,18 +12798,96 @@ async function viewVentas(container) {
       </div>`;
   }
 
+  // ── Gráficos (ver public/ventasCharts.js) ──
+  function graficoResumen(key, metric, fmt, fmtAxis, modo, aria) {
+    const el = document.getElementById('vc-' + key);
+    if (!el) return;
+    const p = periodoDe(key), anio = p === 'anio';
+    // En "Año (a la fecha)" el campo `anterior` ya es el mismo rango del año pasado (ver tabla).
+    const series = anio
+      ? [{ name: 'Actual', color: '#2a78d6' }, { name: 'Año anterior', color: '#c3c2b7' }]
+      : [{ name: 'Actual', color: '#2a78d6' }, { name: 'Anterior', color: '#86b6ef' }, { name: 'Año anterior', color: '#c3c2b7' }];
+    // Venta: el TOTAL (suma de todos los canales) achicaría todas las barras, por eso no se grafica.
+    const filas = filasCanal(modo).filter(c => modo || c !== 'TOTAL').map(c => {
+      const d = metric[c]?.[p];
+      return { label: c, vals: !d ? series.map(() => 0) : anio ? [d.actual, d.anterior] : [d.actual, d.anterior, d.anioAnterior] };
+    });
+    vcBarrasH(el, { filas, series, fmt, fmtAxis, aria });
+  }
+
+  function graficoTip() {
+    const el = document.getElementById('vc-tip');
+    if (!el) return;
+    const filas = PERIODOS.map(([p, l]) => {
+      const t = dataDia.tip[p]?.actual, tasa = dataDia.tasaTip[p]?.actual?.total;
+      return {
+        label: `${l.split(' (')[0]} · ${tasa != null ? (tasa * 100).toFixed(1) + '%' : '—'}`,
+        segs: [{ name: 'Efectivo', color: '#2a78d6', ink: '#fff', val: t?.efectivo || 0 }, { name: 'Tarjeta (TC)', color: '#eb6834', ink: '#fff', val: t?.tc || 0 }],
+        extra: `<div class="r"><span>Tasa TIP</span><span>${tasa != null ? (tasa * 100).toFixed(1) + '%' : '—'}</span></div>`,
+      };
+    });
+    vcApilado100H(el, { filas, fmtVal: fmtMoney, aria: 'Reparto del TIP entre efectivo y tarjeta por período' });
+  }
+
+  function graficoTurno() {
+    const el = document.getElementById('vc-turno');
+    if (!el) return;
+    const turnos = Object.keys(dataDia.turnoPorPeriodo.dia.turno);
+    const filas = PERIODOS.map(([p, l]) => ({
+      label: l.split(' (')[0],
+      segs: turnos.map(t => ({ name: t, color: (TURNO_COLOR[t] || [VC_OTROS])[0], ink: (TURNO_COLOR[t] || [0, '#fff'])[1], val: dataDia.turnoPorPeriodo[p].turno[t] })),
+    }));
+    vcApilado100H(el, { filas, fmtVal: fmtMoney, aria: 'Reparto de la venta por turno en cada período' });
+  }
+
+  function graficoSemanas() {
+    const el = document.getElementById('vc-semanas');
+    if (!el) return;
+    const filas = dataSemanas.filas, total = c => filas.reduce((s, f) => s + (f.porCanal[c] || 0), 0);
+    // Se grafican los 5 canales con más venta; el resto se agrupa en "Otros canales".
+    const orden = dataSemanas.canales.slice().sort((a, b) => total(b) - total(a)), top = orden.slice(0, 5), resto = orden.slice(5);
+    const series = top.map((c, i) => ({ name: c, color: VC_CAT[i], vals: filas.map(f => f.porCanal[c] || 0) }));
+    if (resto.length) series.push({ name: 'Otros canales', color: VC_OTROS, vals: filas.map(f => resto.reduce((s, c) => s + (f.porCanal[c] || 0), 0)) });
+    vcColsApiladas(el, { cats: filas.map(f => fmtFechaCorta(f.lunes)), series, fmt: fmtMoney, aria: 'Venta semanal por canal' });
+  }
+
+  function graficoMensual() {
+    const el = document.getElementById('vc-mensual');
+    if (!el) return;
+    const datos = dataMensual.datos[canalMensualSel] || {};
+    const anios = Object.keys(datos).sort().reverse(); // el más reciente primero: se resalta
+    const GRISES = ['#6f6d66', '#8f8d86', '#b3b1a9', '#cfcdc5'];
+    const series = anios.map((a, i) => ({
+      name: a, w: i === 0 ? 2.5 : i === 1 ? 2 : 1.5,
+      color: i === 0 ? '#2a78d6' : i === 1 ? '#eb6834' : GRISES[(i - 2) % GRISES.length],
+      vals: MESES.map((_, m) => datos[a][m + 1] != null ? datos[a][m + 1] : null),
+    }));
+    vcLineas(el, { cats: MESES, series, fmt: fmtMoney, aria: 'Venta mensual por año' });
+  }
+
   function render() {
     if (!dataDia) { root.innerHTML = '<div class="empty-state"><p>Sin datos.</p></div>'; return; }
     root.innerHTML = `
-      ${tablaResumen('Resumen del Día — Venta (S/)', dataDia.venta, fmtMoney)}
-      ${tablaResumen('Resumen del Día — Cantidad (PAX / Tickets)', dataDia.cantidad, fmtNum, 'reales')}
-      ${tablaResumen('Resumen del Día — Ticket Promedio', dataDia.ticketProm, fmtMoney, 'reales')}
-      ${tablaResumen('Resumen del Día — Permanencia', dataDia.permanencia, fmtHHMM, 'permanencia')}
+      ${tablaResumen('venta', 'Resumen del Día — Venta (S/)', dataDia.venta, fmtMoney)}
+      ${tablaResumen('cantidad', 'Resumen del Día — Cantidad (PAX / Tickets)', dataDia.cantidad, fmtNum, 'reales')}
+      ${tablaResumen('ticket', 'Resumen del Día — Ticket Promedio', dataDia.ticketProm, fmtMoney, 'reales')}
+      ${tablaResumen('perm', 'Resumen del Día — Permanencia', dataDia.permanencia, fmtHHMM, 'permanencia')}
       ${tablaTip()}
       ${tablaTurno()}
       ${tablaSemanas()}
       ${tablaMensual()}
     `;
+    vcEstilos();
+    graficoResumen('venta', dataDia.venta, fmtMoney, fmtCompacto, undefined, 'Venta por canal');
+    graficoResumen('cantidad', dataDia.cantidad, fmtNum, fmtCompacto, 'reales', 'Cantidad (PAX o tickets) por canal');
+    graficoResumen('ticket', dataDia.ticketProm, fmtMoney, fmtCompacto, 'reales', 'Ticket promedio por canal');
+    graficoResumen('perm', dataDia.permanencia, fmtHHMM, fmtHHMM, 'permanencia', 'Permanencia promedio');
+    graficoTip(); graficoTurno(); graficoSemanas(); graficoMensual();
+    root.querySelectorAll('.vc-seg button').forEach(b => b.addEventListener('click', () => {
+      const [tipo, key] = b.dataset.vcK.split(':');
+      (tipo === 'vista' ? vistas : periodosGraf)[key] = b.dataset.vcV;
+      render();
+    }));
     document.getElementById('vt-canal-mensual')?.addEventListener('change', e => { canalMensualSel = e.target.value; render(); });
   }
 }
