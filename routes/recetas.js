@@ -145,7 +145,7 @@ function explotarConsolidado(recetaMap, solicitados) {
 // POST /api/recetas/explotar  { items: [{ item, cantidad, descripcion?, pedidos? }] }
 router.post('/explotar', async (req, res) => {
   try {
-    if (!['ADMIN', 'OPERADOR_PLANTA'].includes(req.user.role)) return res.status(403).json({ error: 'Solo Administrador y Planta pueden explotar pedidos' });
+    if (!['ADMIN', 'OPERADOR_APROBACION'].includes(req.user.role)) return res.status(403).json({ error: 'Solo Administrador y Aprobador pueden explotar pedidos' });
     const lista = Array.isArray(req.body?.items) ? req.body.items : [];
     const solicitados = lista
       .map(s => ({ item: parseInt(s.item), cantidad: parseFloat(s.cantidad) || 0, descripcion: String(s.descripcion || ''), pedidos: Number(s.pedidos) || 1, valor: Number(s.valor) || 0 }))

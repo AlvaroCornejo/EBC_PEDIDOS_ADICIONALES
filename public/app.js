@@ -1636,7 +1636,7 @@ async function viewAprobar(container) {
           ${ESTADOS.map(e => `<option value="${e}">${e}</option>`).join('')}
         </select>
         <div style="margin-left:auto;display:flex;gap:6px">
-          ${puedeExplotar() ? '<button class="btn btn-sm btn-outline" id="btn-explotar-apr" disabled>🏭 Explotar a Planta (0)</button>' : ''}
+          ${puedeExplotar() ? '<button class="btn btn-sm btn-outline" id="btn-semana-apr" title="Marca los pedidos de la lista cuya fecha va del lunes de esta semana a hoy">📅 Seleccionar semana</button><button class="btn btn-sm btn-outline" id="btn-explotar-apr" disabled>🏭 Explotar a Planta (0)</button>' : ''}
           <button class="btn btn-sm btn-outline" id="btn-print-apr">🖨️ Imprimir</button>
           <button class="btn btn-sm btn-outline" id="btn-export-apr">📥 Excel</button>
         </div>
@@ -1680,6 +1680,17 @@ async function viewAprobar(container) {
   }
   document.getElementById('filter-op').addEventListener('change', render);
   document.getElementById('filter-estado').addEventListener('change', render);
+  document.getElementById('btn-semana-apr')?.addEventListener('click', () => {
+    const d = new Date(), lunes = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+    const ymd = x => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    const desde = ymd(lunes), hasta = today();
+    // Solo entre los pedidos que muestran los filtros actuales; suma a lo ya marcado.
+    const deLaSemana = filteredApr.filter(p => { const f = String(p.fechaPedido || '').slice(0, 10); return f >= desde && f <= hasta; });
+    if (!deLaSemana.length) return toast('No hay pedidos de esta semana en la lista', 'error');
+    deLaSemana.forEach(p => seleccion.add(p.id));
+    render();
+    toast(`${deLaSemana.length} pedido${deLaSemana.length !== 1 ? 's' : ''} de esta semana seleccionado${deLaSemana.length !== 1 ? 's' : ''}`, 'success');
+  });
   document.getElementById('btn-explotar-apr')?.addEventListener('click', () => {
     explotarPedidosPlanta(pedidos.filter(p => seleccion.has(p.id)));
   });
@@ -1710,7 +1721,6 @@ async function viewAtender(container) {
           <option value="PLANTA">Solo Planta</option>
         </select>
         <div style="margin-left:auto;display:flex;gap:6px">
-          ${puedeExplotar() ? '<button class="btn btn-sm btn-outline" id="btn-explotar-ate" disabled>🏭 Explotar a Planta (0)</button>' : ''}
           <button class="btn btn-sm btn-outline" id="btn-print-ate">🖨️ Imprimir</button>
           <button class="btn btn-sm btn-outline" id="btn-export-ate">📥 Excel</button>
         </div>
@@ -1723,13 +1733,6 @@ async function viewAtender(container) {
 
   let filteredAte = [];
   let currentGestion = '';
-  const seleccionAte = new Set();
-  function actualizarBotonExplotarAte() {
-    const b = document.getElementById('btn-explotar-ate');
-    if (!b) return;
-    b.textContent = `🏭 Explotar a Planta (${seleccionAte.size})`;
-    b.disabled = seleccionAte.size === 0;
-  }
 
   function render() {
     const op      = document.getElementById('filter-op').value;
@@ -1746,14 +1749,9 @@ async function viewAtender(container) {
       list.appendChild(sep);
       renderPedidosAtendidos(list, atendidos, currentGestion);
     }
-    enlazarSeleccionExplotar(list, seleccionAte, actualizarBotonExplotarAte);
-    actualizarBotonExplotarAte();
   }
   document.getElementById('filter-op').addEventListener('change', render);
   document.getElementById('filter-gestion').addEventListener('change', render);
-  document.getElementById('btn-explotar-ate')?.addEventListener('click', () => {
-    explotarPedidosPlanta(pedidos.filter(p => seleccionAte.has(p.id)));
-  });
   document.getElementById('btn-print-ate').addEventListener('click', () => {
     imprimirPedidos(filteredAte, 'Atender Pedidos', currentGestion);
   });
@@ -2027,8 +2025,7 @@ function renderPedidosAtender(container, pedidos, gestionFilter = '') {
   container.innerHTML = pedidos.map(p => `
     <div class="pedido-card" id="pac-${p.id}">
       <div class="pedido-card-header">
-        ${chkExplotarHtml(p)}
-        <div class="pedido-meta" style="flex:1">
+        <div class="pedido-meta">
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} ${fmtTime(p.createdAt)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)} &nbsp;·&nbsp; ✅ ${esc(p.aprobadoPorNombre||'')}</div>
         </div>
@@ -2092,8 +2089,7 @@ function renderPedidosAtendidos(container, pedidos, gestionFilter = '') {
   wrap.innerHTML = pedidos.map(p => `
     <div class="pedido-card">
       <div class="pedido-card-header">
-        ${chkExplotarHtml(p)}
-        <div class="pedido-meta" style="flex:1">
+        <div class="pedido-meta">
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-ATENDIDO">ATENDIDO</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} ${fmtTime(p.createdAt)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}
             ${p.atendidoPorNombre ? ` &nbsp;·&nbsp; 🚚 ${esc(p.atendidoPorNombre)}` : ''}
@@ -2844,7 +2840,7 @@ window.pgVerRelacionAdelantos = async (compania, progId) => {
 // ─── Explosión consolidada de pedidos seleccionados (pantalla Aprobar) ───
 // Suma las líneas de gestión PLANTA (menos las rechazadas) de los pedidos marcados, por ítem,
 // y las explota con la base de recetas hasta insumos finales (POST /recetas/explotar).
-const puedeExplotar = () => S.user.role === 'ADMIN' || S.user.role === 'OPERADOR_PLANTA';
+const puedeExplotar = () => S.user.role === 'ADMIN' || S.user.role === 'OPERADOR_APROBACION';
 const chkExplotarHtml = p => !puedeExplotar() ? '' : `<label onclick="event.stopPropagation()" style="display:flex;align-items:center;cursor:pointer;margin-right:10px" title="Seleccionar para explotar a Planta">
           <input type="checkbox" class="apr-sel" data-id="${p.id}" style="width:16px;height:16px;accent-color:var(--primary)">
         </label>`;
