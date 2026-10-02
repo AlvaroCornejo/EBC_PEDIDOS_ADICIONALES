@@ -64,11 +64,6 @@ function vcTicks(max, n = 4) {
 const vcCompacto = v => Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString('es-PE', { maximumFractionDigits: 1 }) + ' M'
   : Math.abs(v) >= 1e3 ? (v / 1e3).toLocaleString('es-PE', { maximumFractionDigits: 1 }) + ' k' : String(Math.round(v * 100) / 100);
 
-// Barra horizontal anclada al eje, extremo de datos redondeado.
-function vcPathBarraH(x0, y, w, h) {
-  const r = Math.min(3, w / 2, h / 2);
-  return `M${x0} ${y} H${x0 + w - r} Q${x0 + w} ${y} ${x0 + w} ${y + r} V${y + h - r} Q${x0 + w} ${y + h} ${x0 + w - r} ${y + h} H${x0} Z`;
-}
 // Barra vertical anclada al eje, extremo de datos (arriba) redondeado.
 function vcPathBarraV(x, yBase, w, h, redondear) {
   const r = redondear ? Math.min(3, w / 2, h) : 0, y = yBase - h;
@@ -78,29 +73,30 @@ function vcPathBarraV(x, yBase, w, h, redondear) {
 const vcVar = (a, b) => (b > 0 && a != null) ? ` <span style="opacity:.8">(${a >= b ? '+' : ''}${((a / b - 1) * 100).toFixed(1)}%)</span>` : '';
 
 /**
- * Barras horizontales agrupadas: una fila por categoría, una barra por serie.
+ * Columnas agrupadas: una columna por serie dentro de cada categoría (eje X).
  * cfg: { filas:[{label, vals:[...]}], series:[{name,color}], fmt, fmtAxis?, aria }
  * La 1ª serie es la "actual": las demás se comparan contra ella en el tooltip.
  */
 function vcBarrasH(el, cfg) {
   const { filas, series, fmt, fmtAxis, aria } = cfg;
   if (!filas.length) { el.innerHTML = '<div class="text-muted" style="padding:16px">Sin datos para graficar.</div>'; return; }
-  const W = 720, L = 112, R = 84, T = 6, B = 24, bh = 11, ig = 2, gg = 14;
-  const gh = series.length * bh + (series.length - 1) * ig;
-  const H = T + filas.length * (gh + gg) - gg + B, iw = W - L - R;
+  const W = 720, H = 300, L = 56, R = 8, T = 10, B = 44, iw = W - L - R, ih = H - T - B;
   const { top, ticks } = vcTicks(Math.max(0, ...filas.flatMap(f => f.vals.map(v => v || 0))));
-  const x = v => L + iw * (v / top);
+  const y = v => T + ih * (1 - v / top), paso = iw / filas.length;
+  const bw = Math.min(22, paso * 0.8 / series.length), gw = bw * series.length + (series.length - 1) * 2;
   let g = '';
-  ticks.forEach(t => { g += `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}" stroke="${t ? VC.grid : VC.base}"/><text x="${x(t)}" y="${H - 8}" text-anchor="middle">${esc((fmtAxis || fmt)(t))}</text>`; });
+  ticks.forEach(t => { g += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="${t ? VC.grid : VC.base}"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${esc((fmtAxis || fmt)(t))}</text>`; });
   filas.forEach((f, i) => {
-    const y0 = T + i * (gh + gg);
-    g += `<text x="${L - 8}" y="${y0 + gh / 2 + 4}" text-anchor="end" class="vc-lbl">${esc(f.label)}</text>`;
+    const x0 = L + paso * i + (paso - gw) / 2;
     f.vals.forEach((v, j) => {
-      const w = Math.max(0, x(v || 0) - L), y = y0 + j * (bh + ig);
-      if (w > 0) g += `<path d="${vcPathBarraH(L, y, w, bh)}" fill="${series[j].color}"/>`;
-      if (j === 0) g += `<text x="${L + w + 5}" y="${y + bh - 2}" class="vc-val">${esc(fmt(v || 0))}</text>`;
+      const h = Math.max(0, y(0) - y(v || 0));
+      if (h > 0) g += `<path d="${vcPathBarraV(x0 + j * (bw + 2), y(0), bw, h, true)}" fill="${series[j].color}"/>`;
     });
-    g += `<rect class="vc-hit" data-i="${i}" x="0" y="${y0 - gg / 2}" width="${W}" height="${gh + gg}" fill="transparent"/>`;
+    // Etiqueta del eje X: en 2 líneas si tiene espacios ("EN EL LOCAL" → "EN EL" / "LOCAL").
+    const pal = String(f.label).split(' '), mid = Math.ceil(pal.length / 2);
+    const lineas = pal.length > 1 && paso < 90 ? [pal.slice(0, mid).join(' '), pal.slice(mid).join(' ')] : [f.label];
+    lineas.forEach((t, k) => { g += `<text x="${L + paso * i + paso / 2}" y="${H - B + 16 + k * 13}" text-anchor="middle" class="vc-lbl" style="font-size:11px">${esc(t)}</text>`; });
+    g += `<rect class="vc-hit" data-i="${i}" x="${L + paso * i}" y="${T}" width="${paso}" height="${ih + B}" fill="transparent"/>`;
   });
   el.innerHTML = vcLeyenda(series) + `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria || '')}">${g}</svg>`;
   el.querySelectorAll('.vc-hit').forEach(r => {
@@ -112,24 +108,27 @@ function vcBarrasH(el, cfg) {
 }
 
 /**
- * Barras horizontales apiladas al 100%: una fila por categoría, segmentos = partes del todo.
+ * Columnas apiladas al 100%: una columna por categoría (eje X), segmentos = partes del todo.
  * cfg: { filas:[{label, segs:[{name,color,ink,val}], extra?}], fmtVal, aria }
  */
 function vcApilado100H(el, cfg) {
   const { filas, fmtVal, aria } = cfg;
-  const W = 720, L = 112, R = 12, T = 4, bh = 26, gg = 14, iw = W - L - R, H = T + filas.length * (bh + gg) - gg + 4;
+  const W = 720, H = 300, L = 44, R = 8, T = 10, B = 28, iw = W - L - R, ih = H - T - B;
+  const paso = iw / filas.length, bw = Math.min(90, paso * 0.62);
   let g = '';
+  [0, 25, 50, 75, 100].forEach(p => { const yy = T + ih * (1 - p / 100); g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${p ? VC.grid : VC.base}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end">${p}%</text>`; });
   filas.forEach((f, i) => {
-    const y = T + i * (bh + gg), tot = f.segs.reduce((s, q) => s + (q.val || 0), 0);
-    g += `<text x="${L - 8}" y="${y + bh / 2 + 4}" text-anchor="end" class="vc-lbl">${esc(f.label)}</text>`;
+    const tot = f.segs.reduce((s, q) => s + (q.val || 0), 0), x0 = L + paso * i + (paso - bw) / 2;
+    const activos = f.segs.filter(q => (q.val || 0) > 0);
     let acc = 0;
-    f.segs.filter(q => (q.val || 0) > 0).forEach((q, k, arr) => {
-      const frac = q.val / tot, gap = k < arr.length - 1 ? 2 : 0, w = Math.max(0, iw * frac - gap), xs = L + iw * acc;
-      g += `<rect x="${xs}" y="${y}" width="${w}" height="${bh}" fill="${q.color}" ${k === arr.length - 1 ? 'rx="3"' : ''}/>`;
-      if (frac >= 0.07) g += `<text x="${xs + w / 2}" y="${y + bh / 2 + 4}" text-anchor="middle" style="fill:${q.ink || '#fff'};font-weight:600">${(frac * 100).toFixed(0)}%</text>`;
+    activos.forEach((q, k) => {
+      const frac = q.val / tot, hh = Math.max(0, ih * frac - (k > 0 ? 2 : 0)), yb = T + ih * (1 - acc);
+      g += `<path d="${vcPathBarraV(x0, yb, bw, hh, k === activos.length - 1)}" fill="${q.color}"/>`;
+      if (frac >= 0.07) g += `<text x="${x0 + bw / 2}" y="${yb - hh / 2 + 4}" text-anchor="middle" style="fill:${q.ink || '#fff'};font-weight:600">${(frac * 100).toFixed(0)}%</text>`;
       acc += frac;
     });
-    g += `<rect class="vc-hit" data-i="${i}" x="0" y="${y - gg / 2}" width="${W}" height="${bh + gg}" fill="transparent"/>`;
+    g += `<text x="${x0 + bw / 2}" y="${H - 8}" text-anchor="middle" class="vc-lbl" style="font-size:11px">${esc(f.label)}</text>`;
+    g += `<rect class="vc-hit" data-i="${i}" x="${L + paso * i}" y="${T}" width="${paso}" height="${ih + B}" fill="transparent"/>`;
   });
   const leyenda = filas.length ? filas[0].segs : [];
   el.innerHTML = vcLeyenda(leyenda) + `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria || '')}">${g}</svg>`;
