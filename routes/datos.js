@@ -347,3 +347,4 @@ module.exports = router;
 module.exports.readItems = readItems;
 module.exports.findFile  = findFile;
 module.exports.loadWB    = loadWB;
+module.exports.readCostos = readCostos;

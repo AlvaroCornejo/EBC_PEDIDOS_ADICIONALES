@@ -103,7 +103,7 @@ function explotarConsolidado(recetaMap, solicitados) {
   const sinReceta = [];
   const cabecera = new Map();
   for (const s of solicitados) {
-    cabecera.set(s.item, { item: s.item, descripcion: s.descripcion || '', cantidad: (cabecera.get(s.item)?.cantidad || 0) + s.cantidad, pedidos: (cabecera.get(s.item)?.pedidos || 0) + (s.pedidos || 1) });
+    cabecera.set(s.item, { item: s.item, descripcion: s.descripcion || '', cantidad: (cabecera.get(s.item)?.cantidad || 0) + s.cantidad, pedidos: (cabecera.get(s.item)?.pedidos || 0) + (s.pedidos || 1), valor: (cabecera.get(s.item)?.valor || 0) + (s.valor || 0) });
   }
   const orden = [], estado = new Map();
   let ciclo = false;
@@ -148,14 +148,26 @@ router.post('/explotar', async (req, res) => {
     if (!['ADMIN', 'OPERADOR_PLANTA'].includes(req.user.role)) return res.status(403).json({ error: 'Solo Administrador y Planta pueden explotar pedidos' });
     const lista = Array.isArray(req.body?.items) ? req.body.items : [];
     const solicitados = lista
-      .map(s => ({ item: parseInt(s.item), cantidad: parseFloat(s.cantidad) || 0, descripcion: String(s.descripcion || ''), pedidos: Number(s.pedidos) || 1 }))
+      .map(s => ({ item: parseInt(s.item), cantidad: parseFloat(s.cantidad) || 0, descripcion: String(s.descripcion || ''), pedidos: Number(s.pedidos) || 1, valor: Number(s.valor) || 0 }))
       .filter(s => s.item && s.cantidad > 0);
     if (!solicitados.length) return res.status(400).json({ error: 'No hay ítems de planta con cantidad para explotar' });
 
     const recetas = await Receta.find({}, { item: 1, descripcion: 1, batch: 1, ingredientes: 1, _id: 0 }).lean();
     const recetaMap = {};
     recetas.forEach(r => { recetaMap[r.item] = r; });
-    res.json(explotarConsolidado(recetaMap, solicitados));
+    const out = explotarConsolidado(recetaMap, solicitados);
+    // Valorización de producciones e insumos con los costos de la operación PLANTA (hoja Costos
+    // de PLANTA - ADICIONALES.xlsx); lo solicitado se valoriza con el costo que trae cada pedido.
+    let costos = {}, costosDisponibles = false;
+    try {
+      const datos = require('./datos'), fp = datos.findFile('PLANTA');
+      if (fp) { costos = datos.readCostos(await datos.loadWB(fp)); costosDisponibles = true; }
+    } catch (e) { /* sin costos: se devuelve sin valorizar */ }
+    const valorar = r => { r.costoUnitario = costos[String(r.item)] || 0; return r; };
+    out.producciones.forEach(r => { valorar(r); r.valor = r.requerida * r.costoUnitario; });
+    out.insumos.forEach(r => { valorar(r); r.valor = r.cantidad * r.costoUnitario; });
+    out.costosDisponibles = costosDisponibles;
+    res.json(out);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

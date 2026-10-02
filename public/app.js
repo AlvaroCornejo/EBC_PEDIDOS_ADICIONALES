@@ -390,7 +390,7 @@ async function viewSolicitar(container, params = {}) {
       editMode: hasLocked ? 'edit-revisar' : 'edit'
     };
   } else if (!editId) {
-    S.form = { id: null, operacion: S.user.operations?.[0] || '', fecha: today(), lineas: [], editMode: 'edit' };
+    S.form = { id: null, operacion: S.user.operations?.[0] || (S.user.role === ROLES.ADMIN ? ALL_OPS[0] : '') || '', fecha: today(), lineas: [], editMode: 'edit' };
   }
 
   // Load items for current operation
@@ -2860,37 +2860,46 @@ function enlazarSeleccionExplotar(list, seleccion, onChange) {
 }
 async function explotarPedidosPlanta(pedidos) {
   const fmtN = v => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtS = v => 'S/ ' + fmtN(v);
   const porItem = new Map();
   let lineasPlanta = 0;
   pedidos.forEach(p => (p.lineas || []).forEach(l => {
     if ((l.gestion || 'COMPRAS') !== 'PLANTA' || l.estadoLinea === 'RECHAZADO' || !(l.cantidadSolicitada > 0)) return;
     lineasPlanta++;
     const k = String(l.item);
-    if (!porItem.has(k)) porItem.set(k, { item: k, descripcion: l.itemNombre || '', cantidad: 0, pedidos: new Set() });
+    if (!porItem.has(k)) porItem.set(k, { item: k, descripcion: l.itemNombre || '', cantidad: 0, valor: 0, pedidos: new Set() });
     const e = porItem.get(k);
     e.cantidad += Number(l.cantidadSolicitada);
+    e.valor += Number(l.cantidadSolicitada) * (Number(l.costoUnitario) || 0);
     e.pedidos.add(p.id);
   }));
   if (!porItem.size) return toast('Los pedidos seleccionados no tienen líneas de Planta para explotar', 'error');
 
   openModal('🏭 Explosión a Planta', `<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span></div>`, null, { wide: true });
   try {
-    const data = await POST('/recetas/explotar', { items: [...porItem.values()].map(e => ({ item: e.item, descripcion: e.descripcion, cantidad: e.cantidad, pedidos: e.pedidos.size })) });
+    const data = await POST('/recetas/explotar', { items: [...porItem.values()].map(e => ({ item: e.item, descripcion: e.descripcion, cantidad: e.cantidad, valor: e.valor, pedidos: e.pedidos.size })) });
     const th = (t, right) => `<th style="text-align:${right ? 'right' : 'left'};padding:6px 8px">${t}</th>`;
     const td = (t, right, extra = '') => `<td style="padding:5px 8px;${right ? 'text-align:right;' : ''}${extra}">${t}</td>`;
-    const tabla = (cabs, filas) => `<div style="overflow:auto;max-height:380px"><table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="background:#f3f4f6;position:sticky;top:0">${cabs}</tr></thead><tbody>${filas || '<tr><td colspan="9" class="text-muted" style="padding:12px">Sin datos</td></tr>'}</tbody></table></div>`;
+    const tabla = (cabs, filas, pie = '') => `<div style="overflow:auto;max-height:380px"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#f3f4f6;position:sticky;top:0">${cabs}</tr></thead><tbody>${filas || '<tr><td colspan="9" class="text-muted" style="padding:12px">Sin datos</td></tr>'}</tbody>${pie}</table></div>`;
+    const pieTotal = (colspan, total) => `<tfoot><tr style="font-weight:700;border-top:2px solid #e5e7eb;position:sticky;bottom:0;background:#fff"><td colspan="${colspan}" style="padding:6px 8px;text-align:right">TOTAL</td><td style="padding:6px 8px;text-align:right">${fmtS(total)}</td></tr></tfoot>`;
+    const sum = (arr, k) => arr.reduce((t, r) => t + (r[k] || 0), 0);
 
-    const solicitado = tabla(th('Código') + th('Descripción') + th('Pedidos', true) + th('Cantidad', true),
-      data.solicitado.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(r.pedidos, true)}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}</tr>`).join(''));
+    const solicitado = tabla(th('Código') + th('Descripción') + th('Pedidos', true) + th('Cantidad', true) + th('Valorizado', true),
+      data.solicitado.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(r.pedidos, true)}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}${td(fmtS(r.valor), true)}</tr>`).join(''),
+      pieTotal(4, sum(data.solicitado, 'valor')));
     const sinReceta = data.sinReceta.length
       ? `<div style="margin-top:10px;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px">⚠️ Sin receta (no se pueden explotar): ${data.sinReceta.map(r => `${esc(r.descripcion || String(r.item))} (${esc(String(r.item))})`).join(', ')}</div>` : '';
-    const producciones = tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true),
-      data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}</tr>`).join(''));
-    const insumos = tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cantidad', true),
-      data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}</tr>`).join(''));
+    const producciones = tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true) + th('Costo unit.', true) + th('Valorizado', true),
+      data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>`).join(''));
+    const insumos = tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cantidad', true) + th('Costo unit.', true) + th('Valorizado', true),
+      data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>`).join(''),
+      pieTotal(6, sum(data.insumos, 'valor')));
 
-    const paneles = { sol: solicitado + sinReceta, prod: producciones, ins: insumos };
+    const aviso = !data.costosDisponibles ? '<div style="margin-top:10px;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px">⚠️ No se encontraron los costos de PLANTA: producciones e insumos salen sin valorizar.</div>' : '';
+    const notaProd = '<div style="margin-top:8px;font-size:12px;color:#6b7280">El valorizado de producciones ya incluye el costo de sus insumos; no se suma al total de insumos.</div>';
+
+    const paneles = { sol: solicitado + sinReceta, prod: producciones + notaProd + aviso, ins: insumos + aviso };
     const tabs = [['sol', `📦 Solicitado (${data.solicitado.length})`], ['prod', `⚙️ Producciones (${data.producciones.length})`], ['ins', `🔹 Insumos finales (${data.insumos.length})`]];
     document.getElementById('modal-body').innerHTML = `
       <div style="margin-bottom:10px;font-size:13px">${pedidos.length} pedido${pedidos.length !== 1 ? 's' : ''} seleccionado${pedidos.length !== 1 ? 's' : ''} · ${lineasPlanta} línea${lineasPlanta !== 1 ? 's' : ''} de Planta sumadas en ${data.solicitado.length} ítem${data.solicitado.length !== 1 ? 's' : ''}
@@ -2916,12 +2925,12 @@ function exportarExplosion(data) {
   const fila = a => a.map(q).join(';');
   const n = v => Number(v).toFixed(2).replace('.', ',');
   const lineas = [
-    'SOLICITADO A PLANTA', fila(['Código', 'Descripción', 'Pedidos', 'Cantidad']),
-    ...data.solicitado.map(r => fila([r.item, r.descripcion, r.pedidos, n(r.cantidad)])), '',
-    'PRODUCCIONES', fila(['Código', 'Descripción', 'Requerido', 'Batch', 'Corridas', 'Produce']),
-    ...data.producciones.map(r => fila([r.item, r.descripcion, n(r.requerida), n(r.batch), r.corridas, n(r.producida)])), '',
-    'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cantidad']),
-    ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad)])),
+    'SOLICITADO A PLANTA', fila(['Código', 'Descripción', 'Pedidos', 'Cantidad', 'Valorizado S/']),
+    ...data.solicitado.map(r => fila([r.item, r.descripcion, r.pedidos, n(r.cantidad), n(r.valor)])), '',
+    'PRODUCCIONES', fila(['Código', 'Descripción', 'Requerido', 'Batch', 'Corridas', 'Produce', 'Costo unit.', 'Valorizado S/']),
+    ...data.producciones.map(r => fila([r.item, r.descripcion, n(r.requerida), n(r.batch), r.corridas, n(r.producida), n(r.costoUnitario), n(r.valor)])), '',
+    'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cantidad', 'Costo unit.', 'Valorizado S/']),
+    ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad), n(r.costoUnitario), n(r.valor)])),
   ];
   const blob = new Blob(['﻿' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
