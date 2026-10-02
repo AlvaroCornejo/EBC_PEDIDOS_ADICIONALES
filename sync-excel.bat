@@ -13,6 +13,9 @@ if %errorlevel%==0 (echo OK: CDLAO) else (echo ERROR: CDLAO)
 copy /Y "%SRC%\CDL28 - ADICIONALES.xlsx"     "%DST%\CDL28 - ADICIONALES.xlsx"
 if %errorlevel%==0 (echo OK: CDL28) else (echo ERROR: CDL28)
 
+copy /Y "%SRC%\CDLH - ADICIONALES.xlsx"      "%DST%\CDLH - ADICIONALES.xlsx"
+if %errorlevel%==0 (echo OK: CDLH) else (echo ERROR: CDLH)
+
 copy /Y "%SRC%\PLANTA - ADICIONALES.xlsx"    "%DST%\PLANTA - ADICIONALES.xlsx"
 if %errorlevel%==0 (echo OK: PLANTA) else (echo ERROR: PLANTA)
 

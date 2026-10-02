@@ -152,8 +152,10 @@ router.get('/items', async (req, res) => {
     const { operacion } = req.query;
     if (operacion && !checkOpAccess(req.user, operacion))
       return res.status(403).json({ error: 'Sin acceso a esa operación' });
-    // Si se pide por operación específica usa ese archivo; si no, busca cualquiera disponible
+    // Con operación específica solo se usa SU archivo: si no existe, lista vacía (no los ítems
+    // y costos de otra operación). Sin operación, se usa cualquier archivo disponible.
     let fp = operacion ? findFile(operacion) : null;
+    if (operacion && !fp) return res.json([]);
     if (!fp) {
       // Buscar cualquier archivo ADICIONALES disponible
       const any = fs.readdirSync(DATA_DIR).find(f => f.includes('ADICIONALES') && f.endsWith('.xlsx'));
