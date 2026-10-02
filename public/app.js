@@ -2886,29 +2886,46 @@ async function explotarPedidosPlanta(pedidos) {
       pieTotal(4, sum(data.solicitado, 'valor')));
     const sinReceta = data.sinReceta.length
       ? `<div style="margin-top:10px;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px">⚠️ Sin receta (no se pueden explotar): ${data.sinReceta.map(r => `${esc(r.descripcion || String(r.item))} (${esc(String(r.item))})`).join(', ')}</div>` : '';
-    const producciones = tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true) + th('Costo unit.', true) + th('Valorizado', true),
-      data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>`).join(''));
-    const insumos = tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cantidad', true) + th('Costo unit.', true) + th('Valorizado', true),
-      data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>`).join(''),
+    // Con `detalle`, bajo cada fila se listan los ítems SOLICITADOS que originan esa cantidad.
+    const subOrigen = (r, cols, qCol, valCol) => r.origen.map(o => {
+      const celdas = Array.from({ length: cols }, (_, i) => i === 1 ? td(`<span style="color:#6b7280">↳ ${esc(o.descripcion || String(o.item))} <span style="font-family:monospace;font-size:11px">(${esc(String(o.item))})</span></span>`, false, 'padding-left:22px')
+        : i === qCol ? td(fmtN(o.cantidad), true, 'color:#6b7280')
+        : i === valCol ? td(fmtS(o.cantidad * (r.costoUnitario || 0)), true, 'color:#6b7280') : td(''));
+      return `<tr style="background:#faf5ff">${celdas.join('')}</tr>`;
+    }).join('');
+    const producciones = detalle => tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true) + th('Costo unit.', true) + th('Valorizado', true),
+      data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>${detalle ? subOrigen(r, 8, 2, 7) : ''}`).join(''));
+    const insumos = detalle => tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cantidad', true) + th('Costo unit.', true) + th('Valorizado', true),
+      data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>${detalle ? subOrigen(r, 7, 4, 6) : ''}`).join(''),
       pieTotal(6, sum(data.insumos, 'valor')));
 
     const aviso = !data.costosDisponibles ? '<div style="margin-top:10px;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px">⚠️ No se encontraron los costos de PLANTA: producciones e insumos salen sin valorizar.</div>' : '';
     const notaProd = '<div style="margin-top:8px;font-size:12px;color:#6b7280">El valorizado de producciones ya incluye el costo de sus insumos; no se suma al total de insumos.</div>';
 
-    const paneles = { sol: solicitado + sinReceta, prod: producciones + notaProd + aviso, ins: insumos + aviso };
+    let detalle = false, tabActiva = 'sol';
+    const paneles = { sol: () => solicitado + sinReceta, prod: () => producciones(detalle) + notaProd + aviso, ins: () => insumos(detalle) + aviso };
     const tabs = [['sol', `📦 Solicitado (${data.solicitado.length})`], ['prod', `⚙️ Producciones (${data.producciones.length})`], ['ins', `🔹 Insumos finales (${data.insumos.length})`]];
     document.getElementById('modal-body').innerHTML = `
       <div style="margin-bottom:10px;font-size:13px">${pedidos.length} pedido${pedidos.length !== 1 ? 's' : ''} seleccionado${pedidos.length !== 1 ? 's' : ''} · ${lineasPlanta} línea${lineasPlanta !== 1 ? 's' : ''} de Planta sumadas en ${data.solicitado.length} ítem${data.solicitado.length !== 1 ? 's' : ''}
         ${data.ciclo ? '<span style="color:#b45309"> · ⚠️ se detectó un ciclo en las recetas</span>' : ''}</div>
-      <div id="exp-tabs" style="display:flex;border-bottom:2px solid #e5e7eb;margin-bottom:12px">
+      <div style="display:flex;align-items:flex-end;border-bottom:2px solid #e5e7eb;margin-bottom:12px">
+      <div id="exp-tabs" style="display:flex">
         ${tabs.map(([k, l], i) => `<button data-k="${k}" style="border:none;background:none;cursor:pointer;font-size:13px;padding:6px 14px;margin-bottom:-2px;border-bottom:2px solid ${i === 0 ? '#7c3aed' : 'transparent'};color:${i === 0 ? '#7c3aed' : '#374151'}">${l}</button>`).join('')}
       </div>
-      <div id="exp-panel">${paneles.sol}</div>
+      <label id="exp-det-wrap" style="margin-left:auto;display:none;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding-bottom:6px"><input type="checkbox" id="exp-det" style="accent-color:var(--primary)"> Ver ítem solicitado por cada ítem</label>
+      </div>
+      <div id="exp-panel">${paneles.sol()}</div>
       <div style="margin-top:12px;text-align:right"><button class="btn btn-sm btn-outline" id="exp-excel">📥 Excel</button></div>`;
     document.querySelectorAll('#exp-tabs button').forEach(b => b.addEventListener('click', () => {
       document.querySelectorAll('#exp-tabs button').forEach(x => { const on = x === b; x.style.borderBottomColor = on ? '#7c3aed' : 'transparent'; x.style.color = on ? '#7c3aed' : '#374151'; });
-      document.getElementById('exp-panel').innerHTML = paneles[b.dataset.k];
+      tabActiva = b.dataset.k;
+      document.getElementById('exp-det-wrap').style.display = tabActiva === 'sol' ? 'none' : 'flex';
+      document.getElementById('exp-panel').innerHTML = paneles[tabActiva]();
     }));
+    document.getElementById('exp-det').addEventListener('change', e => {
+      detalle = e.target.checked;
+      document.getElementById('exp-panel').innerHTML = paneles[tabActiva]();
+    });
     document.getElementById('exp-excel').addEventListener('click', () => exportarExplosion(data));
   } catch (err) {
     document.getElementById('modal-body').innerHTML = `<p style="color:#dc2626;padding:16px">Error al explotar: ${esc(err.message)}</p>`;
@@ -2926,7 +2943,10 @@ function exportarExplosion(data) {
     'PRODUCCIONES', fila(['Código', 'Descripción', 'Requerido', 'Batch', 'Corridas', 'Produce', 'Costo unit.', 'Valorizado S/']),
     ...data.producciones.map(r => fila([r.item, r.descripcion, n(r.requerida), n(r.batch), r.corridas, n(r.producida), n(r.costoUnitario), n(r.valor)])), '',
     'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cantidad', 'Costo unit.', 'Valorizado S/']),
-    ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad), n(r.costoUnitario), n(r.valor)])),
+    ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad), n(r.costoUnitario), n(r.valor)])), '',
+    'DETALLE POR ÍTEM SOLICITADO', fila(['Tipo', 'Código', 'Descripción', 'Ítem solicitado', 'Descripción solicitado', 'Cantidad atribuida', 'Valorizado S/']),
+    ...data.producciones.flatMap(r => r.origen.map(o => fila(['Producción', r.item, r.descripcion, o.item, o.descripcion, n(o.cantidad), n(o.cantidad * (r.costoUnitario || 0))]))),
+    ...data.insumos.flatMap(r => r.origen.map(o => fila(['Insumo final', r.item, r.descripcion, o.item, o.descripcion, n(o.cantidad), n(o.cantidad * (r.costoUnitario || 0))]))),
   ];
   const blob = new Blob(['﻿' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');

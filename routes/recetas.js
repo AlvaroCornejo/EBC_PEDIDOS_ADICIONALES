@@ -100,6 +100,10 @@ router.get('/desglose', async (req, res) => {
 // sub-producto pedido por dos recetas distintas se produce una sola vez, no una por receta.
 function explotarConsolidado(recetaMap, solicitados) {
   const demanda = new Map();
+  // origen: para cada ítem producido/insumo, qué parte de su cantidad corresponde a cada ítem
+  // SOLICITADO (el reparto es proporcional a la demanda que cada uno aportó).
+  const origen = new Map();
+  const sumarOrigen = (item, o, q) => { if (!origen.has(item)) origen.set(item, new Map()); origen.get(item).set(o, (origen.get(item).get(o) || 0) + q); };
   const sinReceta = [];
   const cabecera = new Map();
   for (const s of solicitados) {
@@ -118,27 +122,37 @@ function explotarConsolidado(recetaMap, solicitados) {
   for (const c of cabecera.values()) {
     if (!recetaMap[c.item]) { sinReceta.push(c); continue; }
     demanda.set(c.item, (demanda.get(c.item) || 0) + c.cantidad);
+    sumarOrigen(c.item, c.item, c.cantidad);
     visitar(c.item);
   }
   orden.reverse(); // padres antes que hijos
 
+  const descOrigen = o => cabecera.get(o)?.descripcion || recetaMap[o]?.descripcion || '';
+  const listaOrigen = m => [...(m || [])].map(([o, q]) => ({ item: o, descripcion: descOrigen(o), cantidad: q })).sort((a, b) => b.cantidad - a.cantidad);
   const producciones = [], insumos = new Map();
   for (const it of orden) {
     const r = recetaMap[it], dem = demanda.get(it) || 0, batch = r.batch || 1;
     const corridas = Math.ceil(dem / batch - 1e-9);
-    producciones.push({ item: it, descripcion: r.descripcion, solicitada: cabecera.get(it)?.cantidad || 0, requerida: dem, batch, corridas, producida: corridas * batch });
+    producciones.push({ item: it, descripcion: r.descripcion, solicitada: cabecera.get(it)?.cantidad || 0, requerida: dem, batch, corridas, producida: corridas * batch, origen: listaOrigen(origen.get(it)) });
+    const parte = origen.get(it) || new Map();
     for (const ing of r.ingredientes) {
       const cant = ing.cantidad * corridas;
-      if (ing.esSub && recetaMap[ing.item]) { demanda.set(ing.item, (demanda.get(ing.item) || 0) + cant); continue; }
+      if (ing.esSub && recetaMap[ing.item]) {
+        demanda.set(ing.item, (demanda.get(ing.item) || 0) + cant);
+        for (const [o, q] of parte) sumarOrigen(ing.item, o, dem > 0 ? cant * q / dem : 0);
+        continue;
+      }
       const k = ing.item;
-      if (!insumos.has(k)) insumos.set(k, { item: k, descripcion: ing.descripcion, unidad: ing.unidad, areaDescarga: ing.areaDescarga, cantidad: 0 });
-      insumos.get(k).cantidad += cant;
+      if (!insumos.has(k)) insumos.set(k, { item: k, descripcion: ing.descripcion, unidad: ing.unidad, areaDescarga: ing.areaDescarga, cantidad: 0, _origen: new Map() });
+      const ins = insumos.get(k);
+      ins.cantidad += cant;
+      for (const [o, q] of parte) ins._origen.set(o, (ins._origen.get(o) || 0) + (dem > 0 ? cant * q / dem : 0));
     }
   }
   const porTexto = (a, b) => (a.areaDescarga || '').localeCompare(b.areaDescarga || '') || (a.descripcion || '').localeCompare(b.descripcion || '');
   return {
     solicitado: [...cabecera.values()].sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || '')),
-    producciones, insumos: [...insumos.values()].sort(porTexto), sinReceta, ciclo,
+    producciones, insumos: [...insumos.values()].map(({ _origen, ...r }) => ({ ...r, origen: listaOrigen(_origen) })).sort(porTexto), sinReceta, ciclo,
   };
 }
 
