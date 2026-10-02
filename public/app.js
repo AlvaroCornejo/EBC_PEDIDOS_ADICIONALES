@@ -1636,6 +1636,7 @@ async function viewAprobar(container) {
           ${ESTADOS.map(e => `<option value="${e}">${e}</option>`).join('')}
         </select>
         <div style="margin-left:auto;display:flex;gap:6px">
+          ${puedeExplotar() ? '<button class="btn btn-sm btn-outline" id="btn-explotar-apr" disabled>🏭 Explotar a Planta (0)</button>' : ''}
           <button class="btn btn-sm btn-outline" id="btn-print-apr">🖨️ Imprimir</button>
           <button class="btn btn-sm btn-outline" id="btn-export-apr">📥 Excel</button>
         </div>
@@ -1647,6 +1648,14 @@ async function viewAprobar(container) {
   try { pedidos = await GET('/pedidos'); } catch (err) { toast(err.message, 'error'); }
 
   let filteredApr = [];
+  const seleccion = new Set();   // ids de pedidos marcados; sobrevive a los cambios de filtro
+
+  function actualizarBotonExplotar() {
+    const b = document.getElementById('btn-explotar-apr');
+    if (!b) return;
+    b.textContent = `🏭 Explotar a Planta (${seleccion.size})`;
+    b.disabled = seleccion.size === 0;
+  }
 
   function render() {
     const op  = document.getElementById('filter-op').value;
@@ -1666,9 +1675,14 @@ async function viewAprobar(container) {
       list.appendChild(sep);
       renderPedidosProcesados(list, procesados);
     }
+    enlazarSeleccionExplotar(list, seleccion, actualizarBotonExplotar);
+    actualizarBotonExplotar();
   }
   document.getElementById('filter-op').addEventListener('change', render);
   document.getElementById('filter-estado').addEventListener('change', render);
+  document.getElementById('btn-explotar-apr')?.addEventListener('click', () => {
+    explotarPedidosPlanta(pedidos.filter(p => seleccion.has(p.id)));
+  });
   document.getElementById('btn-print-apr').addEventListener('click', () => {
     imprimirPedidos(filteredApr, 'Aprobar Pedidos');
   });
@@ -1696,6 +1710,7 @@ async function viewAtender(container) {
           <option value="PLANTA">Solo Planta</option>
         </select>
         <div style="margin-left:auto;display:flex;gap:6px">
+          ${puedeExplotar() ? '<button class="btn btn-sm btn-outline" id="btn-explotar-ate" disabled>🏭 Explotar a Planta (0)</button>' : ''}
           <button class="btn btn-sm btn-outline" id="btn-print-ate">🖨️ Imprimir</button>
           <button class="btn btn-sm btn-outline" id="btn-export-ate">📥 Excel</button>
         </div>
@@ -1708,6 +1723,13 @@ async function viewAtender(container) {
 
   let filteredAte = [];
   let currentGestion = '';
+  const seleccionAte = new Set();
+  function actualizarBotonExplotarAte() {
+    const b = document.getElementById('btn-explotar-ate');
+    if (!b) return;
+    b.textContent = `🏭 Explotar a Planta (${seleccionAte.size})`;
+    b.disabled = seleccionAte.size === 0;
+  }
 
   function render() {
     const op      = document.getElementById('filter-op').value;
@@ -1724,9 +1746,14 @@ async function viewAtender(container) {
       list.appendChild(sep);
       renderPedidosAtendidos(list, atendidos, currentGestion);
     }
+    enlazarSeleccionExplotar(list, seleccionAte, actualizarBotonExplotarAte);
+    actualizarBotonExplotarAte();
   }
   document.getElementById('filter-op').addEventListener('change', render);
   document.getElementById('filter-gestion').addEventListener('change', render);
+  document.getElementById('btn-explotar-ate')?.addEventListener('click', () => {
+    explotarPedidosPlanta(pedidos.filter(p => seleccionAte.has(p.id)));
+  });
   document.getElementById('btn-print-ate').addEventListener('click', () => {
     imprimirPedidos(filteredAte, 'Atender Pedidos', currentGestion);
   });
@@ -1803,7 +1830,8 @@ function renderPedidosAprobar(container, pedidos) {
   container.innerHTML = pedidos.map(p => `
     <div class="pedido-card" id="pc-${p.id}">
       <div class="pedido-card-header">
-        <div class="pedido-meta">
+        ${chkExplotarHtml(p)}
+        <div class="pedido-meta" style="flex:1">
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} ${fmtTime(p.createdAt)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}</div>
         </div>
@@ -1885,7 +1913,8 @@ function renderPedidosProcesados(container, pedidos) {
     return `
     <div class="pedido-card" id="pcp-${p.id}">
       <div class="pedido-card-header">
-        <div class="pedido-meta">
+        ${chkExplotarHtml(p)}
+        <div class="pedido-meta" style="flex:1">
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
           <div class="pedido-info">
             📅 ${fmtDate(p.fechaPedido)} ${fmtTime(p.createdAt)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}
@@ -1998,7 +2027,8 @@ function renderPedidosAtender(container, pedidos, gestionFilter = '') {
   container.innerHTML = pedidos.map(p => `
     <div class="pedido-card" id="pac-${p.id}">
       <div class="pedido-card-header">
-        <div class="pedido-meta">
+        ${chkExplotarHtml(p)}
+        <div class="pedido-meta" style="flex:1">
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} ${fmtTime(p.createdAt)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)} &nbsp;·&nbsp; ✅ ${esc(p.aprobadoPorNombre||'')}</div>
         </div>
@@ -2062,7 +2092,8 @@ function renderPedidosAtendidos(container, pedidos, gestionFilter = '') {
   wrap.innerHTML = pedidos.map(p => `
     <div class="pedido-card">
       <div class="pedido-card-header">
-        <div class="pedido-meta">
+        ${chkExplotarHtml(p)}
+        <div class="pedido-meta" style="flex:1">
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-ATENDIDO">ATENDIDO</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} ${fmtTime(p.createdAt)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}
             ${p.atendidoPorNombre ? ` &nbsp;·&nbsp; 🚚 ${esc(p.atendidoPorNombre)}` : ''}
@@ -2809,6 +2840,96 @@ window.pgVerRelacionAdelantos = async (compania, progId) => {
       </div>`);
   } catch (e) { toast(e.message, 'error'); }
 };
+
+// ─── Explosión consolidada de pedidos seleccionados (pantalla Aprobar) ───
+// Suma las líneas de gestión PLANTA (menos las rechazadas) de los pedidos marcados, por ítem,
+// y las explota con la base de recetas hasta insumos finales (POST /recetas/explotar).
+const puedeExplotar = () => S.user.role === 'ADMIN' || S.user.role === 'OPERADOR_PLANTA';
+const chkExplotarHtml = p => !puedeExplotar() ? '' : `<label onclick="event.stopPropagation()" style="display:flex;align-items:center;cursor:pointer;margin-right:10px" title="Seleccionar para explotar a Planta">
+          <input type="checkbox" class="apr-sel" data-id="${p.id}" style="width:16px;height:16px;accent-color:var(--primary)">
+        </label>`;
+function enlazarSeleccionExplotar(list, seleccion, onChange) {
+  list.querySelectorAll('.apr-sel').forEach(chk => {
+    chk.checked = seleccion.has(chk.dataset.id);
+    chk.addEventListener('click', e => e.stopPropagation());
+    chk.addEventListener('change', () => {
+      if (chk.checked) seleccion.add(chk.dataset.id); else seleccion.delete(chk.dataset.id);
+      onChange();
+    });
+  });
+}
+async function explotarPedidosPlanta(pedidos) {
+  const fmtN = v => v == null ? '—' : Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const porItem = new Map();
+  let lineasPlanta = 0;
+  pedidos.forEach(p => (p.lineas || []).forEach(l => {
+    if ((l.gestion || 'COMPRAS') !== 'PLANTA' || l.estadoLinea === 'RECHAZADO' || !(l.cantidadSolicitada > 0)) return;
+    lineasPlanta++;
+    const k = String(l.item);
+    if (!porItem.has(k)) porItem.set(k, { item: k, descripcion: l.itemNombre || '', cantidad: 0, pedidos: new Set() });
+    const e = porItem.get(k);
+    e.cantidad += Number(l.cantidadSolicitada);
+    e.pedidos.add(p.id);
+  }));
+  if (!porItem.size) return toast('Los pedidos seleccionados no tienen líneas de Planta para explotar', 'error');
+
+  openModal('🏭 Explosión a Planta', `<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span></div>`, null, { wide: true });
+  try {
+    const data = await POST('/recetas/explotar', { items: [...porItem.values()].map(e => ({ item: e.item, descripcion: e.descripcion, cantidad: e.cantidad, pedidos: e.pedidos.size })) });
+    const th = (t, right) => `<th style="text-align:${right ? 'right' : 'left'};padding:6px 8px">${t}</th>`;
+    const td = (t, right, extra = '') => `<td style="padding:5px 8px;${right ? 'text-align:right;' : ''}${extra}">${t}</td>`;
+    const tabla = (cabs, filas) => `<div style="overflow:auto;max-height:380px"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#f3f4f6;position:sticky;top:0">${cabs}</tr></thead><tbody>${filas || '<tr><td colspan="9" class="text-muted" style="padding:12px">Sin datos</td></tr>'}</tbody></table></div>`;
+
+    const solicitado = tabla(th('Código') + th('Descripción') + th('Pedidos', true) + th('Cantidad', true),
+      data.solicitado.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(r.pedidos, true)}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}</tr>`).join(''));
+    const sinReceta = data.sinReceta.length
+      ? `<div style="margin-top:10px;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px">⚠️ Sin receta (no se pueden explotar): ${data.sinReceta.map(r => `${esc(r.descripcion || String(r.item))} (${esc(String(r.item))})`).join(', ')}</div>` : '';
+    const producciones = tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true),
+      data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}</tr>`).join(''));
+    const insumos = tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cantidad', true),
+      data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}</tr>`).join(''));
+
+    const paneles = { sol: solicitado + sinReceta, prod: producciones, ins: insumos };
+    const tabs = [['sol', `📦 Solicitado (${data.solicitado.length})`], ['prod', `⚙️ Producciones (${data.producciones.length})`], ['ins', `🔹 Insumos finales (${data.insumos.length})`]];
+    document.getElementById('modal-body').innerHTML = `
+      <div style="margin-bottom:10px;font-size:13px">${pedidos.length} pedido${pedidos.length !== 1 ? 's' : ''} seleccionado${pedidos.length !== 1 ? 's' : ''} · ${lineasPlanta} línea${lineasPlanta !== 1 ? 's' : ''} de Planta sumadas en ${data.solicitado.length} ítem${data.solicitado.length !== 1 ? 's' : ''}
+        ${data.ciclo ? '<span style="color:#b45309"> · ⚠️ se detectó un ciclo en las recetas</span>' : ''}</div>
+      <div id="exp-tabs" style="display:flex;border-bottom:2px solid #e5e7eb;margin-bottom:12px">
+        ${tabs.map(([k, l], i) => `<button data-k="${k}" style="border:none;background:none;cursor:pointer;font-size:13px;padding:6px 14px;margin-bottom:-2px;border-bottom:2px solid ${i === 0 ? '#7c3aed' : 'transparent'};color:${i === 0 ? '#7c3aed' : '#374151'}">${l}</button>`).join('')}
+      </div>
+      <div id="exp-panel">${paneles.sol}</div>
+      <div style="margin-top:12px;text-align:right"><button class="btn btn-sm btn-outline" id="exp-excel">📥 Excel</button></div>`;
+    document.querySelectorAll('#exp-tabs button').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('#exp-tabs button').forEach(x => { const on = x === b; x.style.borderBottomColor = on ? '#7c3aed' : 'transparent'; x.style.color = on ? '#7c3aed' : '#374151'; });
+      document.getElementById('exp-panel').innerHTML = paneles[b.dataset.k];
+    }));
+    document.getElementById('exp-excel').addEventListener('click', () => exportarExplosion(data));
+  } catch (err) {
+    document.getElementById('modal-body').innerHTML = `<p style="color:#dc2626;padding:16px">Error al explotar: ${esc(err.message)}</p>`;
+  }
+}
+
+// CSV con las 3 secciones (abre directo en Excel; ';' y BOM para que respete tildes y coma decimal).
+function exportarExplosion(data) {
+  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const fila = a => a.map(q).join(';');
+  const n = v => Number(v).toFixed(2).replace('.', ',');
+  const lineas = [
+    'SOLICITADO A PLANTA', fila(['Código', 'Descripción', 'Pedidos', 'Cantidad']),
+    ...data.solicitado.map(r => fila([r.item, r.descripcion, r.pedidos, n(r.cantidad)])), '',
+    'PRODUCCIONES', fila(['Código', 'Descripción', 'Requerido', 'Batch', 'Corridas', 'Produce']),
+    ...data.producciones.map(r => fila([r.item, r.descripcion, n(r.requerida), n(r.batch), r.corridas, n(r.producida)])), '',
+    'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cantidad']),
+    ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad)])),
+  ];
+  const blob = new Blob(['﻿' + lineas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `explosion-planta-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 // ─── Desglose de Recetas de Planta ───────────────────────────────
 window.verDesgloseReceta = async function(item, cantidad) {

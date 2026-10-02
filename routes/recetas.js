@@ -94,6 +94,71 @@ router.get('/desglose', async (req, res) => {
   }
 });
 
+// Explosión consolidada de varios ítems solicitados a la vez. A diferencia de desgloseNodo
+// (un ítem, un árbol), aquí se suma primero la demanda de cada sub-producto entre TODOS los
+// ítems solicitados y recién entonces se calculan las corridas (batch) — así un mismo
+// sub-producto pedido por dos recetas distintas se produce una sola vez, no una por receta.
+function explotarConsolidado(recetaMap, solicitados) {
+  const demanda = new Map();
+  const sinReceta = [];
+  const cabecera = new Map();
+  for (const s of solicitados) {
+    cabecera.set(s.item, { item: s.item, descripcion: s.descripcion || '', cantidad: (cabecera.get(s.item)?.cantidad || 0) + s.cantidad, pedidos: (cabecera.get(s.item)?.pedidos || 0) + (s.pedidos || 1) });
+  }
+  const orden = [], estado = new Map();
+  let ciclo = false;
+  const visitar = it => {
+    if (estado.get(it) === 2) return;
+    if (estado.get(it) === 1) { ciclo = true; return; }
+    estado.set(it, 1);
+    for (const ing of (recetaMap[it]?.ingredientes || [])) if (ing.esSub && recetaMap[ing.item]) visitar(ing.item);
+    estado.set(it, 2);
+    orden.push(it);
+  };
+  for (const c of cabecera.values()) {
+    if (!recetaMap[c.item]) { sinReceta.push(c); continue; }
+    demanda.set(c.item, (demanda.get(c.item) || 0) + c.cantidad);
+    visitar(c.item);
+  }
+  orden.reverse(); // padres antes que hijos
+
+  const producciones = [], insumos = new Map();
+  for (const it of orden) {
+    const r = recetaMap[it], dem = demanda.get(it) || 0, batch = r.batch || 1;
+    const corridas = Math.ceil(dem / batch - 1e-9);
+    producciones.push({ item: it, descripcion: r.descripcion, solicitada: cabecera.get(it)?.cantidad || 0, requerida: dem, batch, corridas, producida: corridas * batch });
+    for (const ing of r.ingredientes) {
+      const cant = ing.cantidad * corridas;
+      if (ing.esSub && recetaMap[ing.item]) { demanda.set(ing.item, (demanda.get(ing.item) || 0) + cant); continue; }
+      const k = ing.item;
+      if (!insumos.has(k)) insumos.set(k, { item: k, descripcion: ing.descripcion, unidad: ing.unidad, areaDescarga: ing.areaDescarga, cantidad: 0 });
+      insumos.get(k).cantidad += cant;
+    }
+  }
+  const porTexto = (a, b) => (a.areaDescarga || '').localeCompare(b.areaDescarga || '') || (a.descripcion || '').localeCompare(b.descripcion || '');
+  return {
+    solicitado: [...cabecera.values()].sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || '')),
+    producciones, insumos: [...insumos.values()].sort(porTexto), sinReceta, ciclo,
+  };
+}
+
+// POST /api/recetas/explotar  { items: [{ item, cantidad, descripcion?, pedidos? }] }
+router.post('/explotar', async (req, res) => {
+  try {
+    if (!['ADMIN', 'OPERADOR_PLANTA'].includes(req.user.role)) return res.status(403).json({ error: 'Solo Administrador y Planta pueden explotar pedidos' });
+    const lista = Array.isArray(req.body?.items) ? req.body.items : [];
+    const solicitados = lista
+      .map(s => ({ item: parseInt(s.item), cantidad: parseFloat(s.cantidad) || 0, descripcion: String(s.descripcion || ''), pedidos: Number(s.pedidos) || 1 }))
+      .filter(s => s.item && s.cantidad > 0);
+    if (!solicitados.length) return res.status(400).json({ error: 'No hay ítems de planta con cantidad para explotar' });
+
+    const recetas = await Receta.find({}, { item: 1, descripcion: 1, batch: 1, ingredientes: 1, _id: 0 }).lean();
+    const recetaMap = {};
+    recetas.forEach(r => { recetaMap[r.item] = r; });
+    res.json(explotarConsolidado(recetaMap, solicitados));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/recetas/item/:item  — datos básicos de un producto
 router.get('/item/:item', async (req, res) => {
   try {
