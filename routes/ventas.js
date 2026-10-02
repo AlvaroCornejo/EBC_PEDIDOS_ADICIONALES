@@ -19,6 +19,13 @@ function checkOpAccess(user, operacion) {
   const ops = opsFilter(user);
   return ops === null || ops.includes(operacion);
 }
+/** Lee `operacion=A,B,C` del query y valida que el usuario tenga acceso a todas. */
+function operacionesFromQuery(req) {
+  return String(req.query.operacion || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+function checkOpsAccess(user, operaciones) {
+  return operaciones.every(o => checkOpAccess(user, o));
+}
 
 // Canales que usan PAX como divisor (ticket promedio / permanencia promedio);
 // todos los demás (incluido OTROS) usan TICKETS.
@@ -107,9 +114,10 @@ router.get('/operaciones', async (req, res) => {
 // ── GET /dia?operacion=&fecha= — secciones 1-8 ──────────────────────────
 router.get('/dia', async (req, res) => {
   try {
-    const { operacion, fecha } = req.query;
-    if (!operacion || !fecha) return res.status(400).json({ error: 'Operación y fecha son requeridas' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const operaciones = operacionesFromQuery(req);
+    const { fecha } = req.query;
+    if (!operaciones.length || !fecha) return res.status(400).json({ error: 'Operación y fecha son requeridas' });
+    if (!checkOpsAccess(req.user, operaciones)) return res.status(403).json({ error: 'Operación no autorizada' });
 
     const fechaRef = aMedianoche(new Date(fecha));
     const rDia = rangoDia(fechaRef), rSemana = rangoSemana(fechaRef), rMes = rangoMes(fechaRef), rAnio = rangoAnio(fechaRef);
@@ -117,9 +125,9 @@ router.get('/dia', async (req, res) => {
     // Rango más amplio necesario para cubrir todos los comparativos (hasta ~13 meses atrás).
     const desdeTodo = sumarDias(fechaRef, -400);
     const [ventaDocs, canalesDistintos, tipDocs] = await Promise.all([
-      VentaDiaria.find({ operacion, fecha: { $gte: desdeTodo, $lte: finDeDia(fechaRef) } }).lean(),
-      VentaDiaria.distinct('canal', { operacion }),
-      TipDiario.find({ operacion, fecha: { $gte: desdeTodo, $lte: finDeDia(fechaRef) } }).lean(),
+      VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: desdeTodo, $lte: finDeDia(fechaRef) } }).lean(),
+      VentaDiaria.distinct('canal', { operacion: { $in: operaciones } }),
+      TipDiario.find({ operacion: { $in: operaciones }, fecha: { $gte: desdeTodo, $lte: finDeDia(fechaRef) } }).lean(),
     ]);
 
     const canalesOrden = canalesDistintos.filter(c => c !== 'OTROS').sort();
@@ -188,18 +196,18 @@ router.get('/dia', async (req, res) => {
 // ── GET /semanas?operacion=&semanas= — últimas N semanas por canal ──────
 router.get('/semanas', async (req, res) => {
   try {
-    const { operacion } = req.query;
+    const operaciones = operacionesFromQuery(req);
     const nSemanas = Math.max(1, Math.min(52, Number(req.query.semanas) || 12));
-    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    if (!operaciones.length) return res.status(400).json({ error: 'Operación requerida' });
+    if (!checkOpsAccess(req.user, operaciones)) return res.status(403).json({ error: 'Operación no autorizada' });
 
     const hoy = aMedianoche(new Date());
     const lunesActual = lunesDeLaSemana(hoy);
     const desde = sumarDias(lunesActual, -(nSemanas - 1) * 7);
 
     const [docs, canalesDistintos] = await Promise.all([
-      VentaDiaria.find({ operacion, fecha: { $gte: desde, $lte: finDeDia(hoy) }, tipoDocumento: 'VENTA' }).lean(),
-      VentaDiaria.distinct('canal', { operacion }),
+      VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: desde, $lte: finDeDia(hoy) }, tipoDocumento: 'VENTA' }).lean(),
+      VentaDiaria.distinct('canal', { operacion: { $in: operaciones } }),
     ]);
     const canalesOrden = canalesDistintos.filter(c => c !== 'OTROS').sort();
     if (canalesDistintos.includes('OTROS')) canalesOrden.push('OTROS');
@@ -226,9 +234,10 @@ router.get('/semanas', async (req, res) => {
 // ── GET /semanal-comparativo?operacion=&fecha= — semana vs. misma semana año anterior ──
 router.get('/semanal-comparativo', async (req, res) => {
   try {
-    const { operacion, fecha } = req.query;
-    if (!operacion || !fecha) return res.status(400).json({ error: 'Operación y fecha son requeridas' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const operaciones = operacionesFromQuery(req);
+    const { fecha } = req.query;
+    if (!operaciones.length || !fecha) return res.status(400).json({ error: 'Operación y fecha son requeridas' });
+    if (!checkOpsAccess(req.user, operaciones)) return res.status(403).json({ error: 'Operación no autorizada' });
 
     const fechaRef = aMedianoche(new Date(fecha));
     const lunesActual = lunesDeLaSemana(fechaRef);
@@ -238,9 +247,9 @@ router.get('/semanal-comparativo', async (req, res) => {
     const domingoAnioAnt = sumarDias(lunesAnioAnt, 6);
 
     const [docsActual, docsAnioAnt, canalesDistintos] = await Promise.all([
-      VentaDiaria.find({ operacion, fecha: { $gte: lunesActual, $lte: finDeDia(domingoActual) }, tipoDocumento: 'VENTA' }).lean(),
-      VentaDiaria.find({ operacion, fecha: { $gte: lunesAnioAnt, $lte: finDeDia(domingoAnioAnt) }, tipoDocumento: 'VENTA' }).lean(),
-      VentaDiaria.distinct('canal', { operacion }),
+      VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: lunesActual, $lte: finDeDia(domingoActual) }, tipoDocumento: 'VENTA' }).lean(),
+      VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: lunesAnioAnt, $lte: finDeDia(domingoAnioAnt) }, tipoDocumento: 'VENTA' }).lean(),
+      VentaDiaria.distinct('canal', { operacion: { $in: operaciones } }),
     ]);
     const canalesOrden = canalesDistintos.filter(c => c !== 'OTROS').sort();
     if (canalesDistintos.includes('OTROS')) canalesOrden.push('OTROS');
@@ -259,13 +268,13 @@ router.get('/semanal-comparativo', async (req, res) => {
 // ── GET /mensual?operacion= — histórico mensual por canal, todos los años ──
 router.get('/mensual', async (req, res) => {
   try {
-    const { operacion } = req.query;
-    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    const operaciones = operacionesFromQuery(req);
+    if (!operaciones.length) return res.status(400).json({ error: 'Operación requerida' });
+    if (!checkOpsAccess(req.user, operaciones)) return res.status(403).json({ error: 'Operación no autorizada' });
 
     const [docs, canalesDistintos] = await Promise.all([
-      VentaDiaria.find({ operacion, tipoDocumento: 'VENTA' }, 'canal fecha venta').lean(),
-      VentaDiaria.distinct('canal', { operacion }),
+      VentaDiaria.find({ operacion: { $in: operaciones }, tipoDocumento: 'VENTA' }, 'canal fecha venta').lean(),
+      VentaDiaria.distinct('canal', { operacion: { $in: operaciones } }),
     ]);
     const canalesOrden = canalesDistintos.filter(c => c !== 'OTROS').sort();
     if (canalesDistintos.includes('OTROS')) canalesOrden.push('OTROS');

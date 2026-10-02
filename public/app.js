@@ -12538,7 +12538,9 @@ async function viewInventarioSemanal(container) {
 // ─── View: Ventas ───────────────────────────────────────────────────
 async function viewVentas(container) {
   let operaciones = [];
-  let operacionActual = '', fechaActual = today(), nSemanas = 12;
+  let operacionesSel = new Set();
+  const ayer = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  let fechaActual = ayer, nSemanas = 12;
   let dataDia = null, dataSemanas = null, dataComparativo = null, dataMensual = null, canalMensualSel = 'TOTAL';
 
   const fmtMoney = v => 'S/ ' + (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -12558,7 +12560,7 @@ async function viewVentas(container) {
       <div class="card mb-16" style="padding:14px">
         <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
-            <select id="vt-operacion" class="form-control" style="width:160px"><option value="">— Seleccionar —</option></select>
+            <div id="vt-operacion" style="display:flex;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:6px;padding:7px 10px;max-height:70px;overflow-y:auto;min-width:200px"></div>
           </div>
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha</label>
             <input type="date" id="vt-fecha" class="form-control" value="${fechaActual}" style="width:160px">
@@ -12576,27 +12578,37 @@ async function viewVentas(container) {
 
   try {
     operaciones = await GET('/ventas/operaciones');
-    const sel = document.getElementById('vt-operacion');
-    sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; }
+    const cont = document.getElementById('vt-operacion');
+    cont.innerHTML = operaciones.map(o => `
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" class="vt-op-chk" value="${esc(o)}" style="width:13px;height:13px;accent-color:var(--primary)">
+        ${esc(o)}
+      </label>`).join('');
+    if (operaciones.length === 1) {
+      operacionesSel.add(operaciones[0]);
+      cont.querySelector('.vt-op-chk').checked = true;
+    }
   } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
 
-  document.getElementById('vt-operacion').addEventListener('change', e => { operacionActual = e.target.value; });
+  document.querySelectorAll('.vt-op-chk').forEach(chk => chk.addEventListener('change', () => {
+    if (chk.checked) operacionesSel.add(chk.value); else operacionesSel.delete(chk.value);
+  }));
   document.getElementById('vt-fecha').addEventListener('change', e => { fechaActual = e.target.value; });
   document.getElementById('vt-nsemanas').addEventListener('change', e => { nSemanas = Number(e.target.value) || 12; });
   document.getElementById('vt-cargar').addEventListener('click', cargarTodo);
 
-  if (operacionActual) await cargarTodo();
+  if (operacionesSel.size) await cargarTodo();
 
   async function cargarTodo() {
-    if (!operacionActual) return toast('Selecciona una operación', 'error');
+    if (!operacionesSel.size) return toast('Selecciona al menos una operación', 'error');
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
+      const opsParam = encodeURIComponent([...operacionesSel].join(','));
       const [dia, semanas, comparativo, mensual] = await Promise.all([
-        GET(`/ventas/dia?operacion=${encodeURIComponent(operacionActual)}&fecha=${fechaActual}`),
-        GET(`/ventas/semanas?operacion=${encodeURIComponent(operacionActual)}&semanas=${nSemanas}`),
-        GET(`/ventas/semanal-comparativo?operacion=${encodeURIComponent(operacionActual)}&fecha=${fechaActual}`),
-        GET(`/ventas/mensual?operacion=${encodeURIComponent(operacionActual)}`),
+        GET(`/ventas/dia?operacion=${opsParam}&fecha=${fechaActual}`),
+        GET(`/ventas/semanas?operacion=${opsParam}&semanas=${nSemanas}`),
+        GET(`/ventas/semanal-comparativo?operacion=${opsParam}&fecha=${fechaActual}`),
+        GET(`/ventas/mensual?operacion=${opsParam}`),
       ]);
       dataDia = dia; dataSemanas = semanas; dataComparativo = comparativo; dataMensual = mensual;
       canalMensualSel = 'TOTAL';
@@ -12609,6 +12621,9 @@ async function viewVentas(container) {
     return ['TOTAL', ...dataDia.canales, 'CORTESIAS'];
   }
 
+  // "Año (a la fecha)" no trae comparativo de año anterior (el rango no aplica —
+  // ver utils/ventasRangos.js), así que esa sección solo muestra Actual/Anterior,
+  // 2 columnas en vez de 3.
   function tablaResumen(titulo, metric, fmt) {
     const filas = filasCanal();
     return `
@@ -12617,18 +12632,26 @@ async function viewVentas(container) {
         <div class="table-wrap">
           <table class="data-table" style="font-size:12px">
             <thead>
-              <tr><th rowspan="2">Canal</th>${PERIODOS.map(([, l]) => `<th colspan="3" class="text-center" style="border-left:2px solid var(--border)">${esc(l)}</th>`).join('')}</tr>
-              <tr>${PERIODOS.map(() => `<th class="text-right" style="border-left:2px solid var(--border)">Valor</th><th class="text-right">vs Ant.</th><th class="text-right">vs Año Ant.</th>`).join('')}</tr>
+              <tr><th rowspan="2">Canal</th>${PERIODOS.map(([p, l]) => `<th colspan="${p === 'anio' ? 2 : 3}" class="text-center" style="border-left:2px solid var(--border)">${esc(l)}</th>`).join('')}</tr>
+              <tr>${PERIODOS.map(([p]) => p === 'anio'
+                ? `<th class="text-right" style="border-left:2px solid var(--border)">Actual</th><th class="text-right">Año Ant.</th>`
+                : `<th class="text-right" style="border-left:2px solid var(--border)">Actual</th><th class="text-right">Anterior</th><th class="text-right">Año Ant.</th>`).join('')}</tr>
             </thead>
             <tbody>
               ${filas.map(canal => `<tr>
                 <td style="font-weight:${canal === 'TOTAL' ? '700' : '400'}">${esc(canal)}</td>
                 ${PERIODOS.map(([p]) => {
                   const d = metric[canal]?.[p];
-                  if (!d) return '<td class="text-right" style="border-left:2px solid var(--border)">—</td><td class="text-right">—</td><td class="text-right">—</td>';
+                  if (!d) return p === 'anio'
+                    ? '<td class="text-right" style="border-left:2px solid var(--border)">—</td><td class="text-right">—</td>'
+                    : '<td class="text-right" style="border-left:2px solid var(--border)">—</td><td class="text-right">—</td><td class="text-right">—</td>';
+                  if (p === 'anio') {
+                    return `<td class="text-right" style="border-left:2px solid var(--border)">${fmt(d.actual)}</td>
+                      <td class="text-right">${fmt(d.anterior)}</td>`;
+                  }
                   return `<td class="text-right" style="border-left:2px solid var(--border)">${fmt(d.actual)}</td>
-                    <td class="text-right" style="${colorVar(d.varAnterior)}">${fmtPct(d.varAnterior)}</td>
-                    <td class="text-right" style="${colorVar(d.varAnioAnterior)}">${fmtPct(d.varAnioAnterior)}</td>`;
+                    <td class="text-right">${fmt(d.anterior)}</td>
+                    <td class="text-right">${fmt(d.anioAnterior)}</td>`;
                 }).join('')}
               </tr>`).join('')}
             </tbody>
