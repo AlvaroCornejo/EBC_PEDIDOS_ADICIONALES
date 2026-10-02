@@ -12541,7 +12541,7 @@ async function viewVentas(container) {
   let operacionesSel = new Set();
   const ayer = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
   let fechaActual = ayer, nSemanas = 12;
-  let dataDia = null, dataSemanas = null, dataComparativo = null, dataMensual = null, canalMensualSel = 'TOTAL';
+  let dataDia = null, dataSemanas = null, dataMensual = null, canalMensualSel = 'TOTAL';
 
   const fmtMoney = v => 'S/ ' + (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const fmtNum = v => (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -12606,13 +12606,12 @@ async function viewVentas(container) {
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
       const opsParam = encodeURIComponent([...operacionesSel].join(','));
-      const [dia, semanas, comparativo, mensual] = await Promise.all([
+      const [dia, semanas, mensual] = await Promise.all([
         GET(`/ventas/dia?operacion=${opsParam}&fecha=${fechaActual}`),
         GET(`/ventas/semanas?operacion=${opsParam}&semanas=${nSemanas}`),
-        GET(`/ventas/semanal-comparativo?operacion=${opsParam}&fecha=${fechaActual}`),
         GET(`/ventas/mensual?operacion=${opsParam}`),
       ]);
-      dataDia = dia; dataSemanas = semanas; dataComparativo = comparativo; dataMensual = mensual;
+      dataDia = dia; dataSemanas = semanas; dataMensual = mensual;
       canalMensualSel = 'TOTAL';
       render();
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
@@ -12743,29 +12742,6 @@ async function viewVentas(container) {
     return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
   }
 
-  function tablaComparativo() {
-    return `
-      <div class="card" style="padding:14px;margin-bottom:14px">
-        <div style="font-weight:700;margin-bottom:10px">
-          Semana Comparativa Año Anterior — ${fmtFechaCorta(dataComparativo.lunesActual)} al ${fmtFechaCorta(dataComparativo.domingoActual)}
-          vs. ${fmtFechaCorta(dataComparativo.lunesAnioAnt)} al ${fmtFechaCorta(dataComparativo.domingoAnioAnt)}
-        </div>
-        <div class="table-wrap">
-          <table class="data-table" style="font-size:12px">
-            <thead><tr><th>Canal</th><th class="text-right">Actual</th><th class="text-right">Año Anterior</th><th class="text-right">Variación</th></tr></thead>
-            <tbody>
-              ${dataComparativo.filas.map(f => `<tr>
-                <td style="font-weight:${f.canal === 'TOTAL' ? '700' : '400'}">${esc(f.canal)}</td>
-                <td class="text-right">${fmtMoney(f.actual)}</td>
-                <td class="text-right">${fmtMoney(f.anioAnterior)}</td>
-                <td class="text-right" style="${colorVar(f.variacion)}">${fmtPct(f.variacion)}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>`;
-  }
-
   function tablaMensual() {
     const anios = Object.keys(dataMensual.datos[canalMensualSel] || {}).sort();
     return `
@@ -12804,7 +12780,6 @@ async function viewVentas(container) {
       ${tablaTip()}
       ${tablaTurno()}
       ${tablaSemanas()}
-      ${tablaComparativo()}
       ${tablaMensual()}
     `;
     document.getElementById('vt-canal-mensual')?.addEventListener('change', e => { canalMensualSel = e.target.value; render(); });

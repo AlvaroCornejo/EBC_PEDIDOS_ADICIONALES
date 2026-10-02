@@ -236,40 +236,6 @@ router.get('/semanas', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── GET /semanal-comparativo?operacion=&fecha= — semana vs. misma semana año anterior ──
-router.get('/semanal-comparativo', async (req, res) => {
-  try {
-    const operaciones = operacionesFromQuery(req);
-    const { fecha } = req.query;
-    if (!operaciones.length || !fecha) return res.status(400).json({ error: 'Operación y fecha son requeridas' });
-    if (!checkOpsAccess(req.user, operaciones)) return res.status(403).json({ error: 'Operación no autorizada' });
-
-    const fechaRef = aMedianoche(new Date(fecha));
-    const lunesActual = lunesDeLaSemana(fechaRef);
-    const domingoActual = sumarDias(lunesActual, 6);
-    // Año anterior: mismo mes/día calendario, un año antes (igual criterio que Mes/Año).
-    const lunesAnioAnt = new Date(lunesActual.getFullYear() - 1, lunesActual.getMonth(), lunesActual.getDate());
-    const domingoAnioAnt = sumarDias(lunesAnioAnt, 6);
-
-    const [docsActual, docsAnioAnt, canalesDistintos] = await Promise.all([
-      VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: lunesActual, $lte: finDeDia(domingoActual) }, tipoDocumento: 'VENTA' }).lean(),
-      VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: lunesAnioAnt, $lte: finDeDia(domingoAnioAnt) }, tipoDocumento: 'VENTA' }).lean(),
-      VentaDiaria.distinct('canal', { operacion: { $in: operaciones } }),
-    ]);
-    const canalesOrden = canalesDistintos.filter(c => c !== 'OTROS').sort();
-    if (canalesDistintos.includes('OTROS')) canalesOrden.push('OTROS');
-
-    const actual = conDerivados(agregarPorCanal(docsActual, canalesOrden));
-    const anioAnterior = conDerivados(agregarPorCanal(docsAnioAnt, canalesOrden));
-    const filas = canalesOrden.concat(['TOTAL']).map(canal => ({
-      canal, actual: actual[canal]?.venta || 0, anioAnterior: anioAnterior[canal]?.venta || 0,
-      variacion: variacion(actual[canal]?.venta, anioAnterior[canal]?.venta),
-    }));
-
-    res.json({ lunesActual, domingoActual, lunesAnioAnt, domingoAnioAnt, filas });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 // ── GET /mensual?operacion= — histórico mensual por canal, todos los años ──
 router.get('/mensual', async (req, res) => {
   try {
