@@ -12666,7 +12666,8 @@ async function viewVentas(container) {
       <div class="card" style="padding:14px;margin-bottom:14px">
         <div style="font-weight:700;margin-bottom:10px">TIP y Tasa TIP</div>
         <div class="table-wrap">
-          <table class="data-table" style="font-size:12px">
+          <table class="data-table" style="font-size:12px;table-layout:fixed">
+            <colgroup><col style="width:160px">${PERIODOS.map(() => '<col style="width:110px">').join('')}</colgroup>
             <thead><tr><th>Concepto</th>${PERIODOS.map(([, l]) => `<th class="text-center" style="border-left:2px solid var(--border)">${esc(l)}</th>`).join('')}</tr></thead>
             <tbody>
               ${filas.map(([k, l]) => `<tr>
@@ -12688,7 +12689,8 @@ async function viewVentas(container) {
       <div class="card" style="padding:14px;margin-bottom:14px">
         <div style="font-weight:700;margin-bottom:10px">Venta por Turno — ${esc(fechaActual)}</div>
         <div class="table-wrap">
-          <table class="data-table" style="font-size:12px">
+          <table class="data-table" style="font-size:12px;table-layout:fixed">
+            <colgroup><col style="width:160px"><col style="width:110px"><col style="width:110px"></colgroup>
             <thead><tr><th>Turno</th><th class="text-right">S/</th><th class="text-right">%</th></tr></thead>
             <tbody>
               ${Object.keys(dataDia.turno).map(t => `<tr>
