@@ -12784,6 +12784,7 @@ async function viewVentas(container) {
     //   no registra permanencia, así que no se muestran.
     if (modo === 'reales') return dataDia.canales.filter(c => c !== 'OTROS');
     if (modo === 'permanencia') return ['TOTAL', 'EN EL LOCAL', 'HABERES'];
+    if (modo === 'operaciones') return [...Object.keys(dataDia.ventaPorOperacion), 'TOTAL'];
     return ['TOTAL', ...dataDia.canales, 'CORTESIAS'];
   }
 
@@ -12801,7 +12802,7 @@ async function viewVentas(container) {
         <div class="table-wrap">
           <table class="data-table" style="font-size:12px">
             <thead>
-              <tr><th rowspan="2">Canal</th>${PERIODOS.map(([p, l]) => `<th colspan="${p === 'anio' ? 2 : 3}" class="text-center" style="border-left:2px solid var(--border);white-space:normal;line-height:1.3">${labelPeriodo2L(l)}</th>`).join('')}</tr>
+              <tr><th rowspan="2">${modo === 'operaciones' ? 'Operación' : 'Canal'}</th>${PERIODOS.map(([p, l]) => `<th colspan="${p === 'anio' ? 2 : 3}" class="text-center" style="border-left:2px solid var(--border);white-space:normal;line-height:1.3">${labelPeriodo2L(l)}</th>`).join('')}</tr>
               <tr>${PERIODOS.map(([p]) => p === 'anio'
                 ? `<th class="text-right" style="border-left:2px solid var(--border)">Actual</th><th class="text-right">Año Ant.</th>`
                 : `<th class="text-right" style="border-left:2px solid var(--border)">Actual</th><th class="text-right">Anterior</th><th class="text-right">Año Ant.</th>`).join('')}</tr>
@@ -12944,6 +12945,9 @@ async function viewVentas(container) {
       </div>`;
   }
 
+  // Filas = operaciones seleccionadas (+ TOTAL de todas); mismo formato que las métricas por canal.
+  const ventaPorOp = () => ({ ...dataDia.ventaPorOperacion, TOTAL: dataDia.venta.TOTAL });
+
   // ── Gráficos (ver public/ventasCharts.js) ──
   function graficoResumen(key, metric, fmt, fmtAxis, modo, aria) {
     const el = document.getElementById('vc-' + key);
@@ -12954,7 +12958,7 @@ async function viewVentas(container) {
       ? [{ name: 'Actual', color: '#2a78d6' }, { name: 'Año anterior', color: '#c3c2b7' }]
       : [{ name: 'Actual', color: '#2a78d6' }, { name: 'Anterior', color: '#86b6ef' }, { name: 'Año anterior', color: '#c3c2b7' }];
     // Venta: el TOTAL (suma de todos los canales) achicaría todas las barras, por eso no se grafica.
-    const filas = filasCanal(modo).filter(c => modo || c !== 'TOTAL').map(c => {
+    const filas = filasCanal(modo).filter(c => modo === 'permanencia' || c !== 'TOTAL').map(c => {
       const d = metric[c]?.[p];
       return { label: c, vals: !d ? series.map(() => 0) : anio ? [d.actual, d.anterior] : [d.actual, d.anterior, d.anioAnterior] };
     });
@@ -13014,6 +13018,7 @@ async function viewVentas(container) {
   function render() {
     if (!dataDia) { root.innerHTML = '<div class="empty-state"><p>Sin datos.</p></div>'; return; }
     root.innerHTML = `
+      ${dataDia.ventaPorOperacion ? tablaResumen('vop', 'Resumen del Día — Venta por Operación (S/)', ventaPorOp(), fmtMoney, 'operaciones') : ''}
       ${tablaResumen('venta', 'Resumen del Día — Venta (S/)', dataDia.venta, fmtMoney)}
       ${tablaResumen('cantidad', 'Resumen del Día — Cantidad (PAX / Tickets)', dataDia.cantidad, fmtNum, 'reales')}
       ${tablaResumen('ticket', 'Resumen del Día — Ticket Promedio', dataDia.ticketProm, fmtMoney, 'reales')}
@@ -13024,6 +13029,7 @@ async function viewVentas(container) {
       ${tablaMensual()}
     `;
     vcEstilos();
+    if (dataDia.ventaPorOperacion) graficoResumen('vop', ventaPorOp(), fmtMoney, fmtCompacto, 'operaciones', 'Venta por operación');
     graficoResumen('venta', dataDia.venta, fmtMoney, fmtCompacto, undefined, 'Venta por canal');
     graficoResumen('cantidad', dataDia.cantidad, fmtNum, fmtCompacto, 'reales', 'Cantidad (PAX o tickets) por canal');
     graficoResumen('ticket', dataDia.ticketProm, fmtMoney, fmtCompacto, 'reales', 'Ticket promedio por canal');

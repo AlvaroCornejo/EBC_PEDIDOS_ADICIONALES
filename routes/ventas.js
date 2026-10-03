@@ -194,7 +194,23 @@ router.get('/dia', async (req, res) => {
       turnoPorPeriodo[periodo] = { turno, total, pct };
     });
 
-    res.json({ canales: canalesOrden, venta, cantidad, ticketProm, permanencia, tip, tasaTip, turnoPorPeriodo });
+    // Con varias operaciones: venta por operación (mismos periodos y comparativos). Usa el TOTAL de
+    // cada una, o sea sin OTROS ni CORTESIAS — igual que el TOTAL por canal.
+    let ventaPorOperacion = null;
+    if (operaciones.length > 1) {
+      ventaPorOperacion = {};
+      operaciones.forEach(op => {
+        const docsOp = ventaDocs.filter(d => d.operacion === op);
+        ventaPorOperacion[op] = {};
+        [['dia', rDia], ['semana', rSemana], ['mes', rMes], ['anio', rAnio]].forEach(([periodo, rango]) => {
+          const bloque = bloquePeriodo(docsOp, rango, canalesOrden);
+          ventaPorOperacion[op][periodo] = {};
+          ['actual', 'anterior', 'anioAnterior'].forEach(k => { if (bloque[k]) ventaPorOperacion[op][periodo][k] = bloque[k].TOTAL.venta; });
+        });
+      });
+    }
+
+    res.json({ canales: canalesOrden, venta, cantidad, ticketProm, permanencia, tip, tasaTip, turnoPorPeriodo, ventaPorOperacion });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
