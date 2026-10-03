@@ -12894,7 +12894,8 @@ async function viewVentas(container) {
   }
 
   function tablaSemanas() {
-    const filas = ['TOTAL', ...dataSemanas.canales, 'CORTESIAS'];
+    // OTROS y CORTESIAS solo se muestran en el Resumen del Día.
+    const filas = ['TOTAL', ...dataSemanas.canales.filter(c => c !== 'OTROS')];
     const titulo = `Ventas Últimas ${dataSemanas.filas.length} Semanas`;
     if (vistaDe('semanas') === 'grafico') {
       return `<div class="card" style="padding:14px;margin-bottom:14px">${cabecera('semanas', titulo)}<div class="vc-chart" id="vc-semanas"></div></div>`;
@@ -12925,7 +12926,7 @@ async function viewVentas(container) {
     const anios = Object.keys(dataMensual.datos[canalMensualSel] || {}).sort();
     const selCanal = `<select id="vt-canal-mensual" class="form-control" style="width:200px">
         <option value="TOTAL" ${canalMensualSel === 'TOTAL' ? 'selected' : ''}>TOTAL</option>
-        ${dataMensual.canales.map(c => `<option value="${esc(c)}" ${canalMensualSel === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        ${dataMensual.canales.filter(c => c !== 'OTROS').map(c => `<option value="${esc(c)}" ${canalMensualSel === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
       </select>`;
     if (vistaDe('mensual') === 'grafico') {
       return `<div class="card" style="padding:14px;margin-bottom:14px">${cabecera('mensual', 'Ventas Mensuales', selCanal)}<div class="vc-chart" id="vc-mensual"></div></div>`;
@@ -13000,7 +13001,7 @@ async function viewVentas(container) {
     if (!el) return;
     const filas = dataSemanas.filas, total = c => filas.reduce((s, f) => s + (f.porCanal[c] || 0), 0);
     // Se grafican los 5 canales con más venta; el resto se agrupa en "Otros canales".
-    const orden = dataSemanas.canales.slice().sort((a, b) => total(b) - total(a)), top = orden.slice(0, 5), resto = orden.slice(5);
+    const orden = dataSemanas.canales.filter(c => c !== 'OTROS').slice().sort((a, b) => total(b) - total(a)), top = orden.slice(0, 5), resto = orden.slice(5);
     const series = top.map((c, i) => ({ name: c, color: VC_CAT[i], vals: filas.map(f => f.porCanal[c] || 0) }));
     if (resto.length) series.push({ name: 'Otros canales', color: VC_OTROS, vals: filas.map(f => resto.reduce((s, c) => s + (f.porCanal[c] || 0), 0)) });
     vcColsApiladas(el, { cats: filas.map(f => fmtFechaCorta(f.lunes)), series, fmt: fmtMoney, aria: 'Venta semanal por canal' });
