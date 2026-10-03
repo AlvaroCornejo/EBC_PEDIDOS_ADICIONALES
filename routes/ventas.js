@@ -126,7 +126,10 @@ router.get('/dia', async (req, res) => {
     const rDia = rangoDia(fechaRef), rSemana = rangoSemana(fechaRef), rMes = rangoMes(fechaRef), rAnio = rangoAnio(fechaRef);
 
     // Rango más amplio necesario para cubrir todos los comparativos (hasta ~13 meses atrás).
-    const desdeTodo = sumarDias(fechaRef, -400);
+    // "Año a la fecha" del año anterior arranca el 1 de enero del año pasado: con una ventana fija
+    // de 400 días (~mediados de octubre en adelante) quedaba cortado y daba un valor muy bajo.
+    const enero1AnioAnt = new Date(fechaRef.getFullYear() - 1, 0, 1);
+    const desdeTodo = new Date(Math.min(sumarDias(fechaRef, -400).getTime(), enero1AnioAnt.getTime()));
     const [ventaDocs, canalesDistintos, tipDocs] = await Promise.all([
       VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: desdeTodo, $lte: finDeDia(fechaRef) } }).lean(),
       VentaDiaria.distinct('canal', { operacion: { $in: operaciones } }),
