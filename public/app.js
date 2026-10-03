@@ -12775,6 +12775,11 @@ async function viewVentas(container) {
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
+  // TOTAL en negrita; OTROS y CORTESIAS (fuera del total) de otro color y separados por una línea.
+  const esEspecial = c => c === 'OTROS' || c === 'CORTESIAS';
+  const estiloFila = (canal, anterior) => canal === 'TOTAL' ? 'font-weight:700'
+    : esEspecial(canal) ? `color:#b45309;background:#fffbeb;${esEspecial(anterior) ? '' : 'border-top:2px solid var(--border);'}` : '';
+
   function filasCanal(modo) {
     // Orden de filas: TOTAL primero, luego canales reales, OTROS y CORTESIAS al final.
     // - 'reales': Cantidad y Ticket Promedio — un TOTAL no tiene sentido (mezcla PAX y
@@ -12808,8 +12813,8 @@ async function viewVentas(container) {
                 : `<th class="text-right" style="border-left:2px solid var(--border)">Actual</th><th class="text-right">Anterior</th><th class="text-right">Año Ant.</th>`).join('')}</tr>
             </thead>
             <tbody>
-              ${filas.map(canal => `<tr>
-                <td style="font-weight:${canal === 'TOTAL' ? '700' : '400'}">${esc(canal)}</td>
+              ${filas.map((canal, i) => `<tr style="${estiloFila(canal, filas[i - 1])}">
+                <td>${esc(canal)}</td>
                 ${PERIODOS.map(([p]) => {
                   const d = metric[canal]?.[p];
                   if (!d) return p === 'anio'
@@ -12901,8 +12906,8 @@ async function viewVentas(container) {
           <table class="data-table" style="font-size:12px">
             <thead><tr><th>Canal</th>${dataSemanas.filas.map(f => `<th class="text-right">${esc(fmtFechaCorta(f.lunes))}</th>`).join('')}</tr></thead>
             <tbody>
-              ${filas.map(canal => `<tr>
-                <td style="font-weight:${canal === 'TOTAL' ? '700' : '400'}">${esc(canal)}</td>
+              ${filas.map((canal, i) => `<tr style="${estiloFila(canal, filas[i - 1])}">
+                <td>${esc(canal)}</td>
                 ${dataSemanas.filas.map(f => `<td class="text-right">${fmtMoney(f.porCanal[canal])}</td>`).join('')}
               </tr>`).join('')}
             </tbody>
