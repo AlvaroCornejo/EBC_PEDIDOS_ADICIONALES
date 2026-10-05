@@ -1512,3 +1512,15 @@ nombre de función, no solo de módulo): `public/costoProduccion.js` usaba `kpiF
 **Datos borrados en MongoDB (producción)**: colecciones `kpiareas`, `kpidefinicions`,
 `kpimetaversions`, `kpiregistros` (0 docs), `kpiauditorias` (0), `kpinotificacions`, y
 `$unset` de `activo`/`kpiRol`/`kpiAreas` en `users`. No había evidencia subida a Box.
+
+**Atlas lleno durante el borrado (05/10/2026)**: al limpiar los datos apareció que el
+clúster M0 estaba en **512 MB de 512 MB y Atlas bloqueaba TODAS las escrituras** de la app
+(ajeno a este módulo). Causa principal: colecciones de módulos ya borrados (Sesiones 7, 9,
+10, 15, 16, 17) que se habían vaciado con `deleteMany` pero **nunca se dropearon**, y un
+`deleteMany` no devuelve el espacio en disco. Con autorización del usuario se dropearon las
+36 colecciones con 0 documentos y sin modelo en el código (~101 MB; ej.
+`seguimientocompramovimientos` 74 MB, `ventacanaldiarias` 10.7 MB): la base bajó de ~454 a
+~353 MB en disco y Atlas desbloqueó las escrituras a los ~2 minutos. **Lección: al borrar un
+módulo, dropear sus colecciones (`db.collection(x).drop()`), no solo vaciarlas.** No se
+tocaron `itemsmaestros` (10,131 docs), `itemsrefs` ni `itemssolicituds`: tienen datos y no
+tienen modelo en este repo (posiblemente de otra app); revisar con el usuario.
