@@ -22,6 +22,14 @@ const cpFmtS2 = v => 'S/ ' + Number(v).toLocaleString('en-US', { minimumFraction
 const cpFmtP  = (v, d = 1) => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v * 100).toFixed(d) + '%';
 const cpFmtN  = v => Number(v).toLocaleString('en-US', { maximumFractionDigits: 1 });
 const cpCls   = v => v == null ? '' : v >= 0 ? 'cp-pos' : 'cp-neg';
+// dd/mm/aaaa en hora de Lima (antes usaba kpiFmtFecha de public/kpis.js, borrado con Indicadores GAF).
+const cpFmtFecha = (d) => {
+  const dt = new Date(d);
+  if (!d || isNaN(dt)) return '—';
+  const p = Object.fromEntries(new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric' })
+    .formatToParts(dt).map(x => [x.type, x.value]));
+  return `${p.day}/${p.month}/${p.year}`;
+};
 
 /** Totales de un grupo de ítems en unos meses: solo ítems con costo receta y meses con producción. */
 function cpAgg(items, meses) {
@@ -136,7 +144,7 @@ async function viewCostoProduccion(container) {
     if (st.area !== 'ALL' && !D.areas.includes(st.area)) st.area = 'ALL';
     if (st.mes && !D.meses.includes(st.mes)) st.mes = 0;
     D.color = Object.fromEntries(D.areas.map((a, i) => [a, CP_COLORES[i % CP_COLORES.length]]));
-    document.getElementById('cp-cargado').textContent = D.cargadoEn ? `Actualizado: ${kpiFmtFecha(D.cargadoEn)}` : '';
+    document.getElementById('cp-cargado').textContent = D.cargadoEn ? `Actualizado: ${cpFmtFecha(D.cargadoEn)}` : '';
     esqueleto();
     render();
   }
