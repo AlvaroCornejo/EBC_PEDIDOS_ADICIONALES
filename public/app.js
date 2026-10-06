@@ -13695,26 +13695,75 @@ async function viewCajaEfectivoBackoffice(container) {
   }
 
   function render(data) {
-    const { turnosCerrados, porTipo, ventaPorCanal, tipFacturado, depositosPendientes } = data;
+    const { dias, total, depositosPendientes } = data;
+    const filaTotal = (cells) => `<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td>${cells}</tr>`;
+
     root.innerHTML = `
       <div class="card mb-16"><div class="card-body">
-        <div style="font-weight:700;margin-bottom:8px">Resumen ${esc(mesActual)} — ${turnosCerrados} turno(s) cerrado(s)</div>
-        <table class="data-table" style="font-size:13px">
-          <thead><tr><th>Concepto</th><th class="text-right">PEN</th><th class="text-right">USD</th></tr></thead>
+        <div style="font-weight:700;margin-bottom:8px">Efectivo por día — ${esc(mesActual)} (${total.turnosCerrados} turno(s) cerrado(s))</div>
+        <div class="table-wrap">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr>
+            <th>Fecha</th><th class="text-right">Venta PEN</th><th class="text-right">Venta USD</th>
+            <th class="text-right">TIP Com. PEN</th><th class="text-right">TIP Com. USD</th>
+            <th class="text-right">TIP Tienda PEN</th><th class="text-right">TIP Tienda USD</th>
+            <th class="text-right">Turnos cerrados</th>
+          </tr></thead>
           <tbody>
-            <tr><td>Venta efectivo</td><td class="text-right">${fmt(porTipo.VENTA_PEN||0)}</td><td class="text-right">${fmt(porTipo.VENTA_USD||0)}</td></tr>
-            <tr><td>TIP Comercial</td><td class="text-right">${fmt(porTipo.TIP_COMERCIAL_PEN||0)}</td><td class="text-right">${fmt(porTipo.TIP_COMERCIAL_USD||0)}</td></tr>
-            <tr><td>TIP Tienda</td><td class="text-right">${fmt(porTipo.TIP_TIENDA_PEN||0)}</td><td class="text-right">${fmt(porTipo.TIP_TIENDA_USD||0)}</td></tr>
+            ${dias.map(d => `<tr>
+              <td>${esc(d.fecha)}</td>
+              <td class="text-right">${fmt(d.porTipo.VENTA_PEN)}</td>
+              <td class="text-right">${fmt(d.porTipo.VENTA_USD)}</td>
+              <td class="text-right">${fmt(d.porTipo.TIP_COMERCIAL_PEN)}</td>
+              <td class="text-right">${fmt(d.porTipo.TIP_COMERCIAL_USD)}</td>
+              <td class="text-right">${fmt(d.porTipo.TIP_TIENDA_PEN)}</td>
+              <td class="text-right">${fmt(d.porTipo.TIP_TIENDA_USD)}</td>
+              <td class="text-right">${d.turnosCerrados}/${d.turnos}</td>
+            </tr>`).join('') || '<tr><td colspan="8" class="text-muted text-center">Sin turnos en este mes</td></tr>'}
+            ${dias.length ? filaTotal(`
+              <td class="text-right">${fmt(total.porTipo.VENTA_PEN)}</td>
+              <td class="text-right">${fmt(total.porTipo.VENTA_USD)}</td>
+              <td class="text-right">${fmt(total.porTipo.TIP_COMERCIAL_PEN)}</td>
+              <td class="text-right">${fmt(total.porTipo.TIP_COMERCIAL_USD)}</td>
+              <td class="text-right">${fmt(total.porTipo.TIP_TIENDA_PEN)}</td>
+              <td class="text-right">${fmt(total.porTipo.TIP_TIENDA_USD)}</td>
+              <td class="text-right">${total.turnosCerrados}</td>
+            `) : ''}
           </tbody>
         </table>
+        </div>
       </div></div>
 
       <div class="card mb-16"><div class="card-body">
-        <div style="font-weight:700;margin-bottom:8px">Venta por canal (total) y TIP facturado</div>
-        <table class="data-table" style="font-size:13px">
-          <thead><tr>${Object.keys(ventaPorCanal).map(c => `<th class="text-right">${c}</th>`).join('')}<th class="text-right">TIP Facturado</th></tr></thead>
-          <tbody><tr>${Object.values(ventaPorCanal).map(v => `<td class="text-right">${fmt(v)}</td>`).join('')}<td class="text-right">${fmt(tipFacturado)}</td></tr></tbody>
+        <div style="font-weight:700;margin-bottom:8px">Venta por canal (total) y TIP facturado — por día</div>
+        <div class="table-wrap">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr>
+            <th>Fecha</th><th class="text-right">LOCAL</th><th class="text-right">LLEVAR</th>
+            <th class="text-right">DELIVERY</th><th class="text-right">COMERCIAL</th><th class="text-right">OTROS</th>
+            <th class="text-right">TIP Facturado</th>
+          </tr></thead>
+          <tbody>
+            ${dias.map(d => `<tr>
+              <td>${esc(d.fecha)}</td>
+              <td class="text-right">${fmt(d.ventaPorCanal.LOCAL)}</td>
+              <td class="text-right">${fmt(d.ventaPorCanal.LLEVAR)}</td>
+              <td class="text-right">${fmt(d.ventaPorCanal.DELIVERY)}</td>
+              <td class="text-right">${fmt(d.ventaPorCanal.COMERCIAL)}</td>
+              <td class="text-right">${fmt(d.ventaPorCanal.OTROS)}</td>
+              <td class="text-right">${fmt(d.tipFacturado)}</td>
+            </tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center">Sin turnos en este mes</td></tr>'}
+            ${dias.length ? filaTotal(`
+              <td class="text-right">${fmt(total.ventaPorCanal.LOCAL)}</td>
+              <td class="text-right">${fmt(total.ventaPorCanal.LLEVAR)}</td>
+              <td class="text-right">${fmt(total.ventaPorCanal.DELIVERY)}</td>
+              <td class="text-right">${fmt(total.ventaPorCanal.COMERCIAL)}</td>
+              <td class="text-right">${fmt(total.ventaPorCanal.OTROS)}</td>
+              <td class="text-right">${fmt(total.tipFacturado)}</td>
+            `) : ''}
+          </tbody>
         </table>
+        </div>
       </div></div>
 
       <div class="card"><div class="card-body">

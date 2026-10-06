@@ -397,31 +397,47 @@ router.get('/backoffice/resumen', requireRol('BACKOFFICE'), async (req, res) => 
     const desde = new Date(anio, mes - 1, 1);
     const hasta = new Date(anio, mes, 1);
 
-    const turnos = await TurnoCaja.find({ operacion, fecha: { $gte: desde, $lt: hasta } }).lean();
+    const turnos = await TurnoCaja.find({ operacion, fecha: { $gte: desde, $lt: hasta } }).sort({ fecha: 1 }).lean();
     const turnoIds = turnos.map(t => t._id);
     const movimientos = await MovimientoEfectivoCaja.find({ turnoId: { $in: turnoIds } }).lean();
-
-    const porTipo = {};
+    const movPorTurno = {};
     movimientos.forEach(m => {
-      if (m.tipo === 'CAMBIO_MONEDA') return;
-      const k = `${m.tipo}_${m.moneda}`;
-      porTipo[k] = (porTipo[k] || 0) + m.monto;
+      const k = String(m.turnoId);
+      (movPorTurno[k] || (movPorTurno[k] = [])).push(m);
     });
 
-    const ventaPorCanal = { LOCAL: 0, LLEVAR: 0, DELIVERY: 0, COMERCIAL: 0, OTROS: 0 };
-    let tipFacturado = 0;
+    const vacioPorTipo = () => ({ VENTA_PEN: 0, VENTA_USD: 0, TIP_COMERCIAL_PEN: 0, TIP_COMERCIAL_USD: 0, TIP_TIENDA_PEN: 0, TIP_TIENDA_USD: 0 });
+    const vacioCanal = () => ({ LOCAL: 0, LLEVAR: 0, DELIVERY: 0, COMERCIAL: 0, OTROS: 0 });
+
+    // Agrupa por día (la fecha del turno, no del movimiento — un turno no cruza medianoche en este modelo)
+    const porDia = {};
     turnos.forEach(t => {
-      Object.keys(ventaPorCanal).forEach(c => { ventaPorCanal[c] += t.ventaPorCanal?.[c] || 0; });
-      tipFacturado += t.tipFacturado || 0;
+      const k = ymd(t.fecha);
+      if (!porDia[k]) porDia[k] = { fecha: k, porTipo: vacioPorTipo(), ventaPorCanal: vacioCanal(), tipFacturado: 0, turnos: 0, turnosCerrados: 0 };
+      const d = porDia[k];
+      d.turnos++;
+      if (t.estado === 'CERRADO') d.turnosCerrados++;
+      Object.keys(d.ventaPorCanal).forEach(c => { d.ventaPorCanal[c] += t.ventaPorCanal?.[c] || 0; });
+      d.tipFacturado += t.tipFacturado || 0;
+      (movPorTurno[String(t._id)] || []).forEach(m => {
+        if (m.tipo === 'CAMBIO_MONEDA') return;
+        const key = `${m.tipo}_${m.moneda}`;
+        d.porTipo[key] = (d.porTipo[key] || 0) + m.monto;
+      });
+    });
+    const dias = Object.values(porDia).sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+    const total = { porTipo: vacioPorTipo(), ventaPorCanal: vacioCanal(), tipFacturado: 0, turnosCerrados: 0 };
+    dias.forEach(d => {
+      Object.keys(total.porTipo).forEach(k => { total.porTipo[k] += d.porTipo[k]; });
+      Object.keys(total.ventaPorCanal).forEach(k => { total.ventaPorCanal[k] += d.ventaPorCanal[k]; });
+      total.tipFacturado += d.tipFacturado;
+      total.turnosCerrados += d.turnosCerrados;
     });
 
-    const envios = await EnvioEfectivo.find({ operacion, fechaEnvio: { $gte: desde, $lt: hasta } }).sort({ fechaEnvio: 1 }).lean();
     const depositosPendientes = await EnvioEfectivo.find({ operacion, destino: 'BANCO', estado: 'ENVIADO' }).sort({ fechaEnvio: 1 }).lean();
 
-    res.json({
-      turnosCerrados: turnos.filter(t => t.estado === 'CERRADO').length,
-      porTipo, ventaPorCanal, tipFacturado, envios, depositosPendientes,
-    });
+    res.json({ dias, total, depositosPendientes });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
