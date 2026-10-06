@@ -13107,15 +13107,41 @@ function cjeSumaConteo(conteo, moneda) {
 const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP_COMERCIAL: 'TIP Comercial', TIP_TIENDA: 'TIP Tienda', CAMBIO_MONEDA: 'Cambio de moneda' };
 
 // ─── Cierre de Caja — dispatcher por rol ──────────────────────────────────
+// ADMIN tiene acceso de backend a las 4 acciones (ver requireRol en
+// routes/cajaEfectivo.js) — en el frontend se le muestra un selector para
+// operar como cualquiera de los 4 roles, en vez de limitarlo a un solo rol.
 async function viewCajaEfectivo(container) {
+  if (S.user.role === ROLES.ADMIN) return viewCajaEfectivoAdmin(container);
   const r = S.user.rolCajaEfectivo || '';
   if (r === 'CAJA') return viewCajaEfectivoCaja(container);
   if (r === 'OFICINA') return viewCajaEfectivoOficina(container);
   if (r === 'CONTROL') return viewCajaEfectivoControl(container);
   if (r === 'BACKOFFICE') return viewCajaEfectivoBackoffice(container);
-  // ADMIN sin rol propio asignado: vista de supervisión de solo lectura
-  if (S.user.role === ROLES.ADMIN) return viewCajaEfectivoControl(container);
   container.innerHTML = '<div class="empty-state"><p>Sin acceso a Cierre de Caja.</p></div>';
+}
+
+function viewCajaEfectivoAdmin(container) {
+  const vistas = [
+    { id: 'caja', label: '🧾 Caja', fn: viewCajaEfectivoCaja },
+    { id: 'oficina', label: '🏢 Oficina', fn: viewCajaEfectivoOficina },
+    { id: 'control', label: '🔎 Control', fn: viewCajaEfectivoControl },
+    { id: 'backoffice', label: '📊 Back Office', fn: viewCajaEfectivoBackoffice },
+  ];
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">🧾 Cierre de Caja — Admin</div></div>
+    <div class="page-body">
+      <div class="tabs mb-16">
+        ${vistas.map((v, i) => `<button class="tab-btn${i === 0 ? ' active' : ''}" data-vista="${v.id}">${v.label}</button>`).join('')}
+      </div>
+      <div id="cja-sub"></div>
+    </div>`;
+  const sub = document.getElementById('cja-sub');
+  const activar = id => {
+    container.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.vista === id));
+    vistas.find(v => v.id === id).fn(sub);
+  };
+  container.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => activar(b.dataset.vista)));
+  activar('caja');
 }
 
 // ─── Cierre de Caja — rol CAJA ─────────────────────────────────────────────
