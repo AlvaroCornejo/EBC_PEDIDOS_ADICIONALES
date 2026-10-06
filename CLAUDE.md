@@ -1524,3 +1524,50 @@ clúster M0 estaba en **512 MB de 512 MB y Atlas bloqueaba TODAS las escrituras*
 módulo, dropear sus colecciones (`db.collection(x).drop()`), no solo vaciarlas.** No se
 tocaron `itemsmaestros` (10,131 docs), `itemsrefs` ni `itemssolicituds`: tienen datos y no
 tienen modelo en este repo (posiblemente de otra app); revisar con el usuario.
+
+### Sesión 28 — Cierre de Caja (nuevo, reemplaza al módulo de la Sesión 5 borrado en la 16)
+
+Flujo nuevo, con reglas de negocio distintas al módulo viejo (moneda dual PEN/USD
+explícita, cambio de moneda por vueltos, 4 roles separados, venta por canal y TIP
+facturado como reporte). No se reutilizó nada del código viejo.
+
+**Cadena de custodia**: `Caja → Oficina → Banco` (si la operación tiene oficina) o
+`Caja → Banco` (directo) — lo decide `CajaEfectivoConfig.tieneOficina`, no el usuario.
+Caja opera por **turno** (conteo físico de denominación al abrir y al cerrar, nunca 2
+turnos simultáneos abiertos en la misma operación); Oficina opera en **ciclo diario**
+(sin turnos), con su propio conteo de cierre. Los envíos (`EnvioEfectivo`) requieren
+confirmación de quien recibe: Oficina confirma lo recibido de Caja, y **Back Office**
+confirma el depósito final al banco en todos los casos (asunción: no existe un perfil
+"Banco" separado).
+
+**Modelos** (`models/`): `CajaEfectivoConfig` (`{operacion, tieneOficina, turnos}`,
+admin), `TurnoCaja` (ciclo de Caja, único por `operacion+fecha+turno`),
+`MovimientoEfectivoCaja` (ingresos: VENTA/TIP_COMERCIAL/TIP_TIENDA de una sola moneda,
+o CAMBIO_MONEDA con `monedaIngreso/montoIngreso` + `monedaEgreso/montoEgreso` en un solo
+registro — valida que ambas monedas sean distintas), `EnvioEfectivo` (transferencias de
+custodia, `estado: ENVIADO|CONFIRMADO`; quien envía cierra su propia custodia con
+`montoEnviado`, la confirmación solo afecta el lado de quien recibe), `CierreOficinaDiario`
+(único por `operacion+fecha`).
+
+**Backend** (`routes/cajaEfectivo.js`, montado en `/api/caja-efectivo`): `GET/PUT
+/config(/:operacion)` (admin), `GET /operaciones`, `GET /config/propio`, `GET/POST
+/turnos`, `POST /turnos/:id/movimientos`, `DELETE /movimientos/:id`, `PUT
+/turnos/:id/cerrar`, `POST /envios`, `GET /envios/pendientes`, `PUT
+/envios/:id/confirmar`, `GET /oficina/dia`, `PUT /oficina/dia/cerrar`, `GET
+/control/turno/:id`, `GET /control/oficina`, `GET /backoffice/resumen`. Acceso por
+`rolCajaEfectivo` (`CAJA`/`OFICINA`/`CONTROL`/`BACKOFFICE`, un solo rol por usuario,
+mismo patrón que `rolBCT`) scoped por el `operations` ya existente — sin array propio.
+
+**Frontend** (`public/app.js`): nav `caja-efectivo` → `viewCajaEfectivo` despacha por
+rol a `viewCajaEfectivoCaja`/`Oficina`/`Control`/`Backoffice` (ADMIN sin rol propio ve
+Control, de solo lectura). Helpers de conteo por denominación `cje*` (PEN:
+200/100/50/20/10/5/2/1/0.5/0.2/0.1, USD: 100/50/20/10/5/1 — ajustable si el usuario pide
+otra lista, no hay nada que migrar). Admin → tab "🧾 Cierre de Caja" →
+`renderAdminCajaEfectivo` (checkbox tieneOficina + turnos por operación, mismo patrón
+que `renderAdminConciliacion`).
+
+**No probado en vivo**: este entorno de desarrollo no tiene salida de red hacia el
+Atlas de producción (ni con el sandbox de red desactivado) — se verificó solo con
+`node -c` en todos los archivos y una revisión manual de la lógica. Probar el flujo
+completo (abrir turno → movimientos → cerrar → enviar → confirmar → Back Office) en el
+servidor real antes de dar el módulo por validado.

@@ -41,6 +41,8 @@ const userSchema = new mongoose.Schema({
   // Costo de Producción de planta: acceso + áreas de planta visibles ([] = todas).
   accesoCostoProduccion: { type: Boolean, default: false },
   areasCostoProduccion:  { type: [String], default: [] },
+  // Cierre de Caja: un solo rol por usuario, scoped por `operations` (sin array propio).
+  rolCajaEfectivo: { type: String, default: '', enum: ['', 'CAJA', 'OFICINA', 'CONTROL', 'BACKOFFICE'] },
 });
 
 module.exports = mongoose.model('User', userSchema);

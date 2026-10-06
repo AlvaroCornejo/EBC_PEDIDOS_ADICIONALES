@@ -11,6 +11,7 @@ const PLANILLA_ROLES = [['','— Sin acceso —'],['rrhh','RRHH (Paso 1)'],['gaf
 const BCT_ROLES   = [['','— Sin acceso —'],['SOLICITUD','Solicitud'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const CAMBIO_RECETA_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['registrador','Registrador (anota el cambio en el ERP)'],['admin','Administrador (todo)']];
+const CAJA_EFECTIVO_ROLES = [['','— Sin acceso —'],['CAJA','Caja'],['OFICINA','Oficina'],['CONTROL','Control (solo lectura)'],['BACKOFFICE','Back Office (solo lectura)']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 // Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
 // iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
@@ -281,6 +282,7 @@ const NAV_ITEMS = [
   { id: 'inventarios',    label: 'Inventarios Diarios', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
   { id: 'inventario-semanal', label: 'Inventario Semanal', icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
   { id: 'costo-produccion', label: 'Costo de Producción', icon: '🏭', roles: [ROLES.ADMIN], extraPerm: 'accesoCostoProduccion' },
+  { id: 'caja-efectivo', label: 'Cierre de Caja', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'rolCajaEfectivo' },
   { id: 'admin',         label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -351,7 +353,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentas, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, 'costo-produccion': viewCostoProduccion, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentas, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, 'costo-produccion': viewCostoProduccion, 'caja-efectivo': viewCajaEfectivo, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -13048,6 +13050,676 @@ async function viewVentas(container) {
   }
 }
 
+// ─── Cierre de Caja — helpers de conteo por denominación ──────────────────
+const CJE_DENOMS = {
+  pen: [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1],
+  usd: [100, 50, 20, 10, 5, 1],
+};
+
+function cjeDenomTableHtml(prefix) {
+  return ['pen', 'usd'].map(mon => `
+    <div style="margin-bottom:10px">
+      <div style="font-weight:600;font-size:12px;margin-bottom:4px">${mon.toUpperCase()}</div>
+      <table style="font-size:12px">
+        ${CJE_DENOMS[mon].map(d => `
+          <tr>
+            <td style="padding:2px 8px 2px 0;color:var(--text-muted)">${mon==='pen'?'S/':'US$'} ${d}</td>
+            <td style="padding:2px"><input type="number" min="0" step="1" class="form-control cje-denom-input" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}" value="0" style="width:80px"></td>
+            <td style="padding:2px 0 2px 8px;color:var(--text-muted)" class="cje-denom-subtotal" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}">0.00</td>
+          </tr>`).join('')}
+      </table>
+      <div style="text-align:right;font-weight:700;font-size:13px;margin-top:4px">Total ${mon.toUpperCase()}: <span class="cje-denom-total" data-prefix="${prefix}" data-mon="${mon}">0.00</span></div>
+    </div>`).join('');
+}
+
+function cjeDenomListener(root, prefix) {
+  root.querySelectorAll(`.cje-denom-input[data-prefix="${prefix}"]`).forEach(inp => {
+    inp.addEventListener('input', () => cjeDenomRecalc(root, prefix, inp.dataset.mon));
+  });
+}
+
+function cjeDenomRecalc(root, prefix, mon) {
+  let total = 0;
+  root.querySelectorAll(`.cje-denom-input[data-prefix="${prefix}"][data-mon="${mon}"]`).forEach(inp => {
+    const subtotal = Number(inp.dataset.denom) * (Number(inp.value) || 0);
+    total += subtotal;
+    const cell = root.querySelector(`.cje-denom-subtotal[data-prefix="${prefix}"][data-mon="${mon}"][data-denom="${inp.dataset.denom}"]`);
+    if (cell) cell.textContent = subtotal.toFixed(2);
+  });
+  const totalEl = root.querySelector(`.cje-denom-total[data-prefix="${prefix}"][data-mon="${mon}"]`);
+  if (totalEl) totalEl.textContent = total.toFixed(2);
+}
+
+function cjeDenomValores(root, prefix) {
+  const out = { pen: {}, usd: {} };
+  root.querySelectorAll(`.cje-denom-input[data-prefix="${prefix}"]`).forEach(inp => {
+    const qty = Number(inp.value) || 0;
+    if (qty > 0) out[inp.dataset.mon][inp.dataset.denom] = qty;
+  });
+  return out;
+}
+
+function cjeSumaConteo(conteo, moneda) {
+  if (!conteo || !conteo[moneda]) return 0;
+  return Object.entries(conteo[moneda]).reduce((s, [denom, qty]) => s + Number(denom) * Number(qty || 0), 0);
+}
+
+const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP_COMERCIAL: 'TIP Comercial', TIP_TIENDA: 'TIP Tienda', CAMBIO_MONEDA: 'Cambio de moneda' };
+
+// ─── Cierre de Caja — dispatcher por rol ──────────────────────────────────
+async function viewCajaEfectivo(container) {
+  const r = S.user.rolCajaEfectivo || '';
+  if (r === 'CAJA') return viewCajaEfectivoCaja(container);
+  if (r === 'OFICINA') return viewCajaEfectivoOficina(container);
+  if (r === 'CONTROL') return viewCajaEfectivoControl(container);
+  if (r === 'BACKOFFICE') return viewCajaEfectivoBackoffice(container);
+  // ADMIN sin rol propio asignado: vista de supervisión de solo lectura
+  if (S.user.role === ROLES.ADMIN) return viewCajaEfectivoControl(container);
+  container.innerHTML = '<div class="empty-state"><p>Sin acceso a Cierre de Caja.</p></div>';
+}
+
+// ─── Cierre de Caja — rol CAJA ─────────────────────────────────────────────
+async function viewCajaEfectivoCaja(container) {
+  let operacionActual = '';
+  let cfg = { tieneOficina: false, turnos: [] };
+  let turnoActual = null;
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">🧾 Cierre de Caja</div></div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="cje-operacion" class="form-control" style="width:180px"><option value="">— Seleccionar —</option></select>
+          </div>
+        </div>
+      </div>
+      <div id="cje-content"></div>
+    </div>`;
+
+  const root = document.getElementById('cje-content');
+
+  let operaciones = [];
+  try {
+    operaciones = await GET('/caja-efectivo/operaciones');
+    const sel = document.getElementById('cje-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; await cargar(); }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+  document.getElementById('cje-operacion').addEventListener('change', async e => { operacionActual = e.target.value; await cargar(); });
+
+  async function cargar() {
+    if (!operacionActual) { root.innerHTML = ''; return; }
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      cfg = await GET(`/caja-efectivo/config/propio?operacion=${encodeURIComponent(operacionActual)}`);
+      const turnos = await GET(`/caja-efectivo/turnos?operacion=${encodeURIComponent(operacionActual)}`);
+      turnoActual = turnos.find(t => t.estado === 'ABIERTO') || null;
+      if (turnoActual) await renderTurnoAbierto(turnos);
+      else renderAbrirTurno(turnos);
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function historialHtml(turnos) {
+    const recientes = turnos.slice(0, 8);
+    if (!recientes.length) return '';
+    return `
+      <div class="card mt-16"><div class="card-body">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">Turnos recientes</div>
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Fecha</th><th>Turno</th><th>Estado</th></tr></thead>
+          <tbody>${recientes.map(t => `<tr><td>${esc(fmtDate(t.fecha))}</td><td>${esc(t.turno)}</td><td>${t.estado === 'ABIERTO' ? '🟢 Abierto' : '✔️ Cerrado'}</td></tr>`).join('')}</tbody>
+        </table>
+      </div></div>`;
+  }
+
+  function renderAbrirTurno(turnos) {
+    root.innerHTML = `
+      <div class="card"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:10px">Abrir Turno</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha</label>
+            <input type="date" id="cje-ab-fecha" class="form-control" value="${today()}" style="width:160px"></div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Turno</label>
+            ${cfg.turnos.length
+              ? `<select id="cje-ab-turno" class="form-control" style="width:160px">${cfg.turnos.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select>`
+              : `<input type="text" id="cje-ab-turno" class="form-control" style="width:160px" placeholder="ej. Único">`}
+          </div>
+        </div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px">Conteo de apertura</div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap">${cjeDenomTableHtml('ab')}</div>
+        <button class="btn btn-primary mt-16" id="cje-ab-btn">🔓 Abrir Turno</button>
+      </div></div>
+      ${historialHtml(turnos)}`;
+    cjeDenomListener(root, 'ab');
+    document.getElementById('cje-ab-btn').addEventListener('click', async () => {
+      const fecha = document.getElementById('cje-ab-fecha').value;
+      const turno = document.getElementById('cje-ab-turno').value.trim();
+      if (!fecha || !turno) { toast('Completa fecha y turno', 'error'); return; }
+      try {
+        await POST('/caja-efectivo/turnos', { operacion: operacionActual, fecha, turno, conteoApertura: cjeDenomValores(root, 'ab') });
+        toast('Turno abierto', 'success');
+        await cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+
+  async function renderTurnoAbierto(turnos) {
+    const { movimientos, envios } = await GET(`/caja-efectivo/turnos/${turnoActual._id}`);
+    const destino = cfg.tieneOficina ? 'Oficina' : 'Banco';
+
+    root.innerHTML = `
+      <div class="card mb-16"><div class="card-body" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-weight:700">Turno ${esc(turnoActual.turno)} — ${esc(fmtDate(turnoActual.fecha))}</div>
+          <div style="font-size:12px;color:var(--text-muted)">Abierto por ${esc(turnoActual.abiertoPor)}</div>
+        </div>
+        <button class="btn btn-outline btn-sm" id="cje-cerrar-btn">🔒 Cerrar Turno</button>
+      </div></div>
+
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:10px">Agregar movimiento</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo</label>
+            <select id="cje-mov-tipo" class="form-control" style="width:180px">
+              <option value="VENTA">Venta</option>
+              <option value="TIP_COMERCIAL">TIP Comercial</option>
+              <option value="TIP_TIENDA">TIP Tienda</option>
+              <option value="CAMBIO_MONEDA">Cambio de moneda (vuelto)</option>
+            </select>
+          </div>
+          <div id="cje-mov-simple" style="display:flex;gap:10px">
+            <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
+              <select id="cje-mov-moneda" class="form-control" style="width:90px"><option value="PEN">PEN</option><option value="USD">USD</option></select></div>
+            <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Monto</label>
+              <input type="number" min="0" step="0.1" id="cje-mov-monto" class="form-control" style="width:110px"></div>
+          </div>
+          <div id="cje-mov-cambio" style="display:none;gap:10px;flex-wrap:wrap">
+            <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Ingresa</label>
+              <select id="cje-mov-moneda-in" class="form-control" style="width:90px"><option value="USD">USD</option><option value="PEN">PEN</option></select></div>
+            <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Monto ingresado</label>
+              <input type="number" min="0" step="0.1" id="cje-mov-monto-in" class="form-control" style="width:110px"></div>
+            <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Vuelto en</label>
+              <select id="cje-mov-moneda-out" class="form-control" style="width:90px"><option value="PEN">PEN</option><option value="USD">USD</option></select></div>
+            <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Monto vuelto</label>
+              <input type="number" min="0" step="0.1" id="cje-mov-monto-out" class="form-control" style="width:110px"></div>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Comentario</label>
+            <input type="text" id="cje-mov-comentario" class="form-control" style="width:200px"></div>
+          <button class="btn btn-primary" id="cje-mov-btn">+ Agregar</button>
+        </div>
+      </div></div>
+
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:8px">Movimientos del turno</div>
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th>Tipo</th><th>Detalle</th><th>Comentario</th><th></th></tr></thead>
+          <tbody>
+            ${movimientos.map(m => `<tr>
+              <td>${CJE_TIPO_LABEL[m.tipo]}</td>
+              <td>${m.tipo === 'CAMBIO_MONEDA' ? `+${fmt(m.montoIngreso)} ${m.monedaIngreso} / −${fmt(m.montoEgreso)} ${m.monedaEgreso}` : `+${fmt(m.monto)} ${m.moneda}`}</td>
+              <td>${esc(m.comentario)}</td>
+              <td><button class="btn btn-outline btn-xs cje-mov-del" data-id="${m._id}">🗑️</button></td>
+            </tr>`).join('') || '<tr><td colspan="4" class="text-muted text-center">Sin movimientos aún</td></tr>'}
+          </tbody>
+        </table>
+      </div></div>
+
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:10px">Enviar a ${destino}</div>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
+            <select id="cje-env-moneda" class="form-control" style="width:90px"><option value="PEN">PEN</option><option value="USD">USD</option></select></div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Monto</label>
+            <input type="number" min="0" step="0.1" id="cje-env-monto" class="form-control" style="width:110px"></div>
+          <button class="btn btn-outline" id="cje-env-btn">📤 Enviar</button>
+        </div>
+        <table class="data-table mt-16" style="font-size:12px">
+          <thead><tr><th>Moneda</th><th class="text-right">Monto enviado</th><th>Estado</th></tr></thead>
+          <tbody>${envios.map(e => `<tr><td>${e.moneda}</td><td class="text-right">${fmt(e.montoEnviado)}</td><td>${e.estado === 'ENVIADO' ? '⏳ Enviado' : '✔️ Confirmado'}</td></tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center">Sin envíos aún</td></tr>'}</tbody>
+        </table>
+      </div></div>
+      ${historialHtml(turnos)}`;
+
+    document.getElementById('cje-mov-tipo').addEventListener('change', e => {
+      const esCambio = e.target.value === 'CAMBIO_MONEDA';
+      document.getElementById('cje-mov-simple').style.display = esCambio ? 'none' : 'flex';
+      document.getElementById('cje-mov-cambio').style.display = esCambio ? 'flex' : 'none';
+    });
+
+    document.getElementById('cje-mov-btn').addEventListener('click', async () => {
+      const tipo = document.getElementById('cje-mov-tipo').value;
+      const comentario = document.getElementById('cje-mov-comentario').value.trim();
+      const body = { tipo, comentario };
+      if (tipo === 'CAMBIO_MONEDA') {
+        body.monedaIngreso = document.getElementById('cje-mov-moneda-in').value;
+        body.montoIngreso = Number(document.getElementById('cje-mov-monto-in').value);
+        body.monedaEgreso = document.getElementById('cje-mov-moneda-out').value;
+        body.montoEgreso = Number(document.getElementById('cje-mov-monto-out').value);
+        if (!body.montoIngreso || !body.montoEgreso) { toast('Completa ambos montos del cambio', 'error'); return; }
+      } else {
+        body.moneda = document.getElementById('cje-mov-moneda').value;
+        body.monto = Number(document.getElementById('cje-mov-monto').value);
+        if (!body.monto) { toast('Ingresa un monto', 'error'); return; }
+      }
+      try {
+        await POST(`/caja-efectivo/turnos/${turnoActual._id}/movimientos`, body);
+        toast('Movimiento agregado', 'success');
+        await cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+
+    root.querySelectorAll('.cje-mov-del').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este movimiento?')) return;
+        try { await DEL(`/caja-efectivo/movimientos/${btn.dataset.id}`); await cargar(); }
+        catch (e) { toast(e.message, 'error'); }
+      });
+    });
+
+    document.getElementById('cje-env-btn').addEventListener('click', async () => {
+      const moneda = document.getElementById('cje-env-moneda').value;
+      const montoEnviado = Number(document.getElementById('cje-env-monto').value);
+      if (!montoEnviado) { toast('Ingresa un monto', 'error'); return; }
+      try {
+        await POST('/caja-efectivo/envios', { operacion: operacionActual, origen: 'CAJA', origenTurnoId: turnoActual._id, moneda, montoEnviado });
+        toast(`Enviado a ${destino}`, 'success');
+        await cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+
+    document.getElementById('cje-cerrar-btn').addEventListener('click', () => abrirModalCierre());
+  }
+
+  function abrirModalCierre() {
+    openModal('🔒 Cerrar Turno', `
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">Conteo de cierre</div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap">${cjeDenomTableHtml('ci')}</div>
+      <div style="font-weight:600;font-size:13px;margin:16px 0 6px">Venta por canal (total, todos los medios de pago)</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${['LOCAL','LLEVAR','DELIVERY','COMERCIAL','OTROS'].map(c => `
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">${c}</label>
+            <input type="number" min="0" step="0.1" class="form-control cje-canal" data-canal="${c}" style="width:110px"></div>`).join('')}
+      </div>
+      <div class="form-group mt-16"><label>TIP Facturado</label>
+        <input type="number" min="0" step="0.1" id="cje-ci-tip" class="form-control" style="width:150px"></div>
+      <div class="form-group"><label>Comentario</label>
+        <input type="text" id="cje-ci-comentario" class="form-control"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
+        <button class="btn btn-primary" id="cje-ci-btn">💾 Cerrar Turno</button>
+      </div>`, null, { medium: true });
+    const modal = document.getElementById('modal');
+    cjeDenomListener(modal, 'ci');
+    document.getElementById('cje-ci-btn').addEventListener('click', async () => {
+      const ventaPorCanal = {};
+      modal.querySelectorAll('.cje-canal').forEach(inp => { ventaPorCanal[inp.dataset.canal] = Number(inp.value) || 0; });
+      const body = {
+        conteoCierre: cjeDenomValores(modal, 'ci'),
+        ventaPorCanal,
+        tipFacturado: Number(document.getElementById('cje-ci-tip').value) || 0,
+        comentario: document.getElementById('cje-ci-comentario').value.trim(),
+      };
+      try {
+        await PUT(`/caja-efectivo/turnos/${turnoActual._id}/cerrar`, body);
+        closeModal();
+        toast('Turno cerrado', 'success');
+        await cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+}
+
+// ─── Cierre de Caja — rol OFICINA ──────────────────────────────────────────
+async function viewCajaEfectivoOficina(container) {
+  let operacionActual = '';
+  let fechaActual = today();
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">🧾 Cierre de Caja — Oficina</div></div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="cjo-operacion" class="form-control" style="width:180px"><option value="">— Seleccionar —</option></select></div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha</label>
+            <input type="date" id="cjo-fecha" class="form-control" value="${fechaActual}" style="width:160px"></div>
+        </div>
+      </div>
+      <div id="cjo-content"></div>
+    </div>`;
+
+  const root = document.getElementById('cjo-content');
+
+  try {
+    const operaciones = await GET('/caja-efectivo/operaciones');
+    const sel = document.getElementById('cjo-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; await cargar(); }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+  document.getElementById('cjo-operacion').addEventListener('change', async e => { operacionActual = e.target.value; await cargar(); });
+  document.getElementById('cjo-fecha').addEventListener('change', async e => { fechaActual = e.target.value; await cargar(); });
+
+  async function cargar() {
+    if (!operacionActual) { root.innerHTML = ''; return; }
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const [dia, pendientes] = await Promise.all([
+        GET(`/caja-efectivo/oficina/dia?operacion=${encodeURIComponent(operacionActual)}&fecha=${fechaActual}`),
+        GET(`/caja-efectivo/envios/pendientes?operacion=${encodeURIComponent(operacionActual)}&destino=OFICINA`),
+      ]);
+      render(dia, pendientes);
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function render(dia, pendientes) {
+    const { cierre, recibidos, enviados } = dia;
+    const saldo = { PEN: 0, USD: 0 };
+    recibidos.forEach(e => { saldo[e.moneda] += e.montoConfirmado; });
+    enviados.forEach(e => { saldo[e.moneda] -= e.montoEnviado; });
+
+    root.innerHTML = `
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:8px">Envíos de Caja pendientes de confirmar</div>
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th class="text-right">Monto enviado</th><th>Moneda</th><th>Confirmar</th></tr></thead>
+          <tbody>
+            ${pendientes.map(p => `<tr>
+              <td class="text-right">${fmt(p.montoEnviado)}</td><td>${p.moneda}</td>
+              <td style="display:flex;gap:6px;align-items:center">
+                <input type="number" step="0.1" class="form-control cjo-conf-monto" data-id="${p._id}" value="${p.montoEnviado}" style="width:100px">
+                <button class="btn btn-primary btn-xs cjo-conf-btn" data-id="${p._id}">✔️ Confirmar</button>
+              </td>
+            </tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center">Sin envíos pendientes</td></tr>'}
+          </tbody>
+        </table>
+      </div></div>
+
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:8px">Resumen del día — ${esc(fechaActual)}</div>
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th>Moneda</th><th class="text-right">Recibido confirmado</th><th class="text-right">Enviado a banco</th><th class="text-right">Saldo calculado</th></tr></thead>
+          <tbody>${['PEN','USD'].map(m => `<tr>
+            <td>${m}</td>
+            <td class="text-right">${fmt(recibidos.filter(r=>r.moneda===m).reduce((s,r)=>s+r.montoConfirmado,0))}</td>
+            <td class="text-right">${fmt(enviados.filter(e=>e.moneda===m).reduce((s,e)=>s+e.montoEnviado,0))}</td>
+            <td class="text-right" style="font-weight:700">${fmt(saldo[m])}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div></div>
+
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:10px">Enviar a Banco</div>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
+            <select id="cjo-env-moneda" class="form-control" style="width:90px"><option value="PEN">PEN</option><option value="USD">USD</option></select></div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Monto</label>
+            <input type="number" min="0" step="0.1" id="cjo-env-monto" class="form-control" style="width:110px"></div>
+          <button class="btn btn-outline" id="cjo-env-btn">📤 Enviar</button>
+        </div>
+      </div></div>
+
+      <div class="card"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:10px">Cierre del día</div>
+        ${cierre?.fechaCierre
+          ? `<div style="font-size:13px">✔️ Cerrado por ${esc(cierre.cerradoPor)} — conteo: PEN ${fmt(cjeSumaConteo(cierre.conteoCierre,'pen'))}, USD ${fmt(cjeSumaConteo(cierre.conteoCierre,'usd'))}</div>`
+          : `<div style="display:flex;gap:24px;flex-wrap:wrap">${cjeDenomTableHtml('cjoci')}</div>
+             <button class="btn btn-primary mt-16" id="cjo-cerrar-btn">🔒 Cerrar Día</button>`}
+      </div></div>`;
+
+    if (!cierre?.fechaCierre) {
+      cjeDenomListener(root, 'cjoci');
+      document.getElementById('cjo-cerrar-btn').addEventListener('click', async () => {
+        try {
+          await PUT('/caja-efectivo/oficina/dia/cerrar', { operacion: operacionActual, fecha: fechaActual, conteoCierre: cjeDenomValores(root, 'cjoci') });
+          toast('Día cerrado', 'success');
+          await cargar();
+        } catch (e) { toast(e.message, 'error'); }
+      });
+    }
+
+    root.querySelectorAll('.cjo-conf-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const input = root.querySelector(`.cjo-conf-monto[data-id="${btn.dataset.id}"]`);
+        try {
+          await PUT(`/caja-efectivo/envios/${btn.dataset.id}/confirmar`, { montoConfirmado: Number(input.value) });
+          toast('Confirmado', 'success');
+          await cargar();
+        } catch (e) { toast(e.message, 'error'); }
+      });
+    });
+
+    document.getElementById('cjo-env-btn').addEventListener('click', async () => {
+      const moneda = document.getElementById('cjo-env-moneda').value;
+      const montoEnviado = Number(document.getElementById('cjo-env-monto').value);
+      if (!montoEnviado) { toast('Ingresa un monto', 'error'); return; }
+      try {
+        await POST('/caja-efectivo/envios', { operacion: operacionActual, origen: 'OFICINA', moneda, montoEnviado });
+        toast('Enviado a Banco', 'success');
+        await cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  }
+}
+
+// ─── Cierre de Caja — rol CONTROL (solo lectura) ───────────────────────────
+async function viewCajaEfectivoControl(container) {
+  let operacionActual = '';
+  let fechaActual = today();
+  let modo = 'caja';
+  let turnoSel = '';
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">🧾 Cierre de Caja — Control</div></div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="cjc-operacion" class="form-control" style="width:180px"><option value="">— Seleccionar —</option></select></div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha</label>
+            <input type="date" id="cjc-fecha" class="form-control" value="${fechaActual}" style="width:160px"></div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Vista</label>
+            <select id="cjc-modo" class="form-control" style="width:120px"><option value="caja">Caja</option><option value="oficina">Oficina</option></select></div>
+          <div id="cjc-turno-wrap"><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Turno</label>
+            <select id="cjc-turno" class="form-control" style="width:160px"></select></div>
+        </div>
+      </div>
+      <div id="cjc-content"></div>
+    </div>`;
+
+  const root = document.getElementById('cjc-content');
+
+  try {
+    const operaciones = await GET('/caja-efectivo/operaciones');
+    const sel = document.getElementById('cjc-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; await cargar(); }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+  document.getElementById('cjc-operacion').addEventListener('change', async e => { operacionActual = e.target.value; await cargar(); });
+  document.getElementById('cjc-fecha').addEventListener('change', async e => { fechaActual = e.target.value; await cargar(); });
+  document.getElementById('cjc-modo').addEventListener('change', async e => { modo = e.target.value; await cargar(); });
+  document.getElementById('cjc-turno').addEventListener('change', async e => { turnoSel = e.target.value; await renderSeleccionado(); });
+
+  async function cargar() {
+    document.getElementById('cjc-turno-wrap').style.display = modo === 'caja' ? 'block' : 'none';
+    if (!operacionActual) { root.innerHTML = ''; return; }
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      if (modo === 'caja') {
+        const turnosDelDia = await GET(`/caja-efectivo/turnos?operacion=${encodeURIComponent(operacionActual)}&fecha=${fechaActual}`);
+        const selTurno = document.getElementById('cjc-turno');
+        selTurno.innerHTML = turnosDelDia.map(t => `<option value="${t._id}">${esc(t.turno)} (${t.estado})</option>`).join('') || '<option value="">— Sin turnos —</option>';
+        turnoSel = turnosDelDia[0]?._id || '';
+      }
+      await renderSeleccionado();
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function filaSaldo(saldo) {
+    return ['PEN', 'USD'].map(m => {
+      const s = saldo[m];
+      const difColor = s.diferencia == null ? '' : (Math.abs(s.diferencia) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
+      return `<tr>
+        <td>${m}</td>
+        <td class="text-right">${fmt(s.saldoCalculado)}</td>
+        <td class="text-right">${s.conteo == null ? '—' : fmt(s.conteo)}</td>
+        <td class="text-right" style="${difColor}">${s.diferencia == null ? '—' : fmt(s.diferencia)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function renderSeleccionado() {
+    if (!operacionActual) return;
+    if (modo === 'caja') {
+      if (!turnoSel) { root.innerHTML = '<div class="empty-state"><p>Sin turnos en esa fecha.</p></div>'; return; }
+      const { turno, movimientos, envios, saldo } = await GET(`/caja-efectivo/control/turno/${turnoSel}`);
+      root.innerHTML = `
+        <div class="card mb-16"><div class="card-body">
+          <div style="font-weight:700">Turno ${esc(turno.turno)} — ${esc(fmtDate(turno.fecha))} (${turno.estado})</div>
+          <div style="font-size:12px;color:var(--text-muted)">Abierto por ${esc(turno.abiertoPor)}${turno.cerradoPor ? `, cerrado por ${esc(turno.cerradoPor)}` : ''}</div>
+        </div></div>
+        <div class="card mb-16"><div class="card-body">
+          <div style="font-weight:700;margin-bottom:8px">Saldo</div>
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Moneda</th><th class="text-right">Saldo calculado</th><th class="text-right">Conteo cierre</th><th class="text-right">Diferencia</th></tr></thead>
+            <tbody>${filaSaldo(saldo)}</tbody>
+          </table>
+        </div></div>
+        <div class="card"><div class="card-body">
+          <div style="font-weight:700;margin-bottom:8px">Movimientos</div>
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Tipo</th><th>Detalle</th><th>Comentario</th></tr></thead>
+            <tbody>
+              ${movimientos.map(m => `<tr>
+                <td>${CJE_TIPO_LABEL[m.tipo]}</td>
+                <td>${m.tipo === 'CAMBIO_MONEDA' ? `+${fmt(m.montoIngreso)} ${m.monedaIngreso} / −${fmt(m.montoEgreso)} ${m.monedaEgreso}` : `+${fmt(m.monto)} ${m.moneda}`}</td>
+                <td>${esc(m.comentario)}</td>
+              </tr>`).join('')}
+              ${envios.map(e => `<tr><td>Envío → ${e.destino}</td><td>−${fmt(e.montoEnviado)} ${e.moneda} (${e.estado})</td><td></td></tr>`).join('')}
+              ${!movimientos.length && !envios.length ? '<tr><td colspan="3" class="text-muted text-center">Sin movimientos</td></tr>' : ''}
+            </tbody>
+          </table>
+        </div></div>`;
+    } else {
+      const { recibidos, enviados, saldo } = await GET(`/caja-efectivo/control/oficina?operacion=${encodeURIComponent(operacionActual)}&fecha=${fechaActual}`);
+      root.innerHTML = `
+        <div class="card mb-16"><div class="card-body">
+          <div style="font-weight:700;margin-bottom:8px">Saldo Oficina — ${esc(fechaActual)}</div>
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Moneda</th><th class="text-right">Saldo calculado</th><th class="text-right">Conteo cierre</th><th class="text-right">Diferencia</th></tr></thead>
+            <tbody>${filaSaldo(saldo)}</tbody>
+          </table>
+        </div></div>
+        <div class="card"><div class="card-body">
+          <div style="font-weight:700;margin-bottom:8px">Movimientos</div>
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th>Tipo</th><th>Detalle</th></tr></thead>
+            <tbody>
+              ${recibidos.map(e => `<tr><td>Recibido de Caja</td><td>+${fmt(e.montoConfirmado)} ${e.moneda}</td></tr>`).join('')}
+              ${enviados.map(e => `<tr><td>Enviado a Banco</td><td>−${fmt(e.montoEnviado)} ${e.moneda} (${e.estado})</td></tr>`).join('')}
+              ${!recibidos.length && !enviados.length ? '<tr><td colspan="2" class="text-muted text-center">Sin movimientos</td></tr>' : ''}
+            </tbody>
+          </table>
+        </div></div>`;
+    }
+  }
+}
+
+// ─── Cierre de Caja — rol BACKOFFICE (resumen mensual, solo lectura) ───────
+async function viewCajaEfectivoBackoffice(container) {
+  let operacionActual = '';
+  let mesActual = today().slice(0, 7);
+
+  container.innerHTML = `
+    <div class="page-header"><div class="page-title">🧾 Cierre de Caja — Back Office</div></div>
+    <div class="page-body">
+      <div class="card mb-16" style="padding:14px">
+        <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="cjb-operacion" class="form-control" style="width:180px"><option value="">— Seleccionar —</option></select></div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Mes</label>
+            <input type="month" id="cjb-mes" class="form-control" value="${mesActual}" style="width:150px"></div>
+        </div>
+      </div>
+      <div id="cjb-content"></div>
+    </div>`;
+
+  const root = document.getElementById('cjb-content');
+
+  try {
+    const operaciones = await GET('/caja-efectivo/operaciones');
+    const sel = document.getElementById('cjb-operacion');
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' + operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    if (operaciones.length === 1) { sel.value = operaciones[0]; operacionActual = operaciones[0]; await cargar(); }
+  } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+  document.getElementById('cjb-operacion').addEventListener('change', async e => { operacionActual = e.target.value; await cargar(); });
+  document.getElementById('cjb-mes').addEventListener('change', async e => { mesActual = e.target.value; await cargar(); });
+
+  async function cargar() {
+    if (!operacionActual) { root.innerHTML = ''; return; }
+    root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
+    try {
+      const data = await GET(`/caja-efectivo/backoffice/resumen?operacion=${encodeURIComponent(operacionActual)}&anioMes=${mesActual}`);
+      render(data);
+    } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
+  }
+
+  function render(data) {
+    const { turnosCerrados, porTipo, ventaPorCanal, tipFacturado, depositosPendientes } = data;
+    root.innerHTML = `
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:8px">Resumen ${esc(mesActual)} — ${turnosCerrados} turno(s) cerrado(s)</div>
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th>Concepto</th><th class="text-right">PEN</th><th class="text-right">USD</th></tr></thead>
+          <tbody>
+            <tr><td>Venta efectivo</td><td class="text-right">${fmt(porTipo.VENTA_PEN||0)}</td><td class="text-right">${fmt(porTipo.VENTA_USD||0)}</td></tr>
+            <tr><td>TIP Comercial</td><td class="text-right">${fmt(porTipo.TIP_COMERCIAL_PEN||0)}</td><td class="text-right">${fmt(porTipo.TIP_COMERCIAL_USD||0)}</td></tr>
+            <tr><td>TIP Tienda</td><td class="text-right">${fmt(porTipo.TIP_TIENDA_PEN||0)}</td><td class="text-right">${fmt(porTipo.TIP_TIENDA_USD||0)}</td></tr>
+          </tbody>
+        </table>
+      </div></div>
+
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:8px">Venta por canal (total) y TIP facturado</div>
+        <table class="data-table" style="font-size:13px">
+          <thead><tr>${Object.keys(ventaPorCanal).map(c => `<th class="text-right">${c}</th>`).join('')}<th class="text-right">TIP Facturado</th></tr></thead>
+          <tbody><tr>${Object.values(ventaPorCanal).map(v => `<td class="text-right">${fmt(v)}</td>`).join('')}<td class="text-right">${fmt(tipFacturado)}</td></tr></tbody>
+        </table>
+      </div></div>
+
+      <div class="card"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:8px">Depósitos pendientes de confirmar</div>
+        <table class="data-table" style="font-size:13px">
+          <thead><tr><th>Origen</th><th>Moneda</th><th class="text-right">Monto enviado</th><th>Confirmar</th></tr></thead>
+          <tbody>
+            ${depositosPendientes.map(d => `<tr>
+              <td>${d.origen}</td><td>${d.moneda}</td><td class="text-right">${fmt(d.montoEnviado)}</td>
+              <td style="display:flex;gap:6px;align-items:center">
+                <input type="number" step="0.1" class="form-control cjb-conf-monto" data-id="${d._id}" value="${d.montoEnviado}" style="width:100px">
+                <button class="btn btn-primary btn-xs cjb-conf-btn" data-id="${d._id}">✔️ Confirmar</button>
+              </td>
+            </tr>`).join('') || '<tr><td colspan="4" class="text-muted text-center">Sin depósitos pendientes</td></tr>'}
+          </tbody>
+        </table>
+      </div></div>`;
+
+    root.querySelectorAll('.cjb-conf-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const input = root.querySelector(`.cjb-conf-monto[data-id="${btn.dataset.id}"]`);
+        try {
+          await PUT(`/caja-efectivo/envios/${btn.dataset.id}/confirmar`, { montoConfirmado: Number(input.value) });
+          toast('Depósito confirmado', 'success');
+          await cargar();
+        } catch (e) { toast(e.message, 'error'); }
+      });
+    });
+  }
+}
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -13072,6 +13744,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="conciliacion">🏦 Conciliación Cobranzas</button>
         <button class="tab-btn" data-tab="sociedades">🏢 Sociedades y Operaciones</button>
         <button class="tab-btn" data-tab="planillas">🧮 Planillas</button>
+        <button class="tab-btn" data-tab="caja-efectivo">🧾 Cierre de Caja</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -13089,6 +13762,7 @@ async function viewAdmin(container) {
       <div id="tab-conciliacion" class="tab-panel"></div>
       <div id="tab-sociedades" class="tab-panel"></div>
       <div id="tab-planillas" class="tab-panel"></div>
+      <div id="tab-caja-efectivo" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -13116,6 +13790,7 @@ async function viewAdmin(container) {
   renderAdminConciliacion(document.getElementById('tab-conciliacion'));
   renderAdminSociedades(document.getElementById('tab-sociedades'));
   renderAdminPlanillas(document.getElementById('tab-planillas'));
+  renderAdminCajaEfectivo(document.getElementById('tab-caja-efectivo'));
 }
 
 // ─── Admin: Conciliación de Cobranzas — rutas de archivos por sociedad ──
@@ -13200,6 +13875,47 @@ async function renderAdminConciliacion(container) {
       if (!grupo.querySelector('.cc-ruta-row')) grupo.insertAdjacentHTML('beforeend', rutaInputRow(soc, tipo, ''));
       guardar(soc, tipo);
     }
+  });
+}
+
+// ─── Admin: Cierre de Caja — oficina y turnos por operación ──────────────
+async function renderAdminCajaEfectivo(container) {
+  container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  let configs = [];
+  try { configs = await GET('/caja-efectivo/config'); } catch (err) { container.innerHTML = `<div class="msg-error">${esc(err.message)}</div>`; return; }
+
+  container.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">
+      Por operación: si el efectivo pasa por una Oficina antes del banco (Caja → Oficina →
+      Banco) o va directo de Caja al Banco, y los turnos disponibles para abrir Caja.
+    </p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${configs.map(c => `
+        <div class="card" style="padding:12px 16px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+          <div style="font-weight:700;font-size:13px;min-width:160px">${esc(c.operacion)} <span style="color:var(--text-muted);font-weight:400">${esc(c.nombre||'')}</span></div>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" class="cje-oficina" data-op="${esc(c.operacion)}" ${c.tieneOficina?'checked':''} style="width:15px;height:15px;accent-color:var(--primary)">
+            Tiene Oficina
+          </label>
+          <div style="flex:1;min-width:220px">
+            <label class="form-label" style="font-size:11px">Turnos (separados por coma)</label>
+            <input type="text" class="form-control cje-turnos" data-op="${esc(c.operacion)}" value="${esc((c.turnos||[]).join(', '))}" placeholder="Mañana, Tarde, Noche">
+          </div>
+        </div>`).join('')}
+    </div>`;
+
+  async function guardar(op, campo, valor) {
+    try {
+      await PUT(`/caja-efectivo/config/${encodeURIComponent(op)}`, { [campo]: valor });
+      toast(`Configuración de ${op} actualizada`, 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  }
+
+  container.querySelectorAll('.cje-oficina').forEach(chk => {
+    chk.addEventListener('change', () => guardar(chk.dataset.op, 'tieneOficina', chk.checked));
+  });
+  container.querySelectorAll('.cje-turnos').forEach(inp => {
+    inp.addEventListener('change', () => guardar(inp.dataset.op, 'turnos', inp.value.split(',').map(s => s.trim()).filter(Boolean)));
   });
 }
 
@@ -14531,6 +15247,11 @@ function showUserModal(user, onSave, opts = {}) {
           ${CAMBIO_RECETA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCambioReceta||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Rol para Cierre de Caja</label>
+        <select id="um-rol-caja-efectivo">
+          ${CAJA_EFECTIVO_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCajaEfectivo||'')=== k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-group" id="um-socs-section"><label>Sociedades</label>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
           ${(S.sociedades||[]).map(soc => {
@@ -14730,6 +15451,7 @@ function showUserModal(user, onSave, opts = {}) {
       areasCostoProduccion: isAdmin ? [] : [...document.querySelectorAll('.um-cp-area:checked')].map(c => c.value),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
+      rolCajaEfectivo: isAdmin ? '' : document.getElementById('um-rol-caja-efectivo').value,
       operations: operacionesDerivadas,
       transferenciaDestinos: operacionesDerivadas,
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),
