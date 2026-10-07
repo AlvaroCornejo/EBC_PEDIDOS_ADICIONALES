@@ -13883,10 +13883,15 @@ function cpShowActividadModal(areasList, semana, actividad) {
     <div class="form-group"><label>Descripción</label>
       <textarea id="cpa-desc" style="width:100%">${esc(actividad?.descripcion || '')}</textarea>
     </div>
-    <div class="form-group"><label>Día de la semana *</label>
-      <select id="cpa-dia" style="width:100%">
-        ${CP_DIAS.slice(1).map((d, i) => `<option value="${i + 1}" ${actividad?.diaSemana === i + 1 ? 'selected' : ''}>${d}</option>`).join('')}
-      </select>
+    <div style="display:flex;gap:12px">
+      <div class="form-group" style="flex:1"><label>Día de la semana *</label>
+        <select id="cpa-dia" style="width:100%">
+          ${CP_DIAS.slice(1).map((d, i) => `<option value="${i + 1}" ${actividad?.diaSemana === i + 1 ? 'selected' : ''}>${d}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group" style="flex:1"><label>Hora esperada</label>
+        <input type="time" id="cpa-hora" style="width:100%" value="${esc(actividad?.horaEsperada || '09:00')}">
+      </div>
     </div>
     <div id="cpa-error" class="msg-error hidden" style="margin-top:12px"></div>
     <div class="modal-footer">
@@ -13905,6 +13910,7 @@ function cpShowActividadModal(areasList, semana, actividad) {
       nombre,
       descripcion: document.getElementById('cpa-desc').value.trim(),
       diaSemana: Number(document.getElementById('cpa-dia').value),
+      horaEsperada: document.getElementById('cpa-hora').value,
     };
     try {
       if (editing) await PUT(`/cumplimiento/actividades/${actividad._id}`, data);
@@ -14012,11 +14018,12 @@ async function viewCumplimiento(container, params = {}) {
               ${g.items.length === 0 ? `<tr><td colspan="5" class="text-muted">Sin actividades esta semana</td></tr>` : g.items.map(act => `
                 <tr>
                   <td>${CP_DIAS[act.diaSemana]}</td>
-                  <td>${fmtDate(act.fecha)}</td>
+                  <td>${fmtDate(act.fecha)}${act.horaEsperada ? ` ${act.horaEsperada}` : ''}</td>
                   <td>
                     <strong>${esc(act.nombre)}</strong>
                     ${act.descripcion ? `<div class="text-muted" style="font-size:12px">${esc(act.descripcion)}</div>` : ''}
-                    ${act.comentarioCierre ? `<div style="font-size:12px;margin-top:4px"><em>Cierre:</em> ${esc(act.comentarioCierre)}</div>` : ''}
+                    ${act.cerradoEn ? `<div style="font-size:12px;margin-top:4px"><em>Cerrado:</em> ${fmtDate(act.cerradoEn)} ${fmtTime(act.cerradoEn)}</div>` : ''}
+                    ${act.comentarioCierre ? `<div style="font-size:12px;margin-top:4px"><em>Comentario:</em> ${esc(act.comentarioCierre)}</div>` : ''}
                     ${act.comentarioAdmin ? `<div style="font-size:12px;margin-top:4px"><em>Admin:</em> ${esc(act.comentarioAdmin)}</div>` : ''}
                   </td>
                   <td>${cpBadge(act)}</td>

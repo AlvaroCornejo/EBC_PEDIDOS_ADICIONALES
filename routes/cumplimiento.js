@@ -120,7 +120,7 @@ async function requireAreaAdminOrResponsable(req, res, area) {
 
 router.post('/actividades', adminOnly, async (req, res) => {
   try {
-    const { areaId, nombre, descripcion, diaSemana, semana } = req.body;
+    const { areaId, nombre, descripcion, diaSemana, horaEsperada, semana } = req.body;
     if (!areaId || !nombre || !diaSemana) return res.status(400).json({ error: 'Faltan datos' });
     const area = await CumplimientoArea.findById(areaId);
     if (!area) return res.status(404).json({ error: 'Área no encontrada' });
@@ -132,6 +132,7 @@ router.post('/actividades', adminOnly, async (req, res) => {
       descripcion: (descripcion || '').trim(),
       diaSemana: Number(diaSemana),
       fecha: fechaForDiaSemana(sem, diaSemana),
+      horaEsperada: (horaEsperada || '').trim(),
     });
     res.json(actividad);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -142,9 +143,10 @@ router.put('/actividades/:id', adminOnly, async (req, res) => {
     const actividad = await CumplimientoActividad.findById(req.params.id);
     if (!actividad) return res.status(404).json({ error: 'No encontrada' });
     if (actividad.estado !== 'ABIERTA') return res.status(400).json({ error: 'Solo se puede editar una actividad abierta' });
-    const { nombre, descripcion, diaSemana } = req.body;
+    const { nombre, descripcion, diaSemana, horaEsperada } = req.body;
     if (nombre !== undefined) actividad.nombre = nombre.trim();
     if (descripcion !== undefined) actividad.descripcion = descripcion.trim();
+    if (horaEsperada !== undefined) actividad.horaEsperada = horaEsperada.trim();
     if (diaSemana !== undefined) {
       actividad.diaSemana = Number(diaSemana);
       actividad.fecha = fechaForDiaSemana(actividad.semana, diaSemana);
@@ -215,6 +217,7 @@ router.post('/semanas/:semana/abrir-siguiente', adminOnly, async (req, res) => {
       descripcion: a.descripcion,
       diaSemana: a.diaSemana,
       fecha: fechaForDiaSemana(nuevaSemana, a.diaSemana),
+      horaEsperada: a.horaEsperada,
       estado: 'ABIERTA',
       cumplimiento: '',
     }));

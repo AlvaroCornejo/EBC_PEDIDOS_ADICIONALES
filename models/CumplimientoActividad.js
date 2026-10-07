@@ -7,6 +7,7 @@ const cumplimientoActividadSchema = new mongoose.Schema({
   descripcion: { type: String, default: '' },
   diaSemana: { type: Number, required: true, min: 1, max: 7 }, // 1=lunes ... 7=domingo
   fecha: { type: Date, required: true },
+  horaEsperada: { type: String, default: '' }, // 'HH:MM', solo informativo (no se mezcla con `fecha`)
   estado: { type: String, default: 'ABIERTA', enum: ['ABIERTA', 'CERRADA'] },
   cumplimiento: { type: String, default: '', enum: ['', 'CUMPLIDA', 'NO_CUMPLIDA'] },
   comentarioCierre: { type: String, default: '' },
