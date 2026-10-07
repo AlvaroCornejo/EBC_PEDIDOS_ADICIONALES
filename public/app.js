@@ -13698,7 +13698,44 @@ async function viewCajaEfectivoBackoffice(container) {
     const { dias, total, depositosPendientes } = data;
     const filaTotal = (cells) => `<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td>${cells}</tr>`;
 
+    const cuadreTablaHtml = (mon) => {
+      const filaCuadre = (c) => {
+        const difColor = c.diferencia == null ? '' : (Math.abs(c.diferencia) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
+        return `
+          <td class="text-right">${fmt(c.apertura)}</td>
+          <td class="text-right">${fmt(c.ingresos)}</td>
+          <td class="text-right">${fmt(c.enviado)}</td>
+          <td class="text-right" style="font-weight:700">${fmt(c.saldoCalculado)}</td>
+          <td class="text-right">${c.conteoCierre == null ? '—' : fmt(c.conteoCierre)}</td>
+          <td class="text-right" style="${difColor}">${c.diferencia == null ? '—' : fmt(c.diferencia)}</td>`;
+      };
+      return `
+        <div class="table-wrap">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr>
+            <th>Fecha</th><th class="text-right">Apertura</th><th class="text-right">Ingresos</th>
+            <th class="text-right">Enviado</th><th class="text-right">Saldo Calculado</th>
+            <th class="text-right">Conteo Cierre</th><th class="text-right">Diferencia</th>
+          </tr></thead>
+          <tbody>
+            ${dias.map(d => `<tr><td>${esc(d.fecha)}</td>${filaCuadre(d.cuadre[mon])}</tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center">Sin turnos en este mes</td></tr>'}
+            ${dias.length ? filaTotal(filaCuadre(total.cuadre[mon])) : ''}
+          </tbody>
+        </table>
+        </div>`;
+    };
+
     root.innerHTML = `
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:8px">Cuadre de Efectivo — PEN — ${esc(mesActual)}</div>
+        ${cuadreTablaHtml('PEN')}
+      </div></div>
+
+      <div class="card mb-16"><div class="card-body">
+        <div style="font-weight:700;margin-bottom:8px">Cuadre de Efectivo — USD — ${esc(mesActual)}</div>
+        ${cuadreTablaHtml('USD')}
+      </div></div>
+
       <div class="card mb-16"><div class="card-body">
         <div style="font-weight:700;margin-bottom:8px">Efectivo por día — ${esc(mesActual)} (${total.turnosCerrados} turno(s) cerrado(s))</div>
         <div class="table-wrap">

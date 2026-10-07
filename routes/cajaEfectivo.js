@@ -399,40 +399,90 @@ router.get('/backoffice/resumen', requireRol('BACKOFFICE'), async (req, res) => 
 
     const turnos = await TurnoCaja.find({ operacion, fecha: { $gte: desde, $lt: hasta } }).sort({ fecha: 1 }).lean();
     const turnoIds = turnos.map(t => t._id);
-    const movimientos = await MovimientoEfectivoCaja.find({ turnoId: { $in: turnoIds } }).lean();
+    const [movimientos, enviosTurnos] = await Promise.all([
+      MovimientoEfectivoCaja.find({ turnoId: { $in: turnoIds } }).lean(),
+      EnvioEfectivo.find({ origenTurnoId: { $in: turnoIds } }).lean(),
+    ]);
     const movPorTurno = {};
     movimientos.forEach(m => {
       const k = String(m.turnoId);
       (movPorTurno[k] || (movPorTurno[k] = [])).push(m);
     });
+    const enviosPorTurno = {};
+    enviosTurnos.forEach(e => {
+      const k = String(e.origenTurnoId);
+      (enviosPorTurno[k] || (enviosPorTurno[k] = [])).push(e);
+    });
 
     const vacioPorTipo = () => ({ VENTA_PEN: 0, VENTA_USD: 0, TIP_COMERCIAL_PEN: 0, TIP_COMERCIAL_USD: 0, TIP_TIENDA_PEN: 0, TIP_TIENDA_USD: 0 });
     const vacioCanal = () => ({ LOCAL: 0, LLEVAR: 0, DELIVERY: 0, COMERCIAL: 0, OTROS: 0 });
+    const vacioCuadreMoneda = () => ({ apertura: 0, ingresos: 0, enviado: 0, saldoCalculado: 0, conteoCierre: 0, diferencia: null });
+    const vacioCuadre = () => ({ PEN: vacioCuadreMoneda(), USD: vacioCuadreMoneda() });
 
     // Agrupa por día (la fecha del turno, no del movimiento — un turno no cruza medianoche en este modelo)
     const porDia = {};
     turnos.forEach(t => {
       const k = ymd(t.fecha);
-      if (!porDia[k]) porDia[k] = { fecha: k, porTipo: vacioPorTipo(), ventaPorCanal: vacioCanal(), tipFacturado: 0, turnos: 0, turnosCerrados: 0 };
+      if (!porDia[k]) porDia[k] = { fecha: k, porTipo: vacioPorTipo(), ventaPorCanal: vacioCanal(), tipFacturado: 0, turnos: 0, turnosCerrados: 0, cuadre: vacioCuadre() };
       const d = porDia[k];
       d.turnos++;
       if (t.estado === 'CERRADO') d.turnosCerrados++;
       Object.keys(d.ventaPorCanal).forEach(c => { d.ventaPorCanal[c] += t.ventaPorCanal?.[c] || 0; });
       d.tipFacturado += t.tipFacturado || 0;
       (movPorTurno[String(t._id)] || []).forEach(m => {
-        if (m.tipo === 'CAMBIO_MONEDA') return;
-        const key = `${m.tipo}_${m.moneda}`;
-        d.porTipo[key] = (d.porTipo[key] || 0) + m.monto;
+        if (m.tipo !== 'CAMBIO_MONEDA') {
+          const key = `${m.tipo}_${m.moneda}`;
+          d.porTipo[key] = (d.porTipo[key] || 0) + m.monto;
+        }
+      });
+
+      // Cuadre de efectivo por moneda: apertura + ingresos − egresos de cambio − enviado,
+      // comparado contra el conteo de cierre (mismo cálculo que /control/turno/:id, sumado
+      // por todos los turnos del día).
+      ['PEN', 'USD'].forEach(mon => {
+        const key = mon.toLowerCase();
+        const c = d.cuadre[mon];
+        c.apertura += sumaConteo(t.conteoApertura, key);
+        (movPorTurno[String(t._id)] || []).forEach(m => {
+          if (m.tipo === 'CAMBIO_MONEDA') {
+            if (m.monedaIngreso === mon) c.ingresos += m.montoIngreso;
+            if (m.monedaEgreso === mon) c.ingresos -= m.montoEgreso;
+          } else if (m.moneda === mon) {
+            c.ingresos += m.monto;
+          }
+        });
+        (enviosPorTurno[String(t._id)] || []).forEach(e => { if (e.moneda === mon) c.enviado += e.montoEnviado; });
+        if (t.estado === 'CERRADO') c.conteoCierre += sumaConteo(t.conteoCierre, key);
       });
     });
     const dias = Object.values(porDia).sort((a, b) => a.fecha.localeCompare(b.fecha));
+    dias.forEach(d => {
+      ['PEN', 'USD'].forEach(mon => {
+        const c = d.cuadre[mon];
+        c.saldoCalculado = c.apertura + c.ingresos - c.enviado;
+        // Si algún turno del día sigue abierto, el conteo de cierre está incompleto — no
+        // se puede comparar todavía (se deja la diferencia en null, no un falso cuadre).
+        if (d.turnosCerrados < d.turnos) { c.conteoCierre = null; c.diferencia = null; }
+        else c.diferencia = c.conteoCierre - c.saldoCalculado;
+      });
+    });
 
-    const total = { porTipo: vacioPorTipo(), ventaPorCanal: vacioCanal(), tipFacturado: 0, turnosCerrados: 0 };
+    const total = { porTipo: vacioPorTipo(), ventaPorCanal: vacioCanal(), tipFacturado: 0, turnosCerrados: 0, cuadre: vacioCuadre() };
     dias.forEach(d => {
       Object.keys(total.porTipo).forEach(k => { total.porTipo[k] += d.porTipo[k]; });
       Object.keys(total.ventaPorCanal).forEach(k => { total.ventaPorCanal[k] += d.ventaPorCanal[k]; });
       total.tipFacturado += d.tipFacturado;
       total.turnosCerrados += d.turnosCerrados;
+      ['PEN', 'USD'].forEach(mon => {
+        const tc = total.cuadre[mon], dc = d.cuadre[mon];
+        tc.apertura += dc.apertura; tc.ingresos += dc.ingresos; tc.enviado += dc.enviado; tc.saldoCalculado += dc.saldoCalculado;
+        if (dc.conteoCierre === null) tc.conteoCierre = null;
+        else if (tc.conteoCierre !== null) tc.conteoCierre += dc.conteoCierre;
+      });
+    });
+    ['PEN', 'USD'].forEach(mon => {
+      const tc = total.cuadre[mon];
+      tc.diferencia = tc.conteoCierre === null ? null : tc.conteoCierre - tc.saldoCalculado;
     });
 
     const depositosPendientes = await EnvioEfectivo.find({ operacion, destino: 'BANCO', estado: 'ENVIADO' }).sort({ fechaEnvio: 1 }).lean();
