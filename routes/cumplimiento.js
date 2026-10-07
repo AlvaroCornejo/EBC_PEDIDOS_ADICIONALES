@@ -106,7 +106,7 @@ router.get('/actividades', async (req, res) => {
     const semana = req.query.semana || semanaActual();
     const areas = await areasVisibles(req);
     const areaIds = areas.map(a => String(a._id));
-    const actividades = await CumplimientoActividad.find({ semana, areaId: { $in: areaIds } }).sort({ diaSemana: 1 }).lean();
+    const actividades = await CumplimientoActividad.find({ semana, areaId: { $in: areaIds } }).sort({ diaSemana: 1, horaEsperada: 1 }).lean();
     res.json({ semana, areas, actividades });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
