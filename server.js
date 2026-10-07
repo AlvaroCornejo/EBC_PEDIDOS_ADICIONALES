@@ -69,6 +69,7 @@ app.use('/api/eerr',            require('./routes/eerr'));
 app.use('/api/conciliacion',    require('./routes/conciliacion'));
 app.use('/api/sociedades',      require('./routes/sociedades'));
 app.use('/api/caja-efectivo',   require('./routes/cajaEfectivo'));
+app.use('/api/cumplimiento',    require('./routes/cumplimiento'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

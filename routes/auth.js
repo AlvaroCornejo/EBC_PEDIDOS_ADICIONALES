@@ -28,6 +28,7 @@ function buildPayload(user) {
     accesoInventarios: !!user.accesoInventarios, accesoVentas: !!user.accesoVentas,
     accesoCostoProduccion: !!user.accesoCostoProduccion,
     rolCajaEfectivo: user.rolCajaEfectivo || '',
+    accesoCumplimiento: !!user.accesoCumplimiento,
   };
 }
 

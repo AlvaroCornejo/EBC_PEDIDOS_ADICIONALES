@@ -43,6 +43,9 @@ const userSchema = new mongoose.Schema({
   areasCostoProduccion:  { type: [String], default: [] },
   // Cierre de Caja: un solo rol por usuario, scoped por `operations` (sin array propio).
   rolCajaEfectivo: { type: String, default: '', enum: ['', 'CAJA', 'OFICINA', 'CONTROL', 'BACKOFFICE'] },
+  // Cumplimiento de Actividades: gate de nav. El acceso real a cada área sale de
+  // CumplimientoArea.responsableUserId, no de este flag.
+  accesoCumplimiento: { type: Boolean, default: false },
 });
 
 module.exports = mongoose.model('User', userSchema);

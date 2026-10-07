@@ -283,6 +283,7 @@ const NAV_ITEMS = [
   { id: 'inventario-semanal', label: 'Inventario Semanal', icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
   { id: 'costo-produccion', label: 'Costo de Producción', icon: '🏭', roles: [ROLES.ADMIN], extraPerm: 'accesoCostoProduccion' },
   { id: 'caja-efectivo', label: 'Cierre de Caja', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'rolCajaEfectivo' },
+  { id: 'cumplimiento',  label: 'Cumplimiento',   icon: '✅', roles: [ROLES.ADMIN], extraPerm: 'accesoCumplimiento' },
   { id: 'admin',         label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
 
@@ -353,7 +354,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentas, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, 'costo-produccion': viewCostoProduccion, 'caja-efectivo': viewCajaEfectivo, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentas, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, 'costo-produccion': viewCostoProduccion, 'caja-efectivo': viewCajaEfectivo, cumplimiento: viewCumplimiento, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -13832,6 +13833,303 @@ async function viewCajaEfectivoBackoffice(container) {
   }
 }
 
+// ─── Cumplimiento de Actividades ────────────────────────────────────
+const CP_DIAS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+function cpGetISOWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((d - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
+  return { week, year: d.getUTCFullYear() };
+}
+function cpSemanaActual() { const { year, week } = cpGetISOWeek(new Date()); return `${year}${String(week).padStart(2, '0')}`; }
+function cpSemanaLabel(semana) { return `Semana ${Number(semana.slice(4))} · ${semana.slice(0, 4)}`; }
+function cpMondayOfISOWeek(year, week) {
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const monday = new Date(jan4);
+  monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1 + (week - 1) * 7);
+  return monday;
+}
+function cpSemanaVecina(semana, delta) {
+  const year = Number(semana.slice(0, 4)), week = Number(semana.slice(4));
+  const monday = cpMondayOfISOWeek(year, week);
+  monday.setUTCDate(monday.getUTCDate() + delta * 7);
+  const r = cpGetISOWeek(monday);
+  return `${r.year}${String(r.week).padStart(2, '0')}`;
+}
+
+function cpBadge(act) {
+  if (act.estado === 'ABIERTA') return `<span class="badge" style="background:#e5e7eb;color:#374151">Pendiente</span>`;
+  if (act.cumplimiento === 'CUMPLIDA') return `<span class="badge" style="background:#d1fae5;color:#065f46">Cumplida</span>`;
+  if (act.cumplimiento === 'NO_CUMPLIDA') return `<span class="badge" style="background:#fee2e2;color:#991b1b">No cumplida</span>`;
+  return `<span class="badge" style="background:#fef3c7;color:#92400e">Por revisar</span>`;
+}
+
+function cpShowActividadModal(areasList, semana, actividad) {
+  const editing = !!actividad;
+  const areaActual = areasList.find(a => a._id === actividad?.areaId) || areasList[0];
+  openModal(editing ? 'Editar actividad' : 'Nueva actividad', `
+    <div class="form-group"><label>Área</label>
+      ${editing
+        ? `<input type="text" value="${esc(areaActual.nombre)}" disabled style="width:100%">`
+        : `<select id="cpa-area" style="width:100%">${areasList.map(a => `<option value="${a._id}">${esc(a.nombre)}</option>`).join('')}</select>`}
+    </div>
+    <div class="form-group"><label>Nombre *</label>
+      <input type="text" id="cpa-nombre" style="width:100%" value="${esc(actividad?.nombre || '')}">
+    </div>
+    <div class="form-group"><label>Descripción</label>
+      <textarea id="cpa-desc" style="width:100%">${esc(actividad?.descripcion || '')}</textarea>
+    </div>
+    <div class="form-group"><label>Día de la semana *</label>
+      <select id="cpa-dia" style="width:100%">
+        ${CP_DIAS.slice(1).map((d, i) => `<option value="${i + 1}" ${actividad?.diaSemana === i + 1 ? 'selected' : ''}>${d}</option>`).join('')}
+      </select>
+    </div>
+    <div id="cpa-error" class="msg-error hidden" style="margin-top:12px"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="cpa-save">💾 Guardar</button>
+    </div>`);
+
+  document.getElementById('cpa-save').addEventListener('click', async () => {
+    const errEl = document.getElementById('cpa-error');
+    errEl.classList.add('hidden');
+    const nombre = document.getElementById('cpa-nombre').value.trim();
+    if (!nombre) { errEl.textContent = 'Falta el nombre'; errEl.classList.remove('hidden'); return; }
+    const data = {
+      areaId: editing ? areaActual._id : document.getElementById('cpa-area').value,
+      semana,
+      nombre,
+      descripcion: document.getElementById('cpa-desc').value.trim(),
+      diaSemana: Number(document.getElementById('cpa-dia').value),
+    };
+    try {
+      if (editing) await PUT(`/cumplimiento/actividades/${actividad._id}`, data);
+      else await POST('/cumplimiento/actividades', data);
+      closeModal();
+      navigate('cumplimiento', { semana });
+    } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
+  });
+}
+
+function cpShowCerrarModal(actividad, semana) {
+  openModal('Cerrar actividad', `
+    <p style="font-size:14px"><strong>${esc(actividad.nombre)}</strong></p>
+    <div class="form-group"><label>Comentario (opcional)</label>
+      <textarea id="cpc-comentario" style="width:100%"></textarea>
+    </div>
+    <div id="cpc-error" class="msg-error hidden"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="cpc-save">✅ Cerrar actividad</button>
+    </div>`);
+
+  document.getElementById('cpc-save').addEventListener('click', async () => {
+    const errEl = document.getElementById('cpc-error');
+    errEl.classList.add('hidden');
+    try {
+      await POST(`/cumplimiento/actividades/${actividad._id}/cerrar`, {
+        comentario: document.getElementById('cpc-comentario').value.trim(),
+      });
+      closeModal();
+      toast('Actividad cerrada', 'success');
+      navigate('cumplimiento', { semana });
+    } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
+  });
+}
+
+function cpShowRevisarModal(actividad, semana) {
+  openModal('Revisar actividad', `
+    <p style="font-size:14px"><strong>${esc(actividad.nombre)}</strong></p>
+    ${actividad.comentarioCierre ? `<p style="font-size:13px"><em>Comentario del responsable:</em> ${esc(actividad.comentarioCierre)}</p>` : ''}
+    <div class="form-group"><label>¿Se cumplió? *</label>
+      <select id="cpr-cumplimiento" style="width:100%">
+        <option value="CUMPLIDA">✅ Cumplida</option>
+        <option value="NO_CUMPLIDA">❌ No cumplida</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Comentario</label>
+      <textarea id="cpr-comentario" style="width:100%"></textarea>
+    </div>
+    <div id="cpr-error" class="msg-error hidden"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="cpr-save">💾 Guardar</button>
+    </div>`);
+
+  document.getElementById('cpr-save').addEventListener('click', async () => {
+    const errEl = document.getElementById('cpr-error');
+    errEl.classList.add('hidden');
+    try {
+      await PUT(`/cumplimiento/actividades/${actividad._id}/revisar`, {
+        cumplimiento: document.getElementById('cpr-cumplimiento').value,
+        comentarioAdmin: document.getElementById('cpr-comentario').value.trim(),
+      });
+      closeModal();
+      navigate('cumplimiento', { semana });
+    } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
+  });
+}
+
+async function viewCumplimiento(container, params = {}) {
+  const semana = params.semana || cpSemanaActual();
+  container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+
+  let data;
+  try { data = await GET(`/cumplimiento/actividades?semana=${semana}`); }
+  catch (e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; return; }
+
+  const { areas, actividades } = data;
+  const isAdmin = S.user.role === ROLES.ADMIN;
+  const porArea = {};
+  areas.filter(a => a.activo !== false).forEach(a => { porArea[a._id] = { area: a, items: [] }; });
+  actividades.forEach(act => { if (porArea[act.areaId]) porArea[act.areaId].items.push(act); });
+  const grupos = Object.values(porArea);
+
+  container.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">✅ Cumplimiento de Actividades</div>
+    </div>
+    <div class="page-body">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" id="cp-prev">◀</button>
+        <strong style="min-width:150px;text-align:center">${cpSemanaLabel(semana)}</strong>
+        <button class="btn btn-outline btn-sm" id="cp-next">▶</button>
+        ${isAdmin ? `
+          <button class="btn btn-primary btn-sm" id="cp-nueva-act" style="margin-left:auto">+ Nueva actividad</button>
+          <button class="btn btn-secondary btn-sm" id="cp-abrir-semana">Abrir nueva semana →</button>
+        ` : ''}
+      </div>
+      ${grupos.length === 0 ? `<div class="empty-state">No hay áreas ${isAdmin ? 'creadas todavía (Admin → Cumplimiento)' : 'asignadas a tu usuario'}.</div>` : grupos.map(g => `
+        <div class="card mb-16">
+          <div class="card-header"><strong>${esc(g.area.nombre)}</strong></div>
+          <div class="table-wrap"><table class="data-table">
+            <thead><tr><th>Día</th><th>Fecha</th><th>Actividad</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              ${g.items.length === 0 ? `<tr><td colspan="5" class="text-muted">Sin actividades esta semana</td></tr>` : g.items.map(act => `
+                <tr>
+                  <td>${CP_DIAS[act.diaSemana]}</td>
+                  <td>${fmtDate(act.fecha)}</td>
+                  <td>
+                    <strong>${esc(act.nombre)}</strong>
+                    ${act.descripcion ? `<div class="text-muted" style="font-size:12px">${esc(act.descripcion)}</div>` : ''}
+                    ${act.comentarioCierre ? `<div style="font-size:12px;margin-top:4px"><em>Cierre:</em> ${esc(act.comentarioCierre)}</div>` : ''}
+                    ${act.comentarioAdmin ? `<div style="font-size:12px;margin-top:4px"><em>Admin:</em> ${esc(act.comentarioAdmin)}</div>` : ''}
+                  </td>
+                  <td>${cpBadge(act)}</td>
+                  <td style="white-space:nowrap">
+                    ${act.estado === 'ABIERTA' && !isAdmin ? `<button class="btn btn-sm btn-primary cp-cerrar" data-id="${act._id}">Cerrar</button>` : ''}
+                    ${act.estado === 'ABIERTA' && isAdmin ? `<button class="btn btn-sm btn-outline cp-editar" data-id="${act._id}">✏️</button> <button class="btn btn-sm btn-outline cp-eliminar" data-id="${act._id}">🗑️</button>` : ''}
+                    ${act.estado === 'CERRADA' && !act.cumplimiento && isAdmin ? `<button class="btn btn-sm btn-primary cp-revisar" data-id="${act._id}">Revisar</button>` : ''}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table></div>
+        </div>
+      `).join('')}
+    </div>`;
+
+  document.getElementById('cp-prev').addEventListener('click', () => navigate('cumplimiento', { semana: cpSemanaVecina(semana, -1) }));
+  document.getElementById('cp-next').addEventListener('click', () => navigate('cumplimiento', { semana: cpSemanaVecina(semana, 1) }));
+
+  if (isAdmin) {
+    document.getElementById('cp-nueva-act').addEventListener('click', () => {
+      if (!grupos.length) return toast('Primero crea un área en Admin → Cumplimiento', 'error');
+      cpShowActividadModal(grupos.map(g => g.area), semana);
+    });
+    document.getElementById('cp-abrir-semana').addEventListener('click', async () => {
+      if (!confirm(`¿Abrir la semana siguiente copiando las actividades de ${cpSemanaLabel(semana)}?`)) return;
+      try {
+        const r = await POST(`/cumplimiento/semanas/${semana}/abrir-siguiente`);
+        toast(`Semana ${cpSemanaLabel(r.semana)} abierta`, 'success');
+        navigate('cumplimiento', { semana: r.semana });
+      } catch (e) { toast(e.message, 'error'); }
+    });
+    container.querySelectorAll('.cp-editar').forEach(btn => btn.addEventListener('click', () => {
+      const act = actividades.find(a => a._id === btn.dataset.id);
+      cpShowActividadModal(grupos.map(g => g.area), semana, act);
+    }));
+    container.querySelectorAll('.cp-eliminar').forEach(btn => btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar esta actividad?')) return;
+      try { await DEL(`/cumplimiento/actividades/${btn.dataset.id}`); navigate('cumplimiento', { semana }); }
+      catch (e) { toast(e.message, 'error'); }
+    }));
+    container.querySelectorAll('.cp-revisar').forEach(btn => btn.addEventListener('click', () => {
+      cpShowRevisarModal(actividades.find(a => a._id === btn.dataset.id), semana);
+    }));
+  } else {
+    container.querySelectorAll('.cp-cerrar').forEach(btn => btn.addEventListener('click', () => {
+      cpShowCerrarModal(actividades.find(a => a._id === btn.dataset.id), semana);
+    }));
+  }
+}
+
+// ─── Admin: Cumplimiento de Actividades (áreas) ──────────────────────
+async function renderAdminCumplimiento(container) {
+  container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-muted)">Cargando...</div>`;
+  let areas, users;
+  try {
+    [areas, users] = await Promise.all([GET('/cumplimiento/areas'), GET('/users')]);
+  } catch (e) { container.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; return; }
+
+  const nombreUsuario = (id) => users.find(u => u.id === id)?.username || '(usuario eliminado)';
+
+  container.innerHTML = `
+    <p class="mb-8 text-muted" style="font-size:13px">
+      Define las áreas y su responsable. Las actividades de cada semana se gestionan desde
+      el módulo "Cumplimiento" en el menú principal.
+    </p>
+    <table class="data-table" style="max-width:700px">
+      <thead><tr><th>Área</th><th>Responsable</th><th>Activa</th><th></th></tr></thead>
+      <tbody>
+        ${areas.map(a => `
+          <tr>
+            <td>${esc(a.nombre)}</td>
+            <td>${esc(nombreUsuario(a.responsableUserId))}</td>
+            <td>${a.activo !== false ? 'Sí' : 'No'}</td>
+            <td><button class="btn btn-sm btn-outline cp-area-del" data-id="${a._id}">🗑️</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <button class="btn btn-primary btn-sm mt-8" id="cp-area-nueva">+ Nueva área</button>`;
+
+  document.getElementById('cp-area-nueva').addEventListener('click', () => {
+    openModal('Nueva área', `
+      <div class="form-group"><label>Nombre *</label><input type="text" id="cpa2-nombre" style="width:100%"></div>
+      <div class="form-group"><label>Responsable *</label>
+        <select id="cpa2-resp" style="width:100%">
+          ${users.filter(u => u.role !== ROLES.ADMIN).map(u => `<option value="${u.id}">${esc(u.username)}</option>`).join('')}
+        </select>
+      </div>
+      <div id="cpa2-error" class="msg-error hidden"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="cpa2-save">💾 Guardar</button>
+      </div>`);
+    document.getElementById('cpa2-save').addEventListener('click', async () => {
+      const errEl = document.getElementById('cpa2-error');
+      errEl.classList.add('hidden');
+      const nombre = document.getElementById('cpa2-nombre').value.trim();
+      if (!nombre) { errEl.textContent = 'Falta el nombre'; errEl.classList.remove('hidden'); return; }
+      try {
+        await POST('/cumplimiento/areas', { nombre, responsableUserId: document.getElementById('cpa2-resp').value });
+        closeModal();
+        renderAdminCumplimiento(container);
+      } catch (e) { errEl.textContent = e.message; errEl.classList.remove('hidden'); }
+    });
+  });
+
+  container.querySelectorAll('.cp-area-del').forEach(btn => btn.addEventListener('click', async () => {
+    if (!confirm('¿Eliminar esta área?')) return;
+    try { await DEL(`/cumplimiento/areas/${btn.dataset.id}`); renderAdminCumplimiento(container); }
+    catch (e) { toast(e.message, 'error'); }
+  }));
+}
+
 async function viewAdmin(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -13857,6 +14155,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="sociedades">🏢 Sociedades y Operaciones</button>
         <button class="tab-btn" data-tab="planillas">🧮 Planillas</button>
         <button class="tab-btn" data-tab="caja-efectivo">🧾 Cierre de Caja</button>
+        <button class="tab-btn" data-tab="cumplimiento">✅ Cumplimiento</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -13875,6 +14174,7 @@ async function viewAdmin(container) {
       <div id="tab-sociedades" class="tab-panel"></div>
       <div id="tab-planillas" class="tab-panel"></div>
       <div id="tab-caja-efectivo" class="tab-panel"></div>
+      <div id="tab-cumplimiento" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -13903,6 +14203,7 @@ async function viewAdmin(container) {
   renderAdminSociedades(document.getElementById('tab-sociedades'));
   renderAdminPlanillas(document.getElementById('tab-planillas'));
   renderAdminCajaEfectivo(document.getElementById('tab-caja-efectivo'));
+  renderAdminCumplimiento(document.getElementById('tab-cumplimiento'));
 }
 
 // ─── Admin: Conciliación de Cobranzas — rutas de archivos por sociedad ──
@@ -15469,6 +15770,11 @@ function showUserModal(user, onSave, opts = {}) {
             <span>💵 <strong>Flujo de Caja</strong></span>
           </label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="um-cumplimiento" ${user?.accesoCumplimiento?'checked':''}
+              style="width:15px;height:15px;accent-color:var(--primary)">
+            <span>✅ <strong>Cumplimiento de Actividades</strong> (si es responsable de un área)</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
             <input type="checkbox" id="um-planillas" ${user?.accesoPlanillas?'checked':''}
               style="width:15px;height:15px;accent-color:var(--primary)">
             <span>🧮 <strong>Planillas (Manager de sus operaciones)</strong></span>
@@ -15556,6 +15862,7 @@ function showUserModal(user, onSave, opts = {}) {
       rolCambioReceta: document.getElementById('um-rol-cambio-receta').value,
       accesoSaldoBanco:     !isAdmin && (document.getElementById('um-saldo-banco')?.checked ?? false),
       accesoFlujoCaja:      !isAdmin && (document.getElementById('um-flujo-caja')?.checked ?? false),
+      accesoCumplimiento:   !isAdmin && (document.getElementById('um-cumplimiento')?.checked ?? false),
       accesoPlanillas:      !isAdmin && (document.getElementById('um-planillas')?.checked ?? false),
       accesoInventarios:    !isAdmin && (document.getElementById('um-inventarios')?.checked ?? false),
       accesoVentas:         !isAdmin && (document.getElementById('um-ventas')?.checked ?? false),

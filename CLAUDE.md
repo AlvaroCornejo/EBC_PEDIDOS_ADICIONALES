@@ -1571,3 +1571,130 @@ Atlas de producción (ni con el sandbox de red desactivado) — se verificó sol
 `node -c` en todos los archivos y una revisión manual de la lógica. Probar el flujo
 completo (abrir turno → movimientos → cerrar → enviar → confirmar → Back Office) en el
 servidor real antes de dar el módulo por validado.
+
+### Sesión 29 — Cumplimiento de Actividades (módulo nuevo; evidencia/Box retirados en la Sesión 30)
+
+Seguimiento semanal de actividades por área: cada área tiene un único responsable: el
+ADMIN define qué actividades hay que hacer cada semana (y si requieren evidencia), el
+responsable las cierra subiendo evidencia si corresponde, y el ADMIN revisa y marca
+Cumplida/No cumplida. Al abrir una nueva semana se clonan las actividades de la semana
+anterior (reabiertas, sin evidencia), recalculando `fecha` a partir del mismo
+`diaSemana` sobre la semana nueva.
+
+**Modelos** (`models/`), con prefijo `Cumplimiento*` a propósito (evita el problema de
+nombre genérico documentado en la Sesión 9 — "Area" podría chocar con otro módulo
+futuro): `CumplimientoArea` (`{nombre, responsableUserId, activo}`) y
+`CumplimientoActividad` — un documento por semana, no hay plantilla separada: "abrir
+semana" literalmente clona estos documentos (`{areaId, semana 'YYYYWW' ISO, nombre,
+descripcion, diaSemana 1-7, fecha, requiereEvidencia, estado ABIERTA|CERRADA,
+cumplimiento ''|CUMPLIDA|NO_CUMPLIDA, evidencias:[{boxFileId,nombre,subidoEn}],
+comentarioCierre, cerradoPor/cerradoEn, comentarioAdmin, revisadoPor/revisadoEn}`).
+`User.accesoCumplimiento` (boolean) es solo gate de nav para no-admin — la autorización
+real por área sale de `CumplimientoArea.responsableUserId`, no de este flag. **Se
+agregó al whitelist de campos de `routes/users.js` (POST y PUT) y a `buildPayload()` en
+`routes/auth.js`** — sin esto el checkbox del form de usuarios no se habría guardado ni
+viajado en el JWT/`S.user` del frontend (se detectó y corrigió durante esta sesión).
+
+**Evidencia → Box** (no local disk: DigitalOcean redespliega seguido — cada push del
+sync diario — y su disco es efímero). `utils/boxService.js` usa `box-node-sdk` con
+**Server Authentication (Client Credentials Grant / Service Account)** — más simple que
+JWT (sin par de llaves ni passphrase) y es lo que Box recomienda ahora por defecto en el
+Developer Console. Credenciales en 3 variables de entorno nuevas `BOX_CLIENT_ID/
+CLIENT_SECRET/ENTERPRISE_ID` (documentadas sin valores en `.env.example`), **pendientes
+de crear por el usuario** en Box Developer Console (Create New App → Servidor →
+Concesión de credenciales de cliente → Configuration: App Access Level = "App +
+Enterprise Access" + scopes Read/Write all files and folders → Authorization: Authorize
+o Submit → compartir la carpeta raíz con el email del Service Account que aparece en
+General Settings). La carpeta raíz (no secreta) se guarda en `Config`
+(`cumplimientoBoxFolderId`), editable desde Admin → Cumplimiento. Subida con
+`multer.memoryStorage()` (igual que `routes/pagos.js`): el archivo nunca toca disco
+local, va del buffer directo a Box, en una subcarpeta `Area/Semana/` creada/reusada por
+`ensureSubfolder()`.
+
+**`box-node-sdk` v10 cambió por completo su API respecto a versiones anteriores** (ya
+no es la clase `BoxSDK`/`getAppAuthClient`/`client.files.uploadFile(folderId, name,
+buffer)` de la documentación "clásica" de Box — ahora reexporta el SDK generado nuevo:
+`BoxClient`, `BoxCcgAuth`, `CcgConfig`, con managers tipo `client.folders.getFolderItems/
+createFolder`, `client.uploads.uploadFile({attributes:{name,parent:{id}}, file:
+Readable.from(buffer)})`, `client.downloads.downloadFile(fileId)` → devuelve un
+`Readable` de Node directamente (o `undefined` si Box todavía está generando la
+descarga). **`utils/boxService.js` se reescribió para esta API nueva** tras detectar
+—tarde, tras escribir la primera versión contra la API vieja— que v10.17.0 (la que
+instala `npm install box-node-sdk` hoy) no tiene esas clases/métodos; se verificó
+leyendo directamente el código fuente instalado en `node_modules/box-node-sdk/lib/`, no
+solo la documentación pública. **Como las credenciales de Box todavía no existen, la
+subida real de evidencia no se pudo probar contra la API real de Box** — sí se validó
+que el módulo carga, que `isConfigured()` detecta correctamente la ausencia de
+variables, y que el endpoint rechaza el cierre de una actividad `requiereEvidencia:true`
+sin archivo adjunto.
+
+**Backend** (`routes/cumplimiento.js`, montado en `/api/cumplimiento`): `GET/POST/PUT/
+DELETE /areas(/:id)` (DELETE hace soft-delete si tiene actividades, borrado real si
+no), `GET/PUT /config` (carpeta Box), `GET/POST/PUT/DELETE /actividades(/:id)`, `POST
+/actividades/:id/cerrar` (multipart, responsable o ADMIN), `PUT
+/actividades/:id/revisar` (ADMIN), `GET /actividades/:id/evidencias/:boxFileId` (proxy
+de descarga, Box no es público), `POST /semanas/:semana/abrir-siguiente` (ADMIN,
+idempotente — rechaza si la semana destino ya tiene actividades). Semana ISO
+(`getISOWeek`/`mondayOfISOWeek`) duplicado localmente en el archivo, mismo patrón que
+`parseCSV`/`getISOWeek` en otros módulos del repo (documentado como intencional).
+
+**Frontend** (`public/app.js`): nav `cumplimiento` (`extraPerm: accesoCumplimiento`) →
+`viewCumplimiento` (selector de semana ◀▶, tabla por área; ADMIN ve todas con botones
++Nueva actividad/Editar/Eliminar/Revisar/Abrir nueva semana, responsable ve solo sus
+áreas con botón Cerrar que sube evidencia vía `FormData`). Descarga de evidencia vía
+`fetch` + blob (el link no puede ser un `href` directo porque la ruta exige
+`Authorization`). Admin → tab "✅ Cumplimiento" → `renderAdminCumplimiento` (CRUD de
+áreas + input de carpeta Box, mismo patrón que `renderAdminSociedades`). Checkbox
+`accesoCumplimiento` en el form de usuarios, sección "Módulos Autorizados" (junto a
+Flujo de Caja).
+
+**Probado en vivo** (a diferencia de la Sesión 28, esta vez sí hubo salida de red hacia
+el Atlas de producción): flujo completo validado por HTTP contra el server local
+apuntando al Atlas real — usuario responsable de prueba, área, 2 actividades (con y sin
+evidencia requerida), cierre, rechazo de cierre duplicado y de cierre sin evidencia
+requerida, rechazo de acceso de un usuario ajeno al área, revisión ADMIN, apertura de
+semana siguiente (fecha recalculada +7 días exactos, estado reabierto, evidencias
+vacías), rechazo de reabrir una semana ya abierta — 17/17 verificaciones OK, todos los
+datos de prueba (marcados `ZZ_TEST_*`) borrados al final. UI verificada visualmente
+(nav, vista por semana, modal "Nueva área" con el selector real de responsables) con
+una sesión de ADMIN sintética (JWT firmado localmente con el `JWT_SECRET` de
+`.env`, sin usar ninguna contraseña real).
+
+**Pendiente para el usuario**: ~~crear la Box App...~~ — **obsoleto, ver Sesión 30**: se
+descartó la evidencia/Box por completo. Sigue pendiente crear desde Admin →
+Cumplimiento las áreas reales con su responsable.
+
+### Sesión 30 — Cumplimiento de Actividades: se retira la evidencia (Box)
+
+A pedido del usuario, tras la fricción real de configurar la Box App (Client
+Credentials Grant autorizado, pero no se logró ubicar fácilmente el email del Service
+Account para compartirle la carpeta — ni buscando por nombre de la app en el diálogo de
+compartir, ni en Usuarios y grupos del Admin Console), **se quitó la opción de subir
+evidencia al cerrar una actividad**. Cerrar una actividad ahora es solo: comentario
+opcional, sin archivo adjunto.
+
+**Removido por completo**: `requiereEvidencia` y `evidencias` de
+`CumplimientoActividad` (modelo y todos los endpoints), `utils/boxService.js`
+(archivo borrado), la dependencia `box-node-sdk` (`npm uninstall`), las 3 variables
+`BOX_CLIENT_ID/CLIENT_SECRET/ENTERPRISE_ID` de `.env.example`, el endpoint `GET/PUT
+/cumplimiento/config` (carpeta raíz de Box) y su UI en Admin → Cumplimiento, el
+endpoint de descarga `GET /actividades/:id/evidencias/:boxFileId`, el input de archivo
+y la validación "requiere evidencia" en el modal de cerrar (ahora `POST
+.../cerrar` es JSON normal `{comentario}`, ya no `multipart/form-data` — se quitó
+`multer` de `routes/cumplimiento.js`), el checkbox "Requiere evidencia" al crear/editar
+actividad, la columna "Evidencia" de la tabla y el ícono 📎.
+
+**Las variables `BOX_*` que el usuario alcanzó a configurar en DigitalOcean durante el
+intento se pueden borrar** (ya no las lee ningún código del repo) — no es urgente, solo
+quedan sin uso.
+
+**Nota para si se retoma evidencia más adelante**: la fricción real no fue el código
+(la integración con `box-node-sdk` v10 vía Client Credentials Grant llegó a probarse
+hasta el punto de tener credenciales autorizadas) sino **ubicar el email del Service
+Account en la UI de Box** para compartirle una carpeta — Box no lo expone de forma
+obvia en el Developer Console ni en "Compartir por nombre de app"; la vía documentada
+(Admin Console → Usuarios y grupos, buscar por nombre de la app) tampoco lo encontró en
+este caso. La alternativa más confiable sería autenticarse con las credenciales CCG ya
+válidas y llamar a `GET /2.0/users/me` (vía `client.users.getUserMe()` en el SDK) para
+que el propio Service Account diga su correo — no se llegó a intentar porque el usuario
+prefirió cancelar la función en vez de seguir insistiendo.
