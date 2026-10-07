@@ -14012,7 +14012,10 @@ async function viewCumplimiento(container, params = {}) {
       ${grupos.length === 0 ? `<div class="empty-state">No hay áreas ${isAdmin ? 'creadas todavía (Admin → Cumplimiento)' : 'asignadas a tu usuario'}.</div>` : grupos.map(g => `
         <div class="card mb-16">
           <div class="card-header"><strong>${esc(g.area.nombre)}</strong></div>
-          <div class="table-wrap"><table class="data-table">
+          <div class="table-wrap"><table class="data-table" style="table-layout:fixed;width:100%">
+            <colgroup>
+              <col style="width:90px"><col style="width:150px"><col><col style="width:110px"><col style="width:120px">
+            </colgroup>
             <thead><tr><th>Día</th><th>Fecha</th><th>Actividad</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               ${g.items.length === 0 ? `<tr><td colspan="5" class="text-muted">Sin actividades esta semana</td></tr>` : g.items.map(act => `
