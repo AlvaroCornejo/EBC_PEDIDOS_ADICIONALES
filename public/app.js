@@ -1838,7 +1838,7 @@ function renderPedidosAprobar(container, pedidos) {
       </div>
       <div class="pedido-card-body open">
         <div class="table-wrap">
-          <table>
+          <table class="tbl-div">
             ${renderTableHeader('approve')}
             <tbody>
               ${p.lineas.map((l, i) => renderLineaRow(l, i, false, 'approve', p.operacion)).join('')}
@@ -1927,7 +1927,7 @@ function renderPedidosProcesados(container, pedidos) {
         </div>
       </div>
       <div class="pedido-card-body">
-        <div class="table-wrap"><table>
+        <div class="table-wrap"><table class="tbl-div">
           ${renderTableHeader(estadoMode)}
           <tbody>${p.lineas.map((l,i) => renderLineaRow(l, i, false, estadoMode, p.operacion)).join('')}</tbody>
         </table></div>

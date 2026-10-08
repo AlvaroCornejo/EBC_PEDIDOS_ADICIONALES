@@ -164,6 +164,12 @@ tr:hover td { background: #fafbff; }
 th.group-header { background: #eef0fd; color: var(--accent); text-align: center; font-size: 11px; border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); }
 th.sub-header { background: #f0f2ff; font-size: 10.5px; border-left: 1px solid #d4d8f8; }
 
+/* Pantalla Aprobar: líneas divisorias entre bloques (Semana Anterior | Semana Actual | Saldo… | Despacho | Comentarios) */
+.tbl-div tbody td:nth-child(3), .tbl-div tbody td:nth-child(8), .tbl-div tbody td:nth-child(13),
+.tbl-div tbody td:nth-child(16), .tbl-div tbody td:nth-child(19),
+.tbl-div thead tr:first-child th:nth-child(5), .tbl-div thead tr:first-child th:nth-child(8), .tbl-div thead tr:first-child th:nth-child(11),
+.tbl-div thead tr:nth-child(2) th:nth-child(1), .tbl-div thead tr:nth-child(2) th:nth-child(6) { border-left: 2px solid #b8bedb; }
+
 /* Movimientos: espacio reducido y uniforme entre columnas */
 .mv-table th, .mv-table td { padding-right: 5px; }
 .col-item { min-width: 260px; }

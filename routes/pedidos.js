@@ -154,6 +154,7 @@ router.put('/:id', async (req, res) => {
 
     const { role } = req.user;
     const { lineas, resubmit } = req.body;
+    let aprobadoSinLineas = false;
 
     if (role === 'OPERADOR_SOLICITUD' || (role === 'ADMIN' && req.body.accion === 'editar')) {
       if (!['SOLICITADO', 'REVISAR'].includes(pedido.estado)) {
@@ -214,14 +215,19 @@ router.put('/:id', async (req, res) => {
       }
 
     } else if (role === 'OPERADOR_APROBACION' || role === 'ADMIN') {
-      if (!lineas?.length) return res.status(400).json({ error: 'Se requieren las líneas con estados' });
-      const invalid = lineas.some(l => !['APROBADO', 'RECHAZADO', 'REVISAR'].includes(l.estadoLinea));
+      // Un pedido cuyas líneas ya están todas auto-aprobadas (o decididas) no trae nada que
+      // elegir en pantalla: se guarda igual, solo para cerrar el pedido.
+      const lineasEnviadas = lineas || [];
+      const pendientesDeDecision = pedido.lineas.filter(l => !l.autoAprobado && (l.estadoLinea || 'PENDIENTE') === 'PENDIENTE');
+      if (!lineasEnviadas.length && pendientesDeDecision.length) return res.status(400).json({ error: 'Se requieren las líneas con estados' });
+      aprobadoSinLineas = !lineasEnviadas.length;
+      const invalid = lineasEnviadas.some(l => !['APROBADO', 'RECHAZADO', 'REVISAR'].includes(l.estadoLinea));
       if (invalid) return res.status(400).json({ error: 'Todas las líneas deben tener un estado asignado' });
 
       pedido.lineas = pedido.lineas.map(existing => {
         // Líneas auto-aprobadas: el aprobador no puede cambiarlas (#6)
         if (existing.autoAprobado) return existing;
-        const upd = lineas.find(l => l.id === existing.id);
+        const upd = lineasEnviadas.find(l => l.id === existing.id);
         return upd
           ? { ...existing.toObject(), estadoLinea: upd.estadoLinea, comentarioAprobador: upd.comentarioAprobador || '' }
           : existing;
@@ -272,7 +278,7 @@ router.put('/:id', async (req, res) => {
 
     // 1. Solicitante crea pedido → notificar aprobadores (en POST, ver abajo)
     // 2. Aprobador actúa → notificar solicitante + compras/planta según gestión
-    if (role === 'OPERADOR_APROBACION' || (role === 'ADMIN' && req.body.lineas?.[0]?.estadoLinea)) {
+    if (role === 'OPERADOR_APROBACION' || (role === 'ADMIN' && (req.body.lineas?.[0]?.estadoLinea || aprobadoSinLineas))) {
       const nuevoEstado = pedido.estado;
       const pedidoObj   = pedido.toObject();
 
