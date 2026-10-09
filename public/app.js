@@ -2762,6 +2762,26 @@ async function viewBajas(container) {
 let _pgAdelantosCache  = {};   // compania -> resumen por proveedor
 let _pgAdelantosActual = {};   // resumen de la última compañía consultada (para el modal de detalle)
 
+// T/C de Gestión de Pagos: SUNAT "compra" a la fecha de pago de la programación (o el último
+// publicado si el de esa fecha aún no existe). El campo queda de solo lectura; si no hay T/C
+// cargado se deja editable para no bloquear el trabajo.
+async function pgAplicarTC(inputId, fechaPago) {
+  const inp = document.getElementById(inputId);
+  if (!inp || !fechaPago) return;
+  try {
+    const f = new Date(fechaPago).toISOString().slice(0, 10);
+    const r = await GET(`/pagos/tipo-cambio?fecha=${f}`);
+    inp.value = Number(r.compra).toFixed(3);
+    inp.readOnly = true;
+    inp.style.background = '#f3f4f6';
+    inp.title = `SUNAT compra del ${r.fecha}${r.exacto ? '' : ' (último publicado: el de la fecha de pago aún no existe)'}`;
+  } catch (e) {
+    inp.readOnly = false;
+    inp.style.background = '';
+    inp.title = 'No hay T/C SUNAT cargado: ingrésalo a mano';
+  }
+}
+
 async function pgAdelantosResumen(compania) {
   if (!compania) return {};
   if (!_pgAdelantosCache[compania]) {
@@ -4372,6 +4392,7 @@ async function renderPaso1(container) {
 
     <!-- Resúmenes fijos al pie (se inyectan vía JS fuera del flujo) -->
     <div id="pg-resumenes-placeholder"></div>`;
+  await pgAplicarTC('pg-tc', fp.fechaPago);
 
   // Crear el footer fijo de resúmenes como elemento global
   let pgFooter = document.getElementById('pg-resumenes-footer');
@@ -4545,6 +4566,7 @@ async function renderPaso1(container) {
   window.pgAbrirProg = async (id) => {
     try {
       progActual = await GET(`/pagos/programaciones/${id}`);
+      await pgAplicarTC('pg-tc', progActual.fechaPago);
       progActual._readOnly = !['borrador','pendiente'].includes(progActual.estado);
       progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
       // Restaurar promedios guardados (si existen)
@@ -4642,6 +4664,7 @@ async function renderPaso1(container) {
       const data = await pgUploadXHR('/api/pagos/cargar', fd, 'prog');
       pgSetProgress('prog', 92, 'Cargando programación...');
       progActual = await GET(`/pagos/programaciones/${data.id}`);
+      await pgAplicarTC('pg-tc', progActual.fechaPago);
       progActual.obligaciones.forEach(ob => { benefMap[ob.pagarA.toUpperCase()] = ob.grupo; });
       await pgAdelantosResumen(progActual.compania);
       pgSetProgress('prog', 98, 'Renderizando tabla...');
@@ -5326,6 +5349,7 @@ async function renderPaso2(container) {
   async function ap2AbrirProg(id) {
     try {
       ap2Prog      = await GET(`/pagos/programaciones/${id}`);
+      await pgAplicarTC('ap2-tc', ap2Prog.fechaPago);
       ap2Promedios = ap2Prog.promediosPagos || {};
       await pgAdelantosResumen(ap2Prog.compania);
       ap2PoblarFiltros();
@@ -6005,6 +6029,7 @@ async function renderPaso3(container) {
   async function p3AbrirProg(id) {
     try {
       p3Prog = await GET(`/pagos/programaciones/${id}`);
+      await pgAplicarTC('p3-tc', p3Prog.fechaPago);
       await pgAdelantosResumen(p3Prog.compania);
 
       // Pre-cargar defaults de banco/agrupador para obligaciones sin asignar
@@ -7213,6 +7238,7 @@ async function renderPaso4(container) {
   async function p4AbrirProg(id) {
     try {
       p4Prog = await GET(`/pagos/programaciones/${id}`);
+      await pgAplicarTC('p4-tc', p4Prog.fechaPago);
       await pgAdelantosResumen(p4Prog.compania);
       p4ObsConError  = new Set();
       p4Marcados     = new Set((p4Prog.obligaciones || []).filter(o => o.marcado).map(o => String(o._id)));
@@ -7971,6 +7997,7 @@ async function renderPaso5(container) {
   async function p5AbrirProg(id) {
     try {
       p5Prog = await GET(`/pagos/programaciones/${id}`);
+      await pgAplicarTC('p5-tc', p5Prog.fechaPago);
       await pgAdelantosResumen(p5Prog.compania);
       p5RenderGrupos();
       // Auto-upsert de beneficiarios en Personas (en background, sin bloquear UI)

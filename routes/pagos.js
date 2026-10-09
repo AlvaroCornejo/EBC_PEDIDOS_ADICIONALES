@@ -10,6 +10,7 @@ const PagoBanco          = require('../models/PagoBanco');
 const EstadoCuenta       = require('../models/EstadoCuenta');
 const PagoAdelanto       = require('../models/PagoAdelanto');
 const CompaniaCodigo     = require('../models/CompaniaCodigo');
+const TipoCambio         = require('../models/TipoCambio');
 
 const router  = express.Router();
 const upload  = multer({ storage: multer.memoryStorage() });
@@ -345,6 +346,20 @@ router.delete('/programaciones/:id/obligaciones/:oblId', async (req, res) => {
 router.get('/fecha-pago', (req, res) => {
   const fp = proxViernes();
   res.json({ fechaPago: fp, semana: isoWeek(fp), año: fp.getFullYear() });
+});
+
+// ── GET /api/pagos/tipo-cambio?fecha=YYYY-MM-DD ───────────────────────────────
+// T/C SUNAT "compra" de esa fecha; si aún no existe (ej. la fecha de pago es el viernes próximo)
+// devuelve el último publicado antes de esa fecha, con `exacto:false`.
+router.get('/tipo-cambio', async (req, res) => {
+  try {
+    const { fecha } = req.query;
+    if (!/^d{4}-d{2}-d{2}$/.test(fecha || '')) return res.status(400).json({ error: 'fecha requerida (YYYY-MM-DD)' });
+    const tc = await TipoCambio.findOne({ fecha: { $lte: new Date(fecha) }, compra: { $ne: null } }).sort({ fecha: -1 }).lean();
+    if (!tc) return res.status(404).json({ error: 'Sin tipo de cambio compra cargado' });
+    const fechaTC = tc.fecha.toISOString().slice(0, 10);
+    res.json({ fecha: fechaTC, compra: tc.compra, exacto: fechaTC === fecha });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ── GET /api/pagos/beneficiarios?compania= ────────────────────────────────────

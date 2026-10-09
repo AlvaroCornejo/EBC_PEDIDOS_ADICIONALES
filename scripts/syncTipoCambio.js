@@ -1,4 +1,4 @@
-// Sincroniza el Tipo de Cambio (USD -> PEN, tasa "venta") desde la API pública
+// Sincroniza el Tipo de Cambio (USD -> PEN, tasas "venta" y "compra") desde la API pública
 // de SUNAT (https://api.apis.net.pe/v1/tipo-cambio-sunat?fecha=YYYY-MM-DD, sin
 // API key). Rellena desde la fecha más antigua que tenga movimientos de Flujo
 // de Caja hasta hoy, saltando las fechas que ya están cargadas — así corre
@@ -34,7 +34,7 @@ async function obtenerTC(fechaStr) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (typeof data.venta !== 'number') throw new Error('Respuesta sin campo venta: ' + JSON.stringify(data));
-    return data.venta;
+    return { venta: data.venta, compra: typeof data.compra === 'number' ? data.compra : null };
   }
 }
 
@@ -55,31 +55,46 @@ async function main() {
   const hoy = new Date();
   hoy.setUTCHours(0, 0, 0, 0);
 
-  const existentesDocs = await TipoCambio.find({}, 'fecha valor').sort({ fecha: 1 }).lean();
+  const existentesDocs = await TipoCambio.find({}, 'fecha valor compra').sort({ fecha: 1 }).lean();
   const existentes = new Map(existentesDocs.map(t => [ymd(t.fecha), t.valor]));
+  const compraExistente = new Map(existentesDocs.map(t => [ymd(t.fecha), t.compra]));
+  // Fechas ya cargadas sin "compra" (se agregó después): se completan solo las de los últimos 120 días.
+  const limiteCompra = new Date(hoy); limiteCompra.setUTCDate(limiteCompra.getUTCDate() - 120);
 
   // Recorre en orden cronológico llevando el último valor conocido (ya cargado
   // o recién obtenido) — si la API falla para una fecha (ej. HTTP 404, sin
   // publicación ese día), se usa ese último valor como respaldo en vez de
   // dejar la fecha sin tipo de cambio.
-  let ultimoValor = null;
+  let ultimoValor = null, ultimoCompra = null;
+  let compraCompletadas = 0;
   let cargados = 0, saltados = 0, respaldos = 0, errores = 0;
   for (let d = new Date(desde); d <= hoy; d.setUTCDate(d.getUTCDate() + 1)) {
     const fechaStr = ymd(d);
     if (existentes.has(fechaStr)) {
       ultimoValor = existentes.get(fechaStr);
+      if (compraExistente.get(fechaStr) == null && d >= limiteCompra) {
+        try {
+          const tc = await obtenerTC(fechaStr);
+          if (tc.compra != null) {
+            await TipoCambio.updateOne({ fecha: new Date(fechaStr) }, { $set: { compra: tc.compra } });
+            ultimoCompra = tc.compra; compraCompletadas++;
+            console.log(`✓ ${fechaStr} compra -> ${tc.compra}`);
+          }
+        } catch (err) { console.log(`⚠ ${fechaStr}: no se pudo completar la compra (${err.message})`); }
+        await sleep(PAUSA_MS);
+      } else if (compraExistente.get(fechaStr) != null) ultimoCompra = compraExistente.get(fechaStr);
       saltados++;
       continue;
     }
     try {
-      const valor = await obtenerTC(fechaStr);
-      await TipoCambio.create({ fecha: new Date(fechaStr), valor, actualizadoPor: 'sync-automatico' });
-      ultimoValor = valor;
+      const tc = await obtenerTC(fechaStr);
+      await TipoCambio.create({ fecha: new Date(fechaStr), valor: tc.venta, compra: tc.compra, actualizadoPor: 'sync-automatico' });
+      ultimoValor = tc.venta; ultimoCompra = tc.compra;
       cargados++;
-      console.log(`✓ ${fechaStr} -> ${valor}`);
+      console.log(`✓ ${fechaStr} -> venta ${tc.venta}, compra ${tc.compra}`);
     } catch (err) {
       if (ultimoValor != null) {
-        await TipoCambio.create({ fecha: new Date(fechaStr), valor: ultimoValor, actualizadoPor: 'sync-automatico (TC del dia anterior, sin publicar)' });
+        await TipoCambio.create({ fecha: new Date(fechaStr), valor: ultimoValor, compra: ultimoCompra, actualizadoPor: 'sync-automatico (TC del dia anterior, sin publicar)' });
         respaldos++;
         console.log(`⚠ ${fechaStr}: ${err.message} -> se usa TC del día anterior (${ultimoValor})`);
       } else {
@@ -90,7 +105,7 @@ async function main() {
     await sleep(PAUSA_MS);
   }
 
-  console.log(`\nListo. Cargados: ${cargados}, ya existían: ${saltados}, respaldados con TC del día anterior: ${respaldos}, errores sin respaldo: ${errores}`);
+  console.log(`\nListo. Cargados: ${cargados}, ya existían: ${saltados}, compra completada en existentes: ${compraCompletadas}, respaldados con TC del día anterior: ${respaldos}, errores sin respaldo: ${errores}`);
   await mongoose.disconnect();
 }
 
