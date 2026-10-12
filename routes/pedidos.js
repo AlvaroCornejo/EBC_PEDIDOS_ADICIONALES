@@ -54,9 +54,9 @@ router.get('/', async (req, res) => {
     const { vista } = req.query;
 
     let query = {};
-    if (role === 'OPERADOR_SOLICITUD') {
-      query.solicitadoPorId = userId;
-    } else if (role === 'OPERADOR_APROBACION') {
+    if (role === 'OPERADOR_SOLICITUD' || role === 'OPERADOR_APROBACION') {
+      // El solicitante ve todos los pedidos de sus operaciones (no solo los que él creó)
+      // y solo puede editar los propios (ver PUT).
       query.operacion = { $in: operations };
     } else if (role === 'OPERADOR_ATENCION' || role === 'OPERADOR_PLANTA') {
       query.operacion = { $in: operations };
@@ -157,6 +157,9 @@ router.put('/:id', async (req, res) => {
     let aprobadoSinLineas = false;
 
     if (role === 'OPERADOR_SOLICITUD' || (role === 'ADMIN' && req.body.accion === 'editar')) {
+      if (role === 'OPERADOR_SOLICITUD' && pedido.solicitadoPorId !== req.user.id) {
+        return res.status(403).json({ error: 'Solo puedes editar tus propios pedidos' });
+      }
       if (!['SOLICITADO', 'REVISAR'].includes(pedido.estado)) {
         return res.status(403).json({ error: 'No se puede editar en este estado' });
       }

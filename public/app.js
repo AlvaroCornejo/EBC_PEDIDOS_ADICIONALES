@@ -1783,7 +1783,8 @@ function renderPedidosList(container, pedidos, opts = {}) {
 }
 
 function pedidoCard(p, opts = {}) {
-  const canEdit = opts.canEdit && ['SOLICITADO', 'REVISAR'].includes(p.estado);
+  // Se ven todos los pedidos de la operación, pero solo se editan los propios (ADMIN: todos).
+  const canEdit = opts.canEdit && ['SOLICITADO', 'REVISAR'].includes(p.estado) && (S.user.role === 'ADMIN' || p.solicitadoPorId === S.user.id);
   return `
     <div class="pedido-card">
       <div class="pedido-card-header">
