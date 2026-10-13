@@ -139,14 +139,19 @@ router.get('/insumos', async (req, res) => {
 });
 
 // ── Solicitudes de cambio de receta ─────────────────────────────────────────
-// GET /solicitudes?operacion=&estado=&item=
+// GET /solicitudes?operacion=&estado=&item=  (sin `operacion`: todas las operaciones autorizadas del usuario)
 router.get('/solicitudes', async (req, res) => {
   try {
     if (!puedeSolicitar(req.user) && !puedeAprobar(req.user) && !puedeRegistrar(req.user)) return res.status(403).json({ error: 'Sin acceso a Solicitudes de Cambio' });
     const { operacion, estado, item } = req.query;
-    if (!operacion) return res.status(400).json({ error: 'Operación requerida' });
-    if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-    const filter = { operacion };
+    const filter = {};
+    if (operacion) {
+      if (!checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+      filter.operacion = operacion;
+    } else {
+      const ops = opsFilter(req.user);
+      if (ops !== null) filter.operacion = { $in: ops };
+    }
     if (estado) filter.estado = estado;
     if (item) filter.item = parseInt(item);
     const docs = await RecetaCambioSolicitud.find(filter).sort({ solicitadoEn: -1 }).lean();

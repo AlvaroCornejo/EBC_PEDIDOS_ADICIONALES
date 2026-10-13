@@ -3383,6 +3383,8 @@ async function viewCostoRecetas(container) {
   let itemSeleccionado = null;
   let tabActual = 'costeo'; // 'costeo' | 'solicitudes'
   let filtroSolEstado = 'pendiente';
+  let filtroSolOperacion = '';   // '' = todas las operaciones autorizadas
+  let opsDisponibles = [];
 
   const puedeSolicitarCambio = S.user.role === 'ADMIN' || ['solicitante','admin'].includes(S.user.rolCambioReceta);
   const puedeAprobarCambio = S.user.role === 'ADMIN' || ['aprobador','admin'].includes(S.user.rolCambioReceta);
@@ -3475,6 +3477,7 @@ async function viewCostoRecetas(container) {
   try {
     const ops = await GET('/recetas-costeo/operaciones');
     const disponibles = misOperaciones === null ? ops : ops.filter(o => misOperaciones.includes(o));
+    opsDisponibles = disponibles;
     const sel = document.getElementById('cr-operacion');
     sel.innerHTML = '<option value="">— Seleccionar —</option>' + disponibles.map(o => `<option value="${esc2(o)}">${esc2(o)}</option>`).join('');
     if (disponibles.length === 1) { sel.value = disponibles[0]; operacionActual = disponibles[0]; }
@@ -3968,10 +3971,11 @@ async function viewCostoRecetas(container) {
   // ── Tab Solicitudes de Cambio ────────────────────────────────────────────
   async function cargarSolicitudes() {
     const wrap = document.getElementById('cr-tab-solicitudes');
-    if (!operacionActual) { wrap.innerHTML = '<div class="card" style="padding:14px"><p class="text-muted" style="margin:0">Elige una operación en la pestaña Costeo primero.</p></div>'; return; }
     wrap.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
-      const params = new URLSearchParams({ operacion: operacionActual });
+      // Sin operación elegida trae las de todas las operaciones autorizadas del usuario.
+      const params = new URLSearchParams();
+      if (filtroSolOperacion) params.set('operacion', filtroSolOperacion);
       if (filtroSolEstado) params.set('estado', filtroSolEstado);
       const sols = await GET(`/recetas-costeo/solicitudes?${params}`);
       renderSolicitudes(sols);
@@ -4057,6 +4061,13 @@ async function viewCostoRecetas(container) {
               <option value="">Todos</option>
             </select>
           </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
+            <select id="cr-sol-operacion" class="form-control" style="width:160px">
+              <option value="">Todas</option>
+              ${opsDisponibles.map(o => `<option value="${esc2(o)}">${esc2(o)}</option>`).join('')}
+            </select>
+          </div>
         </div>
       </div>
       ${!sols.length ? '<div class="empty-state"><p>Sin solicitudes para este filtro.</p></div>' : `
@@ -4065,7 +4076,7 @@ async function viewCostoRecetas(container) {
           <div class="card" style="padding:14px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
               <div>
-                <div style="font-weight:600">${esc2(s.itemNombre)} <span class="text-muted" style="font-weight:normal;font-size:12px">(${esc2(s.grupo)} — Ítem ${s.item})</span>${s.automatico ? ' <span style="font-size:11px;color:var(--primary)">· generada por cambio en insumo ' + s.origenItem + '</span>' : ''}</div>
+                <div style="font-weight:600"><span style="background:#eef0fd;color:var(--primary);font-size:11px;font-weight:700;padding:1px 7px;border-radius:9px;margin-right:6px">${esc2(s.operacion)}</span>${esc2(s.itemNombre)} <span class="text-muted" style="font-weight:normal;font-size:12px">(${esc2(s.grupo)} — Ítem ${s.item})</span>${s.automatico ? ' <span style="font-size:11px;color:var(--primary)">· generada por cambio en insumo ' + s.origenItem + '</span>' : ''}</div>
                 <div class="text-muted" style="font-size:12px;margin-top:2px">Solicitado por ${esc2(s.solicitadoPor)} — ${new Date(s.solicitadoEn).toLocaleString('es-PE')}</div>
               </div>
               <div>${ESTADO_LABEL[s.estado] || s.estado}</div>
@@ -4090,6 +4101,8 @@ async function viewCostoRecetas(container) {
 
     document.getElementById('cr-sol-estado').value = filtroSolEstado;
     document.getElementById('cr-sol-estado').addEventListener('change', (e) => { filtroSolEstado = e.target.value; cargarSolicitudes(); });
+    document.getElementById('cr-sol-operacion').value = filtroSolOperacion;
+    document.getElementById('cr-sol-operacion').addEventListener('change', (e) => { filtroSolOperacion = e.target.value; cargarSolicitudes(); });
 
     // Costo Actual/Nuevo + %FC por solicitud — se calcula aparte (sin
     // bloquear el render de la lista) para no disparar N fetches síncronos.
