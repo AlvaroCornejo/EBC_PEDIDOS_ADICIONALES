@@ -34,6 +34,12 @@ function rolPara(user, flujo) {
   return flujo === '86' ? user.rol86 : user.rolBCT;
 }
 
+// En Bajas/Consumos/Transferencias quien tiene rol Registro solo procesa o rechaza lo que otros
+// solicitaron: no edita ni elimina. (En 86 el rol Registro sí crea y edita; ADMIN siempre puede.)
+function soloProcesa(user, flujo, rol) {
+  return user.role !== 'ADMIN' && flujo !== '86' && rol === 'REGISTRO';
+}
+
 // Operaciones a las que el usuario puede transferir
 async function destinosPermitidos(user) {
   return user.role === 'ADMIN' ? await allOps() : (user.transferenciaDestinos || []);
@@ -154,6 +160,7 @@ router.put('/:id', async (req, res) => {
 
     const rol = rolPara(req.user, registro.flujo);
     if (rol === 'CONSULTA') return res.status(403).json({ error: 'Solo lectura' });
+    if (soloProcesa(req.user, registro.flujo, rol)) return res.status(403).json({ error: 'El registrador solo puede procesar o rechazar' });
     if (rol === 'SOLICITUD' && registro.creadoPorId !== req.user.id) {
       return res.status(403).json({ error: 'Solo puede editar sus propios registros' });
     }
@@ -228,6 +235,7 @@ router.delete('/:id', async (req, res) => {
 
     const rol = rolPara(req.user, registro.flujo);
     if (rol === 'CONSULTA') return res.status(403).json({ error: 'Solo lectura' });
+    if (soloProcesa(req.user, registro.flujo, rol)) return res.status(403).json({ error: 'El registrador solo puede procesar o rechazar' });
     if (rol === 'SOLICITUD' && registro.creadoPorId !== req.user.id) {
       return res.status(403).json({ error: 'Solo puede eliminar sus propios registros' });
     }

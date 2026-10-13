@@ -3705,15 +3705,20 @@ async function viewCostoRecetas(container) {
           <th>Insumo</th><th class="text-right">Cant.</th><th class="text-right">Costo</th>
           <th class="text-center" title="Mesa">M</th><th class="text-center" title="Llevar">L</th><th class="text-center" title="Delivery">D</th>
         </tr></thead>
-        <tbody>${filas.map(f => `
-          <tr>
-            <td>${f.insumo ?? '—'} — ${esc2(f.nombreInsumo)}</td>
-            <td class="text-right">${fmtCant(f.cantidad)}</td>
+        <tbody>${filas.map(f => {
+          // Marca de cambio (solo en la comparación de una solicitud): añade / cambia / elimina
+          const M = { 'añade': ['#ecfdf5', '#047857', '➕ Añade'], cambia: ['#fffbeb', '#b45309', '✏️ Cambia'], elimina: ['#fef2f2', '#b91c1c', '🗑 Elimina'] }[f.marca];
+          const tachado = f.marca === 'elimina' ? 'text-decoration:line-through;color:#9ca3af' : '';
+          return `
+          <tr${M ? ` style="background:${M[0]}"` : ''}>
+            <td style="${tachado}">${f.insumo ?? '—'} — ${esc2(f.nombreInsumo)}${M ? `<div style="font-size:10px;font-weight:700;color:${M[1]};text-decoration:none">${M[2]}${f.detalle ? ' · ' + esc2(f.detalle) : ''}</div>` : ''}</td>
+            <td class="text-right" style="${tachado}">${fmtCant(f.cantidad)}</td>
             <td class="text-right">${f.unitario ? fmtMoney(costoLineaReceta(f)) : (f.costoSolicitado != null ? fmtMoney(costoLineaReceta(f)) + ' ⏳' : '—')}</td>
             <td class="text-center">${f.mesa ? '✓' : '—'}</td>
             <td class="text-center">${f.llevar ? '✓' : '—'}</td>
             <td class="text-center">${f.delivery ? '✓' : '—'}</td>
-          </tr>`).join('')}</tbody>
+          </tr>`;
+        }).join('')}</tbody>
         <tfoot><tr style="font-weight:700"><td colspan="2">Costo Total Receta</td><td class="text-right">${fmtMoney(total)}</td><td colspan="3"></td></tr></tfoot>
       </table>`;
   }
@@ -3984,6 +3989,24 @@ async function viewCostoRecetas(container) {
 
   // Aplica las líneas de una solicitud sobre la receta actual (recién
   // consultada) para armar la "Receta Nueva" que se muestra en el detalle.
+  // Texto corto de lo que cambia en una línea MODIFICAR_CANTIDAD (cantidad, canal, costo).
+  function detalleCambio(l, original) {
+    const partes = [];
+    const antes = l.cantidadAnterior ?? original?.cantidad;
+    if (antes != null && l.cantidadNueva !== antes) partes.push(`cant. ${fmtCant(antes)} → ${fmtCant(l.cantidadNueva)}`);
+    if (l.mesa != null) partes.push(`canal → ${['mesa', 'llevar', 'delivery'].filter(c => l[c]).map(c => c[0].toUpperCase()).join('') || 'ninguno'}`);
+    if (l.costoSolicitado != null) partes.push(`costo ${fmtMoney(l.costoSolicitado)}`);
+    return partes.join(' · ');
+  }
+  // Receta ACTUAL con los insumos que la solicitud cambia o elimina marcados.
+  function marcarRecetaActual(insumosActuales, lineas) {
+    return insumosActuales.map(i => {
+      const l = lineas.find(x => x.accion === 'MODIFICAR_CANTIDAD' && x.insumo === i.insumo);
+      if (!l) return { ...i };
+      return { ...i, marca: l.cantidadNueva === 0 ? 'elimina' : 'cambia', detalle: l.cantidadNueva === 0 ? '' : detalleCambio(l, i) };
+    });
+  }
+
   function aplicarLineasARecetaActual(insumosActuales, lineas) {
     const porInsumo = new Map(insumosActuales.map(i => [i.insumo, { ...i }]));
     const nuevos = [];
@@ -3991,6 +4014,8 @@ async function viewCostoRecetas(container) {
       if (l.accion === 'MODIFICAR_CANTIDAD') {
         const existente = porInsumo.get(l.insumo);
         if (existente) {
+          existente.marca = l.cantidadNueva === 0 ? 'elimina' : 'cambia';
+          existente.detalle = l.cantidadNueva === 0 ? '' : detalleCambio(l, existente);
           existente.cantidad = l.cantidadNueva;
           if (l.costoSolicitado != null) existente.costoSolicitado = l.costoSolicitado;
           if (l.mesa != null) existente.mesa = l.mesa;
@@ -4001,7 +4026,7 @@ async function viewCostoRecetas(container) {
         nuevos.push({
           insumo: l.esInsumoNuevo ? null : l.insumo, nombreInsumo: l.insumoNombre,
           cantidad: l.cantidadNueva, unitario: 0, costoSolicitado: l.costoSolicitado,
-          mesa: !!l.mesa, llevar: !!l.llevar, delivery: !!l.delivery,
+          mesa: !!l.mesa, llevar: !!l.llevar, delivery: !!l.delivery, marca: 'añade',
         });
       }
     });
@@ -4014,14 +4039,21 @@ async function viewCostoRecetas(container) {
       const nueva = aplicarLineasARecetaActual(d.insumos, s.lineas);
       const totalActual = d.insumos.reduce((sum, f) => sum + costoLineaReceta(f), 0);
       const totalNueva = nueva.reduce((sum, f) => sum + costoLineaReceta(f), 0);
+      const puedeConfirmar = s.estado === 'aprobado' && puedeRegistrarCambio;
       const html = `
-        <div style="margin-bottom:12px;font-size:13px">Valor de Venta: <strong>${s.valorVenta != null ? fmtMoney(s.valorVenta) : '— (no ingresado por el solicitante)'}</strong></div>
+        <div style="margin-bottom:8px;font-size:13px">Valor de Venta: <strong>${s.valorVenta != null ? fmtMoney(s.valorVenta) : '— (no ingresado por el solicitante)'}</strong>
+          · Operación <strong>${esc2(s.operacion)}</strong></div>
+        <div style="margin-bottom:12px;font-size:12px;display:flex;gap:14px;flex-wrap:wrap">
+          <span><span style="display:inline-block;width:11px;height:11px;background:#ecfdf5;border:1px solid #047857;border-radius:2px"></span> ➕ Se añade</span>
+          <span><span style="display:inline-block;width:11px;height:11px;background:#fffbeb;border:1px solid #b45309;border-radius:2px"></span> ✏️ Cambia</span>
+          <span><span style="display:inline-block;width:11px;height:11px;background:#fef2f2;border:1px solid #b91c1c;border-radius:2px"></span> 🗑 Se elimina (cantidad 0)</span>
+        </div>${!s.lineas.length ? `<p class="text-muted" style="font-size:13px">Revisar: esta receta usa el ítem ${s.origenItem} como insumo, y ese ítem tuvo un cambio aprobado.</p>` : ''}
         <div style="display:flex;gap:16px;flex-wrap:wrap">
           <div style="flex:1 1 300px;min-width:0">
             <div style="font-weight:600;font-size:12px;margin-bottom:4px">
               Receta Actual — Costo Total: ${fmtMoney(totalActual)} — %FC: ${fmtPctFC(pctFC(totalActual, s.valorVenta))}
             </div>
-            <div style="max-height:60vh;overflow:auto">${tablaRecetaMLD(d.insumos)}</div>
+            <div style="max-height:60vh;overflow:auto">${tablaRecetaMLD(marcarRecetaActual(d.insumos, s.lineas))}</div>
           </div>
           <div style="flex:1 1 300px;min-width:0">
             <div style="font-weight:600;font-size:12px;margin-bottom:4px">
@@ -4029,8 +4061,24 @@ async function viewCostoRecetas(container) {
             </div>
             <div style="max-height:60vh;overflow:auto">${tablaRecetaMLD(nueva)}</div>
           </div>
-        </div>`;
+        </div>
+        ${puedeConfirmar ? `
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="cr-reg-comentario" class="form-control" placeholder="Comentario (opcional)" style="flex:1 1 240px">
+          <button class="btn btn-primary" id="cr-reg-confirmar">✅ Confirmar: ya se registró en el ERP</button>
+        </div>` : ''}`;
       openModal(`Receta Actual vs. Nueva — ${esc2(s.itemNombre)} (Ítem ${s.item})`, html, null, { fullwide: true });
+      if (puedeConfirmar) {
+        document.getElementById('cr-reg-confirmar').addEventListener('click', async (ev) => {
+          ev.target.disabled = true;
+          try {
+            await PUT(`/recetas-costeo/solicitudes/${s._id}/registrar`, { comentario: document.getElementById('cr-reg-comentario').value.trim() });
+            closeModal();
+            toast('Marcado como registrado en el ERP', 'success');
+            cargarSolicitudes();
+          } catch (e) { toast(e.message, 'error'); ev.target.disabled = false; }
+        });
+      }
     } catch (e) { toast(e.message, 'error'); }
   }
 
@@ -4093,7 +4141,7 @@ async function viewCostoRecetas(container) {
               ${s.estado === 'pendiente' && puedeAprobarCambio ? `
                 <button class="btn btn-success btn-sm cr-sol-aprobar" data-id="${s._id}">✔ Aprobar</button>
                 <button class="btn btn-outline btn-sm cr-sol-rechazar" data-id="${s._id}">✕ Rechazar</button>` : ''}
-              ${s.estado === 'aprobado' && puedeRegistrarCambio ? `<button class="btn btn-primary btn-sm cr-sol-registrar" data-id="${s._id}">📥 Registrar en ERP</button>` : ''}
+              ${s.estado === 'aprobado' && puedeRegistrarCambio ? `<button class="btn btn-primary btn-sm cr-sol-registrar" data-id="${s._id}">📥 Revisar y registrar en ERP</button>` : ''}
               ${S.user.role === 'ADMIN' ? `<button class="btn btn-outline btn-sm cr-sol-eliminar" data-id="${s._id}" style="color:#ef4444;border-color:#ef4444">🗑️ Eliminar</button>` : ''}
             </div>
           </div>`).join('')}
@@ -4142,14 +4190,11 @@ async function viewCostoRecetas(container) {
         } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
       });
     });
+    // "Revisar y registrar": abre receta actual vs. nueva con el botón de confirmar el registro en el ERP.
     wrap.querySelectorAll('.cr-sol-registrar').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          await PUT(`/recetas-costeo/solicitudes/${btn.dataset.id}/registrar`, {});
-          toast('Marcado como registrado en el ERP', 'success');
-          cargarSolicitudes();
-        } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+      btn.addEventListener('click', () => {
+        const s = sols.find(x => x._id === btn.dataset.id);
+        if (s) verRecetaActualNueva(s);
       });
     });
     wrap.querySelectorAll('.cr-sol-ver').forEach(btn => {
@@ -10188,7 +10233,7 @@ async function viewMovimientos(container) {
       if (es86) return rol === 'REGISTRO';
       if (r.estado !== 'REGISTRADO') return false;
       if (rol === 'SOLICITUD') return r.creadoPorId === S.user.id;
-      return rol === 'REGISTRO';
+      return false;   // Registro de Bajas/Consumos/Transferencias: solo procesa o rechaza
     }
 
     function estadoBadge(estado) {
