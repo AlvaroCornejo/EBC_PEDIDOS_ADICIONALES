@@ -12988,7 +12988,7 @@ async function viewVentas(container) {
     const sem = d.semana;
     const hoy = new Date(); const enCurso = new Date(sem.lunes) <= hoy && hoy <= new Date(new Date(sem.domingo).getTime() + 86400000);
 
-    document.getElementById('modal-body').innerHTML = `
+    const vistaSumarizada = () => `
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
         Semana ${esc(lblSem(sem))}${enCurso ? ' — en curso: el real es a la fecha, no la semana completa' : ''}. El real excluye OTROS y cortesías.
         ${sem.hayPronostico ? '' : '<b style="color:#b45309">No hay pronóstico cargado para esta semana.</b>'}
@@ -13007,6 +13007,28 @@ async function viewVentas(container) {
           ${[...d.serie].reverse().map(x => `<tr${x.periodo === sem.periodo ? ' style="font-weight:700;background:#eef2ff"' : ''}><td>${esc(lblSem(x))}</td>${celdas(x.real, x.pronostico)}</tr>`).join('')}
         </tbody>
       </table></div>`;
+
+    // Una tabla de las últimas 8 semanas por operación (sin desglose por canal).
+    const vistaPorOperacion = () => `
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+        Últimas ${d.porOperacion[0].serie.length} semanas por operación, hasta la semana ${esc(lblSem(sem))}. El real excluye OTROS y cortesías${enCurso ? '; la última semana está en curso (real a la fecha)' : ''}.
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(480px,1fr));gap:16px">
+        ${d.porOperacion.map(o => `<div>
+          <div style="font-weight:700;margin-bottom:6px">${esc(o.operacion)}</div>
+          <div class="table-wrap"><table class="data-table" style="font-size:12px">
+            <thead><tr><th>Semana</th>${th}</tr></thead>
+            <tbody>${[...o.serie].reverse().map(x => `<tr${x.periodo === sem.periodo ? ' style="font-weight:700;background:#eef2ff"' : ''}><td>${esc(lblSem(x))}</td>${celdas(x.real, x.pronostico)}</tr>`).join('')}</tbody>
+          </table></div></div>`).join('')}
+      </div>`;
+
+    // Selector superior: operaciones sumarizadas (por canal) o una tabla por operación (solo con varias).
+    const pintar = modo => {
+      const selector = d.porOperacion ? `<div style="margin-bottom:12px">${vcSeg('pron:modo', [['sumarizado', 'Operaciones sumarizadas'], ['operacion', 'Por operación']], modo)}</div>` : '';
+      document.getElementById('modal-body').innerHTML = selector + (modo === 'operacion' && d.porOperacion ? vistaPorOperacion() : vistaSumarizada());
+      document.querySelectorAll('#modal-body .vc-seg button').forEach(b => b.addEventListener('click', () => pintar(b.dataset.vcV)));
+    };
+    pintar('sumarizado');
   }
 
   if (operacionesSel.size) await cargarTodo();

@@ -274,7 +274,8 @@ router.get('/pronostico', async (req, res) => {
     if (!checkOpsAccess(req.user, operaciones)) return res.status(403).json({ error: 'Operación no autorizada' });
 
     const lunesSel = lunesDeLaSemana(aMedianoche(new Date(req.query.fecha)));
-    const lunes0 = sumarDias(lunesSel, -(nSemanas - 1) * 7);
+    const SEMANAS_POR_OPERACION = 8;   // el comparativo por operación es siempre de las últimas 8 semanas
+    const lunes0 = sumarDias(lunesSel, -(Math.max(nSemanas, SEMANAS_POR_OPERACION) - 1) * 7);
     const [docs, pron] = await Promise.all([
       VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: lunes0, $lte: finDeDia(sumarDias(lunesSel, 6)) }, tipoDocumento: 'VENTA' }).lean(),
       VentaPronostico.find({ operacion: { $in: operaciones } }).lean(),
@@ -282,16 +283,17 @@ router.get('/pronostico', async (req, res) => {
     const pronPorPeriodo = {};
     pron.forEach(p => { (pronPorPeriodo[p.periodo] = pronPorPeriodo[p.periodo] || []).push(p); });
 
-    const resumen = (lunes) => {
+    const resumen = (lunes, op) => {
       const periodo = periodoDeLunes(lunes);
       const fin = finDeDia(sumarDias(lunes, 6));
       const canales = {};
       const ponerCanal = c => (canales[c] = canales[c] || { canal: c, pronostico: null, real: 0 });
       docs.forEach(d => {
+        if (op && d.operacion !== op) return;
         if (d.fecha < lunes || d.fecha > fin || d.canal === 'OTROS') return; // OTROS no entra al total
         ponerCanal(d.canal).real += d.venta;
       });
-      const delPeriodo = pronPorPeriodo[periodo] || [];
+      const delPeriodo = (pronPorPeriodo[periodo] || []).filter(p => !op || p.operacion === op);
       delPeriodo.forEach(p => { const c = ponerCanal(canalPron(p.canal)); c.pronostico = (c.pronostico || 0) + p.venta; });
       const lista = Object.values(canales).sort((a, b) => a.canal.localeCompare(b.canal));
       return {
@@ -301,9 +303,16 @@ router.get('/pronostico', async (req, res) => {
       };
     };
 
-    const serie = [];
-    for (let i = 0; i < nSemanas; i++) { const r = resumen(sumarDias(lunes0, i * 7)); serie.push({ periodo: r.periodo, lunes: r.lunes, domingo: r.domingo, pronostico: r.pronostico, real: r.real }); }
-    res.json({ semana: resumen(lunesSel), serie });
+    const serieDe = (n, op) => {
+      const out = [];
+      for (let i = n - 1; i >= 0; i--) { const r = resumen(sumarDias(lunesSel, -i * 7), op); out.push({ periodo: r.periodo, lunes: r.lunes, domingo: r.domingo, pronostico: r.pronostico, real: r.real }); }
+      return out;
+    };
+    // Con varias operaciones: una serie de 8 semanas por operación (sin desglose por canal).
+    const porOperacion = operaciones.length > 1
+      ? operaciones.slice().sort().map(op => ({ operacion: op, serie: serieDe(SEMANAS_POR_OPERACION, op) }))
+      : null;
+    res.json({ semana: resumen(lunesSel), serie: serieDe(nSemanas), porOperacion });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
