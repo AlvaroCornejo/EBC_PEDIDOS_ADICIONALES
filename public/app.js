@@ -2143,10 +2143,18 @@ async function showRelacionItems() {
     f.semanaActual.consumoEstimado, f.semanaActual.consumoRealVenta, f.semanaActual.consumoReal].every(v => !v);
   const yaEnPedido = new Set(S.form.lineas.map(l => String(l.item)));
   const cls = v => (v >= 0 ? 'variacion-pos' : 'variacion-neg');
+  // Orden de los grupos = el que trae el servidor (alfabético, "SIN GRUPO" al final).
+  const grupoDe = f => f.grupoCompra || 'SIN GRUPO';
+  const ordenGrupo = new Map();
+  filas.forEach(f => { const g = grupoDe(f); if (!ordenGrupo.has(g)) ordenGrupo.set(g, ordenGrupo.size); });
 
   document.getElementById('modal-body').innerHTML = `
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      <input type="text" id="rel-q" class="form-control" placeholder="Filtrar por código, nombre o grupo..." style="width:280px">
+      <select id="rel-grupo" class="form-control" style="width:200px">
+        <option value="">Todos los grupos</option>
+        ${[...ordenGrupo.keys()].map(g => `<option value="${esc(g)}">${esc(g)} (${filas.filter(f => grupoDe(f) === g).length})</option>`).join('')}
+      </select>
+      <input type="text" id="rel-q" class="form-control" placeholder="Filtrar por código o nombre..." style="width:240px">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="rel-oculta0" style="accent-color:var(--primary)"> Ocultar ítems sin consumo ni estimado</label>
       <span id="rel-count" class="text-muted" style="font-size:12px"></span>
       <span class="text-muted" style="font-size:12px;margin-left:auto">Fecha del pedido: ${esc(fecha)} · ${esc(data.semanaAnterior)} / ${esc(data.semanaActual)}</span>
@@ -2156,8 +2164,11 @@ async function showRelacionItems() {
   function pintar() {
     const q = document.getElementById('rel-q').value.toLowerCase().trim();
     const ocultar0 = document.getElementById('rel-oculta0').checked;
-    const vis = filas.filter(f => (!ocultar0 || !sinMov(f)) &&
-      (!q || f.item.toLowerCase().includes(q) || (f.nombre || '').toLowerCase().includes(q) || (f.grupoCompra || '').toLowerCase().includes(q)));
+    const grupoSel = document.getElementById('rel-grupo').value;
+    // Dentro de cada grupo: mayor variación de la semana anterior primero (descendente).
+    const vis = filas.filter(f => (!ocultar0 || !sinMov(f)) && (!grupoSel || grupoDe(f) === grupoSel) &&
+      (!q || f.item.toLowerCase().includes(q) || (f.nombre || '').toLowerCase().includes(q) || grupoDe(f).toLowerCase().includes(q)))
+      .sort((a, b) => ordenGrupo.get(grupoDe(a)) - ordenGrupo.get(grupoDe(b)) || b.semanaAnterior.variacion - a.semanaAnterior.variacion);
     document.getElementById('rel-count').textContent = `${vis.length} de ${filas.length} ítems`;
     let html = '', grupoActual = null;
     for (const f of vis) {
@@ -2186,7 +2197,7 @@ async function showRelacionItems() {
             <th class="group-header" colspan="5">${esc(data.semanaActual)} (actual)</th>
             <th rowspan="2" class="col-num">Saldo</th><th rowspan="2" class="col-num">Costo U.</th><th rowspan="2"></th></tr>
           <tr>
-            <th class="sub-header col-num">Cons. Est.</th><th class="sub-header col-num">Real Venta</th><th class="sub-header col-num">Real Consumo</th><th class="sub-header col-num">Variación</th>
+            <th class="sub-header col-num">Cons. Est.</th><th class="sub-header col-num">Real Venta</th><th class="sub-header col-num">Real Consumo</th><th class="sub-header col-num" title="Orden descendente dentro de cada grupo">Variación ▼</th>
             <th class="sub-header col-num">Cons. Est.</th><th class="sub-header col-num">Real Venta</th><th class="sub-header col-num">Real Consumo</th><th class="sub-header col-num">Proyectado</th><th class="sub-header col-num">Variación</th>
           </tr>
         </thead>
@@ -2194,6 +2205,7 @@ async function showRelacionItems() {
       </table>` : '<div class="empty-state"><p>Ningún ítem coincide con el filtro.</p></div>';
   }
   document.getElementById('rel-q').addEventListener('input', pintar);
+  document.getElementById('rel-grupo').addEventListener('change', pintar);
   document.getElementById('rel-oculta0').addEventListener('change', pintar);
 
   // Agregar al pedido con un clic: la línea ya trae sus datos calculados (no se vuelve a consultar el Excel)
