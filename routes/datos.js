@@ -172,6 +172,93 @@ function readRequisiciones(wb) {
 
 // ─── Routes ──────────────────────────────────────────────────────
 
+/** Todo lo necesario para calcular los consumos de cualquier ítem de una operación en una fecha. */
+function prepararContexto(wb, fecha) {
+  const kardexPorItem = new Map();
+  for (const r of readKardex(wb)) {
+    if (!kardexPorItem.has(r.item)) kardexPorItem.set(r.item, []);
+    kardexPorItem.get(r.item).push(r);
+  }
+  const date = new Date(fecha + 'T12:00:00');
+  const { week: cw, year: cy } = getISOWeek(date);
+  return {
+    itemsMap:   Object.fromEntries(readItems(wb).map(i => [i.item, i])),
+    costosMap:  readCostos(wb),
+    kardexPorItem,
+    reqMap:     readRequisiciones(wb),
+    dosSemanas: readDosSemanas(wb),
+    date, cw, cy,
+    añoSemAct: toAñoSem(cy, cw),
+    // Semana anterior en el kardex = semana previa
+    añoSemAnt: cw > 1 ? toAñoSem(cy, cw - 1) : toAñoSem(cy - 1, 52),
+  };
+}
+
+/** Datos de un ítem (consumos de semana anterior/actual, proyección, saldo, costo). dbItem = Item de MongoDB (opcional). */
+function calcularItemData(ctx, itemKey, dbItem) {
+  const { itemsMap, costosMap, kardexPorItem, reqMap, dosSemanas, date, cw, cy, añoSemAct, añoSemAnt } = ctx;
+
+  // Maestro (Excel + MongoDB para loteCompra/gestion actualizado)
+  const maestro       = itemsMap[itemKey] || {};
+  const grupoCompra   = maestro.grupoCompra || '';
+  const gestion       = dbItem?.gestion ?? maestro.gestion ?? 'COMPRAS';
+  const loteCompra    = dbItem?.loteCompra ?? 0;
+  const costoUnitario = costosMap[itemKey] || 0;
+
+  // Consumos estimados de Requisiciones
+  const rq = reqMap[itemKey] || { semAnt: 0, semAct: 0 };
+
+  // Consumos reales del Kardex por semana
+  const filas = kardexPorItem.get(itemKey) || [];
+  function kardexSem(añosem) {
+    let vta = 0, tre = 0, pro = 0;
+    for (const r of filas) {
+      if (r.añosem !== añosem) continue;
+      if      (r.trx === 'VENTA')                  vta += r.cant;
+      else if (r.trx === 'CONSUMO TRANSFORMACION') tre += r.cant;
+      else if (r.trx === 'CONSUMO PRODUCCION')     pro += r.cant;
+    }
+    return { vta: Math.abs(vta), consumo: Math.abs(tre) + Math.abs(pro) };
+  }
+  const kAct = kardexSem(añoSemAct);
+  const kAnt = kardexSem(añoSemAnt);
+
+  // Saldo: suma de todas las cantidades del item en el kardex
+  const saldo = filas.reduce((s, r) => s + r.cant, 0);
+
+  // Proyección de la semana actual: el real del Kardex llega hasta el día anterior, así que se
+  // suma el promedio diario del ítem (Σ DosSemanas ÷ nº de días de la hoja) por los días que
+  // faltan, desde la fecha del pedido hasta el domingo (ambos inclusive).
+  const promedioDiario = dosSemanas.dias > 0 ? (dosSemanas.sumaPorItem[itemKey] || 0) / dosSemanas.dias : 0;
+  const diasRestantes  = 8 - (date.getDay() || 7);
+  const proyeccion     = promedioDiario * diasRestantes;
+  const consumoProyectado = kAct.vta + kAct.consumo + proyeccion;
+
+  return {
+    nombre: maestro.nombre || '',
+    grupoCompra,
+    gestion,
+    loteCompra,
+    costoUnitario,
+    semanaAnterior: {
+      label: `Sem ${añoSemAnt % 100}/${Math.floor(añoSemAnt / 100)}`,
+      consumoEstimado:  rq.semAnt,
+      consumoRealVenta: kAnt.vta,
+      consumoReal:      kAnt.consumo,
+      variacion: (kAnt.vta + kAnt.consumo) - rq.semAnt
+    },
+    semanaActual: {
+      label: `Sem ${cw}/${cy}`,
+      consumoEstimado:  rq.semAct,
+      consumoRealVenta: kAct.vta,
+      consumoReal:      kAct.consumo,
+      promedioDiario, diasRestantes, proyeccion, consumoProyectado,
+      variacion: consumoProyectado - rq.semAct
+    },
+    saldo
+  };
+}
+
 /** GET /api/datos/items?operacion=AASI */
 router.get('/items', async (req, res) => {
   try {
@@ -212,86 +299,50 @@ router.get('/item-data', async (req, res) => {
     const fp = findFile(operacion);
     if (!fp) return res.status(404).json({ error: `No se encontró archivo para operación ${operacion}` });
 
-    const wb = await loadWB(fp);
-    const itemsMap    = Object.fromEntries(readItems(wb).map(i => [i.item, i]));
-    const costosMap   = readCostos(wb);
-    const kardexRows  = readKardex(wb);
-    const reqMap      = readRequisiciones(wb);
-    const dosSemanas  = readDosSemanas(wb);
-
-    const date = new Date(fecha + 'T12:00:00');
-    const { week: cw, year: cy } = getISOWeek(date);
-    const añoSemAct = toAñoSem(cy, cw);
-    // Semana anterior en el kardex = semana previa
-    const añoSemAnt = cw > 1 ? toAñoSem(cy, cw - 1) : toAñoSem(cy - 1, 52);
-
+    const wb  = await loadWB(fp);
+    const ctx = prepararContexto(wb, fecha);
     const itemKey = String(item).trim();
-
-    // Maestro (Excel + MongoDB para loteCompra/gestion actualizado)
-    const maestro     = itemsMap[itemKey] || {};
-    const dbItem      = await Item.findOne({ operacion, item: itemKey }).lean();
-    const grupoCompra = maestro.grupoCompra || '';
-    const gestion     = dbItem?.gestion ?? maestro.gestion ?? 'COMPRAS';
-    const loteCompra  = dbItem?.loteCompra ?? 0;
-    const costoUnitario = costosMap[itemKey] || 0;
-
-    // Consumos estimados de Requisiciones
-    const rq = reqMap[itemKey] || { semAnt: 0, semAct: 0, ajusteSemAnt: 0, ajusteSemAct: 0 };
-
-    // Consumos reales del Kardex por semana
-    function kardexSem(añosem) {
-      let vta = 0, tre = 0, pro = 0;
-      kardexRows
-        .filter(r => r.item === itemKey && r.añosem === añosem)
-        .forEach(r => {
-          if      (r.trx === 'VENTA')                  vta += r.cant;
-          else if (r.trx === 'CONSUMO TRANSFORMACION') tre += r.cant;
-          else if (r.trx === 'CONSUMO PRODUCCION')     pro += r.cant;
-        });
-      return { vta: Math.abs(vta), consumo: Math.abs(tre) + Math.abs(pro) };
-    }
-
-    const kAct = kardexSem(añoSemAct);
-    const kAnt = kardexSem(añoSemAnt);
-
-    // Saldo: suma de todas las cantidades del item en el kardex
-    const saldo = kardexRows
-      .filter(r => r.item === itemKey)
-      .reduce((s, r) => s + r.cant, 0);
-
-    // Proyección de la semana actual: el real del Kardex llega hasta el día anterior, así que se
-    // suma el promedio diario del ítem (Σ DosSemanas ÷ nº de días de la hoja) por los días que
-    // faltan, desde la fecha del pedido hasta el domingo (ambos inclusive).
-    const promedioDiario = dosSemanas.dias > 0 ? (dosSemanas.sumaPorItem[itemKey] || 0) / dosSemanas.dias : 0;
-    const diasRestantes  = 8 - (date.getDay() || 7);
-    const proyeccion     = promedioDiario * diasRestantes;
-    const consumoProyectado = kAct.vta + kAct.consumo + proyeccion;
-
-    res.json({
-      grupoCompra,
-      gestion,
-      loteCompra,
-      costoUnitario,
-      semanaAnterior: {
-        label: `Sem ${añoSemAnt % 100}/${Math.floor(añoSemAnt / 100)}`,
-        consumoEstimado:  rq.semAnt,
-        consumoRealVenta: kAnt.vta,
-        consumoReal:      kAnt.consumo,
-        variacion: (kAnt.vta + kAnt.consumo) - rq.semAnt
-      },
-      semanaActual: {
-        label: `Sem ${cw}/${cy}`,
-        consumoEstimado:  rq.semAct,
-        consumoRealVenta: kAct.vta,
-        consumoReal:      kAct.consumo,
-        promedioDiario, diasRestantes, proyeccion, consumoProyectado,
-        variacion: consumoProyectado - rq.semAct
-      },
-      saldo
-    });
+    const dbItem  = await Item.findOne({ operacion, item: itemKey }).lean();
+    res.json(calcularItemData(ctx, itemKey, dbItem));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+/**
+ * GET /api/datos/requisiciones-resumen?operacion=AASI&fecha=2026-10-14
+ * Relación de TODOS los ítems de la hoja Requisiciones con los mismos datos que muestra la
+ * pantalla de solicitud (consumos de semana anterior/actual, proyección, saldo, costo). Se
+ * calcula al pedirlo: el Excel se lee una sola vez y los ítems se resuelven en memoria.
+ */
+router.get('/requisiciones-resumen', async (req, res) => {
+  try {
+    const { operacion, fecha } = req.query;
+    if (!operacion || !/^\d{4}-\d{2}-\d{2}$/.test(fecha || ''))
+      return res.status(400).json({ error: 'operacion y fecha (YYYY-MM-DD) son requeridas' });
+    if (!checkOpAccess(req.user, operacion))
+      return res.status(403).json({ error: 'Sin acceso a esa operación' });
+
+    const fp = findFile(operacion);
+    if (!fp) return res.status(404).json({ error: `No se encontró archivo para operación ${operacion}` });
+
+    const wb  = await loadWB(fp);
+    const ctx = prepararContexto(wb, fecha);
+    const dbItems = await Item.find({ operacion }, { item: 1, gestion: 1, loteCompra: 1, _id: 0 }).lean();
+    const dbPorItem = Object.fromEntries(dbItems.map(i => [i.item, i]));
+
+    const filas = Object.keys(ctx.reqMap).map(k => ({ item: k, ...calcularItemData(ctx, k, dbPorItem[k]) }));
+    filas.sort((a, b) =>
+      (a.grupoCompra ? 0 : 1) - (b.grupoCompra ? 0 : 1) ||
+      a.grupoCompra.localeCompare(b.grupoCompra) ||
+      (a.nombre || a.item).localeCompare(b.nombre || b.item));
+
+    res.json({
+      semanaAnterior: `Sem ${ctx.añoSemAnt % 100}/${Math.floor(ctx.añoSemAnt / 100)}`,
+      semanaActual:   `Sem ${ctx.cw}/${ctx.cy}`,
+      filas,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 /** GET /api/datos/kardex-item?item=ID&operacion=AASI&semanas=8 */

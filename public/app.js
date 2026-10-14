@@ -405,6 +405,7 @@ async function viewSolicitar(container, params = {}) {
     <div class="page-header">
       <div class="page-title">${editId ? '✏️ Editar Pedido' : '📝 Nueva Solicitud'}</div>
       <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-outline btn-sm" id="btn-relacion" title="Todos los ítems de la hoja Requisiciones con sus consumos, agrupados por Grupo Compra">📚 Relación de ítems</button>
         <button class="btn btn-outline btn-sm" id="btn-resumen">📊 Resumen</button>
         <button class="btn btn-outline btn-sm" onclick="showHelp('solicitar')">❓ Ayuda</button>
       </div>
@@ -461,6 +462,7 @@ async function viewSolicitar(container, params = {}) {
 
   setupSolicitarEvents(container, editId);
   document.getElementById('btn-resumen')?.addEventListener('click', showResumenModal);
+  document.getElementById('btn-relacion')?.addEventListener('click', showRelacionItems);
 }
 
 // ─── Kardex Modal ────────────────────────────────────────────────
@@ -2124,6 +2126,98 @@ function renderPedidosAtendidos(container, pedidos, gestionFilter = '') {
     });
   });
   container.appendChild(wrap);
+}
+
+// ─── Relación de ítems (hoja Requisiciones) con opción de agregar al pedido ──
+async function showRelacionItems() {
+  if (!S.form?.operacion) return toast('Seleccione una operación', 'error');
+  if (!S.form?.fecha) return toast('Seleccione una fecha', 'error');
+  const operacion = S.form.operacion, fecha = S.form.fecha;
+  openModal(`📚 Relación de ítems — ${esc(operacion)}`, '<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span> Calculando...</div>', null, { fullwide: true });
+  let data;
+  try { data = await GET(`/datos/requisiciones-resumen?operacion=${encodeURIComponent(operacion)}&fecha=${encodeURIComponent(fecha)}`); }
+  catch (err) { document.getElementById('modal-body').innerHTML = `<p style="color:#dc2626;padding:16px">${esc(err.message)}</p>`; return; }
+
+  const filas = data.filas;
+  const sinMov = f => [f.semanaAnterior.consumoEstimado, f.semanaAnterior.consumoRealVenta, f.semanaAnterior.consumoReal,
+    f.semanaActual.consumoEstimado, f.semanaActual.consumoRealVenta, f.semanaActual.consumoReal].every(v => !v);
+  const yaEnPedido = new Set(S.form.lineas.map(l => String(l.item)));
+  const cls = v => (v >= 0 ? 'variacion-pos' : 'variacion-neg');
+
+  document.getElementById('modal-body').innerHTML = `
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <input type="text" id="rel-q" class="form-control" placeholder="Filtrar por código, nombre o grupo..." style="width:280px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="rel-oculta0" style="accent-color:var(--primary)"> Ocultar ítems sin consumo ni estimado</label>
+      <span id="rel-count" class="text-muted" style="font-size:12px"></span>
+      <span class="text-muted" style="font-size:12px;margin-left:auto">Fecha del pedido: ${esc(fecha)} · ${esc(data.semanaAnterior)} / ${esc(data.semanaActual)}</span>
+    </div>
+    <div id="rel-tabla" style="max-height:65vh;overflow:auto"></div>`;
+
+  function pintar() {
+    const q = document.getElementById('rel-q').value.toLowerCase().trim();
+    const ocultar0 = document.getElementById('rel-oculta0').checked;
+    const vis = filas.filter(f => (!ocultar0 || !sinMov(f)) &&
+      (!q || f.item.toLowerCase().includes(q) || (f.nombre || '').toLowerCase().includes(q) || (f.grupoCompra || '').toLowerCase().includes(q)));
+    document.getElementById('rel-count').textContent = `${vis.length} de ${filas.length} ítems`;
+    let html = '', grupoActual = null;
+    for (const f of vis) {
+      const g = f.grupoCompra || 'SIN GRUPO';
+      if (g !== grupoActual) {
+        grupoActual = g;
+        const n = vis.filter(x => (x.grupoCompra || 'SIN GRUPO') === g).length;
+        html += `<tr><td colspan="13" style="background:#eef0fd;font-weight:700;color:var(--accent);font-size:12px;padding:6px 10px">${esc(g)} <span style="font-weight:normal;color:var(--text-muted)">(${n})</span></td></tr>`;
+      }
+      const a = f.semanaAnterior, c = f.semanaActual;
+      html += `<tr>
+        <td><span style="font-family:monospace;font-size:11px;color:#6b7280">${esc(f.item)}</span> <strong style="font-size:12.5px">${esc(f.nombre || '—')}</strong></td>
+        <td class="col-num">${fmt(a.consumoEstimado)}</td><td class="col-num">${fmt(a.consumoRealVenta)}</td><td class="col-num">${fmt(a.consumoReal)}</td>
+        <td class="col-num ${cls(a.variacion)}">${fmt(a.variacion)}</td>
+        <td class="col-num">${fmt(c.consumoEstimado)}</td><td class="col-num">${fmt(c.consumoRealVenta)}</td><td class="col-num">${fmt(c.consumoReal)}</td>
+        <td class="col-num">${fmt(c.consumoProyectado)}</td><td class="col-num ${cls(c.variacion)}">${fmt(c.variacion)}</td>
+        <td class="col-num">${fmt(f.saldo)}</td><td class="col-num">${fmtMoney(f.costoUnitario)}</td>
+        <td style="text-align:center"><button class="btn btn-xs btn-outline rel-add" data-item="${esc(f.item)}" ${yaEnPedido.has(f.item) ? 'disabled' : ''}>${yaEnPedido.has(f.item) ? '✔ En el pedido' : '➕ Agregar'}</button></td>
+      </tr>`;
+    }
+    document.getElementById('rel-tabla').innerHTML = vis.length ? `
+      <table class="data-table" style="font-size:12px">
+        <thead>
+          <tr><th rowspan="2">Código / Descripción</th>
+            <th class="group-header" colspan="4">${esc(data.semanaAnterior)} (anterior)</th>
+            <th class="group-header" colspan="5">${esc(data.semanaActual)} (actual)</th>
+            <th rowspan="2" class="col-num">Saldo</th><th rowspan="2" class="col-num">Costo U.</th><th rowspan="2"></th></tr>
+          <tr>
+            <th class="sub-header col-num">Cons. Est.</th><th class="sub-header col-num">Real Venta</th><th class="sub-header col-num">Real Consumo</th><th class="sub-header col-num">Variación</th>
+            <th class="sub-header col-num">Cons. Est.</th><th class="sub-header col-num">Real Venta</th><th class="sub-header col-num">Real Consumo</th><th class="sub-header col-num">Proyectado</th><th class="sub-header col-num">Variación</th>
+          </tr>
+        </thead>
+        <tbody>${html}</tbody>
+      </table>` : '<div class="empty-state"><p>Ningún ítem coincide con el filtro.</p></div>';
+  }
+  document.getElementById('rel-q').addEventListener('input', pintar);
+  document.getElementById('rel-oculta0').addEventListener('change', pintar);
+
+  // Agregar al pedido con un clic: la línea ya trae sus datos calculados (no se vuelve a consultar el Excel)
+  document.getElementById('rel-tabla').addEventListener('click', e => {
+    const btn = e.target.closest('.rel-add');
+    if (!btn || btn.disabled) return;
+    const f = filas.find(x => x.item === btn.dataset.item);
+    if (!f || !document.getElementById('lineas-tbody')) return;
+    S.form.lineas.push({
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+      item: f.item, itemNombre: f.nombre, grupoCompra: f.grupoCompra, gestion: f.gestion, loteCompra: f.loteCompra,
+      cantidadSolicitada: null, comentarios: '', semanaAnterior: f.semanaAnterior, semanaActual: f.semanaActual,
+      saldo: f.saldo, costoUnitario: f.costoUnitario,
+    });
+    const idx = S.form.lineas.length - 1;
+    const tbody = document.getElementById('lineas-tbody');
+    tbody.insertAdjacentHTML('beforeend', renderLineaRow(S.form.lineas[idx], idx, true, S.form.editMode || 'edit'));
+    setupRowEvents(tbody.lastElementChild, idx);
+    yaEnPedido.add(f.item);
+    btn.disabled = true; btn.textContent = '✔ En el pedido';
+    updateTotal();
+    toast(`Agregado al pedido: ${f.nombre || f.item}`, 'success');
+  });
+  pintar();
 }
 
 // ─── Resumen de adicionales ───────────────────────────────────────
