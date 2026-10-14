@@ -13001,6 +13001,13 @@ async function viewVentas(container) {
   // "Año (a la fecha)" no trae comparativo de año anterior (el rango no aplica —
   // ver utils/ventasRangos.js), así que esa sección solo muestra Actual/Anterior,
   // 2 columnas en vez de 3.
+  // Celda de Anterior / Año Ant.: valor y, debajo, % de variación del Actual respecto a ese valor.
+  function celdaComp(valor, actual, fmt) {
+    const v = (actual && valor) ? actual / valor - 1 : null;
+    const pct = v == null ? '' : `<div style="font-size:11px;color:${v >= 0 ? '#15803d' : '#dc2626'}">${fmtPct(v)}</div>`;
+    return `<td class="text-right">${fmt(valor)}${pct}</td>`;
+  }
+
   function tablaResumen(key, titulo, metric, fmt, modo) {
     const filas = filasCanal(modo);
     if (vistaDe(key) === 'grafico') {
@@ -13027,11 +13034,11 @@ async function viewVentas(container) {
                     : '<td class="text-right" style="border-left:2px solid var(--border)">—</td><td class="text-right">—</td><td class="text-right">—</td>';
                   if (p === 'anio') {
                     return `<td class="text-right" style="border-left:2px solid var(--border)">${fmt(d.actual)}</td>
-                      <td class="text-right">${fmt(d.anterior)}</td>`;
+                      ${celdaComp(d.anterior, d.actual, fmt)}`;
                   }
                   return `<td class="text-right" style="border-left:2px solid var(--border)">${fmt(d.actual)}</td>
-                    <td class="text-right">${fmt(d.anterior)}</td>
-                    <td class="text-right">${fmt(d.anioAnterior)}</td>`;
+                    ${celdaComp(d.anterior, d.actual, fmt)}
+                    ${celdaComp(d.anioAnterior, d.actual, fmt)}`;
                 }).join('')}
               </tr>`).join('')}
             </tbody>
