@@ -13562,12 +13562,6 @@ async function viewCajaEfectivoCaja(container) {
     openModal('🔒 Cerrar Turno', `
       <div style="font-weight:600;font-size:13px;margin-bottom:6px">Conteo de cierre</div>
       <div style="display:flex;gap:24px;flex-wrap:wrap">${cjeDenomTableHtml('ci')}</div>
-      <div style="font-weight:600;font-size:13px;margin:16px 0 6px">Venta por canal (total, todos los medios de pago)</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        ${['LOCAL','LLEVAR','DELIVERY','COMERCIAL','OTROS'].map(c => `
-          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">${c}</label>
-            <input type="number" min="0" step="0.1" class="form-control cje-canal" data-canal="${c}" style="width:110px"></div>`).join('')}
-      </div>
       <div class="form-group mt-16"><label>TIP Facturado</label>
         <input type="number" min="0" step="0.1" id="cje-ci-tip" class="form-control" style="width:150px"></div>
       <div class="form-group"><label>Comentario</label>
@@ -13579,11 +13573,8 @@ async function viewCajaEfectivoCaja(container) {
     const modal = document.getElementById('modal');
     cjeDenomListener(modal, 'ci');
     document.getElementById('cje-ci-btn').addEventListener('click', async () => {
-      const ventaPorCanal = {};
-      modal.querySelectorAll('.cje-canal').forEach(inp => { ventaPorCanal[inp.dataset.canal] = Number(inp.value) || 0; });
       const body = {
         conteoCierre: cjeDenomValores(modal, 'ci'),
-        ventaPorCanal,
         tipFacturado: Number(document.getElementById('cje-ci-tip').value) || 0,
         comentario: document.getElementById('cje-ci-comentario').value.trim(),
       };
@@ -13972,32 +13963,13 @@ async function viewCajaEfectivoBackoffice(container) {
       </div></div>
 
       <div class="card mb-16"><div class="card-body">
-        <div style="font-weight:700;margin-bottom:8px">Venta por canal (total) y TIP facturado — por día</div>
+        <div style="font-weight:700;margin-bottom:8px">TIP Facturado — por día</div>
         <div class="table-wrap">
         <table class="data-table" style="font-size:12px">
-          <thead><tr>
-            <th>Fecha</th><th class="text-right">LOCAL</th><th class="text-right">LLEVAR</th>
-            <th class="text-right">DELIVERY</th><th class="text-right">COMERCIAL</th><th class="text-right">OTROS</th>
-            <th class="text-right">TIP Facturado</th>
-          </tr></thead>
+          <thead><tr><th>Fecha</th><th class="text-right">TIP Facturado</th></tr></thead>
           <tbody>
-            ${dias.map(d => `<tr>
-              <td>${esc(d.fecha)}</td>
-              <td class="text-right">${fmt(d.ventaPorCanal.LOCAL)}</td>
-              <td class="text-right">${fmt(d.ventaPorCanal.LLEVAR)}</td>
-              <td class="text-right">${fmt(d.ventaPorCanal.DELIVERY)}</td>
-              <td class="text-right">${fmt(d.ventaPorCanal.COMERCIAL)}</td>
-              <td class="text-right">${fmt(d.ventaPorCanal.OTROS)}</td>
-              <td class="text-right">${fmt(d.tipFacturado)}</td>
-            </tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center">Sin turnos en este mes</td></tr>'}
-            ${dias.length ? filaTotal(`
-              <td class="text-right">${fmt(total.ventaPorCanal.LOCAL)}</td>
-              <td class="text-right">${fmt(total.ventaPorCanal.LLEVAR)}</td>
-              <td class="text-right">${fmt(total.ventaPorCanal.DELIVERY)}</td>
-              <td class="text-right">${fmt(total.ventaPorCanal.COMERCIAL)}</td>
-              <td class="text-right">${fmt(total.ventaPorCanal.OTROS)}</td>
-              <td class="text-right">${fmt(total.tipFacturado)}</td>
-            `) : ''}
+            ${dias.map(d => `<tr><td>${esc(d.fecha)}</td><td class="text-right">${fmt(d.tipFacturado)}</td></tr>`).join('') || '<tr><td colspan="2" class="text-muted text-center">Sin turnos en este mes</td></tr>'}
+            ${dias.length ? filaTotal(`<td class="text-right">${fmt(total.tipFacturado)}</td>`) : ''}
           </tbody>
         </table>
         </div>

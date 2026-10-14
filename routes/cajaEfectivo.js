@@ -200,18 +200,11 @@ router.put('/turnos/:id/cerrar', requireRol('CAJA'), async (req, res) => {
     if (!checkOpAccess(req.user, turno.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
     if (turno.estado !== 'ABIERTO') return res.status(400).json({ error: 'El turno ya está cerrado' });
 
-    const { conteoCierre, ventaPorCanal, tipFacturado, comentario } = req.body;
+    const { conteoCierre, tipFacturado, comentario } = req.body;
     if (!conteoCierre) return res.status(400).json({ error: 'Falta el conteo de cierre' });
 
     turno.estado = 'CERRADO';
     turno.conteoCierre = conteoCierre;
-    turno.ventaPorCanal = {
-      LOCAL: Number(ventaPorCanal?.LOCAL) || 0,
-      LLEVAR: Number(ventaPorCanal?.LLEVAR) || 0,
-      DELIVERY: Number(ventaPorCanal?.DELIVERY) || 0,
-      COMERCIAL: Number(ventaPorCanal?.COMERCIAL) || 0,
-      OTROS: Number(ventaPorCanal?.OTROS) || 0,
-    };
     turno.tipFacturado = Number(tipFacturado) || 0;
     turno.cerradoPor = req.user.username || '';
     turno.fechaCierre = new Date();
@@ -415,7 +408,6 @@ router.get('/backoffice/resumen', requireRol('BACKOFFICE'), async (req, res) => 
     });
 
     const vacioPorTipo = () => ({ VENTA_PEN: 0, VENTA_USD: 0, TIP_COMERCIAL_PEN: 0, TIP_COMERCIAL_USD: 0, TIP_TIENDA_PEN: 0, TIP_TIENDA_USD: 0 });
-    const vacioCanal = () => ({ LOCAL: 0, LLEVAR: 0, DELIVERY: 0, COMERCIAL: 0, OTROS: 0 });
     const vacioCuadreMoneda = () => ({ apertura: 0, ingresos: 0, enviado: 0, saldoCalculado: 0, conteoCierre: 0, diferencia: null });
     const vacioCuadre = () => ({ PEN: vacioCuadreMoneda(), USD: vacioCuadreMoneda() });
 
@@ -423,11 +415,10 @@ router.get('/backoffice/resumen', requireRol('BACKOFFICE'), async (req, res) => 
     const porDia = {};
     turnos.forEach(t => {
       const k = ymd(t.fecha);
-      if (!porDia[k]) porDia[k] = { fecha: k, porTipo: vacioPorTipo(), ventaPorCanal: vacioCanal(), tipFacturado: 0, turnos: 0, turnosCerrados: 0, cuadre: vacioCuadre() };
+      if (!porDia[k]) porDia[k] = { fecha: k, porTipo: vacioPorTipo(), tipFacturado: 0, turnos: 0, turnosCerrados: 0, cuadre: vacioCuadre() };
       const d = porDia[k];
       d.turnos++;
       if (t.estado === 'CERRADO') d.turnosCerrados++;
-      Object.keys(d.ventaPorCanal).forEach(c => { d.ventaPorCanal[c] += t.ventaPorCanal?.[c] || 0; });
       d.tipFacturado += t.tipFacturado || 0;
       (movPorTurno[String(t._id)] || []).forEach(m => {
         if (m.tipo !== 'CAMBIO_MONEDA') {
@@ -467,10 +458,9 @@ router.get('/backoffice/resumen', requireRol('BACKOFFICE'), async (req, res) => 
       });
     });
 
-    const total = { porTipo: vacioPorTipo(), ventaPorCanal: vacioCanal(), tipFacturado: 0, turnosCerrados: 0, cuadre: vacioCuadre() };
+    const total = { porTipo: vacioPorTipo(), tipFacturado: 0, turnosCerrados: 0, cuadre: vacioCuadre() };
     dias.forEach(d => {
       Object.keys(total.porTipo).forEach(k => { total.porTipo[k] += d.porTipo[k]; });
-      Object.keys(total.ventaPorCanal).forEach(k => { total.ventaPorCanal[k] += d.ventaPorCanal[k]; });
       total.tipFacturado += d.tipFacturado;
       total.turnosCerrados += d.turnosCerrados;
       ['PEN', 'USD'].forEach(mon => {
