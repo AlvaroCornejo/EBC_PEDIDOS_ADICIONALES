@@ -262,29 +262,30 @@ const PEDIDOS_TABS = [
 ];
 const PEDIDOS_TAB_IDS = PEDIDOS_TABS.map(t => t.id);
 
+// Agrupados por sección en el sidebar (Logística / Finanzas / Otros), en este orden.
 const NAV_ITEMS = [
-  { id: 'pedidos-adicionales', label: 'Pedidos Adicionales', icon: '📝',
+  { grupo: 'Logística', id: 'pedidos-adicionales', label: 'Pedidos Adicionales', icon: '📝',
     roles: [ROLES.ADMIN, ROLES.SOL, ROLES.APR, ROLES.ATE, ROLES.PLT] },
-  { id: 'kardex',         label: 'Kardex',          icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'puedeVerKardex' },
-  // comentarios solo en footer sidebar, no en nav principal
-  { id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
-  { id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerComparativo' },
-  { id: 'ventas',        label: 'Ventas',          icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'accesoVentas' },
-  { id: 'recetas-costeo', label: 'Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['puedeVerCosteoRecetas', 'rolCambioReceta'] },
-  { id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
-  { id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
-  { id: 'planillas',     label: 'Planillas',       icon: '🧮', roles: [ROLES.ADMIN], extraPermAny: ['rolPlanilla', 'accesoPlanillas'] },
-  { id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPermAny: ['rolPago', 'accesoFlujoCaja'] },
-  { id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
-  { id: 'pl',             label: 'PL',              icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoEERR' },
-  { id: 'conciliacion',   label: 'Conciliación Cobranzas', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoConciliacion' },
-  { id: 'saldo-banco',    label: 'Saldos Bancarios', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoSaldoBanco' },
-  { id: 'inventarios',    label: 'Inventarios Diarios', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
-  { id: 'inventario-semanal', label: 'Inventario Semanal', icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
-  { id: 'costo-produccion', label: 'Costo de Producción', icon: '🏭', roles: [ROLES.ADMIN], extraPerm: 'accesoCostoProduccion' },
-  { id: 'caja-efectivo', label: 'Cierre de Caja', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'rolesCajaEfectivo' },
-  { id: 'cumplimiento',  label: 'Cumplimiento',   icon: '✅', roles: [ROLES.ADMIN], extraPerm: 'accesoCumplimiento' },
-  { id: 'admin',         label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
+  { grupo: 'Logística', id: 'kardex',         label: 'Kardex',          icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'puedeVerKardex' },
+  { grupo: 'Logística', id: 'precios',        label: 'Precios Compra',  icon: '💰', roles: [ROLES.ADMIN], extraPerm: 'sociedadesCompra' },
+  { grupo: 'Logística', id: 'comparativo',   label: 'Comparativo OC',  icon: '📈', roles: [ROLES.ADMIN], extraPerm: 'puedeVerComparativo' },
+  { grupo: 'Logística', id: 'recetas-costeo', label: 'Recetas', icon: '🧾', roles: [ROLES.ADMIN], extraPermAny: ['puedeVerCosteoRecetas', 'rolCambioReceta'] },
+  { grupo: 'Logística', id: 'bajas',          label: 'Bajas',           icon: '🔻', roles: [ROLES.ADMIN], extraPerm: 'puedeVerBajas' },
+  { grupo: 'Logística', id: 'movimientos',   label: 'Bajas/Consumos/Transf./86', icon: '🗑️', roles: [ROLES.ADMIN], extraPermAny: ['accesoBajas', 'accesoConsumos', 'accesoTransferencias', 'acceso86'] },
+  { grupo: 'Logística', id: 'inventarios',    label: 'Inventarios Diarios', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
+  { grupo: 'Logística', id: 'inventario-semanal', label: 'Inventario Semanal', icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
+  { grupo: 'Logística', id: 'costo-produccion', label: 'Costo de Producción', icon: '🏭', roles: [ROLES.ADMIN], extraPerm: 'accesoCostoProduccion' },
+  { grupo: 'Finanzas', id: 'pagos',         label: 'Gestión de Pagos',icon: '💸', roles: [ROLES.ADMIN], extraPerm: 'rolPago' },
+  { grupo: 'Finanzas', id: 'saldo-banco',    label: 'Saldos Bancarios', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoSaldoBanco' },
+  { grupo: 'Finanzas', id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPermAny: ['rolPago', 'accesoFlujoCaja'] },
+  { grupo: 'Finanzas', id: 'pl',             label: 'PL',              icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoEERR' },
+  { grupo: 'Finanzas', id: 'conciliacion',   label: 'Conciliación Cobranzas', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoConciliacion' },
+  { grupo: 'Finanzas', id: 'caja-efectivo', label: 'Cierre de Caja', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'rolesCajaEfectivo' },
+  { grupo: 'Otros', id: 'ventas',        label: 'Ventas',          icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'accesoVentas' },
+  { grupo: 'Otros', id: 'planillas',     label: 'Planillas',       icon: '🧮', roles: [ROLES.ADMIN], extraPermAny: ['rolPlanilla', 'accesoPlanillas'] },
+  { grupo: 'Otros', id: 'cumplimiento',  label: 'Cumplimiento',   icon: '✅', roles: [ROLES.ADMIN], extraPerm: 'accesoCumplimiento' },
+  { grupo: 'Otros', id: 'admin',         label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
+
 ];
 
 function canSeeNav(n) {
@@ -306,12 +307,16 @@ function renderNav() {
 
   // Sidebar (desktop)
   const nav = document.getElementById('sidebar-nav');
-  nav.innerHTML = visibles.map(n => n.href
-    ? `<a href="${n.href}" target="_blank" rel="noopener" class="nav-item" style="opacity:.85">
-         <span class="nav-icon">${n.icon}</span>${n.label}<span style="font-size:10px;margin-left:4px;opacity:.6">↗</span>
-       </a>`
-    : `<a href="#" class="nav-item" data-view="${n.id}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`
-  ).join('');
+  let grupoPrev = null;
+  nav.innerHTML = visibles.map(n => {
+    const cab = n.grupo && n.grupo !== grupoPrev ? `<div class="nav-group">${n.grupo}</div>` : '';
+    grupoPrev = n.grupo || grupoPrev;
+    return cab + (n.href
+      ? `<a href="${n.href}" target="_blank" rel="noopener" class="nav-item" style="opacity:.85">
+           <span class="nav-icon">${n.icon}</span>${n.label}<span style="font-size:10px;margin-left:4px;opacity:.6">↗</span>
+         </a>`
+      : `<a href="#" class="nav-item" data-view="${n.id}"><span class="nav-icon">${n.icon}</span>${n.label}</a>`);
+  }).join('');
   nav.querySelectorAll('.nav-item[data-view]').forEach(el => {
     el.addEventListener('click', e => {
       e.preventDefault();
