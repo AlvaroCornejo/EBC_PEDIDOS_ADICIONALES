@@ -713,6 +713,16 @@ function renderTableHeader(mode = 'edit') {
     </thead>`;
 }
 
+// Qué comparación auto-aprobó la línea: 'ANTERIOR' (semana anterior) o 'ACTUAL' (semana actual).
+// Las líneas auto-aprobadas antes de existir la segunda comparación solo pudieron ser 'ANTERIOR'.
+function autoOrigenDe(l) {
+  return l.autoOrigen || (/sem\. actual/.test(l.comentarioAprobador || '') ? 'ACTUAL' : 'ANTERIOR');
+}
+function autoBadgeHtml(l, largo) {
+  const act = autoOrigenDe(l) === 'ACTUAL';
+  return `<span class="auto-lock-badge${act ? ' act' : ''}" title="Auto-aprobado por la variación de la semana ${act ? 'actual' : 'anterior'}">🔒 ${largo ? 'Auto-aprobado' : 'Auto'} · Sem. ${act ? 'actual' : 'anterior'}</span>`;
+}
+
 function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') {
   const sa = l.semanaAnterior || {};
   const sc = l.semanaActual || {};
@@ -732,8 +742,8 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
     // Líneas auto-aprobadas (#6): el aprobador no puede cambiarlas
     if (isAutoAprobado) {
       lastCells = `
-        <td><span class="auto-lock-badge">🔒 Auto-aprobado</span></td>
-        <td style="font-size:12px;color:#6b7280">${esc(l.comentarioAprobador || '')}</td>`;
+        <td>${autoBadgeHtml(l, true)}</td>
+        <td style="font-size:12px;color:${autoOrigenDe(l) === 'ACTUAL' ? '#0f766e' : '#6d28d9'}">${esc(l.comentarioAprobador || '')}</td>`;
     } else {
       lastCells = `
         <td>
@@ -749,11 +759,11 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
   } else if (mode === 'approved') {
     const el = l.estadoLinea;
     lastCells = `
-      <td>${isAutoAprobado ? `<span class="auto-lock-badge">🔒 Auto</span>` : (el ? `<span class="badge badge-${el}">${el}</span>` : '—')}</td>
+      <td>${isAutoAprobado ? autoBadgeHtml(l) : (el ? `<span class="badge badge-${el}">${el}</span>` : '—')}</td>
       <td style="font-size:13px">${esc(l.comentarioAprobador || '')}</td>`;
   } else if (mode === 'edit-revisar') {
     const el = l.estadoLinea;
-    const badge = isAutoAprobado ? `<span class="auto-lock-badge">🔒 Auto</span>` : (el ? `<span class="badge badge-${el}">${el}</span>` : '—');
+    const badge = isAutoAprobado ? autoBadgeHtml(l) : (el ? `<span class="badge badge-${el}">${el}</span>` : '—');
     lastCells = `
       <td>${badge}</td>
       <td style="font-size:13px">${esc(l.comentarioAprobador || '')}</td>
@@ -764,7 +774,7 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
     const atendido  = l.estadoAtencion === 'ATENDIDO';
     const readonly  = mode === 'atendido' || atendido;  // #7: no des-atender
     lastCells = `
-      <td>${isAutoAprobado ? `<span class="auto-lock-badge">🔒 Auto</span>` : (el ? `<span class="badge badge-${el}">${el}</span>` : '—')}</td>
+      <td>${isAutoAprobado ? autoBadgeHtml(l) : (el ? `<span class="badge badge-${el}">${el}</span>` : '—')}</td>
       <td style="text-align:center">
         ${rechazado
           ? `<span style="color:#9ca3af;font-size:12px">N/A</span>`

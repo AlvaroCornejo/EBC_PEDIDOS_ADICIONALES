@@ -14,6 +14,7 @@ const lineaSchema = new mongoose.Schema({
   gestion:             { type: String, default: 'COMPRAS' },
   loteCompra:          { type: Number, default: 0 },
   autoAprobado:        { type: Boolean, default: false },
+  autoOrigen:          { type: String, default: '' },   // 'ANTERIOR' | 'ACTUAL': qué comparación auto-aprobó la línea
   estadoLinea:         { type: String, default: 'PENDIENTE' },
   comentarioAprobador: { type: String, default: '' },
   estadoAtencion:      { type: String, default: 'PENDIENTE' },

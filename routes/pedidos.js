@@ -21,20 +21,34 @@ async function getConfig() {
 }
 
 // ─── Helper: auto-aprobación por línea ───────────────────────────
+// Una línea se aprueba sola si se cumple AL MENOS UNA de dos comparaciones, con la misma regla:
+//   sugerido = variación positiva (redondeada hacia arriba al lote de compra, si lo hay)
+//   límite   = sugerido × (1 + tolerancia)  →  cantidad solicitada ≤ límite
+//   1) con la variación de la SEMANA ANTERIOR
+//   2) con la variación de la SEMANA ACTUAL (la que ya incluye la proyección hasta el domingo)
+function limiteAutoAprobacion(variacion, lote, factor) {
+  if (!(variacion > 0)) return null;
+  const sugerido = lote > 0 ? Math.ceil(variacion / lote) * lote : variacion;
+  return sugerido * (1 + factor);
+}
+
 function aplicarAutoAprobacion(lineas, maxVariacion) {
   const factor = (maxVariacion || 10) / 100;
   for (const linea of lineas) {
     if (linea.estadoLinea === 'APROBADO' || linea.estadoLinea === 'RECHAZADO') continue;
-    const varA = (linea.semanaAnterior || {}).variacion || 0;
-    if (varA <= 0) continue;
-    const lote = linea.loteCompra || 0;
-    const sugerido = lote > 0 ? Math.ceil(varA / lote) * lote : varA;
-    const limite = sugerido * (1 + factor);
     const cant = linea.cantidadSolicitada || 0;
-    if (cant > 0 && cant <= limite) {
+    if (!(cant > 0)) continue;
+    const lote = linea.loteCompra || 0;
+    const limAnt = limiteAutoAprobacion((linea.semanaAnterior || {}).variacion || 0, lote, factor);
+    const limAct = limiteAutoAprobacion((linea.semanaActual || {}).variacion || 0, lote, factor);
+    let motivo = null, origen = '';
+    if (limAnt != null && cant <= limAnt) { origen = 'ANTERIOR'; motivo = `sem. anterior: cant. ${cant} ≤ límite ${limAnt.toFixed(2)}`; }
+    else if (limAct != null && cant <= limAct) { origen = 'ACTUAL'; motivo = `sem. actual: cant. ${cant} ≤ límite ${limAct.toFixed(2)}`; }
+    if (motivo) {
       linea.estadoLinea = 'APROBADO';
       linea.autoAprobado = true;
-      linea.comentarioAprobador = `Auto-aprobado (cant. ${cant} ≤ límite ${limite.toFixed(2)})`;
+      linea.autoOrigen = origen;
+      linea.comentarioAprobador = `Auto-aprobado (${motivo})`;
     }
   }
 }
