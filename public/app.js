@@ -17337,15 +17337,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Logout
   document.getElementById('logout-btn').addEventListener('click', logout);
 
-  // Hard refresh (opción dentro del panel deslizante móvil)
-  document.getElementById('bn-refresh-btn').addEventListener('click', () => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(regs => {
-        Promise.all(regs.map(r => r.unregister())).then(() => location.reload(true));
-      });
-    } else {
-      location.reload(true);
-    }
+  // Recarga completa (equivale a Ctrl+Shift+R): quita service workers, vacía caches y recarga
+  document.getElementById('bn-refresh-btn').addEventListener('click', async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch {}
+    location.reload();
   });
 
   // Menú móvil: hamburguesa abre/cierra el sidebar como panel deslizante
