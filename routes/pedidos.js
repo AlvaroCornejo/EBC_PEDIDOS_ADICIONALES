@@ -419,18 +419,17 @@ router.post('/export', async (req, res) => {
       { key: 'estado',       width: 12 },
       { key: 'solicitado',   width: 20 },
       { key: 'aprobado',     width: 20 },
-      // Semana Anterior (5 cols)
+      // Semana Anterior (4 cols)
       { key: 'ceA',  width: 11 },
       { key: 'rvA',  width: 11 },
       { key: 'rcA',  width: 11 },
       { key: 'varA', width: 11 },
-      { key: 'ajA',  width: 11 },
       // Semana Actual (5 cols)
       { key: 'ceC',  width: 11 },
       { key: 'rvC',  width: 11 },
       { key: 'rcC',  width: 11 },
+      { key: 'proC', width: 11 },
       { key: 'varC', width: 11 },
-      { key: 'ajC',  width: 11 },
       // Item
       { key: 'item',         width: 14 },
       { key: 'itemNombre',   width: 30 },
@@ -451,7 +450,7 @@ router.post('/export', async (req, res) => {
     const r1 = ws.getRow(1);
     const baseHeaders = [
       { label: 'Pedido',          span: 5 },
-      { label: 'Semana Anterior', span: 5 },
+      { label: 'Semana Anterior', span: 4 },
       { label: 'Semana Actual',   span: 5 },
       { label: 'Ítem',            span: 4 },
       { label: 'Cantidades',      span: 5 },
@@ -473,8 +472,8 @@ router.post('/export', async (req, res) => {
     // ── Fila 2: sub-cabeceras ──
     const subHeaders = [
       'ID Pedido','Operación','Fecha','Estado','Solicitado por',
-      'Cons. Est.','Real Venta','Real Consumo','Variación','Ajuste',
-      'Cons. Est.','Real Venta','Real Consumo','Variación','Ajuste',
+      'Cons. Est.','Real Venta','Real Consumo','Variación',
+      'Cons. Est.','Real Venta','Real Consumo','Proyectado','Variación',
       'Item','Nombre','Grupo','Gestión',
       'Saldo','Costo U.','Cantidad','Despacho Exceso','Compra Oport.','Costo Total',
       'Comentarios','Estado Línea','Coment. Aprobador'
@@ -504,9 +503,9 @@ router.post('/export', async (req, res) => {
           p.id, p.operacion, p.fechaPedido ? p.fechaPedido.slice(0,10) : '', p.estado,
           p.solicitadoPorNombre || '',
           // sem anterior
-          sa.consumoEstimado  || 0, sa.consumoRealVenta || 0, sa.consumoReal || 0, sa.variacion || 0, sa.ajuste || 0,
-          // sem actual
-          sc.consumoEstimado  || 0, sc.consumoRealVenta || 0, sc.consumoReal || 0, sc.variacion || 0, sc.ajuste || 0,
+          sa.consumoEstimado  || 0, sa.consumoRealVenta || 0, sa.consumoReal || 0, sa.variacion || 0,
+          // sem actual (Proyectado = real + promedio diario × días que faltan hasta el domingo)
+          sc.consumoEstimado  || 0, sc.consumoRealVenta || 0, sc.consumoReal || 0, sc.consumoProyectado ?? '', sc.variacion || 0,
           // item
           l.item || '', l.itemNombre || '', l.grupoCompra || '', l.gestion || 'COMPRAS',
           // cantidades
@@ -521,8 +520,8 @@ router.post('/export', async (req, res) => {
           cell.value = v;
           cell.border = border;
           cell.font   = { size: 10 };
-          // Aplicar formato numérico a columnas de cantidades/costo (cols 6-15 + 21-26)
-          const numCols = new Set([6,7,8,9,10,11,12,13,14,15,21,22,23,26]);
+          // Formato numérico: consumos (6-14) y saldo, costo U., cantidad y costo total (19, 20, 21, 24)
+          const numCols = new Set([6,7,8,9,10,11,12,13,14,19,20,21,24]);
           if (numCols.has(i + 1) && typeof v === 'number') cell.numFmt = numFmt;
         });
         row.height = 16;

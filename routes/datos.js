@@ -126,6 +126,32 @@ function readCostos(wb) {
   return map;
 }
 
+/**
+ * DosSemanas sheet (Fecha, Almacen, Item, Cantidad): consumo real TOTAL (venta + consumo) por
+ * ítem y día de las últimas semanas. Sirve para proyectar el consumo de los días que faltan de
+ * la semana. Devuelve { dias: nº de fechas distintas de la hoja, sumaPorItem: {item: Σ cantidad} }.
+ */
+function readDosSemanas(wb) {
+  const sh = wb.getWorksheet('DosSemanas');
+  if (!sh) return { dias: 0, sumaPorItem: {} };
+  const hdr = {};
+  sh.getRow(1).eachCell((cell, col) => { hdr[String(cell.value || '').trim().toUpperCase()] = col; });
+  const cFecha = hdr.FECHA || 1, cItem = hdr.ITEM || 3, cCant = hdr.CANTIDAD || 4;
+  const fechas = new Set();
+  const sumaPorItem = {};
+  sh.eachRow((row, rn) => {
+    if (rn === 1) return;
+    const item = str(row, cItem);
+    // cellVal() descarta los Date (los toma por objeto de fórmula): la fecha se lee directo de la celda.
+    let f = row.getCell(cFecha).value;
+    if (f && typeof f === 'object' && !(f instanceof Date)) f = f.result;
+    if (!item || f == null) return;
+    fechas.add(f instanceof Date ? f.toISOString().slice(0, 10) : String(f).slice(0, 10));
+    sumaPorItem[item] = (sumaPorItem[item] || 0) + num(row, cCant);
+  });
+  return { dias: fechas.size, sumaPorItem };
+}
+
 /** Requisiciones sheet: col1=Item, col2=CONSUMO PROY SEM ANT, col3=CONSUMO PROY SEM ACT, col4=AJUSTE SEM ACT, col5=AJUSTE SEM ANT */
 function readRequisiciones(wb) {
   const sh = wb.getWorksheet('Requisiciones');
@@ -191,6 +217,7 @@ router.get('/item-data', async (req, res) => {
     const costosMap   = readCostos(wb);
     const kardexRows  = readKardex(wb);
     const reqMap      = readRequisiciones(wb);
+    const dosSemanas  = readDosSemanas(wb);
 
     const date = new Date(fecha + 'T12:00:00');
     const { week: cw, year: cy } = getISOWeek(date);
@@ -232,6 +259,14 @@ router.get('/item-data', async (req, res) => {
       .filter(r => r.item === itemKey)
       .reduce((s, r) => s + r.cant, 0);
 
+    // Proyección de la semana actual: el real del Kardex llega hasta el día anterior, así que se
+    // suma el promedio diario del ítem (Σ DosSemanas ÷ nº de días de la hoja) por los días que
+    // faltan, desde la fecha del pedido hasta el domingo (ambos inclusive).
+    const promedioDiario = dosSemanas.dias > 0 ? (dosSemanas.sumaPorItem[itemKey] || 0) / dosSemanas.dias : 0;
+    const diasRestantes  = 8 - (date.getDay() || 7);
+    const proyeccion     = promedioDiario * diasRestantes;
+    const consumoProyectado = kAct.vta + kAct.consumo + proyeccion;
+
     res.json({
       grupoCompra,
       gestion,
@@ -242,7 +277,6 @@ router.get('/item-data', async (req, res) => {
         consumoEstimado:  rq.semAnt,
         consumoRealVenta: kAnt.vta,
         consumoReal:      kAnt.consumo,
-        ajuste:           rq.ajusteSemAnt,
         variacion: (kAnt.vta + kAnt.consumo) - rq.semAnt
       },
       semanaActual: {
@@ -250,8 +284,8 @@ router.get('/item-data', async (req, res) => {
         consumoEstimado:  rq.semAct,
         consumoRealVenta: kAct.vta,
         consumoReal:      kAct.consumo,
-        ajuste:           rq.ajusteSemAct,
-        variacion: (kAct.vta + kAct.consumo) - rq.semAct
+        promedioDiario, diasRestantes, proyeccion, consumoProyectado,
+        variacion: consumoProyectado - rq.semAct
       },
       saldo
     });

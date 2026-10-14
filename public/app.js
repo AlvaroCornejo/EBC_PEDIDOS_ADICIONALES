@@ -688,7 +688,7 @@ function renderTableHeader(mode = 'edit') {
       <tr>
         <th class="col-item" rowspan="2">Código / Descripción</th>
         <th rowspan="2">Grupo</th>
-        <th class="group-header" colspan="5">Semana Anterior</th>
+        <th class="group-header" colspan="4">Semana Anterior</th>
         <th class="group-header" colspan="5">Semana Actual</th>
         <th rowspan="2" class="col-auto col-num">Saldo</th>
         <th rowspan="2" class="col-auto col-num">🔒 Costo U.</th>
@@ -704,12 +704,11 @@ function renderTableHeader(mode = 'edit') {
         <th class="sub-header col-num">Real Venta</th>
         <th class="sub-header col-num">Real Consumo</th>
         <th class="sub-header col-num">Variación</th>
-        <th class="sub-header col-num">Ajuste</th>
         <th class="sub-header col-num">Cons. Est.</th>
         <th class="sub-header col-num">Real Venta</th>
         <th class="sub-header col-num">Real Consumo</th>
+        <th class="sub-header col-num" title="Real hasta ayer + promedio diario × días que faltan hasta el domingo">Proyectado</th>
         <th class="sub-header col-num">Variación</th>
-        <th class="sub-header col-num">Ajuste</th>
       </tr>
     </thead>`;
 }
@@ -825,12 +824,11 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
     <td class="col-num">${esNuevo ? dash : `<span class="auto-rvA-${idx}">${l.semanaAnterior ? fmt(sa.consumoRealVenta) : '...'}</span>`}</td>
     <td class="col-num">${esNuevo ? dash : `<span class="auto-rcA-${idx}">${l.semanaAnterior ? fmt(sa.consumoReal) : '...'}</span>`}</td>
     <td class="col-num">${esNuevo ? dash : `<span class="auto-vA-${idx} ${varA>=0?'variacion-pos':'variacion-neg'}">${l.semanaAnterior ? fmt(varA) : '...'}</span>`}</td>
-    <td class="col-num">${esNuevo ? dash : `<span class="auto-ajA-${idx}">${l.semanaAnterior ? fmt(sa.ajuste) : '...'}</span>`}</td>
     <td class="col-num">${esNuevo ? dash : `<span class="auto-ceC-${idx}">${l.semanaActual ? fmt(sc.consumoEstimado) : '...'}</span>`}</td>
     <td class="col-num">${esNuevo ? dash : `<span class="auto-rvC-${idx}">${l.semanaActual ? fmt(sc.consumoRealVenta) : '...'}</span>`}</td>
     <td class="col-num">${esNuevo ? dash : `<span class="auto-rcC-${idx}">${l.semanaActual ? fmt(sc.consumoReal) : '...'}</span>`}</td>
+    <td class="col-num">${esNuevo ? dash : `<span class="auto-pC-${idx}" title="${sc.diasRestantes != null ? `Real hasta ayer + ${fmt(sc.promedioDiario)} por día × ${sc.diasRestantes} día(s) hasta el domingo` : ''}">${l.semanaActual ? (sc.consumoProyectado != null ? fmt(sc.consumoProyectado) : '—') : '...'}</span>`}</td>
     <td class="col-num">${esNuevo ? dash : `<span class="auto-vC-${idx} ${varC>=0?'variacion-pos':'variacion-neg'}">${l.semanaActual ? fmt(varC) : '...'}</span>`}</td>
-    <td class="col-num">${esNuevo ? dash : `<span class="auto-ajC-${idx}">${l.semanaActual ? fmt(sc.ajuste) : '...'}</span>`}</td>
     <td class="col-num">${esNuevo ? dash : `<span class="auto-saldo-${idx}">${l.saldo != null ? fmt(l.saldo) : '...'}</span>`}</td>
     <td class="col-num">${costoCell}</td>
     <td class="col-num">
@@ -1142,12 +1140,11 @@ async function fetchItemData(itemCode, idx) {
     set(`.auto-ceA-${idx}`, fmt(sa.consumoEstimado));
     set(`.auto-rvA-${idx}`, fmt(sa.consumoRealVenta));
     set(`.auto-rcA-${idx}`, fmt(sa.consumoReal));
-    set(`.auto-ajA-${idx}`, fmt(sa.ajuste));
     set(`.auto-vA-${idx}`, fmt(sa.variacion), `auto-vA-${idx} ${sa.variacion >= 0 ? 'variacion-pos' : 'variacion-neg'}`);
     set(`.auto-ceC-${idx}`, fmt(sc.consumoEstimado));
     set(`.auto-rvC-${idx}`, fmt(sc.consumoRealVenta));
     set(`.auto-rcC-${idx}`, fmt(sc.consumoReal));
-    set(`.auto-ajC-${idx}`, fmt(sc.ajuste));
+    set(`.auto-pC-${idx}`, fmt(sc.consumoProyectado));
     set(`.auto-vC-${idx}`, fmt(sc.variacion), `auto-vC-${idx} ${sc.variacion >= 0 ? 'variacion-pos' : 'variacion-neg'}`);
     set(`.auto-saldo-${idx}`, fmt(data.saldo));
     set(`.auto-cu-${idx}`, fmtMoney(data.costoUnitario));
@@ -16288,8 +16285,8 @@ const helpContent = {
             <tr><td><strong>Cons. Est.</strong></td><td>Consumo estimado de la semana (de la hoja Requisiciones)</td></tr>
             <tr><td><strong>Real Venta</strong></td><td>Consumo real por ventas registradas en el Kardex</td></tr>
             <tr><td><strong>Real Consumo</strong></td><td>Consumo real por producción/transformación en el Kardex</td></tr>
-            <tr><td><strong>Variación</strong></td><td>Diferencia entre consumo real y estimado. En <span style="color:#dc2626">rojo</span> si hay exceso.</td></tr>
-            <tr><td><strong>Ajuste</strong></td><td>Ajuste manual incluido en la requisición</td></tr>
+            <tr><td><strong>Proyectado</strong></td><td>Solo semana actual: el consumo real llega hasta ayer; se le suma el promedio diario del ítem (hoja DosSemanas) por los días que faltan hasta el domingo</td></tr>
+            <tr><td><strong>Variación</strong></td><td>Diferencia entre consumo real (en la semana actual, el proyectado) y el estimado. En <span style="color:#dc2626">rojo</span> si hay exceso.</td></tr>
             <tr><td><strong>Saldo</strong></td><td>Saldo actual del ítem en el sistema</td></tr>
           </table>
         </div></div>
