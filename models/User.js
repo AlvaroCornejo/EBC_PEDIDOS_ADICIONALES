@@ -41,8 +41,9 @@ const userSchema = new mongoose.Schema({
   // Costo de Producción de planta: acceso + áreas de planta visibles ([] = todas).
   accesoCostoProduccion: { type: Boolean, default: false },
   areasCostoProduccion:  { type: [String], default: [] },
-  // Cierre de Caja: un solo rol por usuario, scoped por `operations` (sin array propio).
-  rolCajaEfectivo: { type: String, default: '', enum: ['', 'CAJA', 'OFICINA', 'CONTROL', 'BACKOFFICE'] },
+  // Cierre de Caja: un usuario puede tener varios roles a la vez (ej. Oficina + Control),
+  // scoped por `operations` (sin array propio).
+  rolesCajaEfectivo: { type: [String], default: [], enum: ['CAJA', 'OFICINA', 'CONTROL', 'BACKOFFICE'] },
   // Cumplimiento de Actividades: gate de nav. El acceso real a cada área sale de
   // CumplimientoArea.responsableUserId, no de este flag.
   accesoCumplimiento: { type: Boolean, default: false },

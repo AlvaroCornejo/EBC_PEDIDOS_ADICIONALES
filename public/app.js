@@ -11,7 +11,7 @@ const PLANILLA_ROLES = [['','— Sin acceso —'],['rrhh','RRHH (Paso 1)'],['gaf
 const BCT_ROLES   = [['','— Sin acceso —'],['SOLICITUD','Solicitud'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const CAMBIO_RECETA_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['registrador','Registrador (anota el cambio en el ERP)'],['admin','Administrador (todo)']];
-const CAJA_EFECTIVO_ROLES = [['','— Sin acceso —'],['CAJA','Caja'],['OFICINA','Oficina'],['CONTROL','Control (solo lectura)'],['BACKOFFICE','Back Office (solo lectura)']];
+const CAJA_EFECTIVO_ROLES = [['CAJA','Caja'],['OFICINA','Oficina'],['CONTROL','Control (solo lectura)'],['BACKOFFICE','Back Office (solo lectura)']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 // Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
 // iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
@@ -282,7 +282,7 @@ const NAV_ITEMS = [
   { id: 'inventarios',    label: 'Inventarios Diarios', icon: '📦', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
   { id: 'inventario-semanal', label: 'Inventario Semanal', icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoInventarios' },
   { id: 'costo-produccion', label: 'Costo de Producción', icon: '🏭', roles: [ROLES.ADMIN], extraPerm: 'accesoCostoProduccion' },
-  { id: 'caja-efectivo', label: 'Cierre de Caja', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'rolCajaEfectivo' },
+  { id: 'caja-efectivo', label: 'Cierre de Caja', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'rolesCajaEfectivo' },
   { id: 'cumplimiento',  label: 'Cumplimiento',   icon: '✅', roles: [ROLES.ADMIN], extraPerm: 'accesoCumplimiento' },
   { id: 'admin',         label: 'Admin',           icon: '⚙️', roles: [ROLES.ADMIN] }
 ];
@@ -13306,42 +13306,41 @@ function cjeSumaConteo(conteo, moneda) {
 
 const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP_COMERCIAL: 'TIP Comercial', TIP_TIENDA: 'TIP Tienda', CAMBIO_MONEDA: 'Cambio de moneda' };
 
-// ─── Cierre de Caja — dispatcher por rol ──────────────────────────────────
-// ADMIN tiene acceso de backend a las 4 acciones (ver requireRol en
-// routes/cajaEfectivo.js) — en el frontend se le muestra un selector para
-// operar como cualquiera de los 4 roles, en vez de limitarlo a un solo rol.
+// ─── Cierre de Caja — dispatcher por rol(es) ──────────────────────────────
+// Un usuario puede tener varios roles a la vez (ej. Oficina + Control). ADMIN
+// tiene acceso de backend a las 4 acciones (ver requireRol en routes/cajaEfectivo.js)
+// y en el frontend se le muestran las 4. Con un solo rol asignado se muestra esa
+// vista directamente; con más de uno, un selector de pestañas solo con los suyos.
+const CJE_VISTAS = {
+  CAJA: { label: '🧾 Caja', fn: viewCajaEfectivoCaja },
+  OFICINA: { label: '🏢 Oficina', fn: viewCajaEfectivoOficina },
+  CONTROL: { label: '🔎 Control', fn: viewCajaEfectivoControl },
+  BACKOFFICE: { label: '📊 Back Office', fn: viewCajaEfectivoBackoffice },
+};
+
 async function viewCajaEfectivo(container) {
-  if (S.user.role === ROLES.ADMIN) return viewCajaEfectivoAdmin(container);
-  const r = S.user.rolCajaEfectivo || '';
-  if (r === 'CAJA') return viewCajaEfectivoCaja(container);
-  if (r === 'OFICINA') return viewCajaEfectivoOficina(container);
-  if (r === 'CONTROL') return viewCajaEfectivoControl(container);
-  if (r === 'BACKOFFICE') return viewCajaEfectivoBackoffice(container);
-  container.innerHTML = '<div class="empty-state"><p>Sin acceso a Cierre de Caja.</p></div>';
+  const roles = S.user.role === ROLES.ADMIN ? Object.keys(CJE_VISTAS) : (S.user.rolesCajaEfectivo || []);
+  if (!roles.length) { container.innerHTML = '<div class="empty-state"><p>Sin acceso a Cierre de Caja.</p></div>'; return; }
+  if (roles.length === 1) return CJE_VISTAS[roles[0]].fn(container);
+  viewCajaEfectivoMultiRol(container, roles);
 }
 
-function viewCajaEfectivoAdmin(container) {
-  const vistas = [
-    { id: 'caja', label: '🧾 Caja', fn: viewCajaEfectivoCaja },
-    { id: 'oficina', label: '🏢 Oficina', fn: viewCajaEfectivoOficina },
-    { id: 'control', label: '🔎 Control', fn: viewCajaEfectivoControl },
-    { id: 'backoffice', label: '📊 Back Office', fn: viewCajaEfectivoBackoffice },
-  ];
+function viewCajaEfectivoMultiRol(container, roles) {
   container.innerHTML = `
-    <div class="page-header"><div class="page-title">🧾 Cierre de Caja — Admin</div></div>
+    <div class="page-header"><div class="page-title">🧾 Cierre de Caja</div></div>
     <div class="page-body">
       <div class="tabs mb-16">
-        ${vistas.map((v, i) => `<button class="tab-btn${i === 0 ? ' active' : ''}" data-vista="${v.id}">${v.label}</button>`).join('')}
+        ${roles.map((r, i) => `<button class="tab-btn${i === 0 ? ' active' : ''}" data-vista="${r}">${CJE_VISTAS[r].label}</button>`).join('')}
       </div>
       <div id="cja-sub"></div>
     </div>`;
   const sub = document.getElementById('cja-sub');
   const activar = id => {
     container.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.vista === id));
-    vistas.find(v => v.id === id).fn(sub);
+    CJE_VISTAS[id].fn(sub);
   };
   container.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => activar(b.dataset.vista)));
-  activar('caja');
+  activar(roles[0]);
 }
 
 // ─── Cierre de Caja — rol CAJA ─────────────────────────────────────────────
@@ -15841,10 +15840,15 @@ function showUserModal(user, onSave, opts = {}) {
           ${CAMBIO_RECETA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCambioReceta||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group"><label>Rol para Cierre de Caja</label>
-        <select id="um-rol-caja-efectivo">
-          ${CAJA_EFECTIVO_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCajaEfectivo||'')=== k?'selected':''}>${v}</option>`).join('')}
-        </select>
+      <div class="form-group"><label>Roles para Cierre de Caja (puede tener varios)</label>
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          ${CAJA_EFECTIVO_ROLES.map(([k,v]) => `
+            <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+              <input type="checkbox" class="um-caja-efectivo-rol" value="${k}" ${(user?.rolesCajaEfectivo||[]).includes(k)?'checked':''}
+                style="width:15px;height:15px;accent-color:var(--primary)">
+              ${v}
+            </label>`).join('')}
+        </div>
       </div>
       <div class="form-group" id="um-socs-section"><label>Sociedades</label>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
@@ -16051,7 +16055,7 @@ function showUserModal(user, onSave, opts = {}) {
       areasCostoProduccion: isAdmin ? [] : [...document.querySelectorAll('.um-cp-area:checked')].map(c => c.value),
       rolBCT:       isAdmin ? '' : document.getElementById('um-rol-bct').value,
       rol86:        isAdmin ? '' : document.getElementById('um-rol-86').value,
-      rolCajaEfectivo: isAdmin ? '' : document.getElementById('um-rol-caja-efectivo').value,
+      rolesCajaEfectivo: isAdmin ? [] : [...document.querySelectorAll('.um-caja-efectivo-rol:checked')].map(c => c.value),
       operations: operacionesDerivadas,
       transferenciaDestinos: operacionesDerivadas,
       puedeVerKardex:      !isAdmin && (document.getElementById('um-kardex')?.checked      ?? false),

@@ -27,7 +27,7 @@ function buildPayload(user) {
     rolPlanilla: user.rolPlanilla || '', accesoPlanillas: !!user.accesoPlanillas,
     accesoInventarios: !!user.accesoInventarios, accesoVentas: !!user.accesoVentas,
     accesoCostoProduccion: !!user.accesoCostoProduccion,
-    rolCajaEfectivo: user.rolCajaEfectivo || '',
+    rolesCajaEfectivo: user.rolesCajaEfectivo || [],
     accesoCumplimiento: !!user.accesoCumplimiento,
   };
 }

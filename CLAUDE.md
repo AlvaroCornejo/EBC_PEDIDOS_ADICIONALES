@@ -1572,6 +1572,24 @@ Atlas de producción (ni con el sandbox de red desactivado) — se verificó sol
 completo (abrir turno → movimientos → cerrar → enviar → confirmar → Back Office) en el
 servidor real antes de dar el módulo por validado.
 
+**Refinamientos posteriores (misma sesión, probando en el servidor):**
+- Se quitó "Venta por canal" del modal de Cerrar Turno (campo `TurnoCaja.ventaPorCanal`
+  eliminado del modelo, de `PUT /turnos/:id/cerrar` y del resumen de Back Office). Queda
+  solo TIP Facturado por día.
+- Back Office: nuevo cuadre de efectivo por día **y por moneda** (tablas separadas PEN/USD):
+  apertura + ingresos − enviado = saldo calculado, comparado contra el conteo de cierre
+  (diferencia en rojo si no cuadra, `null`/"—" si algún turno del día sigue abierto).
+- `rolCajaEfectivo` (un solo rol por usuario) → **`rolesCajaEfectivo`** (array): un usuario
+  puede tener varios roles a la vez (ej. Oficina + Control). `models/User.js` ahora guarda
+  `[String]` con enum `CAJA/OFICINA/CONTROL/BACKOFFICE`; `routes/cajaEfectivo.js` usa
+  `tieneRol(user, ...roles)` (si cumple AL MENOS UNO) en vez de comparar un solo valor.
+  Frontend: checkboxes en el form de usuario (antes `<select>`), y `viewCajaEfectivo`
+  muestra la vista directa si el usuario tiene un solo rol, o un selector de pestañas
+  (`viewCajaEfectivoMultiRol`) si tiene varios — ADMIN sigue viendo las 4 pestañas.
+- `scripts/limpiarCajaEfectivoPrueba.js`: borra `turnocajas`/`movimientoefectivocajas`/
+  `envioefectivos`/`cierreoficinadiarios` (no toca `cajaefectivoconfigs`), para correr en
+  el servidor después de las pruebas manuales.
+
 ### Sesión 29 — Cumplimiento de Actividades (módulo nuevo; evidencia/Box retirados en la Sesión 30)
 
 Seguimiento semanal de actividades por área: cada área tiene un único responsable: el

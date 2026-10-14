@@ -12,7 +12,7 @@ const router = express.Router();
 router.use(auth);
 
 function requireAccess(req, res, next) {
-  if (req.user.role === 'ADMIN' || req.user.rolCajaEfectivo) return next();
+  if (req.user.role === 'ADMIN' || (req.user.rolesCajaEfectivo || []).length) return next();
   return res.status(403).json({ error: 'Sin acceso a Cierre de Caja' });
 }
 router.use(requireAccess);
@@ -25,13 +25,16 @@ function checkOpAccess(user, operacion) {
   const ops = opsFilter(user);
   return ops === null || ops.includes(operacion);
 }
-function rol(user) {
-  return user.role === 'ADMIN' ? 'ADMIN' : (user.rolCajaEfectivo || '');
+// Un usuario puede tener varios roles a la vez (ej. Oficina + Control) —
+// `tieneRol` verifica si el usuario cumple con AL MENOS UNO de los roles pedidos.
+function tieneRol(user, ...rolesPedidos) {
+  if (user.role === 'ADMIN') return true;
+  const roles = user.rolesCajaEfectivo || [];
+  return rolesPedidos.some(r => roles.includes(r));
 }
 function requireRol(...roles) {
   return (req, res, next) => {
-    const r = rol(req.user);
-    if (r === 'ADMIN' || roles.includes(r)) return next();
+    if (tieneRol(req.user, ...roles)) return next();
     return res.status(403).json({ error: 'Rol sin permiso para esta acción' });
   };
 }
@@ -222,9 +225,8 @@ router.post('/envios', async (req, res) => {
     if (!['CAJA', 'OFICINA'].includes(origen)) return res.status(400).json({ error: 'Origen inválido' });
     if (!['PEN', 'USD'].includes(moneda) || !montoEnviado) return res.status(400).json({ error: 'Faltan moneda/monto' });
 
-    const r = rol(req.user);
-    if (origen === 'CAJA' && !['ADMIN', 'CAJA'].includes(r)) return res.status(403).json({ error: 'Rol sin permiso para enviar desde Caja' });
-    if (origen === 'OFICINA' && !['ADMIN', 'OFICINA'].includes(r)) return res.status(403).json({ error: 'Rol sin permiso para enviar desde Oficina' });
+    if (origen === 'CAJA' && !tieneRol(req.user, 'CAJA')) return res.status(403).json({ error: 'Rol sin permiso para enviar desde Caja' });
+    if (origen === 'OFICINA' && !tieneRol(req.user, 'OFICINA')) return res.status(403).json({ error: 'Rol sin permiso para enviar desde Oficina' });
 
     let destino;
     if (origen === 'OFICINA') {
@@ -253,9 +255,8 @@ router.get('/envios/pendientes', async (req, res) => {
     if (!operacion || !checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
     if (!['OFICINA', 'BANCO'].includes(destino)) return res.status(400).json({ error: 'Destino inválido' });
 
-    const r = rol(req.user);
-    if (destino === 'OFICINA' && !['ADMIN', 'OFICINA'].includes(r)) return res.status(403).json({ error: 'Sin permiso' });
-    if (destino === 'BANCO' && !['ADMIN', 'BACKOFFICE'].includes(r)) return res.status(403).json({ error: 'Sin permiso' });
+    if (destino === 'OFICINA' && !tieneRol(req.user, 'OFICINA')) return res.status(403).json({ error: 'Sin permiso' });
+    if (destino === 'BANCO' && !tieneRol(req.user, 'BACKOFFICE')) return res.status(403).json({ error: 'Sin permiso' });
 
     const envios = await EnvioEfectivo.find({ operacion, destino, estado: 'ENVIADO' }).sort({ fechaEnvio: 1 }).lean();
     res.json(envios);
@@ -269,9 +270,8 @@ router.put('/envios/:id/confirmar', async (req, res) => {
     if (!checkOpAccess(req.user, envio.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
     if (envio.estado !== 'ENVIADO') return res.status(400).json({ error: 'El envío ya fue confirmado' });
 
-    const r = rol(req.user);
-    if (envio.destino === 'OFICINA' && !['ADMIN', 'OFICINA'].includes(r)) return res.status(403).json({ error: 'Sin permiso' });
-    if (envio.destino === 'BANCO' && !['ADMIN', 'BACKOFFICE'].includes(r)) return res.status(403).json({ error: 'Sin permiso' });
+    if (envio.destino === 'OFICINA' && !tieneRol(req.user, 'OFICINA')) return res.status(403).json({ error: 'Sin permiso' });
+    if (envio.destino === 'BANCO' && !tieneRol(req.user, 'BACKOFFICE')) return res.status(403).json({ error: 'Sin permiso' });
 
     const { montoConfirmado, comentario } = req.body;
     if (montoConfirmado === undefined || montoConfirmado === null || montoConfirmado === '') {
