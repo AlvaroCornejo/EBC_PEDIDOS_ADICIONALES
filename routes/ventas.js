@@ -3,6 +3,7 @@ const auth = require('../middleware/auth');
 
 const VentaDiaria = require('../models/VentaDiaria');
 const TipDiario = require('../models/TipDiario');
+const VentaPronostico = require('../models/VentaPronostico');
 const { rangoDia, rangoSemana, rangoMes, rangoAnio, lunesDeLaSemana, aMedianoche, finDeDia, sumarDias } = require('../utils/ventasRangos');
 
 const router = express.Router();
@@ -252,6 +253,57 @@ router.get('/semanas', async (req, res) => {
     });
 
     res.json({ canales: canalesOrden, filas });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /pronostico?operacion=&fecha=&semanas= — venta real vs. pronóstico semanal ──
+// El pronóstico usa canales LOCAL / TO GO; en la venta real son EN EL LOCAL / PARA LLEVAR.
+const CANAL_PRONOSTICO = { 'LOCAL': 'EN EL LOCAL', 'TO GO': 'PARA LLEVAR' };
+const canalPron = c => CANAL_PRONOSTICO[c] || c;
+// AAAASS (semana ISO) del lunes dado: el año y la semana los define el jueves de esa semana.
+function periodoDeLunes(lunes) {
+  const jue = sumarDias(lunes, 3);
+  const dias = Math.round((aMedianoche(jue) - new Date(jue.getFullYear(), 0, 1)) / 86400000);
+  return jue.getFullYear() * 100 + Math.floor(dias / 7) + 1;
+}
+router.get('/pronostico', async (req, res) => {
+  try {
+    const operaciones = operacionesFromQuery(req);
+    const nSemanas = Math.max(1, Math.min(52, Number(req.query.semanas) || 12));
+    if (!operaciones.length || !req.query.fecha) return res.status(400).json({ error: 'Operación y fecha son requeridas' });
+    if (!checkOpsAccess(req.user, operaciones)) return res.status(403).json({ error: 'Operación no autorizada' });
+
+    const lunesSel = lunesDeLaSemana(aMedianoche(new Date(req.query.fecha)));
+    const lunes0 = sumarDias(lunesSel, -(nSemanas - 1) * 7);
+    const [docs, pron] = await Promise.all([
+      VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: lunes0, $lte: finDeDia(sumarDias(lunesSel, 6)) }, tipoDocumento: 'VENTA' }).lean(),
+      VentaPronostico.find({ operacion: { $in: operaciones } }).lean(),
+    ]);
+    const pronPorPeriodo = {};
+    pron.forEach(p => { (pronPorPeriodo[p.periodo] = pronPorPeriodo[p.periodo] || []).push(p); });
+
+    const resumen = (lunes) => {
+      const periodo = periodoDeLunes(lunes);
+      const fin = finDeDia(sumarDias(lunes, 6));
+      const canales = {};
+      const ponerCanal = c => (canales[c] = canales[c] || { canal: c, pronostico: null, real: 0 });
+      docs.forEach(d => {
+        if (d.fecha < lunes || d.fecha > fin || d.canal === 'OTROS') return; // OTROS no entra al total
+        ponerCanal(d.canal).real += d.venta;
+      });
+      const delPeriodo = pronPorPeriodo[periodo] || [];
+      delPeriodo.forEach(p => { const c = ponerCanal(canalPron(p.canal)); c.pronostico = (c.pronostico || 0) + p.venta; });
+      const lista = Object.values(canales).sort((a, b) => a.canal.localeCompare(b.canal));
+      return {
+        periodo, lunes, domingo: sumarDias(lunes, 6), hayPronostico: delPeriodo.length > 0, canales: lista,
+        pronostico: delPeriodo.length ? delPeriodo.reduce((s, p) => s + p.venta, 0) : null,
+        real: lista.reduce((s, c) => s + c.real, 0),
+      };
+    };
+
+    const serie = [];
+    for (let i = 0; i < nSemanas; i++) { const r = resumen(sumarDias(lunes0, i * 7)); serie.push({ periodo: r.periodo, lunes: r.lunes, domingo: r.domingo, pronostico: r.pronostico, real: r.real }); }
+    res.json({ semana: resumen(lunesSel), serie });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

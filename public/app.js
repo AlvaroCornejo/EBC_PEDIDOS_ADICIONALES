@@ -12934,6 +12934,7 @@ async function viewVentas(container) {
             <input type="number" id="vt-nsemanas" class="form-control" value="${nSemanas}" min="1" max="52" style="width:90px">
           </div>
           <button class="btn btn-primary btn-sm" id="vt-cargar">🔍 Cargar</button>
+          <button class="btn btn-outline btn-sm" id="vt-pronostico" title="Compara la venta real de la semana de la fecha elegida con el pronóstico">🎯 Real vs Pronóstico</button>
         </div>
       </div>
       <div id="vt-content"></div>
@@ -12961,6 +12962,52 @@ async function viewVentas(container) {
   document.getElementById('vt-fecha').addEventListener('change', e => { fechaActual = e.target.value; });
   document.getElementById('vt-nsemanas').addEventListener('change', e => { nSemanas = Number(e.target.value) || 12; });
   document.getElementById('vt-cargar').addEventListener('click', cargarTodo);
+  document.getElementById('vt-pronostico').addEventListener('click', showPronostico);
+
+  // Venta real vs. pronóstico semanal (EBC PRONOSTICO VENTAS.xlsx), de la semana que contiene la fecha elegida.
+  async function showPronostico() {
+    if (!operacionesSel.size) return toast('Selecciona al menos una operación', 'error');
+    const ops = [...operacionesSel].join(', ');
+    openModal(`🎯 Real vs Pronóstico — ${esc(ops)}`, '<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span> Calculando...</div>', null, { wide: true });
+    let d;
+    try { d = await GET(`/ventas/pronostico?operacion=${encodeURIComponent([...operacionesSel].join(','))}&fecha=${fechaActual}&semanas=${nSemanas}`); }
+    catch (e) { document.getElementById('modal-body').innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
+
+    const fmtFecha = f => { const x = new Date(f); return `${String(x.getDate()).padStart(2, '0')}/${String(x.getMonth() + 1).padStart(2, '0')}`; };
+    const lblSem = p => `S${String(p.periodo).slice(4)} (${fmtFecha(p.lunes)}–${fmtFecha(p.domingo)})`;
+    const dif = (real, pron) => pron == null ? null : real - pron;
+    const cumpl = (real, pron) => pron ? real / pron : null;
+    const celdas = (real, pron) => {
+      const df = dif(real, pron), cp = cumpl(real, pron);
+      return `<td class="text-right">${pron == null ? '—' : fmtMoney(pron)}</td>
+        <td class="text-right">${fmtMoney(real)}</td>
+        <td class="text-right" style="${colorVar(df)}">${df == null ? '—' : (df >= 0 ? '+' : '-') + fmtMoney(Math.abs(df))}</td>
+        <td class="text-right" style="${cp == null ? '' : cp >= 1 ? 'color:#16a34a' : 'color:#ef4444'}">${cp == null ? '—' : (cp * 100).toFixed(1) + '%'}</td>`;
+    };
+    const th = `<th class="text-right">Pronóstico</th><th class="text-right">Real</th><th class="text-right">Diferencia</th><th class="text-right">% Cumpl.</th>`;
+    const sem = d.semana;
+    const hoy = new Date(); const enCurso = new Date(sem.lunes) <= hoy && hoy <= new Date(new Date(sem.domingo).getTime() + 86400000);
+
+    document.getElementById('modal-body').innerHTML = `
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+        Semana ${esc(lblSem(sem))}${enCurso ? ' — en curso: el real es a la fecha, no la semana completa' : ''}. El real excluye OTROS y cortesías.
+        ${sem.hayPronostico ? '' : '<b style="color:#b45309">No hay pronóstico cargado para esta semana.</b>'}
+      </div>
+      <div class="table-wrap"><table class="data-table" style="font-size:12px">
+        <thead><tr><th>Canal</th>${th}</tr></thead>
+        <tbody>
+          ${sem.canales.map(c => `<tr><td>${esc(c.canal)}</td>${celdas(c.real, c.pronostico)}</tr>`).join('')}
+          <tr style="font-weight:700"><td>TOTAL</td>${celdas(sem.real, sem.pronostico)}</tr>
+        </tbody>
+      </table></div>
+      <div style="font-weight:700;margin:18px 0 8px">Últimas ${d.serie.length} semanas (total)</div>
+      <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="data-table" style="font-size:12px">
+        <thead><tr><th>Semana</th>${th}</tr></thead>
+        <tbody>
+          ${[...d.serie].reverse().map(x => `<tr${x.periodo === sem.periodo ? ' style="font-weight:700;background:#eef2ff"' : ''}><td>${esc(lblSem(x))}</td>${celdas(x.real, x.pronostico)}</tr>`).join('')}
+        </tbody>
+      </table></div>`;
+  }
 
   if (operacionesSel.size) await cargarTodo();
 
