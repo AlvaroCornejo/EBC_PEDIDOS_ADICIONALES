@@ -13001,6 +13001,7 @@ async function viewVentas(container) {
         </tbody>
       </table></div>
       <div style="font-weight:700;margin:18px 0 8px">Últimas ${d.serie.length} semanas (total)</div>
+      <div class="vc-chart" id="pron-ch-sum"></div>
       <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="data-table" style="font-size:12px">
         <thead><tr><th>Semana</th>${th}</tr></thead>
         <tbody>
@@ -13016,6 +13017,7 @@ async function viewVentas(container) {
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(480px,1fr));gap:16px">
         ${d.porOperacion.map(o => `<div>
           <div style="font-weight:700;margin-bottom:6px">${esc(o.operacion)}</div>
+          <div class="vc-chart" id="pron-ch-${esc(o.operacion)}"></div>
           <div class="table-wrap"><table class="data-table" style="font-size:12px">
             <thead><tr><th>Semana</th>${th}</tr></thead>
             <tbody>${[...o.serie].reverse().map(x => `<tr${x.periodo === sem.periodo ? ' style="font-weight:700;background:#eef2ff"' : ''}><td>${esc(lblSem(x))}</td>${celdas(x.real, x.pronostico)}</tr>`).join('')}</tbody>
@@ -13023,9 +13025,24 @@ async function viewVentas(container) {
       </div>`;
 
     // Selector superior: operaciones sumarizadas (por canal) o una tabla por operación (solo con varias).
+    // Líneas Real vs Pronóstico; una semana sin pronóstico deja el hueco en la línea.
+    const lineas = (id, serie, aria) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      vcLineas(el, {
+        cats: serie.map(x => 'S' + String(x.periodo).slice(4)),
+        series: [
+          { name: 'Real', color: '#2a78d6', w: 2.5, vals: serie.map(x => x.real) },
+          { name: 'Pronóstico', color: '#eb6834', w: 2, vals: serie.map(x => x.pronostico) },
+        ],
+        fmt: fmtMoney, aria,
+      });
+    };
     const pintar = modo => {
       const selector = d.porOperacion ? `<div style="margin-bottom:12px">${vcSeg('pron:modo', [['sumarizado', 'Operaciones sumarizadas'], ['operacion', 'Por operación']], modo)}</div>` : '';
       document.getElementById('modal-body').innerHTML = selector + (modo === 'operacion' && d.porOperacion ? vistaPorOperacion() : vistaSumarizada());
+      if (modo === 'operacion' && d.porOperacion) d.porOperacion.forEach(o => lineas('pron-ch-' + o.operacion, o.serie, 'Real vs pronóstico ' + o.operacion));
+      else lineas('pron-ch-sum', d.serie, 'Real vs pronóstico, total');
       document.querySelectorAll('#modal-body .vc-seg button').forEach(b => b.addEventListener('click', () => pintar(b.dataset.vcV)));
     };
     pintar('sumarizado');
