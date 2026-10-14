@@ -405,7 +405,7 @@ async function viewSolicitar(container, params = {}) {
     <div class="page-header">
       <div class="page-title">${editId ? '✏️ Editar Pedido' : '📝 Nueva Solicitud'}</div>
       <div style="display:flex;gap:8px;margin-left:auto">
-        <button class="btn btn-outline btn-sm" id="btn-relacion" title="Todos los ítems de la hoja Requisiciones con sus consumos, agrupados por Grupo Compra">📚 Relación de ítems</button>
+        <button class="btn btn-outline btn-sm" id="btn-relacion" title="Todos los ítems de la hoja Requisiciones con sus consumos, agrupados por Grupo Compra">📚 Análisis de Variaciones</button>
         <button class="btn btn-outline btn-sm" id="btn-resumen">📊 Resumen</button>
         <button class="btn btn-outline btn-sm" onclick="showHelp('solicitar')">❓ Ayuda</button>
       </div>
@@ -2128,12 +2128,12 @@ function renderPedidosAtendidos(container, pedidos, gestionFilter = '') {
   container.appendChild(wrap);
 }
 
-// ─── Relación de ítems (hoja Requisiciones) con opción de agregar al pedido ──
+// ─── Análisis de Variaciones (hoja Requisiciones) con opción de agregar al pedido ──
 async function showRelacionItems() {
   if (!S.form?.operacion) return toast('Seleccione una operación', 'error');
   if (!S.form?.fecha) return toast('Seleccione una fecha', 'error');
   const operacion = S.form.operacion, fecha = S.form.fecha;
-  openModal(`📚 Relación de ítems — ${esc(operacion)}`, '<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span> Calculando...</div>', null, { fullwide: true });
+  openModal(`📚 Análisis de Variaciones — ${esc(operacion)}`, '<div style="text-align:center;padding:32px"><span class="spinner spinner-dark"></span> Calculando...</div>', null, { fullwide: true });
   let data;
   try { data = await GET(`/datos/requisiciones-resumen?operacion=${encodeURIComponent(operacion)}&fecha=${encodeURIComponent(fecha)}`); }
   catch (err) { document.getElementById('modal-body').innerHTML = `<p style="color:#dc2626;padding:16px">${esc(err.message)}</p>`; return; }
