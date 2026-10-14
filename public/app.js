@@ -13444,7 +13444,7 @@ async function viewCajaEfectivoCaja(container) {
       </div></div>
 
       <div class="card mb-16"><div class="card-body">
-        <div style="font-weight:700;margin-bottom:10px">Agregar movimiento</div>
+        <div style="font-weight:700;margin-bottom:10px">Agregar Ingreso de Efectivo</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo</label>
             <select id="cje-mov-tipo" class="form-control" style="width:180px">
