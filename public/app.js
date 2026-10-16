@@ -3036,7 +3036,7 @@ async function explotarPedidosPlanta(pedidos) {
     }).join('');
     const producciones = detalle => tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true) + th('Exceso', true) + th('Costo unit.', true) + th('Valorizado', true) + th('Valor del exceso', true),
       data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}${td(fmtN(r.exceso), true, r.exceso > 0.005 ? 'color:#b45309' : 'color:#9ca3af')}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}${td(fmtS(r.valorExceso), true, r.exceso > 0.005 ? 'color:#b45309' : 'color:#9ca3af')}</tr>${detalle ? subOrigen(r, 10, 2, 8) : ''}`).join(''));
-    const insumos = detalle => tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cant. por corridas', true) + th('Cant. solo lo pedido', true) + th('Costo unit.', true) + th('Valor por corridas', true) + th('Valor solo lo pedido', true),
+    const insumos = detalle => tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cantidad por lote', true) + th('Cantidad exacta', true) + th('Costo unit.', true) + th('Valor por lote', true) + th('Valor exacto', true),
       data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}${td(fmtN(r.cantidadExacta), true, 'color:#6b7280')}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}${td(fmtS(r.valorExacto), true, 'color:#6b7280')}</tr>${detalle ? subOrigen(r, 9, 4, 7) : ''}`).join(''),
       pieTotal(7, sum(data.insumos, 'valor'), sum(data.insumos, 'valorExacto')));
 
@@ -3083,7 +3083,7 @@ function exportarExplosion(data) {
     ...data.solicitado.map(r => fila([r.item, r.descripcion, r.pedidos, n(r.cantidad), n(r.valor)])), '',
     'PRODUCCIONES', fila(['Código', 'Descripción', 'Requerido', 'Batch', 'Corridas', 'Produce', 'Exceso', 'Costo unit.', 'Valorizado S/', 'Valor del exceso S/']),
     ...data.producciones.map(r => fila([r.item, r.descripcion, n(r.requerida), n(r.batch), r.corridas, n(r.producida), n(r.exceso), n(r.costoUnitario), n(r.valor), n(r.valorExceso)])), '',
-    'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cant. por corridas', 'Cant. solo lo pedido', 'Costo unit.', 'Valor por corridas S/', 'Valor solo lo pedido S/']),
+    'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cantidad por lote', 'Cantidad exacta', 'Costo unit.', 'Valor por lote S/', 'Valor exacto S/']),
     ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad), n(r.cantidadExacta), n(r.costoUnitario), n(r.valor), n(r.valorExacto)])), '',
     'DETALLE POR ÍTEM SOLICITADO', fila(['Tipo', 'Código', 'Descripción', 'Ítem solicitado', 'Descripción solicitado', 'Cantidad atribuida', 'Valorizado S/']),
     ...data.producciones.flatMap(r => r.origen.map(o => fila(['Producción', r.item, r.descripcion, o.item, o.descripcion, n(o.cantidad), n(o.cantidad * (r.costoUnitario || 0))]))),
