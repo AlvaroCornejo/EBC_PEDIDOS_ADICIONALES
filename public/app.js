@@ -3019,7 +3019,7 @@ async function explotarPedidosPlanta(pedidos) {
     const td = (t, right, extra = '') => `<td style="padding:5px 8px;${right ? 'text-align:right;' : ''}${extra}">${t}</td>`;
     const tabla = (cabs, filas, pie = '') => `<div style="overflow:auto;max-height:380px"><table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="background:#f3f4f6;position:sticky;top:0">${cabs}</tr></thead><tbody>${filas || '<tr><td colspan="9" class="text-muted" style="padding:12px">Sin datos</td></tr>'}</tbody>${pie}</table></div>`;
-    const pieTotal = (colspan, total) => `<tfoot><tr style="font-weight:700;border-top:2px solid #e5e7eb;position:sticky;bottom:0;background:#fff"><td colspan="${colspan}" style="padding:6px 8px;text-align:right">TOTAL</td><td style="padding:6px 8px;text-align:right">${fmtS(total)}</td></tr></tfoot>`;
+    const pieTotal = (colspan, total, total2) => `<tfoot><tr style="font-weight:700;border-top:2px solid #e5e7eb;position:sticky;bottom:0;background:#fff"><td colspan="${colspan}" style="padding:6px 8px;text-align:right">TOTAL</td><td style="padding:6px 8px;text-align:right">${fmtS(total)}</td>${total2 != null ? `<td style="padding:6px 8px;text-align:right;color:#6b7280">${fmtS(total2)}</td>` : ''}</tr></tfoot>`;
     const sum = (arr, k) => arr.reduce((t, r) => t + (r[k] || 0), 0);
 
     const solicitado = tabla(th('Código') + th('Descripción') + th('Pedidos', true) + th('Cantidad', true) + th('Valorizado', true),
@@ -3034,11 +3034,11 @@ async function explotarPedidosPlanta(pedidos) {
         : i === valCol ? td(fmtS(o.cantidad * (r.costoUnitario || 0)), true, 'color:#6b7280') : td(''));
       return `<tr style="background:#faf5ff">${celdas.join('')}</tr>`;
     }).join('');
-    const producciones = detalle => tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true) + th('Costo unit.', true) + th('Valorizado', true),
-      data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>${detalle ? subOrigen(r, 8, 2, 7) : ''}`).join(''));
-    const insumos = detalle => tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cantidad', true) + th('Costo unit.', true) + th('Valorizado', true),
-      data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>${detalle ? subOrigen(r, 7, 4, 6) : ''}`).join(''),
-      pieTotal(6, sum(data.insumos, 'valor')));
+    const producciones = detalle => tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true) + th('Exceso', true) + th('Costo unit.', true) + th('Valorizado', true) + th('Valor del exceso', true),
+      data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}${td(fmtN(r.exceso), true, r.exceso > 0.005 ? 'color:#b45309' : 'color:#9ca3af')}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}${td(fmtS(r.valorExceso), true, r.exceso > 0.005 ? 'color:#b45309' : 'color:#9ca3af')}</tr>${detalle ? subOrigen(r, 10, 2, 8) : ''}`).join(''));
+    const insumos = detalle => tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cant. por corridas', true) + th('Cant. solo lo pedido', true) + th('Costo unit.', true) + th('Valor por corridas', true) + th('Valor solo lo pedido', true),
+      data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}${td(fmtN(r.cantidadExacta), true, 'color:#6b7280')}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}${td(fmtS(r.valorExacto), true, 'color:#6b7280')}</tr>${detalle ? subOrigen(r, 9, 4, 7) : ''}`).join(''),
+      pieTotal(7, sum(data.insumos, 'valor'), sum(data.insumos, 'valorExacto')));
 
     const aviso = !data.costosDisponibles ? '<div style="margin-top:10px;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px">⚠️ No se encontraron los costos de PLANTA: producciones e insumos salen sin valorizar.</div>' : '';
     const notaProd = '<div style="margin-top:8px;font-size:12px;color:#6b7280">El valorizado de producciones ya incluye el costo de sus insumos; no se suma al total de insumos.</div>';
@@ -3081,10 +3081,10 @@ function exportarExplosion(data) {
   const lineas = [
     'SOLICITADO A PLANTA', fila(['Código', 'Descripción', 'Pedidos', 'Cantidad', 'Valorizado S/']),
     ...data.solicitado.map(r => fila([r.item, r.descripcion, r.pedidos, n(r.cantidad), n(r.valor)])), '',
-    'PRODUCCIONES', fila(['Código', 'Descripción', 'Requerido', 'Batch', 'Corridas', 'Produce', 'Costo unit.', 'Valorizado S/']),
-    ...data.producciones.map(r => fila([r.item, r.descripcion, n(r.requerida), n(r.batch), r.corridas, n(r.producida), n(r.costoUnitario), n(r.valor)])), '',
-    'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cantidad', 'Costo unit.', 'Valorizado S/']),
-    ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad), n(r.costoUnitario), n(r.valor)])), '',
+    'PRODUCCIONES', fila(['Código', 'Descripción', 'Requerido', 'Batch', 'Corridas', 'Produce', 'Exceso', 'Costo unit.', 'Valorizado S/', 'Valor del exceso S/']),
+    ...data.producciones.map(r => fila([r.item, r.descripcion, n(r.requerida), n(r.batch), r.corridas, n(r.producida), n(r.exceso), n(r.costoUnitario), n(r.valor), n(r.valorExceso)])), '',
+    'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cant. por corridas', 'Cant. solo lo pedido', 'Costo unit.', 'Valor por corridas S/', 'Valor solo lo pedido S/']),
+    ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad), n(r.cantidadExacta), n(r.costoUnitario), n(r.valor), n(r.valorExacto)])), '',
     'DETALLE POR ÍTEM SOLICITADO', fila(['Tipo', 'Código', 'Descripción', 'Ítem solicitado', 'Descripción solicitado', 'Cantidad atribuida', 'Valorizado S/']),
     ...data.producciones.flatMap(r => r.origen.map(o => fila(['Producción', r.item, r.descripcion, o.item, o.descripcion, n(o.cantidad), n(o.cantidad * (r.costoUnitario || 0))]))),
     ...data.insumos.flatMap(r => r.origen.map(o => fila(['Insumo final', r.item, r.descripcion, o.item, o.descripcion, n(o.cantidad), n(o.cantidad * (r.costoUnitario || 0))]))),
