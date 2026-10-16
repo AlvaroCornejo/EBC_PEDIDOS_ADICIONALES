@@ -12894,6 +12894,8 @@ async function viewVentas(container) {
   const ayer = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
   let fechaActual = ayer, nSemanas = 12;
   let dataDia = null, dataSemanas = null, dataMensual = null, canalMensualSel = 'TOTAL';
+  let canalesDisp = [];            // todos los canales de las operaciones elegidas (sin filtrar)
+  const canalesFiltro = new Set(); // vacío = todos los canales
 
   const fmtMoney = v => 'S/ ' + (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const fmtNum = v => (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -12923,10 +12925,16 @@ async function viewVentas(container) {
   container.innerHTML = `
     <div class="page-header"><div class="page-title">🛒 Ventas</div></div>
     <div class="page-body">
-      <div class="card mb-16" style="padding:14px">
+      <div class="card mb-16 vt-sticky" style="padding:14px">
         <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
             <div id="vt-operacion" style="display:flex;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:6px;padding:7px 10px;max-height:70px;overflow-y:auto;min-width:200px"></div>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Canal</label>
+            <details id="vt-canal-det" style="position:relative">
+              <summary id="vt-canal-sum" class="form-control" style="cursor:pointer;width:170px;display:block;list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Todos los canales</summary>
+              <div id="vt-canal-box" style="position:absolute;top:100%;left:0;z-index:40;background:var(--white);border:1px solid var(--border);border-radius:6px;box-shadow:var(--shadow-md);padding:8px 10px;min-width:190px;max-height:260px;overflow-y:auto"></div>
+            </details>
           </div>
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha</label>
             <input type="date" id="vt-fecha" class="form-control" value="${fechaActual}" style="width:160px">
@@ -12959,6 +12967,7 @@ async function viewVentas(container) {
 
   document.querySelectorAll('.vt-op-chk').forEach(chk => chk.addEventListener('change', () => {
     if (chk.checked) operacionesSel.add(chk.value); else operacionesSel.delete(chk.value);
+    canalesFiltro.clear();
   }));
   document.getElementById('vt-fecha').addEventListener('change', e => { fechaActual = e.target.value; });
   document.getElementById('vt-nsemanas').addEventListener('change', e => { nSemanas = Number(e.target.value) || 12; });
@@ -13051,18 +13060,38 @@ async function viewVentas(container) {
 
   if (operacionesSel.size) await cargarTodo();
 
+  // Lista de canales con checkbox; se repinta con los canales de las operaciones elegidas.
+  // Un cambio de selección recarga las consultas (el servidor recalcula tablas y totales).
+  function pintarFiltroCanal(disp) {
+    canalesDisp = disp;
+    [...canalesFiltro].forEach(c => { if (!disp.includes(c)) canalesFiltro.delete(c); });
+    const box = document.getElementById('vt-canal-box');
+    box.innerHTML = `<label style="display:flex;gap:6px;align-items:center;font-size:12px;font-weight:700;cursor:pointer;padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:4px">
+        <input type="checkbox" id="vt-canal-todos" ${canalesFiltro.size ? '' : 'checked'}> Todos los canales</label>` +
+      disp.map(c => `<label style="display:flex;gap:6px;align-items:center;font-size:12px;font-weight:normal;cursor:pointer;padding:2px 0;white-space:nowrap">
+        <input type="checkbox" class="vt-canal-chk" value="${esc(c)}" ${canalesFiltro.has(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('');
+    document.getElementById('vt-canal-sum').textContent = !canalesFiltro.size ? 'Todos los canales' : canalesFiltro.size === 1 ? [...canalesFiltro][0] : `${canalesFiltro.size} canales`;
+    box.querySelector('#vt-canal-todos').addEventListener('change', () => { canalesFiltro.clear(); cargarTodo(); });
+    box.querySelectorAll('.vt-canal-chk').forEach(chk => chk.addEventListener('change', () => {
+      if (chk.checked) canalesFiltro.add(chk.value); else canalesFiltro.delete(chk.value);
+      cargarTodo();
+    }));
+  }
+
   async function cargarTodo() {
     if (!operacionesSel.size) return toast('Selecciona al menos una operación', 'error');
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
       const opsParam = encodeURIComponent([...operacionesSel].join(','));
+      const canalParam = canalesFiltro.size ? `&canal=${encodeURIComponent([...canalesFiltro].join(','))}` : '';
       const [dia, semanas, mensual] = await Promise.all([
-        GET(`/ventas/dia?operacion=${opsParam}&fecha=${fechaActual}`),
-        GET(`/ventas/semanas?operacion=${opsParam}&semanas=${nSemanas}`),
+        GET(`/ventas/dia?operacion=${opsParam}&fecha=${fechaActual}${canalParam}`),
+        GET(`/ventas/semanas?operacion=${opsParam}&semanas=${nSemanas}${canalParam}`),
         GET(`/ventas/mensual?operacion=${opsParam}`),
       ]);
       dataDia = dia; dataSemanas = semanas; dataMensual = mensual;
       canalMensualSel = 'TOTAL';
+      pintarFiltroCanal(dia.canalesDisponibles || []);
       render();
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }

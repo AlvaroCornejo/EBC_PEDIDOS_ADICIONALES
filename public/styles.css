@@ -87,6 +87,9 @@ input, select, textarea { font: inherit; }
 .page-header { background: var(--white); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .page-title { font-size: 18px; font-weight: 700; color: var(--text); }
 .page-body { padding: 24px; }
+/* Barra de filtros de Ventas: se queda fija arriba mientras se hace scroll. */
+.vt-sticky { position: sticky; top: 0; z-index: 30; box-shadow: var(--shadow-md); }
+@media (max-width: 768px) { .vt-sticky { top: 52px; } }
 
 /* ─── Cards ─────────────────────────────────────────────────── */
 .card { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow); }
