@@ -686,7 +686,7 @@ function renderTableHeader(mode = 'edit') {
   } else if (mode === 'edit-revisar') {
     lastCols = `<th rowspan="2" style="min-width:100px">Estado</th><th rowspan="2" style="min-width:180px">Comentario Aprobador</th><th rowspan="2" class="col-actions"></th>`;
   } else if (mode === 'atender' || mode === 'atendido') {
-    lastCols = `<th rowspan="2" style="min-width:100px">Estado</th><th rowspan="2" style="text-align:center;min-width:90px">Atendido</th>`;
+    lastCols = `<th rowspan="2" style="min-width:100px">Estado</th><th rowspan="2" style="min-width:180px">Comentario Aprobador</th><th rowspan="2" style="text-align:center;min-width:90px">Atendido</th>`;
   } else {
     lastCols = `<th rowspan="2" class="col-actions"></th>`;
   }
@@ -782,6 +782,7 @@ function renderLineaRow(l, idx, editable = true, mode = 'edit', operacion = '') 
     const readonly  = mode === 'atendido' || atendido;  // #7: no des-atender
     lastCells = `
       <td>${isAutoAprobado ? autoBadgeHtml(l) : (el ? `<span class="badge badge-${el}">${el}</span>` : '—')}</td>
+      <td style="font-size:13px">${esc(l.comentarioAprobador || '')}</td>
       <td style="text-align:center">
         ${rechazado
           ? `<span style="color:#9ca3af;font-size:12px">N/A</span>`
