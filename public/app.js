@@ -3527,6 +3527,7 @@ async function viewCostoRecetas(container) {
   let debounceNombre = null;
   let itemSeleccionado = null;
   let tabActual = 'costeo'; // 'costeo' | 'solicitudes'
+  let costoInsumo = 'real';  // 'real' = última producción | 'receta' = costo de receta (insumos que tienen receta)
   let filtroSolEstado = 'pendiente';
   let filtroSolOperacion = '';   // '' = todas las operaciones autorizadas
   let opsDisponibles = [];
@@ -3577,6 +3578,13 @@ async function viewCostoRecetas(container) {
             <div>
               <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Nombre</label>
               <input type="text" id="cr-nombre" class="form-control" style="width:220px" placeholder="Buscar por nombre...">
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px" title="Solo aplica a insumos que a su vez tienen receta">Costo de insumos con receta</label>
+              <select id="cr-costoinsumo" class="form-control" style="width:210px">
+                <option value="real">Última producción</option>
+                <option value="receta">Costo de la receta</option>
+              </select>
             </div>
             <div>
               <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semáforo</label>
@@ -3652,6 +3660,11 @@ async function viewCostoRecetas(container) {
     debounceNombre = setTimeout(cargar, 300);
   });
   document.getElementById('cr-semaforo').addEventListener('change', (e) => { filtros.semaforo = e.target.value; cargar(); });
+  document.getElementById('cr-costoinsumo').addEventListener('change', async (e) => {
+    costoInsumo = e.target.value;
+    await cargar();
+    if (itemSeleccionado) verDetalle(itemSeleccionado);
+  });
 
   async function cargarGrupos() {
     if (!operacionActual) return;
@@ -3670,6 +3683,7 @@ async function viewCostoRecetas(container) {
       if (filtros.item) params.set('item', filtros.item);
       if (filtros.nombre) params.set('nombre', filtros.nombre);
       if (filtros.semaforo) params.set('semaforo', filtros.semaforo);
+      params.set('costoInsumo', costoInsumo);
       const filas = await GET(`/recetas-costeo/resumen?${params}`);
       render(filas);
     } catch (e) { root.innerHTML = `<p style="color:red">${esc2(e.message)}</p>`; }
@@ -3714,10 +3728,10 @@ async function viewCostoRecetas(container) {
     });
     detalleRoot.innerHTML = '<div class="card"><div class="text-muted text-center py-24">⏳ Cargando...</div></div>';
     try {
-      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}`);
+      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}&costoInsumo=${costoInsumo}`);
       const insumosHtml = d.insumos.map(i => `<tr class="cr-insumo-row" data-insumo="${i.insumo}" style="cursor:pointer">
         <td>${i.insumo}</td>
-        <td>${esc2(i.nombreInsumo)}</td>
+        <td>${esc2(i.nombreInsumo)}${i.tieneReceta ? ` <span title="Insumo con receta propia — Última producción: ${fmtMoney(i.costoRealInsumo)} · Costo de receta: ${fmtMoney(i.costoRecetaInsumo)}" style="font-size:10px;background:#ede9fe;color:#6d28d9;border-radius:8px;padding:1px 6px">receta</span>` : ''}</td>
         <td class="text-right">${fmtCant(i.cantidad)}</td>
         <td class="text-right">${fmtMoney(i.unitario)}</td>
         <td class="text-right">${fmtMoney(i.costo)}</td>
@@ -3785,7 +3799,7 @@ async function viewCostoRecetas(container) {
     if (!contenedor) return;
     contenedor.innerHTML = '<div class="card"><div class="text-muted text-center py-16">⏳ Cargando receta del insumo...</div></div>';
     try {
-      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}`);
+      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}&costoInsumo=${costoInsumo}`);
       const insumosHtml = d.insumos.map(i => `<tr class="cr-insumo-row" data-insumo="${i.insumo}" style="cursor:pointer">
         <td>${i.insumo}</td>
         <td>${esc2(i.nombreInsumo)}</td>
