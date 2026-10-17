@@ -130,9 +130,20 @@ function explotarConsolidado(recetaMap, solicitados) {
   const descOrigen = o => cabecera.get(o)?.descripcion || recetaMap[o]?.descripcion || '';
   const listaOrigen = m => [...(m || [])].map(([o, q]) => ({ item: o, descripcion: descOrigen(o), cantidad: q })).sort((a, b) => b.cantidad - a.cantidad);
   const producciones = [], insumos = new Map();
+  // Segunda cuenta, SIN redondear a corridas completas: cuánto se necesita realmente de cada
+  // insumo para lo pedido (proporcional). Se compara con la cuenta por corridas completas.
+  const demandaExacta = new Map();
+  for (const c of cabecera.values()) if (recetaMap[c.item]) demandaExacta.set(c.item, (demandaExacta.get(c.item) || 0) + c.cantidad);
+  const insumoExacto = new Map();
   for (const it of orden) {
     const r = recetaMap[it], dem = demanda.get(it) || 0, batch = r.batch || 1;
     const corridas = Math.ceil(dem / batch - 1e-9);
+    const demEx = demandaExacta.get(it) || 0;
+    for (const ing of r.ingredientes) {
+      const cantEx = ing.cantidad * demEx / batch;
+      if (ing.esSub && recetaMap[ing.item]) demandaExacta.set(ing.item, (demandaExacta.get(ing.item) || 0) + cantEx);
+      else insumoExacto.set(ing.item, (insumoExacto.get(ing.item) || 0) + cantEx);
+    }
     producciones.push({ item: it, descripcion: r.descripcion, solicitada: cabecera.get(it)?.cantidad || 0, requerida: dem, batch, corridas, producida: corridas * batch, origen: listaOrigen(origen.get(it)) });
     const parte = origen.get(it) || new Map();
     for (const ing of r.ingredientes) {
@@ -152,14 +163,14 @@ function explotarConsolidado(recetaMap, solicitados) {
   const porTexto = (a, b) => (a.areaDescarga || '').localeCompare(b.areaDescarga || '') || (a.descripcion || '').localeCompare(b.descripcion || '');
   return {
     solicitado: [...cabecera.values()].sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || '')),
-    producciones, insumos: [...insumos.values()].map(({ _origen, ...r }) => ({ ...r, origen: listaOrigen(_origen) })).sort(porTexto), sinReceta, ciclo,
+    producciones, insumos: [...insumos.values()].map(({ _origen, ...r }) => ({ ...r, cantidadExacta: insumoExacto.get(r.item) || 0, origen: listaOrigen(_origen) })).sort(porTexto), sinReceta, ciclo,
   };
 }
 
 // POST /api/recetas/explotar  { items: [{ item, cantidad, descripcion?, pedidos? }] }
 router.post('/explotar', async (req, res) => {
   try {
-    if (!['ADMIN', 'OPERADOR_APROBACION'].includes(req.user.role)) return res.status(403).json({ error: 'Solo Administrador y Aprobador pueden explotar pedidos' });
+    if (!['ADMIN', 'OPERADOR_APROBACION', 'OPERADOR_PLANTA'].includes(req.user.role)) return res.status(403).json({ error: 'Solo Administrador, Aprobador y Planta pueden explotar pedidos' });
     const lista = Array.isArray(req.body?.items) ? req.body.items : [];
     const solicitados = lista
       .map(s => ({ item: parseInt(s.item), cantidad: parseFloat(s.cantidad) || 0, descripcion: String(s.descripcion || ''), pedidos: Number(s.pedidos) || 1, valor: Number(s.valor) || 0 }))
@@ -179,7 +190,8 @@ router.post('/explotar', async (req, res) => {
     } catch (e) { /* sin costos: se devuelve sin valorizar */ }
     const valorar = r => { r.costoUnitario = costos[String(r.item)] || 0; return r; };
     out.producciones.forEach(r => { valorar(r); r.valor = r.requerida * r.costoUnitario; });
-    out.insumos.forEach(r => { valorar(r); r.valor = r.cantidad * r.costoUnitario; });
+    out.insumos.forEach(r => { valorar(r); r.valor = r.cantidad * r.costoUnitario; r.valorExacto = r.cantidadExacta * r.costoUnitario; });
+    out.producciones.forEach(r => { r.exceso = r.producida - r.requerida; r.valorExceso = r.exceso * r.costoUnitario; });
     out.costosDisponibles = costosDisponibles;
     res.json(out);
   } catch (err) { res.status(500).json({ error: err.message }); }

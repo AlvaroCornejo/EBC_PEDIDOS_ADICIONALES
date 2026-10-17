@@ -45,6 +45,29 @@ function calcSemaforo(costo, costoReal) {
   return 'rojo';
 }
 
+/**
+ * Costo de los insumos que a su vez tienen receta (están en RecetaCosteo de la misma operación):
+ *  - 'real'   (por defecto): el unitario que ya trae el detalle = costo de la última producción.
+ *  - 'receta': el costo de receta de ese insumo (RecetaCosteo.costo).
+ * El costo de la línea es cantidad × unitario ÷ batch del detalle (así lo trae el Excel).
+ * Los insumos sin receta no cambian.
+ */
+const modoCostoInsumo = req => (req.query.costoInsumo === 'receta' ? 'receta' : 'real');
+function costoLinea(d, unitario) { return d.cantidad * unitario / (d.batch || 1); }
+function ajustarLineas(lineas, subPorItem, modo) {
+  return lineas.map(d => {
+    const sub = subPorItem.get(d.insumo);
+    if (!sub) return { ...d, tieneReceta: false };
+    const out = { ...d, tieneReceta: true, costoRecetaInsumo: sub.costo, costoRealInsumo: sub.costoReal };
+    if (modo === 'receta') { out.unitario = sub.costo; out.costo = costoLinea(d, sub.costo); }
+    return out;
+  });
+}
+async function subRecetas(operacion, insumos) {
+  const subs = await RecetaCosteo.find({ operacion, item: { $in: [...new Set(insumos)] } }).lean();
+  return new Map(subs.map(s => [s.item, s]));
+}
+
 // ── GET /operaciones ────────────────────────────────────────────────────────
 router.get('/operaciones', async (req, res) => {
   try {
@@ -79,6 +102,14 @@ router.get('/resumen', async (req, res) => {
     if (nombre) filter.nombre = { $regex: nombre.trim(), $options: 'i' };
 
     const docs = await RecetaCosteo.find(filter).sort({ grupo: 1, nombre: 1 }).lean();
+    // Con costoInsumo=receta el costo de cada ítem se recalcula con el costo de receta de sus insumos con receta.
+    if (modoCostoInsumo(req) === 'receta' && docs.length) {
+      const lineas = await RecetaCosteoDetalle.find({ operacion, item: { $in: docs.map(d => d.item) } }).lean();
+      const subs = await subRecetas(operacion, lineas.map(l => l.insumo));
+      const suma = new Map();
+      ajustarLineas(lineas, subs, 'receta').forEach(l => suma.set(l.item, (suma.get(l.item) || 0) + l.costo));
+      docs.forEach(d => { if (suma.has(d.item)) d.costo = suma.get(d.item); });
+    }
     let filas = docs.map(d => ({
       grupo: d.grupo, item: d.item, nombre: d.nombre,
       costo: d.costo, costoReal: d.costoReal, batch: d.batch,
@@ -105,17 +136,23 @@ router.get('/detalle', async (req, res) => {
     ]);
     if (!resumen) return res.status(404).json({ error: 'Ítem no encontrado' });
 
-    const totalCanal = canal => insumos.filter(i => i[canal]).reduce((s, i) => s + i.costo, 0);
+    const modo = modoCostoInsumo(req);
+    const subs = await subRecetas(operacion, insumos.map(i => i.insumo));
+    const lineas = ajustarLineas(insumos, subs, modo).sort((a, b) => b.costo - a.costo);
+    const totalCanal = canal => lineas.filter(i => i[canal]).reduce((s, i) => s + i.costo, 0);
+    // Con costoInsumo=receta el costo del ítem es la suma de sus líneas recalculadas.
+    const costo = modo === 'receta' ? lineas.reduce((s, i) => s + i.costo, 0) : resumen.costo;
 
     res.json({
-      item, operacion,
+      item, operacion, costoInsumo: modo,
       grupo: resumen.grupo, nombre: resumen.nombre, batch: resumen.batch,
-      costo: resumen.costo, costoReal: resumen.costoReal,
-      semaforo: calcSemaforo(resumen.costo, resumen.costoReal),
+      costo, costoReal: resumen.costoReal,
+      semaforo: calcSemaforo(costo, resumen.costoReal),
       totales: { mesa: totalCanal('mesa'), llevar: totalCanal('llevar'), delivery: totalCanal('delivery') },
-      insumos: insumos.map(i => ({
+      insumos: lineas.map(i => ({
         insumo: i.insumo, nombreInsumo: i.nombreInsumo, cantidad: i.cantidad,
         unitario: i.unitario, costo: i.costo, mesa: i.mesa, llevar: i.llevar, delivery: i.delivery,
+        tieneReceta: i.tieneReceta, costoRecetaInsumo: i.costoRecetaInsumo, costoRealInsumo: i.costoRealInsumo,
       })),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }

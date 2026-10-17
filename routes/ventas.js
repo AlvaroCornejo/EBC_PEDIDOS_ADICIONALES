@@ -24,6 +24,10 @@ function checkOpAccess(user, operacion) {
 function operacionesFromQuery(req) {
   return String(req.query.operacion || '').split(',').map(s => s.trim()).filter(Boolean);
 }
+/** Lee `canal=A,B` del query; vacío = todos los canales. */
+function canalesFromQuery(req) {
+  return String(req.query.canal || '').split(',').map(s => s.trim()).filter(Boolean);
+}
 function checkOpsAccess(user, operaciones) {
   return operaciones.every(o => checkOpAccess(user, o));
 }
@@ -131,14 +135,18 @@ router.get('/dia', async (req, res) => {
     // de 400 días (~mediados de octubre en adelante) quedaba cortado y daba un valor muy bajo.
     const enero1AnioAnt = new Date(fechaRef.getFullYear() - 1, 0, 1);
     const desdeTodo = new Date(Math.min(sumarDias(fechaRef, -400).getTime(), enero1AnioAnt.getTime()));
-    const [ventaDocs, canalesDistintos, tipDocs] = await Promise.all([
+    const canalesSel = canalesFromQuery(req);
+    const [ventaDocsTodos, canalesDistintos, tipDocs] = await Promise.all([
       VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: desdeTodo, $lte: finDeDia(fechaRef) } }).lean(),
       VentaDiaria.distinct('canal', { operacion: { $in: operaciones } }),
       TipDiario.find({ operacion: { $in: operaciones }, fecha: { $gte: desdeTodo, $lte: finDeDia(fechaRef) } }).lean(),
     ]);
 
-    const canalesOrden = canalesDistintos.filter(c => c !== 'OTROS').sort();
-    if (canalesDistintos.includes('OTROS')) canalesOrden.push('OTROS');
+    const ordenarCanales = lista => { const o = lista.filter(c => c !== 'OTROS').sort(); if (lista.includes('OTROS')) o.push('OTROS'); return o; };
+    const canalesDisponibles = ordenarCanales(canalesDistintos);
+    // Con filtro de canal, todas las tablas (y sus TOTAL) se calculan solo con esos canales.
+    const ventaDocs = canalesSel.length ? ventaDocsTodos.filter(d => canalesSel.includes(d.canal)) : ventaDocsTodos;
+    const canalesOrden = canalesSel.length ? canalesDisponibles.filter(c => canalesSel.includes(c)) : canalesDisponibles;
 
     const venta = {}, cantidad = {}, ticketProm = {}, permanencia = {};
     [['dia', rDia], ['semana', rSemana], ['mes', rMes], ['anio', rAnio]].forEach(([periodo, rango]) => {
@@ -168,6 +176,10 @@ router.get('/dia', async (req, res) => {
     });
 
     // TIP / Tasa TIP (sin canal)
+    const lhTodos = {};
+    [['dia', rDia], ['semana', rSemana], ['mes', rMes], ['anio', rAnio]].forEach(([periodo, rango]) => {
+      lhTodos[periodo] = bloquePeriodo(ventaDocsTodos, rango, ['EN EL LOCAL', 'HABERES']);
+    });
     const tip = {}, tasaTip = {};
     [['dia', rDia], ['semana', rSemana], ['mes', rMes], ['anio', rAnio]].forEach(([periodo, rango]) => {
       tip[periodo] = {}; tasaTip[periodo] = {};
@@ -179,7 +191,9 @@ router.get('/dia', async (req, res) => {
         tip[periodo][k] = { total: efectivo + tc, efectivo, tc };
         // Tasa TIP: el TIP solo se cobra en mesa (EN EL LOCAL / HABERES), así que el
         // denominador es la venta de esos dos canales, no la venta total de todos los canales.
-        const ventaLH = (venta['EN EL LOCAL']?.[periodo]?.[k] || 0) + (venta.HABERES?.[periodo]?.[k] || 0);
+        // El TIP no tiene canal: el denominador sale de la venta de esos canales SIN el filtro de canal.
+        const lh = lhTodos[periodo]?.[k] || {};
+        const ventaLH = (lh['EN EL LOCAL']?.venta || 0) + (lh.HABERES?.venta || 0);
         tasaTip[periodo][k] = { total: ventaLH > 0 ? (efectivo + tc) / ventaLH : 0 };
       });
       tip[periodo].varAnterior = variacion(tip[periodo].actual?.total, tip[periodo].anterior?.total);
@@ -214,7 +228,7 @@ router.get('/dia', async (req, res) => {
       });
     }
 
-    res.json({ canales: canalesOrden, venta, cantidad, ticketProm, permanencia, tip, tasaTip, turnoPorPeriodo, ventaPorOperacion });
+    res.json({ canales: canalesOrden, canalesDisponibles, venta, cantidad, ticketProm, permanencia, tip, tasaTip, turnoPorPeriodo, ventaPorOperacion });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -230,12 +244,14 @@ router.get('/semanas', async (req, res) => {
     const lunesActual = lunesDeLaSemana(hoy);
     const desde = sumarDias(lunesActual, -(nSemanas - 1) * 7);
 
+    const canalesSel = canalesFromQuery(req);
     const [docs, canalesDistintos] = await Promise.all([
-      VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: desde, $lte: finDeDia(hoy) }, tipoDocumento: 'VENTA' }).lean(),
+      VentaDiaria.find({ operacion: { $in: operaciones }, fecha: { $gte: desde, $lte: finDeDia(hoy) }, tipoDocumento: 'VENTA', ...(canalesSel.length ? { canal: { $in: canalesSel } } : {}) }).lean(),
       VentaDiaria.distinct('canal', { operacion: { $in: operaciones } }),
     ]);
-    const canalesOrden = canalesDistintos.filter(c => c !== 'OTROS').sort();
-    if (canalesDistintos.includes('OTROS')) canalesOrden.push('OTROS');
+    const canalesFiltrados = canalesSel.length ? canalesDistintos.filter(c => canalesSel.includes(c)) : canalesDistintos;
+    const canalesOrden = canalesFiltrados.filter(c => c !== 'OTROS').sort();
+    if (canalesFiltrados.includes('OTROS')) canalesOrden.push('OTROS');
 
     const semanas = [];
     for (let i = nSemanas - 1; i >= 0; i--) {

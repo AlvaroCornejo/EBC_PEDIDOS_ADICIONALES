@@ -1737,6 +1737,7 @@ async function viewAtender(container) {
           <option value="PLANTA">Solo Planta</option>
         </select>
         <div style="margin-left:auto;display:flex;gap:6px">
+          ${puedeExplotar() ? '<button class="btn btn-sm btn-outline" id="btn-semana-ate" title="Marca los pedidos de la lista cuya fecha va del lunes de esta semana a hoy">📅 Seleccionar semana</button><button class="btn btn-sm btn-outline" id="btn-explotar-ate" disabled>🏭 Explotar a Planta (0)</button>' : ''}
           <button class="btn btn-sm btn-outline" id="btn-print-ate">🖨️ Imprimir</button>
           <button class="btn btn-sm btn-outline" id="btn-export-ate">📥 Excel</button>
         </div>
@@ -1749,6 +1750,14 @@ async function viewAtender(container) {
 
   let filteredAte = [];
   let currentGestion = '';
+  const seleccion = new Set();   // ids de pedidos marcados; sobrevive a los cambios de filtro
+
+  function actualizarBotonExplotar() {
+    const b = document.getElementById('btn-explotar-ate');
+    if (!b) return;
+    b.textContent = `🏭 Explotar a Planta (${seleccion.size})`;
+    b.disabled = seleccion.size === 0;
+  }
 
   function render() {
     const op      = document.getElementById('filter-op').value;
@@ -1765,9 +1774,24 @@ async function viewAtender(container) {
       list.appendChild(sep);
       renderPedidosAtendidos(list, atendidos, currentGestion);
     }
+    enlazarSeleccionExplotar(list, seleccion, actualizarBotonExplotar);
+    actualizarBotonExplotar();
   }
   document.getElementById('filter-op').addEventListener('change', render);
   document.getElementById('filter-gestion').addEventListener('change', render);
+  document.getElementById('btn-semana-ate')?.addEventListener('click', () => {
+    const d = new Date(), lunes = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+    const ymd = x => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    const desde = ymd(lunes), hasta = today();
+    const deLaSemana = filteredAte.filter(p => { const f = String(p.fechaPedido || '').slice(0, 10); return f >= desde && f <= hasta; });
+    if (!deLaSemana.length) return toast('No hay pedidos de esta semana en la lista', 'error');
+    deLaSemana.forEach(p => seleccion.add(p.id));
+    render();
+    toast(`${deLaSemana.length} pedido${deLaSemana.length !== 1 ? 's' : ''} de esta semana seleccionado${deLaSemana.length !== 1 ? 's' : ''}`, 'success');
+  });
+  document.getElementById('btn-explotar-ate')?.addEventListener('click', () => {
+    explotarPedidosPlanta(pedidos.filter(p => seleccion.has(p.id)));
+  });
   document.getElementById('btn-print-ate').addEventListener('click', () => {
     imprimirPedidos(filteredAte, 'Atender Pedidos', currentGestion);
   });
@@ -2042,7 +2066,8 @@ function renderPedidosAtender(container, pedidos, gestionFilter = '') {
   container.innerHTML = pedidos.map(p => `
     <div class="pedido-card" id="pac-${p.id}">
       <div class="pedido-card-header">
-        <div class="pedido-meta">
+        ${chkExplotarHtml(p)}
+        <div class="pedido-meta" style="flex:1">
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-${p.estado}">${p.estado}</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} ${fmtTime(p.createdAt)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)} &nbsp;·&nbsp; ✅ ${esc(p.aprobadoPorNombre||'')}</div>
         </div>
@@ -2106,7 +2131,8 @@ function renderPedidosAtendidos(container, pedidos, gestionFilter = '') {
   wrap.innerHTML = pedidos.map(p => `
     <div class="pedido-card">
       <div class="pedido-card-header">
-        <div class="pedido-meta">
+        ${chkExplotarHtml(p)}
+        <div class="pedido-meta" style="flex:1">
           <div class="pedido-op">${esc(p.operacion)} &nbsp;<span class="badge badge-ATENDIDO">ATENDIDO</span></div>
           <div class="pedido-info">📅 ${fmtDate(p.fechaPedido)} ${fmtTime(p.createdAt)} &nbsp;·&nbsp; 👤 ${esc(p.solicitadoPorNombre)}
             ${p.atendidoPorNombre ? ` &nbsp;·&nbsp; 🚚 ${esc(p.atendidoPorNombre)}` : ''}
@@ -2981,7 +3007,7 @@ window.pgVerRelacionAdelantos = async (compania, progId) => {
 // ─── Explosión consolidada de pedidos seleccionados (pantalla Aprobar) ───
 // Suma las líneas de gestión PLANTA (menos las rechazadas) de los pedidos marcados, por ítem,
 // y las explota con la base de recetas hasta insumos finales (POST /recetas/explotar).
-const puedeExplotar = () => S.user.role === 'ADMIN' || S.user.role === 'OPERADOR_APROBACION';
+const puedeExplotar = () => ['ADMIN', 'OPERADOR_APROBACION', 'OPERADOR_PLANTA'].includes(S.user.role);
 const chkExplotarHtml = p => !puedeExplotar() ? '' : `<label onclick="event.stopPropagation()" style="display:flex;align-items:center;cursor:pointer;margin-right:10px" title="Seleccionar para explotar a Planta">
           <input type="checkbox" class="apr-sel" data-id="${p.id}" style="width:16px;height:16px;accent-color:var(--primary)">
         </label>`;
@@ -3019,7 +3045,7 @@ async function explotarPedidosPlanta(pedidos) {
     const td = (t, right, extra = '') => `<td style="padding:5px 8px;${right ? 'text-align:right;' : ''}${extra}">${t}</td>`;
     const tabla = (cabs, filas, pie = '') => `<div style="overflow:auto;max-height:380px"><table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="background:#f3f4f6;position:sticky;top:0">${cabs}</tr></thead><tbody>${filas || '<tr><td colspan="9" class="text-muted" style="padding:12px">Sin datos</td></tr>'}</tbody>${pie}</table></div>`;
-    const pieTotal = (colspan, total) => `<tfoot><tr style="font-weight:700;border-top:2px solid #e5e7eb;position:sticky;bottom:0;background:#fff"><td colspan="${colspan}" style="padding:6px 8px;text-align:right">TOTAL</td><td style="padding:6px 8px;text-align:right">${fmtS(total)}</td></tr></tfoot>`;
+    const pieTotal = (colspan, total, total2) => `<tfoot><tr style="font-weight:700;border-top:2px solid #e5e7eb;position:sticky;bottom:0;background:#fff"><td colspan="${colspan}" style="padding:6px 8px;text-align:right">TOTAL</td><td style="padding:6px 8px;text-align:right">${fmtS(total)}</td>${total2 != null ? `<td style="padding:6px 8px;text-align:right;color:#6b7280">${fmtS(total2)}</td>` : ''}</tr></tfoot>`;
     const sum = (arr, k) => arr.reduce((t, r) => t + (r[k] || 0), 0);
 
     const solicitado = tabla(th('Código') + th('Descripción') + th('Pedidos', true) + th('Cantidad', true) + th('Valorizado', true),
@@ -3034,11 +3060,11 @@ async function explotarPedidosPlanta(pedidos) {
         : i === valCol ? td(fmtS(o.cantidad * (r.costoUnitario || 0)), true, 'color:#6b7280') : td(''));
       return `<tr style="background:#faf5ff">${celdas.join('')}</tr>`;
     }).join('');
-    const producciones = detalle => tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true) + th('Costo unit.', true) + th('Valorizado', true),
-      data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>${detalle ? subOrigen(r, 8, 2, 7) : ''}`).join(''));
-    const insumos = detalle => tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cantidad', true) + th('Costo unit.', true) + th('Valorizado', true),
-      data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}</tr>${detalle ? subOrigen(r, 7, 4, 6) : ''}`).join(''),
-      pieTotal(6, sum(data.insumos, 'valor')));
+    const producciones = detalle => tabla(th('Código') + th('Producto / Sub-producto') + th('Requerido', true) + th('Batch', true) + th('Corridas', true) + th('Produce', true) + th('Exceso', true) + th('Costo unit.', true) + th('Valorizado', true) + th('Valor del exceso', true),
+      data.producciones.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(fmtN(r.requerida), true)}${td(fmtN(r.batch), true)}${td(r.corridas, true)}${td(`<strong>${fmtN(r.producida)}</strong>`, true)}${td(fmtN(r.exceso), true, r.exceso > 0.005 ? 'color:#b45309' : 'color:#9ca3af')}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}${td(fmtS(r.valorExceso), true, r.exceso > 0.005 ? 'color:#b45309' : 'color:#9ca3af')}</tr>${detalle ? subOrigen(r, 10, 2, 8) : ''}`).join(''));
+    const insumos = detalle => tabla(th('Código') + th('Descripción') + th('Unidad') + th('Área Descarga') + th('Cantidad por lote', true) + th('Cantidad exacta', true) + th('Costo unit.', true) + th('Valor por lote', true) + th('Valor exacto', true),
+      data.insumos.map(r => `<tr>${td(`<span style="font-family:monospace;font-size:12px">${esc(String(r.item))}</span>`)}${td(esc(r.descripcion))}${td(esc(r.unidad || ''))}${td(esc(r.areaDescarga || ''), false, 'color:#6b7280')}${td(`<strong>${fmtN(r.cantidad)}</strong>`, true)}${td(fmtN(r.cantidadExacta), true, 'color:#6b7280')}${td(fmtN(r.costoUnitario), true)}${td(fmtS(r.valor), true)}${td(fmtS(r.valorExacto), true, 'color:#6b7280')}</tr>${detalle ? subOrigen(r, 9, 4, 7) : ''}`).join(''),
+      pieTotal(7, sum(data.insumos, 'valor'), sum(data.insumos, 'valorExacto')));
 
     const aviso = !data.costosDisponibles ? '<div style="margin-top:10px;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px">⚠️ No se encontraron los costos de PLANTA: producciones e insumos salen sin valorizar.</div>' : '';
     const notaProd = '<div style="margin-top:8px;font-size:12px;color:#6b7280">El valorizado de producciones ya incluye el costo de sus insumos; no se suma al total de insumos.</div>';
@@ -3081,10 +3107,10 @@ function exportarExplosion(data) {
   const lineas = [
     'SOLICITADO A PLANTA', fila(['Código', 'Descripción', 'Pedidos', 'Cantidad', 'Valorizado S/']),
     ...data.solicitado.map(r => fila([r.item, r.descripcion, r.pedidos, n(r.cantidad), n(r.valor)])), '',
-    'PRODUCCIONES', fila(['Código', 'Descripción', 'Requerido', 'Batch', 'Corridas', 'Produce', 'Costo unit.', 'Valorizado S/']),
-    ...data.producciones.map(r => fila([r.item, r.descripcion, n(r.requerida), n(r.batch), r.corridas, n(r.producida), n(r.costoUnitario), n(r.valor)])), '',
-    'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cantidad', 'Costo unit.', 'Valorizado S/']),
-    ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad), n(r.costoUnitario), n(r.valor)])), '',
+    'PRODUCCIONES', fila(['Código', 'Descripción', 'Requerido', 'Batch', 'Corridas', 'Produce', 'Exceso', 'Costo unit.', 'Valorizado S/', 'Valor del exceso S/']),
+    ...data.producciones.map(r => fila([r.item, r.descripcion, n(r.requerida), n(r.batch), r.corridas, n(r.producida), n(r.exceso), n(r.costoUnitario), n(r.valor), n(r.valorExceso)])), '',
+    'INSUMOS FINALES', fila(['Código', 'Descripción', 'Unidad', 'Área Descarga', 'Cantidad por lote', 'Cantidad exacta', 'Costo unit.', 'Valor por lote S/', 'Valor exacto S/']),
+    ...data.insumos.map(r => fila([r.item, r.descripcion, r.unidad, r.areaDescarga, n(r.cantidad), n(r.cantidadExacta), n(r.costoUnitario), n(r.valor), n(r.valorExacto)])), '',
     'DETALLE POR ÍTEM SOLICITADO', fila(['Tipo', 'Código', 'Descripción', 'Ítem solicitado', 'Descripción solicitado', 'Cantidad atribuida', 'Valorizado S/']),
     ...data.producciones.flatMap(r => r.origen.map(o => fila(['Producción', r.item, r.descripcion, o.item, o.descripcion, n(o.cantidad), n(o.cantidad * (r.costoUnitario || 0))]))),
     ...data.insumos.flatMap(r => r.origen.map(o => fila(['Insumo final', r.item, r.descripcion, o.item, o.descripcion, n(o.cantidad), n(o.cantidad * (r.costoUnitario || 0))]))),
@@ -3501,6 +3527,7 @@ async function viewCostoRecetas(container) {
   let debounceNombre = null;
   let itemSeleccionado = null;
   let tabActual = 'costeo'; // 'costeo' | 'solicitudes'
+  let costoInsumo = 'real';  // 'real' = última producción | 'receta' = costo de receta (insumos que tienen receta)
   let filtroSolEstado = 'pendiente';
   let filtroSolOperacion = '';   // '' = todas las operaciones autorizadas
   let opsDisponibles = [];
@@ -3551,6 +3578,13 @@ async function viewCostoRecetas(container) {
             <div>
               <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Nombre</label>
               <input type="text" id="cr-nombre" class="form-control" style="width:220px" placeholder="Buscar por nombre...">
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px" title="Solo aplica a insumos que a su vez tienen receta">Costo de insumos con receta</label>
+              <select id="cr-costoinsumo" class="form-control" style="width:210px">
+                <option value="real">Última producción</option>
+                <option value="receta">Costo de la receta</option>
+              </select>
             </div>
             <div>
               <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Semáforo</label>
@@ -3626,6 +3660,11 @@ async function viewCostoRecetas(container) {
     debounceNombre = setTimeout(cargar, 300);
   });
   document.getElementById('cr-semaforo').addEventListener('change', (e) => { filtros.semaforo = e.target.value; cargar(); });
+  document.getElementById('cr-costoinsumo').addEventListener('change', async (e) => {
+    costoInsumo = e.target.value;
+    await cargar();
+    if (itemSeleccionado) verDetalle(itemSeleccionado);
+  });
 
   async function cargarGrupos() {
     if (!operacionActual) return;
@@ -3644,6 +3683,7 @@ async function viewCostoRecetas(container) {
       if (filtros.item) params.set('item', filtros.item);
       if (filtros.nombre) params.set('nombre', filtros.nombre);
       if (filtros.semaforo) params.set('semaforo', filtros.semaforo);
+      params.set('costoInsumo', costoInsumo);
       const filas = await GET(`/recetas-costeo/resumen?${params}`);
       render(filas);
     } catch (e) { root.innerHTML = `<p style="color:red">${esc2(e.message)}</p>`; }
@@ -3688,10 +3728,10 @@ async function viewCostoRecetas(container) {
     });
     detalleRoot.innerHTML = '<div class="card"><div class="text-muted text-center py-24">⏳ Cargando...</div></div>';
     try {
-      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}`);
+      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}&costoInsumo=${costoInsumo}`);
       const insumosHtml = d.insumos.map(i => `<tr class="cr-insumo-row" data-insumo="${i.insumo}" style="cursor:pointer">
         <td>${i.insumo}</td>
-        <td>${esc2(i.nombreInsumo)}</td>
+        <td>${esc2(i.nombreInsumo)}${i.tieneReceta ? ` <span title="Insumo con receta propia — Última producción: ${fmtMoney(i.costoRealInsumo)} · Costo de receta: ${fmtMoney(i.costoRecetaInsumo)}" style="font-size:10px;background:#ede9fe;color:#6d28d9;border-radius:8px;padding:1px 6px">receta</span>` : ''}</td>
         <td class="text-right">${fmtCant(i.cantidad)}</td>
         <td class="text-right">${fmtMoney(i.unitario)}</td>
         <td class="text-right">${fmtMoney(i.costo)}</td>
@@ -3759,7 +3799,7 @@ async function viewCostoRecetas(container) {
     if (!contenedor) return;
     contenedor.innerHTML = '<div class="card"><div class="text-muted text-center py-16">⏳ Cargando receta del insumo...</div></div>';
     try {
-      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}`);
+      const d = await GET(`/recetas-costeo/detalle?item=${item}&operacion=${encodeURIComponent(operacionActual)}&costoInsumo=${costoInsumo}`);
       const insumosHtml = d.insumos.map(i => `<tr class="cr-insumo-row" data-insumo="${i.insumo}" style="cursor:pointer">
         <td>${i.insumo}</td>
         <td>${esc2(i.nombreInsumo)}</td>
@@ -12894,6 +12934,8 @@ async function viewVentas(container) {
   const ayer = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
   let fechaActual = ayer, nSemanas = 12;
   let dataDia = null, dataSemanas = null, dataMensual = null, canalMensualSel = 'TOTAL';
+  let canalesDisp = [];            // todos los canales de las operaciones elegidas (sin filtrar)
+  const canalesFiltro = new Set(); // vacío = todos los canales
 
   const fmtMoney = v => 'S/ ' + (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const fmtNum = v => (Number(v) || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -12923,10 +12965,16 @@ async function viewVentas(container) {
   container.innerHTML = `
     <div class="page-header"><div class="page-title">🛒 Ventas</div></div>
     <div class="page-body">
-      <div class="card mb-16" style="padding:14px">
+      <div class="card mb-16 vt-sticky" style="padding:14px">
         <div class="filter-bar" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Operación</label>
             <div id="vt-operacion" style="display:flex;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:6px;padding:7px 10px;max-height:70px;overflow-y:auto;min-width:200px"></div>
+          </div>
+          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Canal</label>
+            <details id="vt-canal-det" style="position:relative">
+              <summary id="vt-canal-sum" class="form-control" style="cursor:pointer;width:170px;display:block;list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Todos los canales</summary>
+              <div id="vt-canal-box" style="position:absolute;top:100%;left:0;z-index:40;background:var(--white);border:1px solid var(--border);border-radius:6px;box-shadow:var(--shadow-md);padding:8px 10px;min-width:190px;max-height:260px;overflow-y:auto"></div>
+            </details>
           </div>
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha</label>
             <input type="date" id="vt-fecha" class="form-control" value="${fechaActual}" style="width:160px">
@@ -12959,6 +13007,7 @@ async function viewVentas(container) {
 
   document.querySelectorAll('.vt-op-chk').forEach(chk => chk.addEventListener('change', () => {
     if (chk.checked) operacionesSel.add(chk.value); else operacionesSel.delete(chk.value);
+    canalesFiltro.clear();
   }));
   document.getElementById('vt-fecha').addEventListener('change', e => { fechaActual = e.target.value; });
   document.getElementById('vt-nsemanas').addEventListener('change', e => { nSemanas = Number(e.target.value) || 12; });
@@ -13051,18 +13100,38 @@ async function viewVentas(container) {
 
   if (operacionesSel.size) await cargarTodo();
 
+  // Lista de canales con checkbox; se repinta con los canales de las operaciones elegidas.
+  // Un cambio de selección recarga las consultas (el servidor recalcula tablas y totales).
+  function pintarFiltroCanal(disp) {
+    canalesDisp = disp;
+    [...canalesFiltro].forEach(c => { if (!disp.includes(c)) canalesFiltro.delete(c); });
+    const box = document.getElementById('vt-canal-box');
+    box.innerHTML = `<label style="display:flex;gap:6px;align-items:center;font-size:12px;font-weight:700;cursor:pointer;padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:4px">
+        <input type="checkbox" id="vt-canal-todos" ${canalesFiltro.size ? '' : 'checked'}> Todos los canales</label>` +
+      disp.map(c => `<label style="display:flex;gap:6px;align-items:center;font-size:12px;font-weight:normal;cursor:pointer;padding:2px 0;white-space:nowrap">
+        <input type="checkbox" class="vt-canal-chk" value="${esc(c)}" ${canalesFiltro.has(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('');
+    document.getElementById('vt-canal-sum').textContent = !canalesFiltro.size ? 'Todos los canales' : canalesFiltro.size === 1 ? [...canalesFiltro][0] : `${canalesFiltro.size} canales`;
+    box.querySelector('#vt-canal-todos').addEventListener('change', () => { canalesFiltro.clear(); cargarTodo(); });
+    box.querySelectorAll('.vt-canal-chk').forEach(chk => chk.addEventListener('change', () => {
+      if (chk.checked) canalesFiltro.add(chk.value); else canalesFiltro.delete(chk.value);
+      cargarTodo();
+    }));
+  }
+
   async function cargarTodo() {
     if (!operacionesSel.size) return toast('Selecciona al menos una operación', 'error');
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
       const opsParam = encodeURIComponent([...operacionesSel].join(','));
+      const canalParam = canalesFiltro.size ? `&canal=${encodeURIComponent([...canalesFiltro].join(','))}` : '';
       const [dia, semanas, mensual] = await Promise.all([
-        GET(`/ventas/dia?operacion=${opsParam}&fecha=${fechaActual}`),
-        GET(`/ventas/semanas?operacion=${opsParam}&semanas=${nSemanas}`),
+        GET(`/ventas/dia?operacion=${opsParam}&fecha=${fechaActual}${canalParam}`),
+        GET(`/ventas/semanas?operacion=${opsParam}&semanas=${nSemanas}${canalParam}`),
         GET(`/ventas/mensual?operacion=${opsParam}`),
       ]);
       dataDia = dia; dataSemanas = semanas; dataMensual = mensual;
       canalMensualSel = 'TOTAL';
+      pintarFiltroCanal(dia.canalesDisponibles || []);
       render();
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
