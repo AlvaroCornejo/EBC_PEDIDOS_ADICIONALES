@@ -11156,6 +11156,109 @@ const PL_ESTRUCTURA = [
     fn: t => (t['UTIL_NETA']||0) + (t['PARTICIPACION DE LOS TRABAJADORES']||0) + (t['IMPUESTO A LA RENTA']||0) },
 ];
 
+// ─── PL: análisis automático del último mes (solo ADMIN, vista seriado por meses) ───
+// Sin IA externa: reglas fijas sobre las cifras ya cargadas en pantalla. Convención del PL: ingresos
+// en positivo y costos/gastos en negativo, así que una variación positiva siempre es favorable.
+// a = { cols:[{clave,etiqueta}], vn:[venta neta por columna], filas:[{key,label,type,hijo,vals:[...]}] }
+function plAnalisisMes(a) {
+  const n = a.cols.length, L = n - 1, P = n - 2;
+  const hist = []; for (let i = Math.max(0, L - 6); i < L; i++) hist.push(i);   // hasta 6 meses previos al último
+  const mean = arr => arr.reduce((t, x) => t + x, 0) / arr.length;
+  const fN = v => { const x = Math.round(Math.abs(v)).toLocaleString('es-PE'); return v < 0 ? '(' + x + ')' : x; };
+  const fS = v => 'S/ ' + fN(v);
+  const fP = (v, d = 1) => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(d) + '%';
+  const col = v => v == null || Math.abs(v) < 0.05 ? '' : v > 0 ? 'color:#15803d' : 'color:#dc2626';
+  const vnL = a.vn[L], vnP = a.vn[P];
+  const mat = Math.max(Math.abs(vnL) * 0.01, 300);   // materialidad: 1% de la venta neta (mínimo S/ 300)
+
+  const calc = f => {
+    const v = f.vals[L], p = f.vals[P];
+    const h = hist.map(i => f.vals[i]);
+    const avg = h.length ? mean(h) : null;
+    const sd = h.length >= 3 ? Math.sqrt(mean(h.map(x => (x - avg) ** 2))) : null;
+    return {
+      ...f, v, p, d: v - p,
+      dPct: p ? (v - p) / Math.abs(p) * 100 : null,
+      avg, vsAvgPct: avg ? (v - avg) / Math.abs(avg) * 100 : null,
+      z: sd > 0 ? (v - avg) / sd : null,
+      pctVN: vnL ? v / vnL * 100 : null, pctVNp: vnP ? p / vnP * 100 : null,
+    };
+  };
+  const filas = a.filas.map(calc);
+  const por = k => filas.find(f => f.key === k);
+
+  // Resultado: tarjetas con las líneas clave
+  const claves = [['VENTA_NETA', 'Venta neta'], ['MARGEN', 'Margen de contribución'], ['EBITDA', 'EBITDA'], ['UTIL_OPERATIVA', 'Utilidad operativa'], ['UTIL_NETA', 'Utilidad neta']];
+  const tarjetas = claves.map(([k, t]) => [t, por(k), k]).filter(([, f]) => f).map(([t, f, k]) => {
+    const pp = f.pctVN != null && f.pctVNp != null ? f.pctVN - f.pctVNp : null;
+    return `<div style="flex:1 1 170px;border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+      <div style="font-size:11px;color:var(--text-muted)">${esc(t)}</div>
+      <div style="font-size:18px;font-weight:700;${f.v < 0 ? 'color:#dc2626' : ''}">${fS(f.v)}</div>
+      <div style="font-size:12px;${col(f.d)}">${fP(f.dPct)} vs mes anterior (${fS(f.d)})</div>
+      ${f.avg != null ? `<div style="font-size:11px;color:var(--text-muted)">vs promedio ${hist.length}m: <span style="${col(f.vsAvgPct)}">${fP(f.vsAvgPct)}</span></div>` : ''}
+      ${k !== 'VENTA_NETA' && f.pctVN != null ? `<div style="font-size:11px;color:var(--text-muted)">${f.pctVN.toFixed(1)}% de la venta${pp != null ? ` (<span style="${col(pp)}">${pp >= 0 ? '+' : ''}${pp.toFixed(1)} pp</span>)` : ''}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  // Variaciones materiales: rubros (subtotales y líneas sueltas) y líneas de detalle
+  const noComputada = filas.filter(f => f.type !== 'computed');
+  const material = f => Math.abs(f.d) >= mat || (f.z != null && Math.abs(f.z) >= 2 && Math.abs(f.d) >= mat * 0.3);
+  const rubros = noComputada.filter(f => !f.hijo && f.key !== 'VENTA_NETA' && material(f)).sort((x, y) => Math.abs(y.d) - Math.abs(x.d));
+  const detalle = noComputada.filter(f => f.hijo && material(f)).sort((x, y) => Math.abs(y.d) - Math.abs(x.d)).slice(0, 10);
+
+  // Hallazgos en texto
+  const hall = [];
+  const vn = por('VENTA_NETA');
+  if (vn) hall.push(`La venta neta fue ${fS(vn.v)}: ${vn.d >= 0 ? 'subió' : 'bajó'} ${Math.abs(vn.dPct || 0).toFixed(1)}% frente al mes anterior${vn.avg != null ? ` y está ${Math.abs(vn.vsAvgPct).toFixed(1)}% ${vn.vsAvgPct >= 0 ? 'por encima' : 'por debajo'} del promedio de ${hist.length} meses` : ''}.`);
+  ['MARGEN', 'EBITDA', 'UTIL_NETA'].forEach(k => {
+    const f = por(k); if (!f || f.pctVN == null || f.pctVNp == null) return;
+    const pp = f.pctVN - f.pctVNp, t = { MARGEN: 'El margen de contribución', EBITDA: 'El EBITDA', UTIL_NETA: 'La utilidad neta' }[k];
+    if (Math.abs(pp) >= 0.5) hall.push(`${t} pasó de ${f.pctVNp.toFixed(1)}% a ${f.pctVN.toFixed(1)}% de la venta (${pp >= 0 ? '+' : ''}${pp.toFixed(1)} pp).`);
+  });
+  ['EBITDA', 'UTIL_OPERATIVA', 'UTIL_NETA'].forEach(k => {
+    const f = por(k); if (!f) return;
+    if (f.p >= 0 && f.v < 0) hall.push(`⚠️ ${f.label} pasó de positivo (${fS(f.p)}) a negativo (${fS(f.v)}).`);
+    else if (f.p < 0 && f.v >= 0) hall.push(`${f.label} volvió a positivo (${fS(f.v)}) tras ${fS(f.p)} el mes anterior.`);
+  });
+  const desfav = rubros.filter(f => f.d < 0).slice(0, 3), fav = rubros.filter(f => f.d > 0).slice(0, 3);
+  // En costos y gastos (valores negativos) se habla de la magnitud: "el gasto subió X%", y el efecto en el resultado.
+  const frase = (f, ef) => {
+    const gasto = f.p < 0 && f.v < 0, mag = f.p ? (Math.abs(f.v) - Math.abs(f.p)) / Math.abs(f.p) * 100 : null;
+    const que = gasto ? `${f.label}: el gasto ${mag >= 0 ? 'subió' : 'bajó'} ${Math.abs(mag).toFixed(0)}%` : `${f.label} ${f.d >= 0 ? 'subió' : 'bajó'} ${Math.abs(f.dPct || 0).toFixed(0)}%`;
+    return `${que} (${fS(f.p)} → ${fS(f.v)}): ${ef} ${fS(Math.abs(f.d))} al resultado.`;
+  };
+  desfav.forEach(f => hall.push(frase(f, 'resta')));
+  fav.forEach(f => hall.push(frase(f, 'suma')));
+  const atipicos = noComputada.filter(f => f.z != null && Math.abs(f.z) >= 2 && Math.abs(f.v - f.avg) >= mat * 0.5).sort((x, y) => Math.abs(y.z) - Math.abs(x.z)).slice(0, 4);
+  atipicos.forEach(f => hall.push(`📈 ${f.label} está fuera de lo habitual (${fS(f.v)} contra un promedio de ${fS(f.avg)}, ${Math.abs(f.z).toFixed(1)} desviaciones).`));
+
+  const tabla = (titulo, lista) => !lista.length ? '' : `
+    <div style="font-weight:700;margin:16px 0 6px">${titulo}</div>
+    <div class="table-wrap"><table class="data-table" style="font-size:12px"><thead><tr>
+      <th>Concepto</th><th class="text-right">${esc(a.cols[P].etiqueta)}</th><th class="text-right">${esc(a.cols[L].etiqueta)}</th>
+      <th class="text-right">Variación S/</th><th class="text-right">Var. %</th><th class="text-right">% venta</th><th class="text-right">vs prom.</th></tr></thead><tbody>
+      ${lista.map(f => `<tr><td>${esc(f.label)}</td><td class="text-right">${fN(f.p)}</td><td class="text-right">${fN(f.v)}</td>
+        <td class="text-right" style="${col(f.d)}">${f.d >= 0 ? '+' : ''}${fN(f.d)}</td><td class="text-right" style="${col(f.d)}">${fP(f.dPct)}</td>
+        <td class="text-right">${f.pctVN != null ? f.pctVN.toFixed(1) + '%' : '—'}</td>
+        <td class="text-right" style="${col(f.vsAvgPct)}">${f.vsAvgPct != null ? fP(f.vsAvgPct, 0) : '—'}</td></tr>`).join('')}
+    </tbody></table></div>`;
+
+  const hoy = new Date(), clave = String(hoy.getFullYear()) + String(hoy.getMonth() + 1).padStart(2, '0');
+  const enCurso = String(a.cols[L].clave) === clave;
+  return `
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+      Último mes: <strong>${esc(a.cols[L].etiqueta)}</strong> frente a ${esc(a.cols[P].etiqueta)}${hist.length ? ` y al promedio de los ${hist.length} meses previos` : ''}.
+      Se muestran variaciones desde ${fS(mat)} (1% de la venta neta). Ingresos en positivo, costos y gastos en negativo; en las tablas, Var. % positiva = favorable al resultado.
+    </div>
+    ${enCurso ? '<div style="margin-bottom:10px;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px">⚠️ El último mes es el mes en curso: las cifras pueden estar incompletas y exagerar las variaciones.</div>' : ''}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${tarjetas}</div>
+    <div style="font-weight:700;margin-bottom:6px">Lo más relevante</div>
+    <ul style="margin:0 0 6px 18px;padding:0;font-size:13px;line-height:1.55">${hall.map(t => `<li>${esc(t)}</li>`).join('') || '<li>Sin variaciones materiales frente al mes anterior.</li>'}</ul>
+    ${tabla('Variaciones por rubro', rubros)}
+    ${tabla('Mayores variaciones por línea de detalle', detalle)}
+    <div style="margin-top:12px;font-size:11px;color:var(--text-muted)">Análisis automático por reglas (variación vs. mes anterior y vs. promedio con desviación estándar); no usa IA ni reemplaza la revisión contable.</div>`;
+}
+
 async function viewPL(container) {
   const isAdmin = S.user.role === 'ADMIN';
   // Usar el campo operations existente (mismas operaciones que el resto de la app)
@@ -11273,6 +11376,7 @@ async function viewPL(container) {
         <button class="btn btn-primary" onclick="plConsultar()">🔍 Consultar</button>
         <button class="btn btn-outline" id="pl-export-btn" style="display:none" onclick="plExportarExcel()">📥 Exportar a Excel</button>
         <button class="btn btn-outline" id="pl-export-vista-btn" style="display:none" onclick="exportarVistaExcel('pl-resultado','pl-detalle')">📥 Exportar vista actual</button>
+        ${isAdmin ? '<button class="btn btn-outline" id="pl-analisis-btn" style="display:none" onclick="plAnalizarMes()" title="Análisis automático del último mes de la vista seriado por meses">🔍 Análisis del último mes</button>' : ''}
       </div>
       ${renderOpsSection(unidadesDisp)}
     </div>
@@ -11295,6 +11399,12 @@ async function viewPL(container) {
       } catch {}
     }, 3000);
   }
+
+  window.plAnalizarMes = function() {
+    const a = window._plContext?.analisis;
+    if (S.user.role !== 'ADMIN' || window._plContext?.cols !== 'mes' || !a || a.cols.length < 2) return toast('Consulta primero la vista "Meses (seriado)" con al menos 2 meses', 'warning');
+    openModal('🔍 Análisis automático del último mes', plAnalisisMes(a), null, { wide: true });
+  };
 
   window.plConsultar = async function() {
     const wrap = document.getElementById('pl-resultado');
@@ -11634,6 +11744,22 @@ async function viewPL(container) {
         exportRowsDetallado,
         ventaNetaPorCol, ventaNetaTotalVal: getVentaNeta(totalCol), showTotal, fmtCol,
       };
+
+      // Datos para el análisis automático (solo ADMIN y solo en la vista seriado por meses)
+      window._plContext.analisis = {
+        cols: colsData.map(c => ({ clave: c, etiqueta: fmtCol(c) })),
+        vn: colsData.map(getVentaNeta),
+        filas: rowsDetallado.map(row => {
+          const rawLabel = row.type === 'item' ? row.grupo : row.label;
+          return {
+            key: row.key || '', type: row.type, label: rawLabel.replace(/^TOTAL\s+/i, ''),
+            hijo: row.type === 'item' && gruposEnSubtotal.has(row.grupo),
+            vals: colsData.map(c => getVal(row, c) || 0),
+          };
+        }),
+      };
+      const analisisBtn = document.getElementById('pl-analisis-btn');
+      if (analisisBtn) analisisBtn.style.display = (isAdmin && cols === 'mes' && colsData.length >= 2) ? '' : 'none';
 
       const exportBtn = document.getElementById('pl-export-btn');
       if (exportBtn) exportBtn.style.display = '';
