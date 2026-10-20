@@ -5047,7 +5047,7 @@ async function renderPaso1(container) {
                   .map(d => `<option value="${d}" ${o.detalleGrupo===d?'selected':''}>${d}</option>`).join('');
                 const grpOptsRow = grpOpts.replace(`value="${o.grupo}"`, `value="${o.grupo}" selected`);
                 const tieneParcial = progActual?.obligaciones?.some(x => x.esParcial && x.obligacionOrigenId === String(o._id));
-                return `<tr style="${o.esParcial ? 'background:#fef9c3;' : (checked?'background:#bbf7d0;':'')}${o.origenEBC ? 'border-left:3px solid #f59e0b;' : ''}${pgAdelantoRowStyle(o.pagarA)}">
+                return `<tr class="${!o.esParcial && checked ? 'pg-row-sel' : ''}" ${o.esParcial ? 'data-esparcial="1"' : ''} style="${o.esParcial ? 'background:#fef9c3;' : (checked?'background:#bbf7d0;':'')}${o.origenEBC ? 'border-left:3px solid #f59e0b;' : ''}${pgAdelantoRowStyle(o.pagarA)}">
                   <td class="text-center">
                     <input type="checkbox" class="pg-check" data-pa="${esc(o.pagarA)}" data-idx="${obs.indexOf(o)}"
                            style="width:14px;height:14px;accent-color:var(--primary)"
@@ -5233,7 +5233,10 @@ async function renderPaso1(container) {
     document.querySelectorAll('.pg-check').forEach(cb => {
       cb.checked = checked;
       const tr = cb.closest('tr');
-      if (tr) tr.style.background = checked ? '#bbf7d0' : '';
+      if (tr && !tr.dataset.esparcial) {
+        tr.style.background = checked ? '#bbf7d0' : '';
+        tr.classList.toggle('pg-row-sel', checked);
+      }
     });
     if (progActual) progActual.obligaciones.forEach(ob => { ob.seleccionado = checked; });
     renderResumenes();
@@ -5245,7 +5248,10 @@ async function renderPaso1(container) {
     const idx = parseInt(cb.dataset.idx);
     if (obs[idx]) obs[idx].seleccionado = cb.checked;
     const tr = cb.closest('tr');
-    if (tr) tr.style.background = cb.checked ? '#bbf7d0' : '';
+    if (tr && !tr.dataset.esparcial) {
+      tr.style.background = cb.checked ? '#bbf7d0' : '';
+      tr.classList.toggle('pg-row-sel', cb.checked);
+    }
     if (document.getElementById('f-solo-sel')?.checked) renderTabla();
     renderResumenes();
   };

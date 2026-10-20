@@ -1716,3 +1716,20 @@ este caso. La alternativa más confiable sería autenticarse con las credenciale
 válidas y llamar a `GET /2.0/users/me` (vía `client.users.getUserMe()` en el SDK) para
 que el propio Service Account diga su correo — no se llegó a intentar porque el usuario
 prefirió cancelar la función en vez de seguir insistiendo.
+
+### Sesión 31 — Paso 1 (Programación): fix hover verde→blanco en filas seleccionadas
+
+Bug visual: la regla global `tr:hover td { background: #fafbff; }` (styles.css)
+pintaba cada `<td>` al pasar el cursor, tapando el `background` puesto en el `<tr>`
+— una obligación programada (fila verde `#bbf7d0`) se veía blanca al pasar el
+cursor por encima, como si se hubiera desprogramado.
+
+Fix **scoped solo a Paso 1** (`#pg-tabla-wrap`), no es un cambio global de hover:
+clase `pg-row-sel` en el `<tr>` cuando `checked && !esParcial` (filas parciales
+siguen en amarillo `#fef9c3` sin esta clase, vía `data-esparcial="1"`), más la
+regla `#pg-tabla-wrap tr.pg-row-sel:hover td { background: #86efac; }` (verde más
+oscuro que el `#bbf7d0` base, en vez de blanco). `pgToggleObl`/`pgToggleAll`
+(togglean el fondo sin re-renderizar toda la tabla, para no perder el scroll)
+también actualizan la clase con `classList.toggle`, no solo el `style.background`
+inline — si no, el hover se hubiera desincronizado después del primer click en un
+checkbox sin pasar por `renderTabla()`.
