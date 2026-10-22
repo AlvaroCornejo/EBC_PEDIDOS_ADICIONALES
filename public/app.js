@@ -11319,6 +11319,21 @@ async function viewPL(container) {
       </div>`;
   };
 
+  // Oculta/muestra toda la sección de sedes; la selección no se pierde y la preferencia se recuerda.
+  const sedesOcultas = () => { try { return localStorage.getItem('pl_sedes_ocultas') === '1'; } catch { return false; } };
+  window.plAplicarSedes = function() {
+    const wrap = document.getElementById('pl-ops-wrap'), btn = document.getElementById('pl-sedes-btn');
+    if (!wrap || !btn) return;
+    const oculta = sedesOcultas();
+    wrap.style.display = oculta ? 'none' : '';
+    const n = document.querySelectorAll('input[name="pl-unidad"]:checked').length;
+    btn.textContent = oculta ? `👁 Mostrar sedes (${n})` : '🙈 Ocultar sedes';
+  };
+  window.plToggleSedes = function() {
+    try { localStorage.setItem('pl_sedes_ocultas', sedesOcultas() ? '0' : '1'); } catch {}
+    plAplicarSedes();
+  };
+
   window.plToggleOpsSection = function() {
     const body = document.getElementById('pl-ops-body');
     const icon = document.getElementById('pl-ops-toggle-icon');
@@ -11380,6 +11395,7 @@ async function viewPL(container) {
           </select>
         </div>
         <button class="btn btn-primary" onclick="plConsultar()">🔍 Consultar</button>
+        <button class="btn btn-outline" id="pl-sedes-btn" onclick="plToggleSedes()" title="Oculta o muestra la selección de sedes (la selección se mantiene)">🙈 Ocultar sedes</button>
         <button class="btn btn-outline" id="pl-export-btn" style="display:none" onclick="plExportarExcel()">📥 Exportar a Excel</button>
         <button class="btn btn-outline" id="pl-export-vista-btn" style="display:none" onclick="exportarVistaExcel('pl-resultado','pl-detalle')">📥 Exportar vista actual</button>
         ${isAdmin ? '<button class="btn btn-outline" id="pl-analisis-btn" style="display:none" onclick="plAnalizarMes()" title="Análisis automático del último mes de la vista seriado por meses">🔍 Análisis del último mes</button>' : ''}
@@ -11388,6 +11404,7 @@ async function viewPL(container) {
     </div>
     <div id="pl-resultado"></div>`;
   wirePlSocCheckboxes();
+  plAplicarSedes();
 
   // Admin: si BD estaba vacía al cargar, hacer un segundo intento después de renderizar
   // (por si el import acaba de terminar en background)
@@ -11401,6 +11418,7 @@ async function viewPL(container) {
           if (existing) existing.outerHTML = renderOpsSection(lista);
           else if (wrap) wrap.insertAdjacentHTML('beforeend', renderOpsSection(lista));
           wirePlSocCheckboxes();
+          plAplicarSedes();
         }
       } catch {}
     }, 3000);
@@ -13182,19 +13200,19 @@ async function viewVentas(container) {
           <tr style="font-weight:700"><td>TOTAL</td>${celdas(sem.real, sem.pronostico)}</tr>
         </tbody>
       </table></div>
-      <div style="font-weight:700;margin:18px 0 8px">Últimas ${d.serie.length} semanas (total)</div>
+      <div style="font-weight:700;margin:18px 0 8px">Últimas ${d.serie.length} semanas (total)${d.porOperacion ? ' <span style="font-weight:normal;font-size:12px;color:var(--text-muted)">— haz clic en una semana para ver el detalle por operación</span>' : ''}</div>
       <div class="vc-chart" id="pron-ch-sum"></div>
       <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="data-table" style="font-size:12px">
         <thead><tr><th>Semana</th>${th}</tr></thead>
         <tbody>
-          ${[...d.serie].reverse().map(x => `<tr${x.periodo === sem.periodo ? ' style="font-weight:700;background:#eef2ff"' : ''}><td>${esc(lblSem(x))}</td>${celdas(x.real, x.pronostico)}</tr>`).join('')}
+          ${[...d.serie].reverse().map(x => `<tr class="${d.porOperacion ? 'pron-sem' : ''}" data-p="${x.periodo}" style="${d.porOperacion ? 'cursor:pointer;' : ''}${x.periodo === sem.periodo ? 'font-weight:700;background:#eef2ff' : ''}"><td>${d.porOperacion ? '<span class="pron-flecha">▸</span> ' : ''}${esc(lblSem(x))}</td>${celdas(x.real, x.pronostico)}</tr>${d.porOperacion ? `<tr class="pron-det" data-p="${x.periodo}" style="display:none"><td colspan="5" style="padding:0 0 8px 24px;background:var(--bg-page)"></td></tr>` : ''}`).join('')}
         </tbody>
       </table></div>`;
 
     // Una tabla de las últimas 8 semanas por operación (sin desglose por canal).
     const vistaPorOperacion = () => `
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
-        Últimas ${d.porOperacion[0].serie.length} semanas por operación, hasta la semana ${esc(lblSem(sem))}. El real excluye OTROS y cortesías${enCurso ? '; la última semana está en curso (real a la fecha)' : ''}.
+        Últimas ${Math.min(8, d.porOperacion[0].serie.length)} semanas por operación, hasta la semana ${esc(lblSem(sem))}. El real excluye OTROS y cortesías${enCurso ? '; la última semana está en curso (real a la fecha)' : ''}.
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(480px,1fr));gap:16px">
         ${d.porOperacion.map(o => `<div>
@@ -13202,7 +13220,7 @@ async function viewVentas(container) {
           <div class="vc-chart" id="pron-ch-${esc(o.operacion)}"></div>
           <div class="table-wrap"><table class="data-table" style="font-size:12px">
             <thead><tr><th>Semana</th>${th}</tr></thead>
-            <tbody>${[...o.serie].reverse().map(x => `<tr${x.periodo === sem.periodo ? ' style="font-weight:700;background:#eef2ff"' : ''}><td>${esc(lblSem(x))}</td>${celdas(x.real, x.pronostico)}</tr>`).join('')}</tbody>
+            <tbody>${[...o.serie.slice(-8)].reverse().map(x => `<tr${x.periodo === sem.periodo ? ' style="font-weight:700;background:#eef2ff"' : ''}><td>${esc(lblSem(x))}</td>${celdas(x.real, x.pronostico)}</tr>`).join('')}</tbody>
           </table></div></div>`).join('')}
       </div>`;
 
@@ -13220,11 +13238,24 @@ async function viewVentas(container) {
         fmt: fmtMoney, aria,
       });
     };
+    // Detalle de una semana por operación (misma pantalla, bajo la fila de la semana).
+    const detalleSemana = periodo => `<table class="data-table" style="font-size:12px;margin-top:4px">
+      <thead><tr><th>Operación</th>${th}</tr></thead><tbody>
+      ${d.porOperacion.map(o => { const x = o.serie.find(z => z.periodo === periodo); return x ? `<tr><td>${esc(o.operacion)}</td>${celdas(x.real, x.pronostico)}</tr>` : ''; }).join('')}
+      </tbody></table>`;
+    const enlazarDrill = () => {
+      document.querySelectorAll('#modal-body .pron-sem').forEach(tr => tr.addEventListener('click', () => {
+        const det = tr.nextElementSibling, abrir = det.style.display === 'none';
+        if (abrir && !det.firstElementChild.innerHTML) det.firstElementChild.innerHTML = detalleSemana(Number(tr.dataset.p));
+        det.style.display = abrir ? '' : 'none';
+        tr.querySelector('.pron-flecha').textContent = abrir ? '▾' : '▸';
+      }));
+    };
     const pintar = modo => {
       const selector = d.porOperacion ? `<div style="margin-bottom:12px">${vcSeg('pron:modo', [['sumarizado', 'Operaciones sumarizadas'], ['operacion', 'Por operación']], modo)}</div>` : '';
       document.getElementById('modal-body').innerHTML = selector + (modo === 'operacion' && d.porOperacion ? vistaPorOperacion() : vistaSumarizada());
-      if (modo === 'operacion' && d.porOperacion) d.porOperacion.forEach(o => lineas('pron-ch-' + o.operacion, o.serie, 'Real vs pronóstico ' + o.operacion));
-      else lineas('pron-ch-sum', d.serie, 'Real vs pronóstico, total');
+      if (modo === 'operacion' && d.porOperacion) d.porOperacion.forEach(o => lineas('pron-ch-' + o.operacion, o.serie.slice(-8), 'Real vs pronóstico ' + o.operacion));
+      else { lineas('pron-ch-sum', d.serie, 'Real vs pronóstico, total'); enlazarDrill(); }
       document.querySelectorAll('#modal-body .vc-seg button').forEach(b => b.addEventListener('click', () => pintar(b.dataset.vcV)));
     };
     pintar('sumarizado');

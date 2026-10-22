@@ -326,7 +326,7 @@ router.get('/pronostico', async (req, res) => {
     };
     // Con varias operaciones: una serie de 8 semanas por operación (sin desglose por canal).
     const porOperacion = operaciones.length > 1
-      ? operaciones.slice().sort().map(op => ({ operacion: op, serie: serieDe(SEMANAS_POR_OPERACION, op) }))
+      ? operaciones.slice().sort().map(op => ({ operacion: op, serie: serieDe(Math.max(nSemanas, SEMANAS_POR_OPERACION), op) }))
       : null;
     res.json({ semana: resumen(lunesSel), serie: serieDe(nSemanas), porOperacion });
   } catch (err) { res.status(500).json({ error: err.message }); }
