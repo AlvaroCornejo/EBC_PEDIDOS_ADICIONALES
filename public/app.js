@@ -9467,6 +9467,13 @@ async function viewFlujoCaja(container) {
               <button class="btn btn-outline btn-sm" id="fc-buscar-numop-btn">🔍</button>
             </div>
           </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Buscar descripción</label>
+            <div style="display:flex;gap:4px">
+              <input type="text" id="fc-buscar-desc" class="form-control" style="width:200px" placeholder="Ej. alquiler enero">
+              <button class="btn btn-outline btn-sm" id="fc-buscar-desc-btn">🔍</button>
+            </div>
+          </div>
           ${puedeAsignar ? `<button class="btn btn-outline btn-sm" id="fc-reconciliar">🔄 Reconciliar</button>` : ''}
           ${esAdmin ? `<button class="btn btn-outline btn-sm" id="fc-saldo-inicial">⚙ Saldo Inicial</button>` : ''}
           <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-content','flujo-de-caja')">📥 Bajar a Excel</button>
@@ -9512,25 +9519,32 @@ async function viewFlujoCaja(container) {
   document.getElementById('fc-saldo-inicial')?.addEventListener('click', abrirModalSaldoInicial);
   document.getElementById('fc-buscar-numop-btn').addEventListener('click', buscarPorNumeroOperacion);
   document.getElementById('fc-buscar-numop').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPorNumeroOperacion(); });
+  document.getElementById('fc-buscar-desc-btn').addEventListener('click', buscarPorNumeroOperacion);
+  document.getElementById('fc-buscar-desc').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPorNumeroOperacion(); });
 
   // Busca en TODA la sociedad (sin filtro de cuenta/fecha/modo — el número de
   // operación es único independientemente del período que se esté viendo).
   async function buscarPorNumeroOperacion() {
     const wrap = document.getElementById('fc-buscar-resultado');
     const numeroOperacion = document.getElementById('fc-buscar-numop').value.trim();
-    if (!sociedadActual || !numeroOperacion) { wrap.innerHTML = ''; return; }
+    const glosa = document.getElementById('fc-buscar-desc').value.trim();
+    if (!sociedadActual || (!numeroOperacion && !glosa)) { wrap.innerHTML = ''; return; }
+    // Texto de los criterios usados (se pueden combinar N° de operación y descripción).
+    const criterio = [numeroOperacion && `N° Op. "${numeroOperacion}"`, glosa && `descripción "${glosa}"`].filter(Boolean).join(' y ');
     wrap.innerHTML = '<div class="card mb-16" style="padding:10px 14px;font-size:12px;color:var(--text-muted)">Buscando…</div>';
     try {
-      const params = new URLSearchParams({ sociedad: sociedadActual, numeroOperacion });
+      const params = new URLSearchParams({ sociedad: sociedadActual });
+      if (numeroOperacion) params.set('numeroOperacion', numeroOperacion);
+      if (glosa) params.set('glosa', glosa);
       const movs = await GET(`/flujo-caja/movimientos?${params}`);
       if (!movs.length) {
-        wrap.innerHTML = `<div class="card mb-16" style="padding:10px 14px;font-size:13px;color:var(--text-muted)">Sin movimientos con N° de operación "${esc(numeroOperacion)}" en ${esc(sociedadActual)}.</div>`;
+        wrap.innerHTML = `<div class="card mb-16" style="padding:10px 14px;font-size:13px;color:var(--text-muted)">Sin movimientos con ${esc(criterio)} en ${esc(sociedadActual)}.</div>`;
         return;
       }
       wrap.innerHTML = `
         <div class="card mb-16" style="padding:0;border-left:3px solid #4361ee">
           <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;font-weight:600;background:#eef2ff">
-            <span>🔍 ${movs.length} movimiento${movs.length !== 1 ? 's' : ''} con N° Op. "${esc(numeroOperacion)}"</span>
+            <span>🔍 ${movs.length >= 2000 ? '2,000+ (se muestran los más recientes)' : movs.length} movimiento${movs.length !== 1 ? 's' : ''} con ${esc(criterio)}</span>
             <button class="btn btn-outline btn-xs" id="fc-buscar-numop-cerrar">✕</button>
           </div>
           <div class="table-wrap" style="max-height:320px;overflow-y:auto">
@@ -9554,6 +9568,7 @@ async function viewFlujoCaja(container) {
       document.getElementById('fc-buscar-numop-cerrar').addEventListener('click', () => {
         wrap.innerHTML = '';
         document.getElementById('fc-buscar-numop').value = '';
+        document.getElementById('fc-buscar-desc').value = '';
       });
     } catch (e) { wrap.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }

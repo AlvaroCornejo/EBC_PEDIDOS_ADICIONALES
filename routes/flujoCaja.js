@@ -344,6 +344,12 @@ router.get('/movimientos', async (req, res) => {
       const digits = numeroOperacion.replace(/\D/g, '');
       if (digits) filter.numeroOperacion = new RegExp('0*' + digits + '$');
     }
+    // Búsqueda por descripción (glosa): todas las palabras escritas deben aparecer, sin distinguir mayúsculas.
+    const textoGlosa = String(req.query.glosa || '').trim();
+    if (textoGlosa) {
+      const escapar = w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$and = textoGlosa.split(/\s+/).slice(0, 8).map(w => ({ glosa: new RegExp(escapar(w), 'i') }));
+    }
     if (desde || hasta) {
       filter.fecha = {};
       if (desde) filter.fecha.$gte = new Date(desde);
