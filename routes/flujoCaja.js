@@ -350,6 +350,22 @@ router.get('/movimientos', async (req, res) => {
       const escapar = w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       filter.$and = textoGlosa.split(/\s+/).slice(0, 8).map(w => ({ glosa: new RegExp(escapar(w), 'i') }));
     }
+    // Búsqueda por importe: coincide con el valor absoluto (el banco registra egresos en negativo),
+    // al centavo. Acepta "1,234.50", "1234.5" o "S/ 1 234,50" (coma o punto decimal).
+    const textoImporte = String(req.query.importe || '').trim();
+    if (textoImporte) {
+      let t = textoImporte.replace(/[^\d.,-]/g, '').replace(/^-/, '');
+      const ult = Math.max(t.lastIndexOf(','), t.lastIndexOf('.'));
+      // el último separador es decimal si tiene 1-2 dígitos detrás; si no, es de miles
+      if (ult >= 0 && t.length - ult - 1 <= 2) t = t.slice(0, ult).replace(/[.,]/g, '') + '.' + t.slice(ult + 1);
+      else t = t.replace(/[.,]/g, '');
+      const x = Math.abs(parseFloat(t));
+      if (!Number.isFinite(x)) return res.json([]);   // texto sin número: no hay coincidencias (no devolver todo)
+      {
+        filter.$and = filter.$and || [];
+        filter.$and.push({ $or: [{ importe: { $gte: x - 0.005, $lte: x + 0.005 } }, { importe: { $gte: -x - 0.005, $lte: -x + 0.005 } }] });
+      }
+    }
     if (desde || hasta) {
       filter.fecha = {};
       if (desde) filter.fecha.$gte = new Date(desde);

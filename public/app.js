@@ -9474,6 +9474,13 @@ async function viewFlujoCaja(container) {
               <button class="btn btn-outline btn-sm" id="fc-buscar-desc-btn">🔍</button>
             </div>
           </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Buscar importe</label>
+            <div style="display:flex;gap:4px">
+              <input type="text" id="fc-buscar-imp" class="form-control" style="width:120px" placeholder="Ej. 1,250.50" inputmode="decimal">
+              <button class="btn btn-outline btn-sm" id="fc-buscar-imp-btn">🔍</button>
+            </div>
+          </div>
           ${puedeAsignar ? `<button class="btn btn-outline btn-sm" id="fc-reconciliar">🔄 Reconciliar</button>` : ''}
           ${esAdmin ? `<button class="btn btn-outline btn-sm" id="fc-saldo-inicial">⚙ Saldo Inicial</button>` : ''}
           <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('fc-content','flujo-de-caja')">📥 Bajar a Excel</button>
@@ -9519,6 +9526,8 @@ async function viewFlujoCaja(container) {
   document.getElementById('fc-saldo-inicial')?.addEventListener('click', abrirModalSaldoInicial);
   document.getElementById('fc-buscar-numop-btn').addEventListener('click', buscarPorNumeroOperacion);
   document.getElementById('fc-buscar-numop').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPorNumeroOperacion(); });
+  document.getElementById('fc-buscar-imp-btn').addEventListener('click', buscarPorNumeroOperacion);
+  document.getElementById('fc-buscar-imp').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPorNumeroOperacion(); });
   document.getElementById('fc-buscar-desc-btn').addEventListener('click', buscarPorNumeroOperacion);
   document.getElementById('fc-buscar-desc').addEventListener('keydown', e => { if (e.key === 'Enter') buscarPorNumeroOperacion(); });
 
@@ -9528,14 +9537,16 @@ async function viewFlujoCaja(container) {
     const wrap = document.getElementById('fc-buscar-resultado');
     const numeroOperacion = document.getElementById('fc-buscar-numop').value.trim();
     const glosa = document.getElementById('fc-buscar-desc').value.trim();
-    if (!sociedadActual || (!numeroOperacion && !glosa)) { wrap.innerHTML = ''; return; }
+    const importe = document.getElementById('fc-buscar-imp').value.trim();
+    if (!sociedadActual || (!numeroOperacion && !glosa && !importe)) { wrap.innerHTML = ''; return; }
     // Texto de los criterios usados (se pueden combinar N° de operación y descripción).
-    const criterio = [numeroOperacion && `N° Op. "${numeroOperacion}"`, glosa && `descripción "${glosa}"`].filter(Boolean).join(' y ');
+    const criterio = [numeroOperacion && `N° Op. "${numeroOperacion}"`, glosa && `descripción "${glosa}"`, importe && `importe ${importe}`].filter(Boolean).join(' y ');
     wrap.innerHTML = '<div class="card mb-16" style="padding:10px 14px;font-size:12px;color:var(--text-muted)">Buscando…</div>';
     try {
       const params = new URLSearchParams({ sociedad: sociedadActual });
       if (numeroOperacion) params.set('numeroOperacion', numeroOperacion);
       if (glosa) params.set('glosa', glosa);
+      if (importe) params.set('importe', importe);
       const movs = await GET(`/flujo-caja/movimientos?${params}`);
       if (!movs.length) {
         wrap.innerHTML = `<div class="card mb-16" style="padding:10px 14px;font-size:13px;color:var(--text-muted)">Sin movimientos con ${esc(criterio)} en ${esc(sociedadActual)}.</div>`;
@@ -9569,6 +9580,7 @@ async function viewFlujoCaja(container) {
         wrap.innerHTML = '';
         document.getElementById('fc-buscar-numop').value = '';
         document.getElementById('fc-buscar-desc').value = '';
+        document.getElementById('fc-buscar-imp').value = '';
       });
     } catch (e) { wrap.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
