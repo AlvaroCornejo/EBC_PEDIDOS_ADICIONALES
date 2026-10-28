@@ -398,3 +398,6 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
   .pg-resumenes-footer { max-height: 60vh !important; }
 }
+.pr-item td { background: #f8fafc; font-weight: 600; }
+.pr-item td.pr-c1 { background: #f8fafc; padding-left: 18px; }
+.pr-item ~ .pr-partida td.pr-c1 { padding-left: 36px; }

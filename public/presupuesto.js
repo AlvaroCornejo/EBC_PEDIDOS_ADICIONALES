@@ -3,7 +3,7 @@
    Módulo separado de app.js (se carga después y usa sus helpers:
    GET, api, esc, toast, S, PL_ESTRUCTURA, ALL_OPS). Prefijo pr* / _pr*.
    - Meses en columnas (enero a diciembre) + total.
-   - Cada rubro del PL (planilla, SSPP, ...) tiene partidas: filas con nombre y un importe por mes.
+   - Cada rubro del PL (planilla, SSPP, ...) se desglosa en sus ítems (electricidad, agua, ...) y cada ítem tiene partidas: filas con nombre y un importe por mes.
    - Costo de venta: se presupuesta el % por mes; el importe = % × venta neta A&B.
    - Los renglones calculados (margen, EBITDA, utilidades) salen de la misma estructura del PL.
    - Opcional: PL real de otro año debajo de cada renglón, para comparar.
@@ -78,29 +78,34 @@ async function viewPresupuesto(container) {
       puedeEditar = p.puedeEditar; real = r ? r.datos : null; dirty = false;
       meta = p.actualizadoEn ? `Última actualización: ${p.actualizadoPor || '—'} · ${new Date(p.actualizadoEn).toLocaleString('es-PE')}` : 'Sin presupuesto guardado todavía';
       // La venta neta A&B siempre existe: es la base del costo de venta.
-      if (!pres.partidas.some(x => x.esAyB)) pres.partidas.unshift({ id: nuevoId(), rubro: 'VENTA_NETA', nombre: PR_AYB, esAyB: true, montos: Array(12).fill(0) });
+      pres.partidas.forEach(x => { if (x.esAyB) x.rubro = PR_AYB; });   // presupuestos antiguos la guardaban en el subtotal
+      if (!pres.partidas.some(x => x.esAyB)) pres.partidas.unshift({ id: nuevoId(), rubro: PR_AYB, nombre: PR_AYB, esAyB: true, montos: Array(12).fill(0) });
       pintar();
     } catch (e) { cuerpo.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
   // ── cálculo ──────────────────────────────────────────────────────────────
   const partidasDe = key => pres.partidas.filter(p => p.rubro === key);
-  const ayb = m => partidasDe('VENTA_NETA').filter(p => p.esAyB).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
+  const ayb = m => partidasDe(PR_AYB).filter(p => p.esAyB).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
   // magnitud presupuestada del rubro en el mes m (positiva)
-  const magPres = (r, m) => r.key === 'COSTO_VENTA' ? ayb(m) * (Number(pres.cvPct[m]) || 0) / 100 : partidasDe(r.key).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
+  const magPres = (r, m) => r.key === 'COSTO_VENTA' ? ayb(m) * (Number(pres.cvPct[m]) || 0) / 100 : [r.key, ...r.grupos].reduce((t, k) => t + partidasDe(k).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0), 0);
+  const magItem = (g, m) => partidasDe(g).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
+  const magItemReal = (r, g, m) => { const v = real?.[g]?.[String(m + 1).padStart(2, '0')] || 0; return r.key === 'VENTA_NETA' ? v : -v; };
+  const conItems = r => r.tipo === 'rubro' && r.key !== 'COSTO_VENTA' && (r.grupos.length > 1 || r.grupos[0] !== r.key);
   const magReal = (r, m) => { const mm = String(m + 1).padStart(2, '0'); const s = r.grupos.reduce((t, g) => t + (real?.[g]?.[mm] || 0), 0); return r.key === 'VENTA_NETA' ? s : -s; };
   const signadoMes = (m, real_) => prSignado(rubros, r => real_ ? magReal(r, m) : magPres(r, m));
 
   function calcular() {
-    const pr = {}, rl = {}, cp = {}, cr = {};
+    const pr = {}, rl = {}, cp = {}, cr = {}, pi = {}, ri = {};
     for (let m = 0; m < 12; m++) {
       const t = signadoMes(m, false), tr = real ? signadoMes(m, true) : null;
       rubros.forEach(r => {
-        if (r.tipo === 'rubro') { (pr[r.key] = pr[r.key] || [])[m] = magPres(r, m); if (tr) (rl[r.key] = rl[r.key] || [])[m] = magReal(r, m); }
+        if (r.tipo === 'rubro') { (pr[r.key] = pr[r.key] || [])[m] = magPres(r, m); if (tr) (rl[r.key] = rl[r.key] || [])[m] = magReal(r, m);
+          if (conItems(r)) r.grupos.forEach(g => { (pi[g] = pi[g] || [])[m] = magItem(g, m); if (tr) (ri[g] = ri[g] || [])[m] = magItemReal(r, g, m); }); }
         else { (cp[r.key] = cp[r.key] || [])[m] = t[r.key]; if (tr) (cr[r.key] = cr[r.key] || [])[m] = tr[r.key]; }
       });
     }
-    return { pr, rl, cp, cr };
+    return { pr, rl, cp, cr, pi, ri };
   }
 
   // ── pintado ──────────────────────────────────────────────────────────────
@@ -126,16 +131,23 @@ async function viewPresupuesto(container) {
         if (real) h += `<tr class="pr-real"><td class="pr-c1">Real ${anioReal}</td>${celdas(r.key, 'cr')}</tr>`;
         return;
       }
-      h += `<tr class="pr-rubro"><td class="pr-c1"><div class="pr-c1i"><span>${esc(r.label)}</span>${ed && r.key !== 'COSTO_VENTA' ? `<button class="pr-add" data-acc="agregar" data-rubro="${esc(r.key)}">＋ Partida</button>` : ''}</div></td>${celdas(r.key, 'pr')}</tr>`;
+      h += `<tr class="pr-rubro"><td class="pr-c1"><div class="pr-c1i"><span>${esc(r.label)}</span>${ed && r.key !== 'COSTO_VENTA' && !conItems(r) ? `<button class="pr-add" data-acc="agregar" data-rubro="${esc(r.key)}">＋ Partida</button>` : ''}</div></td>${celdas(r.key, 'pr')}</tr>`;
       if (r.key === 'COSTO_VENTA') {
         h += `<tr class="pr-partida"><td class="pr-c1"><div class="pr-c1i"><span>% de costo de venta sobre la venta neta A&amp;B</span></div></td>${PR_MESES.map((_, m) => ed
           ? `<td><input class="pr-in pr-pct" type="number" step="any" min="0" max="100" data-cv="${m}" value="${pres.cvPct[m] || ''}" placeholder="0"></td>`
           : `<td class="pr-n">${pres.cvPct[m] ? fP(pres.cvPct[m]) : '—'}</td>`).join('')}<td class="pr-n pr-tot" data-cvprom></td></tr>`;
         if (real) h += `<tr class="pr-real"><td class="pr-c1">% real ${anioReal} (sobre venta neta A&amp;B)</td>${PR_MESES.map((_, m) => `<td class="pr-n" data-cvreal="${m}"></td>`).join('')}<td class="pr-n pr-tot" data-cvreal="t"></td></tr>`;
+      } else if (conItems(r)) {
+        h += partidasDe(r.key).map(filaPartida).join('');   // partidas antiguas sin ítem asignado
+        r.grupos.forEach(g => {
+          h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span>${ed ? `<button class="pr-add" data-acc="agregar" data-rubro="${esc(g)}">＋ Partida</button>` : ''}</div></td>${celdas(g, 'pi')}</tr>`;
+          h += partidasDe(g).map(filaPartida).join('');
+          if (real) h += `<tr class="pr-real"><td class="pr-c1">Real ${anioReal}</td>${celdas(g, 'ri')}</tr>`;
+        });
       } else {
         h += partidasDe(r.key).map(filaPartida).join('');
       }
-      if (real) h += `<tr class="pr-real"><td class="pr-c1">Real ${anioReal}</td>${celdas(r.key, 'rl')}</tr>`;
+      if (real) h += `<tr class="pr-real"><td class="pr-c1">Real ${anioReal} · total ${esc(r.label)}</td>${celdas(r.key, 'rl')}</tr>`;
     });
     h += '</tbody></table></div>';
     cuerpo.innerHTML = h;
@@ -144,8 +156,8 @@ async function viewPresupuesto(container) {
   }
 
   function actualizarTotales() {
-    const { pr, rl, cp, cr } = calcular();
-    const fuentes = { pr, rl, cp, cr };
+    const { pr, rl, cp, cr, pi, ri } = calcular();
+    const fuentes = { pr, rl, cp, cr, pi, ri };
     cuerpo.querySelectorAll('td[data-t]').forEach(td => {
       const arr = fuentes[td.dataset.t]?.[td.dataset.k]; if (!arr) { td.textContent = ''; return; }
       const v = td.dataset.m === 't' ? suma12(arr) : arr[Number(td.dataset.m)];
