@@ -38,6 +38,7 @@ async function viewPresupuesto(container) {
   const hoy = new Date();
   let operacion = opsLista[0] || '', anio = Math.max(hoy.getFullYear() + 1, 2027), verReal = false, anioReal = anio - 1;
   let pres = { cvPct: Array(12).fill(0), partidas: [] }, real = null, puedeEditar = false, dirty = false, meta = '';
+  const cerrados = new Set();   // rubros con sus ítems contraídos
 
   const fN = v => (v < 0 ? '(' : '') + Math.abs(v).toLocaleString('es-PE', { maximumFractionDigits: 0 }) + (v < 0 ? ')' : '');
   const fP = v => (Number(v) || 0).toLocaleString('es-PE', { maximumFractionDigits: 2 }) + '%';
@@ -88,7 +89,7 @@ async function viewPresupuesto(container) {
   const partidasDe = key => pres.partidas.filter(p => p.rubro === key);
   const ayb = m => partidasDe(PR_AYB).filter(p => p.esAyB).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
   // magnitud presupuestada del rubro en el mes m (positiva)
-  const magPres = (r, m) => r.key === 'COSTO_VENTA' ? ayb(m) * (Number(pres.cvPct[m]) || 0) / 100 : [r.key, ...r.grupos].reduce((t, k) => t + partidasDe(k).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0), 0);
+  const magPres = (r, m) => r.key === 'COSTO_VENTA' ? ayb(m) * (Number(pres.cvPct[m]) || 0) / 100 : [...new Set([r.key, ...r.grupos])].reduce((t, k) => t + partidasDe(k).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0), 0);
   const magItem = (g, m) => partidasDe(g).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
   const magItemReal = (r, g, m) => { const v = real?.[g]?.[String(m + 1).padStart(2, '0')] || 0; return r.key === 'VENTA_NETA' ? v : -v; };
   // Ítems que se desglosan en partidas; en los demás el importe se presupuesta en la misma línea del ítem (partida 'L:ítem').
@@ -136,7 +137,14 @@ async function viewPresupuesto(container) {
         if (real) h += `<tr class="pr-real"><td class="pr-c1">Real ${anioReal}</td>${celdas(r.key, 'cr')}</tr>`;
         return;
       }
-      h += `<tr class="pr-rubro"><td class="pr-c1"><div class="pr-c1i"><span>${esc(r.label)}</span>${ed && r.key !== 'COSTO_VENTA' && !conItems(r) ? `<button class="pr-add" data-acc="agregar" data-rubro="${esc(r.key)}">＋ Partida</button>` : ''}</div></td>${celdas(r.key, 'pr')}</tr>`;
+      const simple = r.key !== 'COSTO_VENTA' && !conItems(r);   // rubro de una sola línea: se presupuesta directo en su fila
+      if (simple) {
+        const l = linea(r.key);
+        const meses = PR_MESES.map((_, m) => ed
+          ? `<td><input class="pr-in" type="number" step="any" data-linea="${esc(r.key)}" data-m="${m}" value="${l?.montos[m] || ''}" placeholder="0"></td>`
+          : `<td class="pr-n">${l?.montos[m] ? fN(l.montos[m]) : '—'}</td>`).join('');
+        h += `<tr class="pr-rubro"><td class="pr-c1"><div class="pr-c1i"><span>${esc(r.label)}</span>${ed ? `<span class="pr-acc"><button class="pr-ico" data-acc="repetir-linea" data-g="${esc(r.key)}" title="Repetir el importe de enero en todos los meses">⇥</button></span>` : ''}</div></td>${meses}<td class="pr-n pr-tot" data-t="pr" data-k="${esc(r.key)}" data-m="t"></td></tr>`;
+      } else h += `<tr class="pr-rubro"><td class="pr-c1"><div class="pr-c1i"><span>${conItems(r) ? `<button class="pr-tog" data-tog="${esc(r.key)}" title="Abrir / cerrar">${cerrados.has(r.key) ? '▸' : '▾'}</button>` : ''}${esc(r.label)}</span></div></td>${celdas(r.key, 'pr')}</tr>`;
       if (r.key === 'COSTO_VENTA') {
         h += `<tr class="pr-partida"><td class="pr-c1"><div class="pr-c1i"><span>% de costo de venta sobre la venta neta A&amp;B</span></div></td>${PR_MESES.map((_, m) => ed
           ? `<td><input class="pr-in pr-pct" type="number" step="any" min="0" max="100" data-cv="${m}" value="${pres.cvPct[m] || ''}" placeholder="0"></td>`
@@ -144,7 +152,7 @@ async function viewPresupuesto(container) {
         if (real) h += `<tr class="pr-real"><td class="pr-c1">% real ${anioReal} (sobre venta neta A&amp;B)</td>${PR_MESES.map((_, m) => `<td class="pr-n" data-cvreal="${m}"></td>`).join('')}<td class="pr-n pr-tot" data-cvreal="t"></td></tr>`;
       } else if (conItems(r)) {
         h += partidasLista(r.key).map(filaPartida).join('');   // partidas antiguas sin ítem asignado
-        r.grupos.forEach(g => {
+        if (!cerrados.has(r.key)) r.grupos.forEach(g => {
           if (ITEMS_CON_PARTIDAS.has(g)) {
             h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span>${ed ? `<button class="pr-add" data-acc="agregar" data-rubro="${esc(g)}">＋ Partida</button>` : ''}</div></td>${celdas(g, 'pi')}</tr>`;
           } else {
@@ -158,7 +166,7 @@ async function viewPresupuesto(container) {
           if (real) h += `<tr class="pr-real"><td class="pr-c1">Real ${anioReal}</td>${celdas(g, 'ri')}</tr>`;
         });
       } else {
-        h += partidasDe(r.key).map(filaPartida).join('');
+        h += partidasLista(r.key).map(filaPartida).join('');
       }
       if (real) h += `<tr class="pr-real"><td class="pr-c1">Real ${anioReal} · total ${esc(r.label)}</td>${celdas(r.key, 'rl')}</tr>`;
     });
@@ -210,6 +218,8 @@ async function viewPresupuesto(container) {
     dirty = true; actualizarTotales();
   });
   cuerpo.addEventListener('click', e => {
+    const tg = e.target.closest('[data-tog]');
+    if (tg) { const k = tg.dataset.tog; if (cerrados.has(k)) cerrados.delete(k); else cerrados.add(k); const sc = cuerpo.querySelector('.pr-wrap')?.scrollLeft || 0; pintar(); const w = cuerpo.querySelector('.pr-wrap'); if (w) w.scrollLeft = sc; return; }
     const b = e.target.closest('[data-acc]'); if (!b || !puedeEditar) return;
     const acc = b.dataset.acc;
     if (acc === 'repetir-linea') { const g = b.dataset.g; let l = linea(g); if (!l) { l = { id: 'L:' + g, rubro: g, nombre: g, esAyB: g === PR_AYB, montos: Array(12).fill(0) }; pres.partidas.push(l); } l.montos = Array(12).fill(Number(l.montos[0]) || 0); }

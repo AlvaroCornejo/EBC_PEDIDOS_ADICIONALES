@@ -401,3 +401,4 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 .pr-item td { background: #f8fafc; font-weight: 600; }
 .pr-item td.pr-c1 { background: #f8fafc; padding-left: 18px; }
 .pr-item ~ .pr-partida td.pr-c1 { padding-left: 36px; }
+.pr-tog { border: 0; background: none; cursor: pointer; font-size: 13px; padding: 0 6px 0 0; color: var(--text-muted); }
