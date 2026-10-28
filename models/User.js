@@ -36,14 +36,13 @@ const userSchema = new mongoose.Schema({
   // 4) usa accesoPlanillas + operations (mismo patrón que accesoBajas/etc.).
   rolPlanilla:      { type: String, default: '', enum: ['', 'rrhh', 'gaf', 'admin'] },
   accesoPlanillas:  { type: Boolean, default: false },
+  // Presupuesto anual: 'ver' (solo consulta) | 'editar'; scoped por `operations`. ADMIN edita todo.
+  rolPresupuesto:   { type: String, default: '', enum: ['', 'ver', 'editar'] },
   accesoInventarios: { type: Boolean, default: false }, // scoped por `operations`
   accesoVentas: { type: Boolean, default: false }, // scoped por `operations`
   // Costo de Producción de planta: acceso + áreas de planta visibles ([] = todas).
   accesoCostoProduccion: { type: Boolean, default: false },
   areasCostoProduccion:  { type: [String], default: [] },
-  // Cierre de Caja: un usuario puede tener varios roles a la vez (ej. Oficina + Control),
-  // scoped por `operations` (sin array propio).
-  rolesCajaEfectivo: { type: [String], default: [], enum: ['CAJA', 'OFICINA', 'CONTROL', 'BACKOFFICE'] },
   // Cumplimiento de Actividades: gate de nav. El acceso real a cada área sale de
   // CumplimientoArea.responsableUserId, no de este flag.
   accesoCumplimiento: { type: Boolean, default: false },
