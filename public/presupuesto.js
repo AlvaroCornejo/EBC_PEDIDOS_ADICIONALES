@@ -78,8 +78,8 @@ async function viewPresupuesto(container) {
       puedeEditar = p.puedeEditar; real = r ? r.datos : null; dirty = false;
       meta = p.actualizadoEn ? `Última actualización: ${p.actualizadoPor || '—'} · ${new Date(p.actualizadoEn).toLocaleString('es-PE')}` : 'Sin presupuesto guardado todavía';
       // La venta neta A&B siempre existe: es la base del costo de venta.
-      pres.partidas.forEach(x => { if (x.esAyB) x.rubro = PR_AYB; });   // presupuestos antiguos la guardaban en el subtotal
-      if (!pres.partidas.some(x => x.esAyB)) pres.partidas.unshift({ id: nuevoId(), rubro: PR_AYB, nombre: PR_AYB, esAyB: true, montos: Array(12).fill(0) });
+      pres.partidas.forEach(x => { if (x.esAyB) { x.rubro = PR_AYB; x.id = 'L:' + PR_AYB; } });   // presupuestos antiguos la guardaban en el subtotal
+      if (!pres.partidas.some(x => x.esAyB)) pres.partidas.unshift({ id: 'L:' + PR_AYB, rubro: PR_AYB, nombre: PR_AYB, esAyB: true, montos: Array(12).fill(0) });
       pintar();
     } catch (e) { cuerpo.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
@@ -91,6 +91,11 @@ async function viewPresupuesto(container) {
   const magPres = (r, m) => r.key === 'COSTO_VENTA' ? ayb(m) * (Number(pres.cvPct[m]) || 0) / 100 : [r.key, ...r.grupos].reduce((t, k) => t + partidasDe(k).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0), 0);
   const magItem = (g, m) => partidasDe(g).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
   const magItemReal = (r, g, m) => { const v = real?.[g]?.[String(m + 1).padStart(2, '0')] || 0; return r.key === 'VENTA_NETA' ? v : -v; };
+  // Ítems que se desglosan en partidas; en los demás el importe se presupuesta en la misma línea del ítem (partida 'L:ítem').
+  const ITEMS_CON_PARTIDAS = new Set(['ASESORIA ADMINISTRATIVA', 'ASESORIA CONTABLE', 'ASESORIA LEGAL', 'MANTENIMIENTO', 'FUMIGACION', 'JARDINERIA',
+    ...rubros.filter(r => r.key === 'SERV_TERCEROS' || r.key === 'OTROS_GASTOS').flatMap(r => r.grupos)]);
+  const linea = g => pres.partidas.find(p => p.id === 'L:' + g);
+  const partidasLista = g => partidasDe(g).filter(p => !p.id.startsWith('L:'));
   const conItems = r => r.tipo === 'rubro' && r.key !== 'COSTO_VENTA' && (r.grupos.length > 1 || r.grupos[0] !== r.key);
   const magReal = (r, m) => { const mm = String(m + 1).padStart(2, '0'); const s = r.grupos.reduce((t, g) => t + (real?.[g]?.[mm] || 0), 0); return r.key === 'VENTA_NETA' ? s : -s; };
   const signadoMes = (m, real_) => prSignado(rubros, r => real_ ? magReal(r, m) : magPres(r, m));
@@ -138,10 +143,18 @@ async function viewPresupuesto(container) {
           : `<td class="pr-n">${pres.cvPct[m] ? fP(pres.cvPct[m]) : '—'}</td>`).join('')}<td class="pr-n pr-tot" data-cvprom></td></tr>`;
         if (real) h += `<tr class="pr-real"><td class="pr-c1">% real ${anioReal} (sobre venta neta A&amp;B)</td>${PR_MESES.map((_, m) => `<td class="pr-n" data-cvreal="${m}"></td>`).join('')}<td class="pr-n pr-tot" data-cvreal="t"></td></tr>`;
       } else if (conItems(r)) {
-        h += partidasDe(r.key).map(filaPartida).join('');   // partidas antiguas sin ítem asignado
+        h += partidasLista(r.key).map(filaPartida).join('');   // partidas antiguas sin ítem asignado
         r.grupos.forEach(g => {
-          h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span>${ed ? `<button class="pr-add" data-acc="agregar" data-rubro="${esc(g)}">＋ Partida</button>` : ''}</div></td>${celdas(g, 'pi')}</tr>`;
-          h += partidasDe(g).map(filaPartida).join('');
+          if (ITEMS_CON_PARTIDAS.has(g)) {
+            h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span>${ed ? `<button class="pr-add" data-acc="agregar" data-rubro="${esc(g)}">＋ Partida</button>` : ''}</div></td>${celdas(g, 'pi')}</tr>`;
+          } else {
+            const l = linea(g);
+            const meses = PR_MESES.map((_, m) => ed
+              ? `<td><input class="pr-in" type="number" step="any" data-linea="${esc(g)}" data-m="${m}" value="${l?.montos[m] || ''}" placeholder="0"></td>`
+              : `<td class="pr-n">${l?.montos[m] ? fN(l.montos[m]) : '—'}</td>`).join('');
+            h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span>${ed ? `<span class="pr-acc"><button class="pr-ico" data-acc="repetir-linea" data-g="${esc(g)}" title="Repetir el importe de enero en todos los meses">⇥</button></span>` : ''}</div></td>${meses}<td class="pr-n pr-tot" data-t="pi" data-k="${esc(g)}" data-m="t"></td></tr>`;
+          }
+          h += partidasLista(g).map(filaPartida).join('');
           if (real) h += `<tr class="pr-real"><td class="pr-c1">Real ${anioReal}</td>${celdas(g, 'ri')}</tr>`;
         });
       } else {
@@ -185,7 +198,11 @@ async function viewPresupuesto(container) {
     const t = e.target;
     if (t.classList.contains('pr-in')) {
       const v = t.value === '' ? 0 : parseFloat(t.value);
-      if (t.dataset.cv !== undefined) pres.cvPct[Number(t.dataset.cv)] = Number.isFinite(v) ? v : 0;
+      if (t.dataset.linea !== undefined) {
+        const g = t.dataset.linea; let l = linea(g);
+        if (!l) { l = { id: 'L:' + g, rubro: g, nombre: g, esAyB: g === PR_AYB, montos: Array(12).fill(0) }; pres.partidas.push(l); }
+        l.montos[Number(t.dataset.m)] = Number.isFinite(v) ? v : 0;
+      } else if (t.dataset.cv !== undefined) pres.cvPct[Number(t.dataset.cv)] = Number.isFinite(v) ? v : 0;
       else { const p = pres.partidas.find(x => x.id === t.dataset.id); if (p) p.montos[Number(t.dataset.m)] = Number.isFinite(v) ? v : 0; }
     } else if (t.classList.contains('pr-nombre')) {
       const p = pres.partidas.find(x => x.id === t.dataset.id); if (p) p.nombre = t.value;
@@ -195,7 +212,8 @@ async function viewPresupuesto(container) {
   cuerpo.addEventListener('click', e => {
     const b = e.target.closest('[data-acc]'); if (!b || !puedeEditar) return;
     const acc = b.dataset.acc;
-    if (acc === 'agregar') pres.partidas.push({ id: nuevoId(), rubro: b.dataset.rubro, nombre: '', esAyB: false, montos: Array(12).fill(0) });
+    if (acc === 'repetir-linea') { const g = b.dataset.g; let l = linea(g); if (!l) { l = { id: 'L:' + g, rubro: g, nombre: g, esAyB: g === PR_AYB, montos: Array(12).fill(0) }; pres.partidas.push(l); } l.montos = Array(12).fill(Number(l.montos[0]) || 0); }
+    else if (acc === 'agregar') pres.partidas.push({ id: nuevoId(), rubro: b.dataset.rubro, nombre: '', esAyB: false, montos: Array(12).fill(0) });
     else if (acc === 'borrar') { const p = pres.partidas.find(x => x.id === b.dataset.id); if (!p || (suma12(p.montos) && !confirm(`¿Eliminar la partida "${p.nombre || '(sin nombre)'}" con sus importes?`))) return; pres.partidas = pres.partidas.filter(x => x.id !== b.dataset.id); }
     else if (acc === 'repetir') { const p = pres.partidas.find(x => x.id === b.dataset.id); if (p) p.montos = Array(12).fill(Number(p.montos[0]) || 0); }
     dirty = true; pintar();
@@ -218,7 +236,7 @@ async function viewPresupuesto(container) {
     if (vacias.length) return toast('Hay partidas con importes pero sin nombre: ponles un nombre antes de guardar', 'error');
     const btn = $('pr-guardar'); btn.disabled = true;
     try {
-      const r = await api('PUT', `/presupuesto?operacion=${encodeURIComponent(operacion)}&anio=${anio}`, { cvPct: pres.cvPct, partidas: pres.partidas });
+      const r = await api('PUT', `/presupuesto?operacion=${encodeURIComponent(operacion)}&anio=${anio}`, { cvPct: pres.cvPct, partidas: pres.partidas.filter(p => p.esAyB || !p.id.startsWith('L:') || suma12(p.montos)) });
       dirty = false; meta = `Última actualización: ${r.actualizadoPor || '—'} · ${new Date(r.actualizadoEn).toLocaleString('es-PE')}`;
       toast('Presupuesto guardado', 'success'); actualizarTotales();
     } catch (err) { toast(err.message, 'error'); }
