@@ -5484,7 +5484,7 @@ async function renderPaso2(container) {
       </div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
-      <button class="btn btn-outline btn-sm" onclick="imprimirVista('ap2-wrap','Paso 2 — Aprobación de Pagos')">🖨️ Imprimir</button>
+      <button class="btn btn-outline btn-sm" onclick="ap2Imprimir()">🖨️ Imprimir</button>
       <button class="btn btn-outline btn-sm" onclick="exportarVistaExcel('ap2-wrap','paso2-aprobacion')">📥 Bajar a Excel</button>
     </div>
     <div id="ap2-wrap" style="padding-bottom:72px"></div>`;
@@ -5827,6 +5827,65 @@ async function renderPaso2(container) {
 
   // ── Funciones globales ───────────────────────────────────────────
   window.ap2Refresh   = () => { ap2RenderGrupos(); ap2RenderFooter(); };
+  // Reporte imprimible: Grupo → Beneficiario → obligaciones (lo visible según los filtros), con subtotales y total general
+  window.ap2Imprimir = () => {
+    if (!ap2Prog) return toast('No hay datos para imprimir', 'error');
+    const obs = ap2ObsFiltradas();
+    if (!obs.length) return toast('No hay datos para imprimir', 'error');
+    const tc  = parseFloat(document.getElementById('ap2-tc')?.value) || 1;
+    const sol = o => o.moneda !== 'LO' ? o.monto * tc : o.monto;
+    const sum = list => ({ sol: list.filter(o => o.moneda === 'LO').reduce((t, o) => t + o.monto, 0), usd: list.filter(o => o.moneda !== 'LO').reduce((t, o) => t + o.monto, 0), tot: list.reduce((t, o) => t + sol(o), 0) });
+    const desc = t => t.usd ? ` <span class="det">(S/ ${fmtN(t.sol)} + USD ${fmtN(t.usd)})</span>` : '';
+    const grupos = {};
+    obs.forEach(o => { const g = o.grupo || 'OTROS', b = o.pagarA || '—'; ((grupos[g] = grupos[g] || {})[b] = grupos[g][b] || []).push(o); });
+    const totDe = o => sum(o).tot;
+    const flat = g => Object.values(grupos[g]).flat();
+    const NC = 9;
+    let filas = '';
+    Object.keys(grupos).sort((a, b) => totDe(flat(b)) - totDe(flat(a))).forEach(g => {
+      filas += `<tr class="g"><td colspan="${NC}">${esc(g)}</td></tr>`;
+      Object.keys(grupos[g]).sort((a, b) => totDe(grupos[g][b]) - totDe(grupos[g][a])).forEach(b => {
+        filas += `<tr class="b"><td colspan="${NC}">${esc(b)}</td></tr>`;
+        grupos[g][b].forEach(o => {
+          const d = o.diasVencido ?? 0;
+          filas += `<tr><td>${esc(o.tipoDocumento || '')}</td><td>${esc(o.numeroDocumento || '')}</td><td>${fmtF(o.fechaDocumento)}</td><td>${fmtF(o.fechaVencimiento)}</td><td class="r">${esc(o.moneda || '')}</td><td class="r">${fmtN(o.monto)}</td><td class="r" style="color:${d > 0 ? '#dc2626' : d === 0 ? '#d97706' : '#166534'};font-weight:700">${d}</td><td>${esc(o.banco || '')}</td><td>${esc(o.comentario || '')}</td></tr>`;
+        });
+        const t = sum(grupos[g][b]);
+        filas += `<tr class="sb"><td colspan="5">Subtotal ${esc(b)}${desc(t)}</td><td class="r">${fmtN(t.tot)}</td><td colspan="3"></td></tr>`;
+      });
+      const t = sum(flat(g));
+      filas += `<tr class="sg"><td colspan="5">Subtotal ${esc(g)}${desc(t)}</td><td class="r">${fmtN(t.tot)}</td><td colspan="3"></td></tr>`;
+    });
+    const T = sum(obs);
+    filas += `<tr class="tt"><td colspan="5">TOTAL GENERAL (en S/, T/C ${tc})${desc(T)}</td><td class="r">${fmtN(T.tot)}</td><td colspan="3"></td></tr>`;
+    const titulo = `Paso 2 — Aprobación de Pagos · ${esc(ap2Prog.compania || '')} · Semana ${ap2Prog.semana || ''}/${ap2Prog['año'] || ''}`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Paso 2 — Aprobación de Pagos</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #111; padding: 16px; }
+        h2 { font-size: 16px; color: #1a1f3a; margin-bottom: 4px; }
+        .meta { font-size: 11px; color: #6b7280; margin-bottom: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #1a1f3a; color: #fff; padding: 5px 6px; text-align: left; font-size: 10px; white-space: nowrap; }
+        td { padding: 3px 6px; border-bottom: 1px solid #e5e7eb; }
+        .r { text-align: right; white-space: nowrap; }
+        tr.g td { background: #1e3a8a; color: #fff; font-weight: 700; font-size: 12px; padding: 5px 6px; }
+        tr.b td { background: #eef2ff; font-weight: 700; }
+        tr.sb td { font-weight: 700; border-top: 1px solid #9ca3af; background: #f9fafb; }
+        tr.sg td { font-weight: 700; background: #dbeafe; border-top: 2px solid #1e3a8a; }
+        tr.tt td { font-weight: 700; font-size: 12px; background: #1a1f3a; color: #fff; }
+        .det { font-weight: 400; font-size: 10px; }
+        tr { page-break-inside: avoid; }
+        @media print { @page { margin: 1cm; } body { padding: 0; } thead { display: table-header-group; } }
+      </style></head><body>
+      <h2>${titulo}</h2>
+      <div class="meta">Generado: ${new Date().toLocaleString('es-PE')}</div>
+      <table><thead><tr><th>Tipo</th><th>N° Documento</th><th>F. Documento</th><th>F. Vencimiento</th><th class="r">Mon.</th><th class="r">Monto</th><th class="r">Días Venc.</th><th>Banco</th><th>Comentario</th></tr></thead><tbody>${filas}</tbody></table>
+      </body></html>`;
+    const win = window.open('', '_blank', 'width=1100,height=750');
+    win.document.write(html); win.document.close(); win.focus();
+    setTimeout(() => win.print(), 400);
+  };
   window.ap2Filtrar   = () => { ap2RenderGrupos(); ap2RenderFooter(); };
   window.ap2LimpiarFiltros = () => {
     ['ap2-f-tipodoc','ap2-f-numdoc','ap2-f-benef','ap2-f-grupo','ap2-f-detalle'].forEach(id => {
