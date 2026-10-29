@@ -19,6 +19,8 @@ const presupuestoSchema = new mongoose.Schema({
   operacion:     { type: String, required: true },
   anio:          { type: Number, required: true },
   cvPct:         { type: [Number], default: () => Array(12).fill(0) },
+  // % mensual sobre la venta neta A&B de los ítems que se calculan así (comisión tarjeta, comisión delivery): { [ítem]: [12 números] }
+  pcts:          { type: Object, default: () => ({}) },
   partidas:      { type: [partidaSchema], default: [] },
   actualizadoPor: { type: String, default: '' },
   actualizadoEn:  { type: Date },

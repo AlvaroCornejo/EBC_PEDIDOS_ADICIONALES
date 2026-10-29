@@ -17,6 +17,8 @@ function puedeEditar(user, operacion) { return rolDe(user) === 'editar' && puede
 
 router.use((req, res, next) => rolDe(req.user) ? next() : res.status(403).json({ error: 'Sin acceso a Presupuesto' }));
 
+// Ítems presupuestados como % de la venta neta A&B
+const ITEMS_PCT = ['COMISION TARJETA DE CREDITO', 'COMISION DELIVERY'];
 const anioDe = v => { const a = parseInt(v); return a >= 2000 && a <= 2100 ? a : null; };
 
 // GET /operaciones — operaciones que el usuario puede ver, con indicador de edición
@@ -36,7 +38,7 @@ router.get('/', async (req, res) => {
     const doc = await Presupuesto.findOne({ operacion, anio }).lean();
     res.json({
       operacion, anio, puedeEditar: puedeEditar(req.user, operacion),
-      cvPct: doc?.cvPct || Array(12).fill(0), partidas: doc?.partidas || [],
+      cvPct: doc?.cvPct || Array(12).fill(0), pcts: doc?.pcts || {}, partidas: doc?.partidas || [],
       actualizadoPor: doc?.actualizadoPor || '', actualizadoEn: doc?.actualizadoEn || null,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -63,9 +65,12 @@ router.put('/', async (req, res) => {
     const cvPct = doce(req.body?.cvPct);
     if (cvPct.some(v => v < 0 || v > 100)) return res.status(400).json({ error: 'El % de costo de venta debe estar entre 0 y 100' });
 
+    const pcts = {};
+    for (const k of ITEMS_PCT) { const a = doce(req.body?.pcts?.[k]); if (a.some(v => v < 0 || v > 100)) return res.status(400).json({ error: 'Los porcentajes deben estar entre 0 y 100' }); pcts[k] = a; }
+
     const doc = await Presupuesto.findOneAndUpdate(
       { operacion, anio },
-      { operacion, anio, cvPct, partidas, actualizadoPor: req.user.username || '', actualizadoEn: new Date() },
+      { operacion, anio, cvPct, pcts, partidas, actualizadoPor: req.user.username || '', actualizadoEn: new Date() },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     ).lean();
     res.json({ ok: true, actualizadoPor: doc.actualizadoPor, actualizadoEn: doc.actualizadoEn });
