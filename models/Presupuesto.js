@@ -21,6 +21,9 @@ const presupuestoSchema = new mongoose.Schema({
   cvPct:         { type: [Number], default: () => Array(12).fill(0) },
   // % mensual sobre la venta neta A&B de los ítems que se calculan así (comisión tarjeta, comisión delivery): { [ítem]: [12 números] }
   pcts:          { type: Object, default: () => ({}) },
+  // Tasas mensuales (%) de IGV y recargo al consumo: { igv: [12], rc: [12] }. La venta se presupuesta bruta (partidas 'B:ítem')
+  // y la neta = bruta / (1 + igv + rc). Vacío = el cliente usa las tasas de la operación.
+  tasas:         { type: Object, default: () => ({}) },
   partidas:      { type: [partidaSchema], default: [] },
   actualizadoPor: { type: String, default: '' },
   actualizadoEn:  { type: Date },

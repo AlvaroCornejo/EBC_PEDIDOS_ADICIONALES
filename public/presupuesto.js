@@ -34,13 +34,20 @@ function prSignado(rubros, magnitudDe) {
 
 async function viewPresupuesto(container) {
   const rubros = prEstructura();
+  const VENTA_ITEMS = rubros.find(r => r.key === 'VENTA_NETA').grupos;   // ítems de venta neta: se presupuestan en bruta y se calculan
   const esAdmin = S.user.role === 'ADMIN';
   const opsLista = esAdmin ? [...ALL_OPS] : [...(S.user.operations || [])];
   const hoy = new Date();
   let operacion = opsLista[0] || '', anio = Math.max(hoy.getFullYear() + 1, 2027), verReal = false, anioReal = anio - 1;
-  let pres = { cvPct: Array(12).fill(0), pcts: {}, partidas: [] }, real = null, puedeEditar = false, dirty = false, meta = '';
+  let pres = { cvPct: Array(12).fill(0), pcts: {}, tasas: { igv: Array(12).fill(0), rc: Array(12).fill(0) }, partidas: [] }, real = null, puedeEditar = false, dirty = false, meta = '';
   // rubros con sus ítems contraídos (por omisión todos cerrados)
-  const cerrados = new Set(rubros.filter(r => r.tipo === 'rubro' && r.key !== 'COSTO_VENTA' && (r.grupos.length > 1 || r.grupos[0] !== r.key)).map(r => r.key));
+  const cerrados = new Set([...rubros.filter(r => r.tipo === 'rubro' && r.key !== 'COSTO_VENTA' && (r.grupos.length > 1 || r.grupos[0] !== r.key)).map(r => r.key), 'VENTA_BRUTA']);
+  // Tasas por omisión: las de la operación (Admin → Sociedades y Operaciones), en %
+  const tasasOp = () => {
+    const o = (S.sociedades || []).flatMap(s => s.operaciones || []).find(x => x.codigo === operacion);
+    const pct = v => Math.round((Number(v) || 0) * 10000) / 100;
+    return { igv: Array(12).fill(pct(o?.igvPct)), rc: Array(12).fill(pct(o?.rcPct)) };
+  };
 
   const fN = v => (v < 0 ? '(' : '') + Math.abs(v).toLocaleString('es-PE', { maximumFractionDigits: 0 }) + (v < 0 ? ')' : '');
   const fP = v => (Number(v) || 0).toLocaleString('es-PE', { maximumFractionDigits: 2 }) + '%';
@@ -77,23 +84,27 @@ async function viewPresupuesto(container) {
         GET(`/presupuesto?operacion=${encodeURIComponent(operacion)}&anio=${anio}`),
         verReal ? GET(`/presupuesto/real?operacion=${encodeURIComponent(operacion)}&anio=${anioReal}`) : Promise.resolve(null),
       ]);
-      pres = { cvPct: p.cvPct, pcts: p.pcts || {}, partidas: p.partidas.map(x => ({ ...x, montos: [...x.montos] })) };
+      // Presupuestos anteriores guardaban la venta neta directa (partidas 'L:ítem' / base A&B): ya no se usan, se descartan al guardar.
+      const obsoleta = x => x.esAyB || x.rubro === 'VENTA_NETA' || (x.id.startsWith('L:') && VENTA_ITEMS.includes(x.rubro));
+      pres = { cvPct: p.cvPct, pcts: p.pcts || {}, tasas: p.tasas ? { igv: [...p.tasas.igv], rc: [...p.tasas.rc] } : tasasOp(), partidas: p.partidas.filter(x => !obsoleta(x)).map(x => ({ ...x, montos: [...x.montos] })) };
       puedeEditar = p.puedeEditar; real = r ? r.datos : null; dirty = false;
       meta = p.actualizadoEn ? `Última actualización: ${p.actualizadoPor || '—'} · ${new Date(p.actualizadoEn).toLocaleString('es-PE')}` : 'Sin presupuesto guardado todavía';
       // La venta neta A&B siempre existe: es la base del costo de venta.
-      pres.partidas.forEach(x => { if (x.esAyB) { x.rubro = PR_AYB; x.id = 'L:' + PR_AYB; } });   // presupuestos antiguos la guardaban en el subtotal
-      if (!pres.partidas.some(x => x.esAyB)) pres.partidas.unshift({ id: 'L:' + PR_AYB, rubro: PR_AYB, nombre: PR_AYB, esAyB: true, montos: Array(12).fill(0) });
       pintar();
     } catch (e) { cuerpo.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
   // ── cálculo ──────────────────────────────────────────────────────────────
   const partidasDe = key => pres.partidas.filter(p => p.rubro === key);
-  const ayb = m => partidasDe(PR_AYB).filter(p => p.esAyB).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
+  const tasa = (k, m) => Number(pres.tasas[k]?.[m]) || 0;
+  const divisor = m => 1 + (tasa('igv', m) + tasa('rc', m)) / 100;
+  const brutaDe = (g, m) => Number(pres.partidas.find(p => p.id === 'B:' + g)?.montos[m]) || 0;
+  const asegurarBruta = g => { let l = pres.partidas.find(p => p.id === 'B:' + g); if (!l) { l = { id: 'B:' + g, rubro: g, nombre: g, esAyB: false, montos: Array(12).fill(0) }; pres.partidas.push(l); } return l; };
+  const ayb = m => magItem(PR_AYB, m);   // venta neta A&B calculada: base del costo de venta y de las comisiones
   // magnitud presupuestada del rubro en el mes m (positiva)
   const magPres = (r, m) => r.key === 'COSTO_VENTA' ? ayb(m) * (Number(pres.cvPct[m]) || 0) / 100 : [...new Set([r.key, ...r.grupos])].reduce((t, k) => t + magItem(k, m), 0);
   const pctDe = (g, m) => Number(pres.pcts[g]?.[m]) || 0;
-  const magItem = (g, m) => PR_ITEMS_PCT.includes(g) ? ayb(m) * pctDe(g, m) / 100 : partidasDe(g).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
+  const magItem = (g, m) => VENTA_ITEMS.includes(g) ? brutaDe(g, m) / divisor(m) : PR_ITEMS_PCT.includes(g) ? ayb(m) * pctDe(g, m) / 100 : partidasDe(g).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
   const magItemReal = (r, g, m) => { const v = real?.[g]?.[String(m + 1).padStart(2, '0')] || 0; return r.key === 'VENTA_NETA' ? v : -v; };
   // Ítems que se desglosan en partidas; en los demás el importe se presupuesta en la misma línea del ítem (partida 'L:ítem').
   const ITEMS_CON_PARTIDAS = new Set(['ASESORIA ADMINISTRATIVA', 'ASESORIA CONTABLE', 'ASESORIA LEGAL', 'MANTENIMIENTO', 'FUMIGACION', 'JARDINERIA',
@@ -105,8 +116,10 @@ async function viewPresupuesto(container) {
   const signadoMes = (m, real_) => prSignado(rubros, r => real_ ? magReal(r, m) : magPres(r, m));
 
   function calcular() {
-    const pr = {}, rl = {}, cp = {}, cr = {}, pi = {}, ri = {};
+    const pr = {}, rl = {}, cp = {}, cr = {}, pi = {}, ri = {}, bi = {}, bt = { VENTA_BRUTA: [] };
     for (let m = 0; m < 12; m++) {
+      VENTA_ITEMS.forEach(g => (bi[g] = bi[g] || [])[m] = brutaDe(g, m));
+      bt.VENTA_BRUTA[m] = VENTA_ITEMS.reduce((t, g) => t + brutaDe(g, m), 0);
       const t = signadoMes(m, false), tr = real ? signadoMes(m, true) : null;
       rubros.forEach(r => {
         if (r.tipo === 'rubro') { (pr[r.key] = pr[r.key] || [])[m] = magPres(r, m); if (tr) (rl[r.key] = rl[r.key] || [])[m] = magReal(r, m);
@@ -114,7 +127,7 @@ async function viewPresupuesto(container) {
         else { (cp[r.key] = cp[r.key] || [])[m] = t[r.key]; if (tr) (cr[r.key] = cr[r.key] || [])[m] = tr[r.key]; }
       });
     }
-    return { pr, rl, cp, cr, pi, ri };
+    return { pr, rl, cp, cr, pi, ri, bi, bt };
   }
 
   // ── pintado ──────────────────────────────────────────────────────────────
@@ -140,6 +153,21 @@ async function viewPresupuesto(container) {
         if (real) h += `<tr class="pr-real"><td class="pr-c1">Real ${anioReal}</td>${celdas(r.key, 'cr')}</tr>`;
         return;
       }
+      if (r.key === 'VENTA_NETA') {
+        h += `<tr class="pr-rubro"><td class="pr-c1"><div class="pr-c1i"><span><button class="pr-tog" data-tog="VENTA_BRUTA" title="Abrir / cerrar">${cerrados.has('VENTA_BRUTA') ? '▸' : '▾'}</button>VENTA BRUTA (con IGV y RC)</span></div></td>${celdas('VENTA_BRUTA', 'bt')}</tr>`;
+        if (!cerrados.has('VENTA_BRUTA')) VENTA_ITEMS.forEach(g => {
+          const l = pres.partidas.find(p => p.id === 'B:' + g);
+          const meses = PR_MESES.map((_, m) => ed
+            ? `<td><input class="pr-in" type="number" step="any" data-bruta="${esc(g)}" data-m="${m}" value="${l?.montos[m] || ''}" placeholder="0"></td>`
+            : `<td class="pr-n">${l?.montos[m] ? fN(l.montos[m]) : '—'}</td>`).join('');
+          h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g.replace(/^VENTA NETA/, 'VENTA BRUTA'))}</span>${ed ? `<span class="pr-acc"><button class="pr-ico" data-acc="repetir-bruta" data-g="${esc(g)}" title="Repetir el importe de enero en todos los meses">⇥</button></span>` : ''}</div></td>${meses}<td class="pr-n pr-tot" data-t="bi" data-k="${esc(g)}" data-m="t"></td></tr>`;
+        });
+        [['igv', 'Tasa IGV (%)'], ['rc', 'Tasa recargo al consumo - RC (%)']].forEach(([k, et]) => {
+          h += `<tr class="pr-partida"><td class="pr-c1"><div class="pr-c1i"><span>${et}</span>${ed ? `<span class="pr-acc"><button class="pr-ico" data-acc="repetir-tasa" data-k="${k}" title="Repetir la tasa de enero en todos los meses">⇥</button></span>` : ''}</div></td>${PR_MESES.map((_, m) => ed
+            ? `<td><input class="pr-in pr-pct" type="number" step="any" min="0" max="100" data-tasa="${k}" data-m="${m}" value="${pres.tasas[k][m] || ''}" placeholder="0"></td>`
+            : `<td class="pr-n">${pres.tasas[k][m] ? fP(pres.tasas[k][m]) : '—'}</td>`).join('')}<td class="pr-n pr-tot"></td></tr>`;
+        });
+      }
       const simple = r.key !== 'COSTO_VENTA' && !conItems(r);   // rubro de una sola línea: se presupuesta directo en su fila
       if (simple) {
         const l = linea(r.key);
@@ -162,6 +190,8 @@ async function viewPresupuesto(container) {
               ? `<td><input class="pr-in pr-pct" type="number" step="any" min="0" max="100" data-pct="${esc(g)}" data-m="${m}" value="${pres.pcts[g]?.[m] || ''}" placeholder="0"></td>`
               : `<td class="pr-n">${pres.pcts[g]?.[m] ? fP(pres.pcts[g][m]) : '—'}</td>`).join('')}<td class="pr-n pr-tot" data-pctprom="${esc(g)}"></td></tr>`;
             if (real) h += `<tr class="pr-real"><td class="pr-c1">% real ${anioReal}</td>${PR_MESES.map((_, m) => `<td class="pr-n" data-pctreal="${esc(g)}" data-m="${m}"></td>`).join('')}<td class="pr-n pr-tot" data-pctreal="${esc(g)}" data-m="t"></td></tr>`;
+          } else if (VENTA_ITEMS.includes(g)) {
+            h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span></div></td>${celdas(g, 'pi')}</tr>`;
           } else if (ITEMS_CON_PARTIDAS.has(g)) {
             h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span>${ed ? `<button class="pr-add" data-acc="agregar" data-rubro="${esc(g)}">＋ Partida</button>` : ''}</div></td>${celdas(g, 'pi')}</tr>`;
           } else {
@@ -186,8 +216,8 @@ async function viewPresupuesto(container) {
   }
 
   function actualizarTotales() {
-    const { pr, rl, cp, cr, pi, ri } = calcular();
-    const fuentes = { pr, rl, cp, cr, pi, ri };
+    const { pr, rl, cp, cr, pi, ri, bi, bt } = calcular();
+    const fuentes = { pr, rl, cp, cr, pi, ri, bi, bt };
     cuerpo.querySelectorAll('td[data-t]').forEach(td => {
       const arr = fuentes[td.dataset.t]?.[td.dataset.k]; if (!arr) { td.textContent = ''; return; }
       const v = td.dataset.m === 't' ? suma12(arr) : arr[Number(td.dataset.m)];
@@ -225,7 +255,9 @@ async function viewPresupuesto(container) {
     const t = e.target;
     if (t.classList.contains('pr-in')) {
       const v = t.value === '' ? 0 : parseFloat(t.value);
-      if (t.dataset.pct !== undefined) { const g = t.dataset.pct; (pres.pcts[g] = pres.pcts[g] || Array(12).fill(0))[Number(t.dataset.m)] = Number.isFinite(v) ? v : 0; }
+      if (t.dataset.bruta !== undefined) asegurarBruta(t.dataset.bruta).montos[Number(t.dataset.m)] = Number.isFinite(v) ? v : 0;
+      else if (t.dataset.tasa !== undefined) pres.tasas[t.dataset.tasa][Number(t.dataset.m)] = Number.isFinite(v) ? v : 0;
+      else if (t.dataset.pct !== undefined) { const g = t.dataset.pct; (pres.pcts[g] = pres.pcts[g] || Array(12).fill(0))[Number(t.dataset.m)] = Number.isFinite(v) ? v : 0; }
       else if (t.dataset.linea !== undefined) {
         const g = t.dataset.linea; let l = linea(g);
         if (!l) { l = { id: 'L:' + g, rubro: g, nombre: g, esAyB: g === PR_AYB, montos: Array(12).fill(0) }; pres.partidas.push(l); }
@@ -242,7 +274,9 @@ async function viewPresupuesto(container) {
     if (tg) { const k = tg.dataset.tog; if (cerrados.has(k)) cerrados.delete(k); else cerrados.add(k); const sc = cuerpo.querySelector('.pr-wrap')?.scrollLeft || 0; pintar(); const w = cuerpo.querySelector('.pr-wrap'); if (w) w.scrollLeft = sc; return; }
     const b = e.target.closest('[data-acc]'); if (!b || !puedeEditar) return;
     const acc = b.dataset.acc;
-    if (acc === 'repetir-linea') { const g = b.dataset.g; let l = linea(g); if (!l) { l = { id: 'L:' + g, rubro: g, nombre: g, esAyB: g === PR_AYB, montos: Array(12).fill(0) }; pres.partidas.push(l); } l.montos = Array(12).fill(Number(l.montos[0]) || 0); }
+    if (acc === 'repetir-bruta') { const l = asegurarBruta(b.dataset.g); l.montos = Array(12).fill(Number(l.montos[0]) || 0); }
+    else if (acc === 'repetir-tasa') { const a = pres.tasas[b.dataset.k]; pres.tasas[b.dataset.k] = Array(12).fill(Number(a[0]) || 0); }
+    else if (acc === 'repetir-linea') { const g = b.dataset.g; let l = linea(g); if (!l) { l = { id: 'L:' + g, rubro: g, nombre: g, esAyB: g === PR_AYB, montos: Array(12).fill(0) }; pres.partidas.push(l); } l.montos = Array(12).fill(Number(l.montos[0]) || 0); }
     else if (acc === 'agregar') pres.partidas.push({ id: nuevoId(), rubro: b.dataset.rubro, nombre: '', esAyB: false, montos: Array(12).fill(0) });
     else if (acc === 'borrar') { const p = pres.partidas.find(x => x.id === b.dataset.id); if (!p || (suma12(p.montos) && !confirm(`¿Eliminar la partida "${p.nombre || '(sin nombre)'}" con sus importes?`))) return; pres.partidas = pres.partidas.filter(x => x.id !== b.dataset.id); }
     else if (acc === 'repetir') { const p = pres.partidas.find(x => x.id === b.dataset.id); if (p) p.montos = Array(12).fill(Number(p.montos[0]) || 0); }
@@ -266,7 +300,7 @@ async function viewPresupuesto(container) {
     if (vacias.length) return toast('Hay partidas con importes pero sin nombre: ponles un nombre antes de guardar', 'error');
     const btn = $('pr-guardar'); btn.disabled = true;
     try {
-      const r = await api('PUT', `/presupuesto?operacion=${encodeURIComponent(operacion)}&anio=${anio}`, { cvPct: pres.cvPct, pcts: pres.pcts, partidas: pres.partidas.filter(p => p.esAyB || !p.id.startsWith('L:') || suma12(p.montos)) });
+      const r = await api('PUT', `/presupuesto?operacion=${encodeURIComponent(operacion)}&anio=${anio}`, { cvPct: pres.cvPct, pcts: pres.pcts, tasas: pres.tasas, partidas: pres.partidas.filter(p => !/^[LB]:/.test(p.id) || suma12(p.montos)) });
       dirty = false; meta = `Última actualización: ${r.actualizadoPor || '—'} · ${new Date(r.actualizadoEn).toLocaleString('es-PE')}`;
       toast('Presupuesto guardado', 'success'); actualizarTotales();
     } catch (err) { toast(err.message, 'error'); }
