@@ -38,7 +38,8 @@ async function viewPresupuesto(container) {
   const hoy = new Date();
   let operacion = opsLista[0] || '', anio = Math.max(hoy.getFullYear() + 1, 2027), verReal = false, anioReal = anio - 1;
   let pres = { cvPct: Array(12).fill(0), partidas: [] }, real = null, puedeEditar = false, dirty = false, meta = '';
-  const cerrados = new Set();   // rubros con sus ítems contraídos
+  // rubros con sus ítems contraídos (por omisión todos cerrados)
+  const cerrados = new Set(rubros.filter(r => r.tipo === 'rubro' && r.key !== 'COSTO_VENTA' && (r.grupos.length > 1 || r.grupos[0] !== r.key)).map(r => r.key));
 
   const fN = v => (v < 0 ? '(' : '') + Math.abs(v).toLocaleString('es-PE', { maximumFractionDigits: 0 }) + (v < 0 ? ')' : '');
   const fP = v => (Number(v) || 0).toLocaleString('es-PE', { maximumFractionDigits: 2 }) + '%';
