@@ -12,6 +12,7 @@ const PLANILLA_ROLES = [['','— Sin acceso —'],['rrhh','RRHH (Paso 1)'],['gaf
 const BCT_ROLES   = [['','— Sin acceso —'],['SOLICITUD','Solicitud'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const ROL86       = [['','— Sin acceso —'],['REGISTRO','Registro'],['CONSULTA','Consulta']];
 const CAMBIO_RECETA_ROLES = [['','— Sin acceso —'],['solicitante','Solicitante (pide cambios)'],['aprobador','Aprobador'],['registrador','Registrador (anota el cambio en el ERP)'],['admin','Administrador (todo)']];
+const CAJA_EFECTIVO_ROLES = [['CAJA','Caja'],['OFICINA','Oficina'],['SUPERVISOR','Supervisor'],['CONTABILIDAD','Contabilidad (solo lectura)'],['GERENCIA','Gerencia (solo lectura)']];
 const ESTADOS = ['SOLICITADO', 'APROBADO', 'RECHAZADO', 'REVISAR', 'ATENDIDO'];
 // Sociedades y Operaciones: antes listas fijas, ahora se cargan desde /api/sociedades al
 // iniciar sesión (ver loadSociedades() y showApp()) y se administran en Admin → Sociedades
@@ -281,6 +282,7 @@ const NAV_ITEMS = [
   { grupo: 'Finanzas', id: 'flujo-caja',    label: 'Flujo de Caja',   icon: '💵', roles: [ROLES.ADMIN], extraPermAny: ['rolPago', 'accesoFlujoCaja'] },
   { grupo: 'Finanzas', id: 'pl',             label: 'PL',              icon: '📊', roles: [ROLES.ADMIN], extraPerm: 'accesoEERR' },
   { grupo: 'Finanzas', id: 'conciliacion',   label: 'Conciliación Cobranzas', icon: '🏦', roles: [ROLES.ADMIN], extraPerm: 'accesoConciliacion' },
+  { grupo: 'Finanzas', id: 'caja-efectivo', label: 'Cierre de Caja', icon: '🧾', roles: [ROLES.ADMIN], extraPerm: 'rolesCajaEfectivo' },
   { grupo: 'Otros', id: 'ventas',        label: 'Ventas',          icon: '🛒', roles: [ROLES.ADMIN], extraPerm: 'accesoVentas' },
   { grupo: 'Otros', id: 'planillas',     label: 'Planillas',       icon: '🧮', roles: [ROLES.ADMIN], extraPermAny: ['rolPlanilla', 'accesoPlanillas'] },
   { grupo: 'Otros', id: 'cumplimiento',  label: 'Cumplimiento',   icon: '✅', roles: [ROLES.ADMIN], extraPerm: 'accesoCumplimiento' },
@@ -359,7 +361,7 @@ function navigate(view, params = {}) {
   if (view !== 'pagos') document.getElementById('pg-resumenes-footer')?.remove();
   const vc = document.getElementById('view-container');
   vc.innerHTML = '';
-  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentas, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, 'costo-produccion': viewCostoProduccion, cumplimiento: viewCumplimiento, presupuesto: viewPresupuesto, admin: viewAdmin };
+  const views = { solicitar: viewSolicitar, 'mis-pedidos': viewMisPedidos, kardex: viewKardex, comentarios: viewComentarios, aprobar: viewAprobar, atender: viewAtender, precios: viewPrecios, comparativo: viewComparativo, ventas: viewVentas, 'recetas-costeo': viewCostoRecetas, bajas: viewBajas, pagos: viewPagos, planillas: viewPlanillas, 'flujo-caja': viewFlujoCaja, movimientos: viewMovimientos, pl: viewPL, conciliacion: viewConciliacion, 'saldo-banco': viewSaldoBanco, inventarios: viewInventarios, 'inventario-semanal': viewInventarioSemanal, 'costo-produccion': viewCostoProduccion, cumplimiento: viewCumplimiento, presupuesto: viewPresupuesto, 'caja-efectivo': viewCajaEfectivo, admin: viewAdmin };
   if (!views[view]) return;
   if (PEDIDOS_TAB_IDS.includes(view)) {
     renderPedidosTabs(vc, view);
@@ -13999,6 +14001,7 @@ async function viewAdmin(container) {
         <button class="tab-btn" data-tab="sociedades">🏢 Sociedades y Operaciones</button>
         <button class="tab-btn" data-tab="planillas">🧮 Planillas</button>
         <button class="tab-btn" data-tab="cumplimiento">✅ Cumplimiento</button>
+        <button class="tab-btn" data-tab="caja-efectivo">🧾 Cierre de Caja</button>
       </div>
       <div id="tab-usuarios" class="tab-panel active"></div>
       <div id="tab-items" class="tab-panel"></div>
@@ -14017,6 +14020,7 @@ async function viewAdmin(container) {
       <div id="tab-sociedades" class="tab-panel"></div>
       <div id="tab-planillas" class="tab-panel"></div>
       <div id="tab-cumplimiento" class="tab-panel"></div>
+      <div id="tab-caja-efectivo" class="tab-panel"></div>
     </div>`;
 
   container.querySelectorAll('.tab-btn').forEach(btn => {
@@ -14045,6 +14049,7 @@ async function viewAdmin(container) {
   renderAdminSociedades(document.getElementById('tab-sociedades'));
   renderAdminPlanillas(document.getElementById('tab-planillas'));
   renderAdminCumplimiento(document.getElementById('tab-cumplimiento'));
+  renderAdminCajaEfectivo(document.getElementById('tab-caja-efectivo'));
 }
 
 // ─── Admin: Conciliación de Cobranzas — rutas de archivos por sociedad ──
@@ -15501,6 +15506,16 @@ function showUserModal(user, onSave, opts = {}) {
           ${ROL86.map(([k,v])=>`<option value="${k}" ${(user?.rol86||'')=== k?'selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="form-group"><label>Roles para Cierre de Caja (puede tener varios)</label>
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+          ${CAJA_EFECTIVO_ROLES.map(([k,v]) => `
+            <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+              <input type="checkbox" class="um-caja-efectivo-rol" value="${k}" ${(user?.rolesCajaEfectivo||[]).includes(k)?'checked':''}
+                style="width:15px;height:15px;accent-color:var(--primary)">
+              ${v}
+            </label>`).join('')}
+        </div>
+      </div>
       <div class="form-group"><label>Rol para Cambio de Receta</label>
         <select id="um-rol-cambio-receta">
           ${CAMBIO_RECETA_ROLES.map(([k,v])=>`<option value="${k}" ${(user?.rolCambioReceta||'')=== k?'selected':''}>${v}</option>`).join('')}
@@ -15702,6 +15717,7 @@ function showUserModal(user, onSave, opts = {}) {
       rolPlanilla:  document.getElementById('um-planilla-role').value,
       rolPresupuesto: document.getElementById('um-presupuesto-role').value,
       rolCambioReceta: document.getElementById('um-rol-cambio-receta').value,
+      rolesCajaEfectivo: isAdmin ? [] : [...document.querySelectorAll('.um-caja-efectivo-rol:checked')].map(c => c.value),
       accesoSaldoBanco:     !isAdmin && (document.getElementById('um-saldo-banco')?.checked ?? false),
       accesoFlujoCaja:      !isAdmin && (document.getElementById('um-flujo-caja')?.checked ?? false),
       accesoCumplimiento:   !isAdmin && (document.getElementById('um-cumplimiento')?.checked ?? false),

@@ -29,6 +29,7 @@ function buildPayload(user) {
     accesoInventarios: !!user.accesoInventarios, accesoVentas: !!user.accesoVentas,
     accesoCostoProduccion: !!user.accesoCostoProduccion,
     accesoCumplimiento: !!user.accesoCumplimiento,
+    rolesCajaEfectivo: user.rolesCajaEfectivo || [],
   };
 }
 

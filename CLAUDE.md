@@ -1527,6 +1527,12 @@ tienen modelo en este repo (posiblemente de otra app); revisar con el usuario.
 
 ### Sesión 28 — Cierre de Caja (nuevo, reemplaza al módulo de la Sesión 5 borrado en la 16)
 
+> **Todo lo descrito en esta sección fue borrado por completo en una sesión posterior**
+> (commits `1617e67`/`de30a45`, 28/10/2026, junto con la introducción del módulo
+> Presupuesto) — código, rutas y campos de usuario. Esa sesión no documentó el borrado
+> aquí. El módulo se reconstruyó desde cero con reglas de negocio distintas — ver
+> **Sesión 32**.
+
 Flujo nuevo, con reglas de negocio distintas al módulo viejo (moneda dual PEN/USD
 explícita, cambio de moneda por vueltos, 4 roles separados, venta por canal y TIP
 facturado como reporte). No se reutilizó nada del código viejo.
@@ -1733,3 +1739,78 @@ oscuro que el `#bbf7d0` base, en vez de blanco). `pgToggleObl`/`pgToggleAll`
 también actualizan la clase con `classList.toggle`, no solo el `style.background`
 inline — si no, el hover se hubiera desincronizado después del primer click en un
 checkbox sin pasar por `renderTabla()`.
+
+### Sesión 32 — Cierre de Caja (reconstrucción completa, reemplaza a la Sesión 28)
+
+El módulo de la Sesión 28 fue borrado por completo en una sesión intermedia (ver nota
+en esa sección). El usuario pidió "olvidar todo lo anterior" y describió el proceso de
+negocio real por primera vez: grupo de restaurantes/cafeterías, 1-2 turnos de caja al
+día por operación, fondo fijo de referencia, moneda dual PEN/USD independiente, y un
+proceso formal de conteo de supervisor + 2 consultas de solo lectura (Contabilidad,
+Gerencia). Reconstruido desde cero — nada del código anterior se reutilizó.
+
+**Patrón de archivo satélite**: a diferencia de la v1 (todo en `app.js`), el frontend
+va en **`public/cajaEfectivo.js`** (cargado en `index.html` después de `app.js`, usa
+sus helpers globales) — mismo patrón que introdujo el módulo Presupuesto en la sesión
+que borró la v1 (`public/presupuesto.js`). Solo el tab de Admin (botón + div +
+llamada a `renderAdminCajaEfectivo`) vive en `app.js`, la función en sí está en el
+archivo nuevo — `viewAdmin` la invoca sin problema porque `cajaEfectivo.js` carga
+antes de que el usuario pueda navegar a Admin.
+
+**Negocio**:
+- Tienda → [Oficina central] → Banco, o Tienda → Banco directo (`CajaEfectivoConfig.tieneOficina`).
+- Ambas "cajas" (Tienda y Oficina) tienen **fondo fijo** de referencia (PEN/USD,
+  configurado por Admin) — el cajero/oficina IGUAL cuenta físicamente al abrir cada
+  turno/día (puede haber diferencia si quedó efectivo sin enviar del turno anterior).
+- Ingresos de Tienda: VENTA y TIP (PEN o USD cada uno). Único egreso-movimiento:
+  VUELTO, siempre PEN (el negocio solo vende en soles; un pago en USD se registra
+  como una VENTA en USD normal, y el vuelto como un VUELTO en PEN aparte — **no** es
+  un movimiento combinado de cambio de moneda como en la v1).
+- Egreso de custodia de Tienda: "Enviar a Oficina" (si tieneOficina, simple, 1 turno)
+  o el depósito directo al banco (si no tiene oficina) — **ambos restan del saldo
+  calculado del turno por igual** (bug real encontrado y corregido durante esta
+  sesión: al principio solo se restaba el depósito directo y no el envío a oficina).
+- **Depósito al banco por selección manual** (`DepositoBanco`, nuevo): quien deposita
+  (Tienda si no hay oficina, Oficina si la hay) elige de una lista los turnos/envíos
+  **completos** (nunca una fracción) que ese depósito cubre — recupera el principio
+  del módulo pre-2026 (Sesión 5, borrado en la 16). El backend calcula el monto de
+  cada ítem seleccionado (no confía en el cliente) y marca cada turno/envío como
+  reclamado (`TurnoCaja.depositoPenId`/`depositoUsdId`, `EnvioEfectivo.depositoId`,
+  por moneda porque un depósito es de una sola moneda) para que no se pueda reusar.
+  `diferencia = montoDepositado − Σcubre[].monto` es el cuadre.
+- **Conteo de supervisor** (`SupervisorConteo`, nuevo): independiente del conteo de
+  cierre que ya hace el cajero/oficina (ese es solo operativo) — un conteo por
+  `TurnoCaja` o por `CierreOficinaDiario`, que es el que usa Gerencia para comparar
+  contra el saldo calculado (no el conteo del cajero).
+
+**Modelos** (`models/`): `CajaEfectivoConfig` (`{tieneOficina, turnos, fondoFijoCaja,
+fondoFijoOficina}`), `TurnoCaja`, `MovimientoEfectivoCaja` (`VENTA|TIP|VUELTO`),
+`EnvioEfectivo` (solo Tienda→Oficina), `CierreOficinaDiario` (ahora con apertura,
+no solo cierre), `DepositoBanco`, `SupervisorConteo`.
+
+**Backend** (`routes/cajaEfectivo.js`, `/api/caja-efectivo`): `tieneRol(user, ...roles)`
+cumple si el usuario tiene AL MENOS UNO de los roles pedidos (reemplaza la comparación
+de un solo valor de la v1 — ver más abajo). Endpoints por bloque: config (ADMIN),
+turnos/movimientos/cerrar (CAJA), envíos + oficina/día (OFICINA), depósitos
+(CAJA sin oficina / OFICINA con oficina, mismo endpoint `POST /depositos` deriva el
+`origen` del lado del servidor según `tieneOficina`, nunca del cliente), supervisor
+(SUPERVISOR), contabilidad/gerencia (solo lectura).
+
+**5 roles** (`User.rolesCajaEfectivo`, array — un usuario puede tener varios a la vez,
+ej. Oficina + Supervisor, checkboxes en el form en vez de `<select>`): `CAJA`,
+`OFICINA`, `SUPERVISOR`, `CONTABILIDAD`, `GERENCIA`. Solo los 3 primeros escriben.
+
+**Bugs reales encontrados y corregidos en la revisión manual de esta sesión** (sin
+poder probar en vivo — sigue sin haber salida de red a Atlas desde este entorno):
+1. El saldo teórico de Gerencia no restaba "enviado a Oficina", solo el depósito
+   directo — corregido en `/gerencia/teorico` (`routes/cajaEfectivo.js`).
+2. El cuadre de depósitos de Gerencia filtraba por `fechaDeposito` (cuándo se llevó
+   al banco) en vez de por si el depósito **cubre** la fecha consultada (`cubre[].fecha`)
+   — un depósito hecho el día 15 que cubre turnos del 10-14 no aparecía al consultar
+   el día 12. Corregido trayendo todos los depósitos y filtrando por `cubre[]` en el
+   frontend (`public/cajaEfectivo.js`).
+
+**Pendiente**: correr `scripts/dropCierreCajaEfectivo.js --confirmar` en el servidor
+si no se corrió ya (limpia las 5 colecciones viejas de la v1, que ya no tienen
+`fondoFijo`/etc. y podrían confundirse con las nuevas). Probar el flujo completo en
+el servidor real antes de dar el módulo por validado.

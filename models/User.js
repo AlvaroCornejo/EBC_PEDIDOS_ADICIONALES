@@ -46,6 +46,9 @@ const userSchema = new mongoose.Schema({
   // Cumplimiento de Actividades: gate de nav. El acceso real a cada área sale de
   // CumplimientoArea.responsableUserId, no de este flag.
   accesoCumplimiento: { type: Boolean, default: false },
+  // Cierre de Caja: un usuario puede tener varios roles a la vez (ej. Oficina +
+  // Control), scoped por `operations` (sin array propio).
+  rolesCajaEfectivo: { type: [String], default: [], enum: ['CAJA', 'OFICINA', 'SUPERVISOR', 'CONTABILIDAD', 'GERENCIA'] },
 });
 
 module.exports = mongoose.model('User', userSchema);

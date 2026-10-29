@@ -70,6 +70,7 @@ app.use('/api/conciliacion',    require('./routes/conciliacion'));
 app.use('/api/sociedades',      require('./routes/sociedades'));
 app.use('/api/cumplimiento',    require('./routes/cumplimiento'));
 app.use('/api/presupuesto',     require('./routes/presupuesto'));
+app.use('/api/caja-efectivo',   require('./routes/cajaEfectivo'));
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
