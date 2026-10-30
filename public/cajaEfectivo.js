@@ -89,6 +89,36 @@ function cjeDenomTableUnaMoneda(prefix, moneda) {
 
 const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP: 'TIP', VUELTO: 'Vuelto' };
 
+// Fila(s) de la tabla "saldo teórico vs. conteo del supervisor" (Gerencia y
+// Contabilidad) — una por moneda, con la diferencia resaltada si no cuadra.
+function cjeFilaSaldo(label, saldo) {
+  return ['PEN', 'USD'].map(m => {
+    const s = saldo[m];
+    const difColor = s.diferencia == null ? '' : (Math.abs(s.diferencia) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
+    return `<tr>
+      <td>${esc(label)} — ${m}</td>
+      <td class="text-right">${fmt(s.saldoCalculado)}</td>
+      <td class="text-right">${s.conteoSupervisor == null ? '—' : fmt(s.conteoSupervisor)}</td>
+      <td class="text-right" style="${difColor}">${s.diferencia == null ? '—' : fmt(s.diferencia)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Misma fila, con una columna de fecha al inicio (vista de rango — Contabilidad).
+function cjeFilaSaldoConFecha(fecha, label, saldo) {
+  return ['PEN', 'USD'].map(m => {
+    const s = saldo[m];
+    const difColor = s.diferencia == null ? '' : (Math.abs(s.diferencia) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
+    return `<tr>
+      <td>${esc(fecha)}</td>
+      <td>${esc(label)} — ${m}</td>
+      <td class="text-right">${fmt(s.saldoCalculado)}</td>
+      <td class="text-right">${s.conteoSupervisor == null ? '—' : fmt(s.conteoSupervisor)}</td>
+      <td class="text-right" style="${difColor}">${s.diferencia == null ? '—' : fmt(s.diferencia)}</td>
+    </tr>`;
+  }).join('');
+}
+
 // ─── Comprobantes imprimibles (envío a Oficina / depósito al banco) ───────
 // Ventana aparte con su propio HTML/CSS para impresión — no reutiliza imprimirVista
 // (app.js) porque esto es un comprobante puntual, no una tabla ya visible en pantalla.
@@ -834,15 +864,16 @@ async function viewCajaEfectivoContabilidad(container) {
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
       const params = `operacion=${encodeURIComponent(operacionActual)}&desde=${desde}&hasta=${hasta}`;
-      const [dias, depositos] = await Promise.all([
+      const [dias, depositos, teorico] = await Promise.all([
         GET(`/caja-efectivo/contabilidad/movimientos?${params}`),
         GET(`/caja-efectivo/contabilidad/depositos?${params}`),
+        GET(`/caja-efectivo/gerencia/teorico?${params}`),
       ]);
-      render(dias, depositos);
+      render(dias, depositos, teorico);
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
-  function render(dias, depositos) {
+  function render(dias, depositos, teorico) {
     root.innerHTML = `
       <div class="card mb-16"><div class="card-body" id="cjb-tabla-movimientos">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -858,6 +889,24 @@ async function viewCajaEfectivoContabilidad(container) {
               <td class="text-right">${fmt(d.TIP_PEN)}</td><td class="text-right">${fmt(d.TIP_USD)}</td><td class="text-right">${fmt(d.VUELTO_PEN)}</td>
               <td class="text-right">${d.turnosCerrados}/${d.turnos}</td>
             </tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center">Sin movimientos en el rango</td></tr>'}
+          </tbody>
+        </table>
+        </div>
+      </div></div>
+
+      <div class="card mb-16" id="cjb-tabla-teorico"><div class="card-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:700">Saldo teórico vs. conteo del supervisor (saldo real)</div>
+          <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjb-tabla-teorico','Saldo Teórico vs. Real')">🖨️ Imprimir</button>
+        </div>
+        <div class="table-wrap">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Fecha</th><th>Caja</th><th class="text-right">Saldo calculado</th><th class="text-right">Conteo supervisor (real)</th><th class="text-right">Diferencia</th></tr></thead>
+          <tbody>
+            ${teorico.flatMap(d => [
+              ...d.tienda.map(t => cjeFilaSaldoConFecha(d.fecha, `Turno ${t.turno.turno}`, t.saldo)),
+              ...(d.oficina ? [cjeFilaSaldoConFecha(d.fecha, 'Oficina', d.oficina.saldo)] : []),
+            ]).join('') || '<tr><td colspan="5" class="text-muted text-center">Sin datos en el rango</td></tr>'}
           </tbody>
         </table>
         </div>
@@ -916,24 +965,12 @@ async function viewCajaEfectivoGerencia(container) {
 
   document.getElementById('cjg-fecha').addEventListener('change', async e => { fechaActual = e.target.value; await cargar(); });
 
-  function filaSaldo(label, saldo) {
-    return ['PEN', 'USD'].map(m => {
-      const s = saldo[m];
-      const difColor = s.diferencia == null ? '' : (Math.abs(s.diferencia) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
-      return `<tr>
-        <td>${label} — ${m}</td>
-        <td class="text-right">${fmt(s.saldoCalculado)}</td>
-        <td class="text-right">${s.conteoSupervisor == null ? '—' : fmt(s.conteoSupervisor)}</td>
-        <td class="text-right" style="${difColor}">${s.diferencia == null ? '—' : fmt(s.diferencia)}</td>
-      </tr>`;
-    }).join('');
-  }
-
   async function cargar() {
     if (!operacionActual) { root.innerHTML = ''; document.getElementById('cjg-depositos').innerHTML = ''; return; }
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
-      const { tienda, oficina } = await GET(`/caja-efectivo/gerencia/teorico?operacion=${encodeURIComponent(operacionActual)}&fecha=${fechaActual}`);
+      const dias = await GET(`/caja-efectivo/gerencia/teorico?operacion=${encodeURIComponent(operacionActual)}&desde=${fechaActual}&hasta=${fechaActual}`);
+      const { tienda, oficina } = dias[0] || { tienda: [], oficina: null };
       root.innerHTML = `
         <div class="card mb-16" id="cjg-tabla-teorico"><div class="card-body">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -943,8 +980,8 @@ async function viewCajaEfectivoGerencia(container) {
           <table class="data-table" style="font-size:13px">
             <thead><tr><th>Caja</th><th class="text-right">Saldo calculado</th><th class="text-right">Conteo supervisor</th><th class="text-right">Diferencia</th></tr></thead>
             <tbody>
-              ${tienda.map(t => filaSaldo(`Turno ${t.turno.turno}`, t.saldo)).join('')}
-              ${oficina ? filaSaldo('Oficina', oficina.saldo) : ''}
+              ${tienda.map(t => cjeFilaSaldo(`Turno ${t.turno.turno}`, t.saldo)).join('')}
+              ${oficina ? cjeFilaSaldo('Oficina', oficina.saldo) : ''}
               ${!tienda.length && !oficina ? '<tr><td colspan="4" class="text-muted text-center">Sin datos para esa fecha</td></tr>' : ''}
             </tbody>
           </table>

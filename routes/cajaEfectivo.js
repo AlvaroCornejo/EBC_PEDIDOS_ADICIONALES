@@ -520,32 +520,43 @@ router.get('/contabilidad/depositos', requireRol('CONTABILIDAD', 'GERENCIA'), as
 });
 
 // ─── Gerencia (solo lectura: saldo teórico vs conteo del supervisor) ───────
-router.get('/gerencia/teorico', requireRol('GERENCIA'), async (req, res) => {
+// Saldo teórico (calculado) vs. conteo del supervisor, por turno de Tienda y por
+// día de Oficina, para un rango de fechas (un solo día = desde===hasta). Lo usan
+// tanto Gerencia (un día) como Contabilidad (rango) — mismo endpoint.
+router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (req, res) => {
   try {
-    const { operacion, fecha } = req.query;
+    const { operacion } = req.query;
     if (!operacion || !checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-    if (!fecha) return res.status(400).json({ error: 'Falta la fecha' });
-    const f = new Date(fecha);
-    const fSiguiente = new Date(f.getTime() + 86400000);
+    const fDesde = req.query.desde ? new Date(req.query.desde) : (req.query.fecha ? new Date(req.query.fecha) : null);
+    const fHasta = req.query.hasta ? new Date(req.query.hasta) : fDesde;
+    if (!fDesde || !fHasta) return res.status(400).json({ error: 'Falta la fecha' });
+    const fHastaSiguiente = new Date(fHasta.getTime() + 86400000);
 
-    const turnos = await TurnoCaja.find({ operacion, fecha: f }).lean();
+    const turnos = await TurnoCaja.find({ operacion, fecha: { $gte: fDesde, $lt: fHastaSiguiente } }).lean();
     const turnoIds = turnos.map(t => t._id);
-    const [movimientos, envios, supervisorTienda] = await Promise.all([
+    const dias = await CierreOficinaDiario.find({ operacion, fecha: { $gte: fDesde, $lt: fHastaSiguiente } }).lean();
+    // Margen de 2 días para las ventanas de apertura/cierre de oficina, por si
+    // caen justo en el borde del rango pedido.
+    const margen = 2 * 86400000;
+    const [movimientos, envios, supervisor, recibidosOficina, depositosOficina] = await Promise.all([
       MovimientoEfectivoCaja.find({ turnoId: { $in: turnoIds } }).lean(),
       EnvioEfectivo.find({ origenTurnoId: { $in: turnoIds } }).lean(),
-      SupervisorConteo.find({ ubicacion: 'TIENDA', refId: { $in: turnoIds } }).lean(),
+      SupervisorConteo.find({ operacion, fecha: { $gte: fDesde, $lt: fHastaSiguiente } }).lean(),
+      EnvioEfectivo.find({ operacion, estado: 'CONFIRMADO', fechaConfirmacion: { $gte: new Date(fDesde.getTime() - margen), $lt: new Date(fHastaSiguiente.getTime() + margen) } }).lean(),
+      DepositoBanco.find({ operacion, origen: 'OFICINA', fechaRegistro: { $gte: new Date(fDesde.getTime() - margen), $lt: new Date(fHastaSiguiente.getTime() + margen) } }).lean(),
     ]);
+
     const movPorTurno = {};
     movimientos.forEach(m => { (movPorTurno[String(m.turnoId)] || (movPorTurno[String(m.turnoId)] = [])).push(m); });
     const enviosPorTurno = {};
     envios.forEach(e => { (enviosPorTurno[String(e.origenTurnoId)] || (enviosPorTurno[String(e.origenTurnoId)] = [])).push(e); });
-    const supervisorPorTurno = {};
-    supervisorTienda.forEach(s => { supervisorPorTurno[String(s.refId)] = s; });
+    const supPorRef = {};
+    supervisor.forEach(s => { supPorRef[`${s.ubicacion}:${s.refId}`] = s; });
 
-    const tienda = turnos.map(t => {
+    function saldoTurno(t) {
       const movs = movPorTurno[String(t._id)] || [];
       const envs = enviosPorTurno[String(t._id)] || [];
-      const sup = supervisorPorTurno[String(t._id)] || null;
+      const sup = supPorRef[`TIENDA:${t._id}`] || null;
       const saldo = {};
       ['PEN', 'USD'].forEach(mon => {
         const key = mon.toLowerCase();
@@ -559,30 +570,40 @@ router.get('/gerencia/teorico', requireRol('GERENCIA'), async (req, res) => {
         const conteoSupervisor = sup ? sumaConteo(sup.conteo, key) : null;
         saldo[mon] = { saldoCalculado: calculado, conteoSupervisor, diferencia: conteoSupervisor === null ? null : conteoSupervisor - calculado };
       });
-      return { turno: t, saldo };
-    });
+      return saldo;
+    }
 
-    let oficina = null;
-    const dia = await CierreOficinaDiario.findOne({ operacion, fecha: f }).lean();
-    if (dia) {
-      const [recibidos, depositado, supDia] = await Promise.all([
-        EnvioEfectivo.find({ operacion, estado: 'CONFIRMADO', fechaConfirmacion: { $gte: dia.fechaApertura || f, $lt: dia.fechaCierre || fSiguiente } }).lean(),
-        DepositoBanco.find({ operacion, origen: 'OFICINA', fechaRegistro: { $gte: dia.fechaApertura || f, $lt: dia.fechaCierre || fSiguiente } }).lean(),
-        SupervisorConteo.findOne({ ubicacion: 'OFICINA', refId: dia._id }).lean(),
-      ]);
+    function saldoOficina(dia) {
+      const ini = dia.fechaApertura || dia.fecha;
+      const fin = dia.fechaCierre || new Date(dia.fecha.getTime() + 86400000);
+      const recibidos = recibidosOficina.filter(e => e.fechaConfirmacion >= ini && e.fechaConfirmacion < fin);
+      const depositado = depositosOficina.filter(d => d.fechaRegistro >= ini && d.fechaRegistro < fin);
+      const sup = supPorRef[`OFICINA:${dia._id}`] || null;
       const saldo = {};
       ['PEN', 'USD'].forEach(mon => {
         const key = mon.toLowerCase();
         const ingreso = recibidos.filter(e => e.moneda === mon).reduce((s, e) => s + e.montoConfirmado, 0);
         const egreso = depositado.filter(d => d.moneda === mon).reduce((s, d) => s + d.montoDepositado, 0);
         const calculado = sumaConteo(dia.conteoApertura, key) + ingreso - egreso;
-        const conteoSupervisor = supDia ? sumaConteo(supDia.conteo, key) : null;
+        const conteoSupervisor = sup ? sumaConteo(sup.conteo, key) : null;
         saldo[mon] = { saldoCalculado: calculado, conteoSupervisor, diferencia: conteoSupervisor === null ? null : conteoSupervisor - calculado };
       });
-      oficina = { dia, saldo };
+      return saldo;
     }
 
-    res.json({ tienda, oficina });
+    const porDia = {};
+    turnos.forEach(t => {
+      const k = ymd(t.fecha);
+      if (!porDia[k]) porDia[k] = { fecha: k, tienda: [], oficina: null };
+      porDia[k].tienda.push({ turno: t, saldo: saldoTurno(t) });
+    });
+    dias.forEach(d => {
+      const k = ymd(d.fecha);
+      if (!porDia[k]) porDia[k] = { fecha: k, tienda: [], oficina: null };
+      porDia[k].oficina = { dia: d, saldo: saldoOficina(d) };
+    });
+
+    res.json(Object.values(porDia).sort((a, b) => a.fecha.localeCompare(b.fecha)));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
