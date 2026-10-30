@@ -89,6 +89,73 @@ function cjeDenomTableUnaMoneda(prefix, moneda) {
 
 const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP: 'TIP', VUELTO: 'Vuelto' };
 
+// ─── Comprobantes imprimibles (envío a Oficina / depósito al banco) ───────
+// Ventana aparte con su propio HTML/CSS para impresión — no reutiliza imprimirVista
+// (app.js) porque esto es un comprobante puntual, no una tabla ya visible en pantalla.
+function cjeImprimirRecibo(titulo, info, denomRows, totales) {
+  const html = `<!DOCTYPE html><html><head>
+    <meta charset="utf-8"><title>${esc(titulo)}</title>
+    <style>
+      * { box-sizing:border-box; margin:0; padding:0; }
+      body { font-family: Arial, sans-serif; font-size:13px; color:#111; padding:20px; }
+      h2 { font-size:16px; margin-bottom:10px; }
+      .meta div { font-size:12px; color:#374151; margin-bottom:3px; }
+      table { width:100%; border-collapse:collapse; margin:14px 0; }
+      th { background:#1a1f3a; color:#fff; padding:5px 8px; text-align:left; font-size:11px; }
+      td { padding:4px 8px; border-bottom:1px solid #e5e7eb; font-size:12px; }
+      .totales td { font-weight:700; border-top:2px solid #111; border-bottom:none; }
+      @media print { @page { margin: 1.2cm; } body { padding:0; } }
+    </style>
+  </head><body>
+    <h2>${esc(titulo)}</h2>
+    <div class="meta">${info.map(([k, v]) => `<div><strong>${esc(k)}:</strong> ${esc(v ?? '—')}</div>`).join('')}</div>
+    ${denomRows ? `<table><thead><tr><th>Denominación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Subtotal</th></tr></thead>
+      <tbody>${denomRows.map(r => `<tr><td>${esc(r.denom)}</td><td style="text-align:right">${r.qty}</td><td style="text-align:right">${fmt(r.subtotal)}</td></tr>`).join('')}</tbody></table>` : ''}
+    <table class="totales"><tbody>
+      ${totales.map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right">${esc(v)}</td></tr>`).join('')}
+    </tbody></table>
+  </body></html>`;
+  const win = window.open('', '_blank', 'width=480,height=700');
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 300);
+}
+
+function cjeImprimirEnvio(envio, operacion) {
+  const denomRows = Object.entries(envio.denominacion || {})
+    .sort((a, b) => Number(b[0]) - Number(a[0]))
+    .map(([d, q]) => ({ denom: `${envio.moneda === 'PEN' ? 'S/' : 'US$'} ${d}`, qty: q, subtotal: Number(d) * Number(q) }));
+  cjeImprimirRecibo('Envío a Oficina', [
+    ['Operación', operacion],
+    ['Fecha', fmtDate(envio.fechaEnvio)],
+    ['Moneda', envio.moneda],
+    ['Enviado por', envio.enviadoPor],
+    ['Comentario', envio.comentario],
+  ], denomRows, [
+    ['Venta', fmt(envio.montoVenta)],
+    ['TIP', fmt(envio.montoTip)],
+    ['Total enviado', fmt(envio.montoEnviado)],
+  ]);
+}
+
+function cjeImprimirDeposito(dep) {
+  cjeImprimirRecibo('Depósito al Banco', [
+    ['Operación', dep.operacion],
+    ['Fecha de depósito', fmtDate(dep.fechaDeposito)],
+    ['Moneda', dep.moneda],
+    ['Origen', dep.origen === 'OFICINA' ? 'Oficina' : 'Caja (directo)'],
+    ['Cubre', dep.cubre.map(c => fmtDate(c.fecha)).join(', ')],
+    ['Registrado por', dep.registradoPor],
+    ['Comentario', dep.comentario],
+  ], null, [
+    ['Venta', fmt(dep.montoVenta)],
+    ['TIP', fmt(dep.montoTip)],
+    ['Monto depositado', fmt(dep.montoDepositado)],
+    ['Diferencia', fmt(dep.diferencia)],
+  ]);
+}
+
 function cjeSelectOperacionHtml(id, operaciones) {
   return `<select id="${id}" class="form-control" style="width:180px"><option value="">— Seleccionar —</option>${operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select>`;
 }
@@ -135,19 +202,25 @@ function viewCajaEfectivoMultiRol(container, roles) {
 function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone) {
   const fmtFecha = f => String(f).slice(0, 10);
   openModal(`🏦 Depositar al Banco — ${moneda}`, `
-    <p class="text-muted" style="font-size:13px">Selecciona los turnos u envíos completos que cubre este depósito (no se puede elegir una parte).</p>
+    <p class="text-muted" style="font-size:13px">Selecciona los turnos u envíos completos que cubre este depósito (no se puede elegir una parte). No hace falta desglose de billetes aquí — ya se contó al enviar/cerrar.</p>
     <table class="data-table" style="font-size:13px">
-      <thead><tr><th></th><th>Fecha</th><th>${disponibles[0]?.turno !== undefined ? 'Turno' : 'Origen'}</th><th class="text-right">Monto</th></tr></thead>
+      <thead><tr><th></th><th>Fecha</th><th>${disponibles[0]?.turno !== undefined ? 'Turno' : 'Origen'}</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Monto</th></tr></thead>
       <tbody>
         ${disponibles.map(d => `<tr>
-          <td><input type="checkbox" class="cje-dep-chk" value="${d.id}" data-monto="${d.monto}"></td>
+          <td><input type="checkbox" class="cje-dep-chk" value="${d.id}" data-monto="${d.monto}" data-venta="${d.venta}" data-tip="${d.tip}"></td>
           <td>${esc(fmtFecha(d.fecha))}</td>
           <td>${esc(d.turno || (d.tipo === 'ENVIO' ? 'Envío de Caja' : ''))}</td>
+          <td class="text-right">${fmt(d.venta)}</td>
+          <td class="text-right">${fmt(d.tip)}</td>
           <td class="text-right">${fmt(d.monto)}</td>
-        </tr>`).join('') || '<tr><td colspan="4" class="text-muted text-center">Nada disponible para depositar en esta moneda</td></tr>'}
+        </tr>`).join('') || '<tr><td colspan="6" class="text-muted text-center">Nada disponible para depositar en esta moneda</td></tr>'}
       </tbody>
     </table>
-    <div style="text-align:right;font-weight:700;margin-top:8px">Total seleccionado: <span id="cje-dep-total">0.00</span></div>
+    <div style="text-align:right;font-size:13px;margin-top:8px">
+      Venta seleccionada: <strong id="cje-dep-venta">0.00</strong> &nbsp;
+      TIP seleccionado: <strong id="cje-dep-tip">0.00</strong> &nbsp;
+      Total seleccionado: <strong id="cje-dep-total">0.00</strong>
+    </div>
     <div class="form-group mt-16"><label>Monto depositado (según voucher)</label>
       <input type="number" min="0" step="0.1" id="cje-dep-monto" class="form-control" style="width:160px"></div>
     <div class="form-group"><label>Fecha del depósito</label>
@@ -160,11 +233,13 @@ function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone) {
     </div>`, null, { medium: true });
 
   const modal = document.getElementById('modal');
-  const recalcTotal = () => {
-    const total = [...modal.querySelectorAll('.cje-dep-chk:checked')].reduce((s, c) => s + Number(c.dataset.monto), 0);
-    modal.querySelector('#cje-dep-total').textContent = total.toFixed(2);
+  const recalc = () => {
+    const chk = [...modal.querySelectorAll('.cje-dep-chk:checked')];
+    modal.querySelector('#cje-dep-total').textContent = chk.reduce((s, c) => s + Number(c.dataset.monto), 0).toFixed(2);
+    modal.querySelector('#cje-dep-venta').textContent = chk.reduce((s, c) => s + Number(c.dataset.venta), 0).toFixed(2);
+    modal.querySelector('#cje-dep-tip').textContent = chk.reduce((s, c) => s + Number(c.dataset.tip), 0).toFixed(2);
   };
-  modal.querySelectorAll('.cje-dep-chk').forEach(c => c.addEventListener('change', recalcTotal));
+  modal.querySelectorAll('.cje-dep-chk').forEach(c => c.addEventListener('change', recalc));
 
   document.getElementById('cje-dep-btn').addEventListener('click', async () => {
     const cubre = [...modal.querySelectorAll('.cje-dep-chk:checked')].map(c => ({ id: c.value }));
@@ -172,14 +247,20 @@ function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone) {
     const montoDepositado = Number(document.getElementById('cje-dep-monto').value);
     if (!montoDepositado) { toast('Ingresa el monto depositado', 'error'); return; }
     try {
-      await POST('/caja-efectivo/depositos', {
+      const deposito = await POST('/caja-efectivo/depositos', {
         operacion, moneda, montoDepositado,
         fechaDeposito: document.getElementById('cje-dep-fecha').value,
         cubre, comentario: document.getElementById('cje-dep-comentario').value.trim(),
       });
-      closeModal();
       toast('Depósito registrado', 'success');
       onDone?.();
+      document.getElementById('modal-body').innerHTML = `
+        <p>✅ Depósito registrado correctamente.</p>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cerrar</button>
+          <button class="btn btn-primary" id="cje-dep-print-btn">🖨️ Imprimir</button>
+        </div>`;
+      document.getElementById('cje-dep-print-btn').addEventListener('click', () => cjeImprimirDeposito(deposito));
     } catch (e) { toast(e.message, 'error'); }
   });
 }
@@ -353,11 +434,12 @@ async function viewCajaEfectivoCaja(container) {
           <button class="btn btn-outline" id="cje-env-btn">📤 Enviar a Oficina</button>
         </div>
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Moneda</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Total enviado</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Moneda</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Total enviado</th><th>Estado</th><th></th></tr></thead>
           <tbody>${envios.map(e => `<tr>
             <td>${e.moneda}</td><td class="text-right">${fmt(e.montoVenta)}</td><td class="text-right">${fmt(e.montoTip)}</td>
             <td class="text-right">${fmt(e.montoEnviado)}</td><td>${e.estado === 'ENVIADO' ? '⏳ Enviado' : '✔️ Confirmado'}</td>
-          </tr>`).join('') || '<tr><td colspan="5" class="text-muted text-center">Sin envíos aún</td></tr>'}</tbody>
+            <td><button class="btn btn-outline btn-xs cje-env-print" data-id="${e._id}">🖨️</button></td>
+          </tr>`).join('') || '<tr><td colspan="6" class="text-muted text-center">Sin envíos aún</td></tr>'}</tbody>
         </table>
       </div></div>` : `
       <div class="card mb-16"><div class="card-body">
@@ -393,6 +475,13 @@ async function viewCajaEfectivoCaja(container) {
     });
 
     document.getElementById('cje-env-btn')?.addEventListener('click', () => abrirModalEnvio());
+
+    root.querySelectorAll('.cje-env-print').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const envio = envios.find(e => e._id === btn.dataset.id);
+        if (envio) cjeImprimirEnvio(envio, operacionActual);
+      });
+    });
 
     document.getElementById('cje-cerrar-btn').addEventListener('click', () => abrirModalCierre());
   }
@@ -469,14 +558,20 @@ async function viewCajaEfectivoCaja(container) {
         toast('Venta + TIP debe sumar el mismo total que el desglose', 'error'); return;
       }
       try {
-        await POST('/caja-efectivo/envios', {
+        const envio = await POST('/caja-efectivo/envios', {
           operacion: operacionActual, origenTurnoId: turnoActual._id, moneda: monedaActual,
           denominacion, montoVenta, montoTip,
           comentario: document.getElementById('cje-env-comentario').value.trim(),
         });
-        closeModal();
         toast('Enviado a Oficina', 'success');
         await cargar();
+        document.getElementById('modal-body').innerHTML = `
+          <p>✅ Envío registrado correctamente.</p>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cerrar</button>
+            <button class="btn btn-primary" id="cje-env-print-btn">🖨️ Imprimir</button>
+          </div>`;
+        document.getElementById('cje-env-print-btn').addEventListener('click', () => cjeImprimirEnvio(envio, operacionActual));
       } catch (e) { toast(e.message, 'error'); }
     });
   }
@@ -749,8 +844,11 @@ async function viewCajaEfectivoContabilidad(container) {
 
   function render(dias, depositos) {
     root.innerHTML = `
-      <div class="card mb-16"><div class="card-body">
-        <div style="font-weight:700;margin-bottom:8px">Movimiento de efectivo por día</div>
+      <div class="card mb-16"><div class="card-body" id="cjb-tabla-movimientos">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:700">Movimiento de efectivo por día</div>
+          <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjb-tabla-movimientos','Movimiento de Efectivo')">🖨️ Imprimir</button>
+        </div>
         <div class="table-wrap">
         <table class="data-table" style="font-size:12px">
           <thead><tr><th>Fecha</th><th class="text-right">Venta PEN</th><th class="text-right">Venta USD</th><th class="text-right">TIP PEN</th><th class="text-right">TIP USD</th><th class="text-right">Vuelto PEN</th><th class="text-right">Turnos cerrados</th></tr></thead>
@@ -765,18 +863,22 @@ async function viewCajaEfectivoContabilidad(container) {
         </div>
       </div></div>
 
-      <div class="card"><div class="card-body">
-        <div style="font-weight:700;margin-bottom:8px">Depósitos al banco</div>
+      <div class="card" id="cjb-tabla-depositos"><div class="card-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:700">Depósitos al banco</div>
+          <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjb-tabla-depositos','Depósitos al Banco')">🖨️ Imprimir</button>
+        </div>
         <div class="table-wrap">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Fecha depósito</th><th>Origen</th><th>Moneda</th><th class="text-right">Monto depositado</th><th>Fechas que cubre</th><th class="text-right">Diferencia</th></tr></thead>
+          <thead><tr><th>Fecha depósito</th><th>Origen</th><th>Moneda</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Monto depositado</th><th>Fechas que cubre</th><th class="text-right">Diferencia</th></tr></thead>
           <tbody>
             ${depositos.map(d => `<tr>
               <td>${esc(fmtDate(d.fechaDeposito))}</td><td>${d.origen}</td><td>${d.moneda}</td>
+              <td class="text-right">${fmt(d.montoVenta)}</td><td class="text-right">${fmt(d.montoTip)}</td>
               <td class="text-right">${fmt(d.montoDepositado)}</td>
               <td>${d.cubre.map(c => esc(fmtDate(c.fecha))).join(', ')}</td>
               <td class="text-right" style="${Math.abs(d.diferencia) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700'}">${fmt(d.diferencia)}</td>
-            </tr>`).join('') || '<tr><td colspan="6" class="text-muted text-center">Sin depósitos en el rango</td></tr>'}
+            </tr>`).join('') || '<tr><td colspan="8" class="text-muted text-center">Sin depósitos en el rango</td></tr>'}
           </tbody>
         </table>
         </div>
@@ -833,8 +935,11 @@ async function viewCajaEfectivoGerencia(container) {
     try {
       const { tienda, oficina } = await GET(`/caja-efectivo/gerencia/teorico?operacion=${encodeURIComponent(operacionActual)}&fecha=${fechaActual}`);
       root.innerHTML = `
-        <div class="card mb-16"><div class="card-body">
-          <div style="font-weight:700;margin-bottom:8px">Saldo teórico vs. conteo del supervisor — ${esc(fechaActual)}</div>
+        <div class="card mb-16" id="cjg-tabla-teorico"><div class="card-body">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-weight:700">Saldo teórico vs. conteo del supervisor — ${esc(fechaActual)}</div>
+            <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjg-tabla-teorico','Saldo Teórico vs. Conteo del Supervisor')">🖨️ Imprimir</button>
+          </div>
           <table class="data-table" style="font-size:13px">
             <thead><tr><th>Caja</th><th class="text-right">Saldo calculado</th><th class="text-right">Conteo supervisor</th><th class="text-right">Diferencia</th></tr></thead>
             <tbody>
@@ -851,15 +956,19 @@ async function viewCajaEfectivoGerencia(container) {
       const todos = await GET(`/caja-efectivo/contabilidad/depositos?operacion=${encodeURIComponent(operacionActual)}`);
       const depositos = todos.filter(d => d.cubre.some(c => String(c.fecha).slice(0, 10) === fechaActual));
       dep.innerHTML = `
-        <div class="card"><div class="card-body">
-          <div style="font-weight:700;margin-bottom:8px">Cuadre de depósitos que incluyen esta fecha</div>
+        <div class="card" id="cjg-tabla-depositos"><div class="card-body">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-weight:700">Cuadre de depósitos que incluyen esta fecha</div>
+            <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjg-tabla-depositos','Cuadre de Depósitos')">🖨️ Imprimir</button>
+          </div>
           <table class="data-table" style="font-size:12px">
-            <thead><tr><th>Fecha depósito</th><th>Origen</th><th>Moneda</th><th class="text-right">Monto</th><th class="text-right">Diferencia</th></tr></thead>
+            <thead><tr><th>Fecha depósito</th><th>Origen</th><th>Moneda</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Monto</th><th class="text-right">Diferencia</th></tr></thead>
             <tbody>${depositos.map(d => `<tr>
               <td>${esc(fmtDate(d.fechaDeposito))}</td><td>${d.origen}</td><td>${d.moneda}</td>
+              <td class="text-right">${fmt(d.montoVenta)}</td><td class="text-right">${fmt(d.montoTip)}</td>
               <td class="text-right">${fmt(d.montoDepositado)}</td>
               <td class="text-right" style="${Math.abs(d.diferencia) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700'}">${fmt(d.diferencia)}</td>
-            </tr>`).join('') || '<tr><td colspan="5" class="text-muted text-center">Sin depósitos que cubran esta fecha</td></tr>'}</tbody>
+            </tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center">Sin depósitos que cubran esta fecha</td></tr>'}</tbody>
           </table>
         </div></div>`;
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }

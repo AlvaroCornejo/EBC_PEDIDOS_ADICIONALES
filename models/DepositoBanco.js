@@ -27,6 +27,13 @@ const depositoBancoSchema = new mongoose.Schema({
   }],
   totalCubierto: { type: Number, required: true },
   diferencia:    { type: Number, required: true },
+  // Desglose venta/TIP del total cubierto (sin detalle de billetaje — a diferencia
+  // del envío a Oficina, el depósito no necesita conteo físico, ya se contó al
+  // enviar/cerrar). Se calcula en el servidor a partir de lo que cubre cada ítem
+  // (EnvioEfectivo.montoVenta/montoTip si es ENVIO, o los movimientos del turno si
+  // es TURNO) — nunca se recibe del cliente.
+  montoVenta: { type: Number, default: 0 },
+  montoTip:   { type: Number, default: 0 },
 
   registradoPor: { type: String, default: '' },
   fechaRegistro: { type: Date, default: Date.now },

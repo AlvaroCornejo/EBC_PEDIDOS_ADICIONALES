@@ -43,12 +43,20 @@ function sumaConteo(conteo, moneda) {
 }
 // Ingreso neto de un turno en una moneda: VENTA+TIP − VUELTO (VUELTO siempre PEN).
 function netoIngresos(movimientos, monedaUpper) {
-  let s = 0;
+  const { venta, tip } = netoVentaTip(movimientos, monedaUpper);
+  return venta + tip;
+}
+// Desglose venta/TIP del ingreso neto de un turno en una moneda. El vuelto se resta
+// de venta (es cambio de una venta pagada en dólares), nunca del TIP.
+function netoVentaTip(movimientos, monedaUpper) {
+  let venta = 0, tip = 0;
   movimientos.forEach(m => {
     if (m.moneda !== monedaUpper) return;
-    if (m.tipo === 'VUELTO') s -= m.monto; else s += m.monto;
+    if (m.tipo === 'VENTA') venta += m.monto;
+    else if (m.tipo === 'TIP') tip += m.monto;
+    else if (m.tipo === 'VUELTO') venta -= m.monto;
   });
-  return s;
+  return { venta, tip };
 }
 async function configDe(operacion) {
   const cfg = await CajaEfectivoConfig.findOne({ operacion }).lean();
@@ -339,7 +347,7 @@ router.get('/depositos/disponibles', async (req, res) => {
     if (tieneOficina) {
       if (!tieneRol(req.user, 'OFICINA')) return res.status(403).json({ error: 'Sin permiso' });
       const envios = await EnvioEfectivo.find({ operacion, estado: 'CONFIRMADO', moneda, depositoId: null }).sort({ fechaConfirmacion: 1 }).lean();
-      res.json(envios.map(e => ({ tipo: 'ENVIO', id: e._id, fecha: e.fechaConfirmacion, monto: e.montoConfirmado })));
+      res.json(envios.map(e => ({ tipo: 'ENVIO', id: e._id, fecha: e.fechaConfirmacion, monto: e.montoConfirmado, venta: e.montoVenta, tip: e.montoTip })));
     } else {
       if (!tieneRol(req.user, 'CAJA')) return res.status(403).json({ error: 'Sin permiso' });
       const turnos = await TurnoCaja.find({ operacion, estado: 'CERRADO', [campoClaim]: null }).sort({ fecha: 1 }).lean();
@@ -348,7 +356,10 @@ router.get('/depositos/disponibles', async (req, res) => {
       const movPorTurno = {};
       movimientos.forEach(m => { (movPorTurno[String(m.turnoId)] || (movPorTurno[String(m.turnoId)] = [])).push(m); });
       const disponibles = turnos
-        .map(t => ({ tipo: 'TURNO', id: t._id, fecha: t.fechaCierre || t.fecha, turno: t.turno, monto: netoIngresos(movPorTurno[String(t._id)] || [], moneda) }))
+        .map(t => {
+          const { venta, tip } = netoVentaTip(movPorTurno[String(t._id)] || [], moneda);
+          return { tipo: 'TURNO', id: t._id, fecha: t.fechaCierre || t.fecha, turno: t.turno, monto: venta + tip, venta, tip };
+        })
         .filter(x => x.monto > 0);
       res.json(disponibles);
     }
@@ -367,11 +378,13 @@ router.post('/depositos', async (req, res) => {
     if (!tieneRol(req.user, origen)) return res.status(403).json({ error: 'Sin permiso' });
 
     const cubreCalculado = [];
+    let montoVenta = 0, montoTip = 0;
     if (origen === 'OFICINA') {
       for (const item of cubre) {
         const envio = await EnvioEfectivo.findOne({ _id: item.id, operacion, estado: 'CONFIRMADO', moneda, depositoId: null });
         if (!envio) return res.status(400).json({ error: 'Un envío seleccionado ya no está disponible' });
         cubreCalculado.push({ tipo: 'ENVIO', id: envio._id, fecha: envio.fechaConfirmacion, monto: envio.montoConfirmado });
+        montoVenta += envio.montoVenta; montoTip += envio.montoTip;
       }
     } else {
       const campoClaim = moneda === 'PEN' ? 'depositoPenId' : 'depositoUsdId';
@@ -379,8 +392,9 @@ router.post('/depositos', async (req, res) => {
         const turno = await TurnoCaja.findOne({ _id: item.id, operacion, estado: 'CERRADO', [campoClaim]: null });
         if (!turno) return res.status(400).json({ error: 'Un turno seleccionado ya no está disponible' });
         const movimientos = await MovimientoEfectivoCaja.find({ turnoId: turno._id }).lean();
-        const monto = netoIngresos(movimientos, moneda);
-        cubreCalculado.push({ tipo: 'TURNO', id: turno._id, fecha: turno.fechaCierre || turno.fecha, monto });
+        const { venta, tip } = netoVentaTip(movimientos, moneda);
+        cubreCalculado.push({ tipo: 'TURNO', id: turno._id, fecha: turno.fechaCierre || turno.fecha, monto: venta + tip });
+        montoVenta += venta; montoTip += tip;
       }
     }
 
@@ -388,6 +402,7 @@ router.post('/depositos', async (req, res) => {
     const deposito = await DepositoBanco.create({
       operacion, origen, moneda, montoDepositado: Number(montoDepositado), fechaDeposito: new Date(fechaDeposito),
       cubre: cubreCalculado, totalCubierto, diferencia: Number(montoDepositado) - totalCubierto,
+      montoVenta, montoTip,
       registradoPor: req.user.username || '', comentario: comentario || '',
     });
 
