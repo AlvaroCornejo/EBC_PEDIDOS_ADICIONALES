@@ -567,8 +567,13 @@ router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (r
         const depositadoDirecto = (t[mon === 'PEN' ? 'depositoPenId' : 'depositoUsdId']) ? netoIngresos(movs, mon) : 0;
         const egreso = enviadoOficina + depositadoDirecto;
         const calculado = sumaConteo(t.conteoApertura, key) + netoIngresos(movs, mon) - egreso;
+        const conteoCajero = t.conteoCierre ? sumaConteo(t.conteoCierre, key) : null;
         const conteoSupervisor = sup ? sumaConteo(sup.conteo, key) : null;
-        saldo[mon] = { saldoCalculado: calculado, conteoSupervisor, diferencia: conteoSupervisor === null ? null : conteoSupervisor - calculado };
+        saldo[mon] = {
+          saldoCalculado: calculado,
+          conteoCajero, diferenciaCajero: conteoCajero === null ? null : conteoCajero - calculado,
+          conteoSupervisor, diferenciaSupervisor: conteoSupervisor === null ? null : conteoSupervisor - calculado,
+        };
       });
       return saldo;
     }
@@ -585,8 +590,13 @@ router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (r
         const ingreso = recibidos.filter(e => e.moneda === mon).reduce((s, e) => s + e.montoConfirmado, 0);
         const egreso = depositado.filter(d => d.moneda === mon).reduce((s, d) => s + d.montoDepositado, 0);
         const calculado = sumaConteo(dia.conteoApertura, key) + ingreso - egreso;
+        const conteoCajero = dia.conteoCierre ? sumaConteo(dia.conteoCierre, key) : null;
         const conteoSupervisor = sup ? sumaConteo(sup.conteo, key) : null;
-        saldo[mon] = { saldoCalculado: calculado, conteoSupervisor, diferencia: conteoSupervisor === null ? null : conteoSupervisor - calculado };
+        saldo[mon] = {
+          saldoCalculado: calculado,
+          conteoCajero, diferenciaCajero: conteoCajero === null ? null : conteoCajero - calculado,
+          conteoSupervisor, diferenciaSupervisor: conteoSupervisor === null ? null : conteoSupervisor - calculado,
+        };
       });
       return saldo;
     }

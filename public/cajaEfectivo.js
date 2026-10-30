@@ -89,32 +89,24 @@ function cjeDenomTableUnaMoneda(prefix, moneda) {
 
 const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP: 'TIP', VUELTO: 'Vuelto' };
 
-// Fila(s) de la tabla "saldo teórico vs. conteo del supervisor" (Gerencia y
-// Contabilidad) — una por moneda, con la diferencia resaltada si no cuadra.
-function cjeFilaSaldo(label, saldo) {
+// Fila(s) de la tabla "saldo teórico vs. conteo real" (Gerencia y Contabilidad) —
+// una por moneda, comparando contra AMBOS conteos: el del cajero/oficina al cerrar
+// (operativo) y el del supervisor (independiente). `fecha` es opcional — se agrega
+// una columna de fecha al inicio para la vista de rango (Contabilidad).
+function cjeFilaSaldo(label, saldo, fecha) {
+  const colFecha = fecha != null ? `<td>${esc(fecha)}</td>` : '';
   return ['PEN', 'USD'].map(m => {
     const s = saldo[m];
-    const difColor = s.diferencia == null ? '' : (Math.abs(s.diferencia) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
+    const colorCajero = s.diferenciaCajero == null ? '' : (Math.abs(s.diferenciaCajero) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
+    const colorSup = s.diferenciaSupervisor == null ? '' : (Math.abs(s.diferenciaSupervisor) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
     return `<tr>
+      ${colFecha}
       <td>${esc(label)} — ${m}</td>
       <td class="text-right">${fmt(s.saldoCalculado)}</td>
+      <td class="text-right">${s.conteoCajero == null ? '—' : fmt(s.conteoCajero)}</td>
+      <td class="text-right" style="${colorCajero}">${s.diferenciaCajero == null ? '—' : fmt(s.diferenciaCajero)}</td>
       <td class="text-right">${s.conteoSupervisor == null ? '—' : fmt(s.conteoSupervisor)}</td>
-      <td class="text-right" style="${difColor}">${s.diferencia == null ? '—' : fmt(s.diferencia)}</td>
-    </tr>`;
-  }).join('');
-}
-
-// Misma fila, con una columna de fecha al inicio (vista de rango — Contabilidad).
-function cjeFilaSaldoConFecha(fecha, label, saldo) {
-  return ['PEN', 'USD'].map(m => {
-    const s = saldo[m];
-    const difColor = s.diferencia == null ? '' : (Math.abs(s.diferencia) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
-    return `<tr>
-      <td>${esc(fecha)}</td>
-      <td>${esc(label)} — ${m}</td>
-      <td class="text-right">${fmt(s.saldoCalculado)}</td>
-      <td class="text-right">${s.conteoSupervisor == null ? '—' : fmt(s.conteoSupervisor)}</td>
-      <td class="text-right" style="${difColor}">${s.diferencia == null ? '—' : fmt(s.diferencia)}</td>
+      <td class="text-right" style="${colorSup}">${s.diferenciaSupervisor == null ? '—' : fmt(s.diferenciaSupervisor)}</td>
     </tr>`;
   }).join('');
 }
@@ -896,17 +888,17 @@ async function viewCajaEfectivoContabilidad(container) {
 
       <div class="card mb-16" id="cjb-tabla-teorico"><div class="card-body">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-weight:700">Saldo teórico vs. conteo del supervisor (saldo real)</div>
+          <div style="font-weight:700">Saldo teórico vs. conteo real (cajero y supervisor)</div>
           <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjb-tabla-teorico','Saldo Teórico vs. Real')">🖨️ Imprimir</button>
         </div>
         <div class="table-wrap">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Fecha</th><th>Caja</th><th class="text-right">Saldo calculado</th><th class="text-right">Conteo supervisor (real)</th><th class="text-right">Diferencia</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Caja</th><th class="text-right">Saldo calculado</th><th class="text-right">Conteo cajero</th><th class="text-right">Dif. cajero</th><th class="text-right">Conteo supervisor</th><th class="text-right">Dif. supervisor</th></tr></thead>
           <tbody>
             ${teorico.flatMap(d => [
-              ...d.tienda.map(t => cjeFilaSaldoConFecha(d.fecha, `Turno ${t.turno.turno}`, t.saldo)),
-              ...(d.oficina ? [cjeFilaSaldoConFecha(d.fecha, 'Oficina', d.oficina.saldo)] : []),
-            ]).join('') || '<tr><td colspan="5" class="text-muted text-center">Sin datos en el rango</td></tr>'}
+              ...d.tienda.map(t => cjeFilaSaldo(`Turno ${t.turno.turno}`, t.saldo, d.fecha)),
+              ...(d.oficina ? [cjeFilaSaldo('Oficina', d.oficina.saldo, d.fecha)] : []),
+            ]).join('') || '<tr><td colspan="7" class="text-muted text-center">Sin datos en el rango</td></tr>'}
           </tbody>
         </table>
         </div>
@@ -974,15 +966,15 @@ async function viewCajaEfectivoGerencia(container) {
       root.innerHTML = `
         <div class="card mb-16" id="cjg-tabla-teorico"><div class="card-body">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <div style="font-weight:700">Saldo teórico vs. conteo del supervisor — ${esc(fechaActual)}</div>
-            <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjg-tabla-teorico','Saldo Teórico vs. Conteo del Supervisor')">🖨️ Imprimir</button>
+            <div style="font-weight:700">Saldo teórico vs. conteo real (cajero y supervisor) — ${esc(fechaActual)}</div>
+            <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjg-tabla-teorico','Saldo Teórico vs. Real')">🖨️ Imprimir</button>
           </div>
           <table class="data-table" style="font-size:13px">
-            <thead><tr><th>Caja</th><th class="text-right">Saldo calculado</th><th class="text-right">Conteo supervisor</th><th class="text-right">Diferencia</th></tr></thead>
+            <thead><tr><th>Caja</th><th class="text-right">Saldo calculado</th><th class="text-right">Conteo cajero</th><th class="text-right">Dif. cajero</th><th class="text-right">Conteo supervisor</th><th class="text-right">Dif. supervisor</th></tr></thead>
             <tbody>
               ${tienda.map(t => cjeFilaSaldo(`Turno ${t.turno.turno}`, t.saldo)).join('')}
               ${oficina ? cjeFilaSaldo('Oficina', oficina.saldo) : ''}
-              ${!tienda.length && !oficina ? '<tr><td colspan="4" class="text-muted text-center">Sin datos para esa fecha</td></tr>' : ''}
+              ${!tienda.length && !oficina ? '<tr><td colspan="6" class="text-muted text-center">Sin datos para esa fecha</td></tr>' : ''}
             </tbody>
           </table>
         </div></div>`;
