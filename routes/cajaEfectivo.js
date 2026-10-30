@@ -346,8 +346,20 @@ router.get('/depositos/disponibles', async (req, res) => {
 
     if (tieneOficina) {
       if (!tieneRol(req.user, 'OFICINA')) return res.status(403).json({ error: 'Sin permiso' });
-      const envios = await EnvioEfectivo.find({ operacion, estado: 'CONFIRMADO', moneda, depositoId: null }).sort({ fechaConfirmacion: 1 }).lean();
-      res.json(envios.map(e => ({ tipo: 'ENVIO', id: e._id, fecha: e.fechaConfirmacion, monto: e.montoConfirmado, venta: e.montoVenta, tip: e.montoTip })));
+      const envios = await EnvioEfectivo.find({ operacion, estado: 'CONFIRMADO', moneda, depositoId: null }).lean();
+      // La fecha que importa para el cuadre es la del turno donde se generó el
+      // efectivo (cuándo se cobró), no la de cuándo Oficina confirmó el envío —
+      // pueden ser días distintos.
+      const turnos = await TurnoCaja.find({ _id: { $in: envios.map(e => e.origenTurnoId) } }, 'fecha turno').lean();
+      const turnoPorId = {};
+      turnos.forEach(t => { turnoPorId[String(t._id)] = t; });
+      const disponibles = envios
+        .map(e => {
+          const t = turnoPorId[String(e.origenTurnoId)];
+          return { tipo: 'ENVIO', id: e._id, fecha: t ? t.fecha : e.fechaConfirmacion, turno: t?.turno, monto: e.montoConfirmado, venta: e.montoVenta, tip: e.montoTip };
+        })
+        .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+      res.json(disponibles);
     } else {
       if (!tieneRol(req.user, 'CAJA')) return res.status(403).json({ error: 'Sin permiso' });
       const turnos = await TurnoCaja.find({ operacion, estado: 'CERRADO', [campoClaim]: null }).sort({ fecha: 1 }).lean();
@@ -358,7 +370,7 @@ router.get('/depositos/disponibles', async (req, res) => {
       const disponibles = turnos
         .map(t => {
           const { venta, tip } = netoVentaTip(movPorTurno[String(t._id)] || [], moneda);
-          return { tipo: 'TURNO', id: t._id, fecha: t.fechaCierre || t.fecha, turno: t.turno, monto: venta + tip, venta, tip };
+          return { tipo: 'TURNO', id: t._id, fecha: t.fecha, turno: t.turno, monto: venta + tip, venta, tip };
         })
         .filter(x => x.monto > 0);
       res.json(disponibles);
@@ -383,7 +395,10 @@ router.post('/depositos', async (req, res) => {
       for (const item of cubre) {
         const envio = await EnvioEfectivo.findOne({ _id: item.id, operacion, estado: 'CONFIRMADO', moneda, depositoId: null });
         if (!envio) return res.status(400).json({ error: 'Un envío seleccionado ya no está disponible' });
-        cubreCalculado.push({ tipo: 'ENVIO', id: envio._id, fecha: envio.fechaConfirmacion, monto: envio.montoConfirmado });
+        // La fecha que se guarda es la del turno de origen (cuándo se generó el
+        // efectivo), no la de cuándo Oficina confirmó el envío.
+        const turnoOrigen = await TurnoCaja.findById(envio.origenTurnoId).lean();
+        cubreCalculado.push({ tipo: 'ENVIO', id: envio._id, fecha: turnoOrigen ? turnoOrigen.fecha : envio.fechaConfirmacion, monto: envio.montoConfirmado });
         montoVenta += envio.montoVenta; montoTip += envio.montoTip;
       }
     } else {
@@ -393,7 +408,7 @@ router.post('/depositos', async (req, res) => {
         if (!turno) return res.status(400).json({ error: 'Un turno seleccionado ya no está disponible' });
         const movimientos = await MovimientoEfectivoCaja.find({ turnoId: turno._id }).lean();
         const { venta, tip } = netoVentaTip(movimientos, moneda);
-        cubreCalculado.push({ tipo: 'TURNO', id: turno._id, fecha: turno.fechaCierre || turno.fecha, monto: venta + tip });
+        cubreCalculado.push({ tipo: 'TURNO', id: turno._id, fecha: turno.fecha, monto: venta + tip });
         montoVenta += venta; montoTip += tip;
       }
     }
