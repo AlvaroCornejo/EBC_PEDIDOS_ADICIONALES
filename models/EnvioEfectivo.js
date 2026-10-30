@@ -10,6 +10,13 @@ const envioEfectivoSchema = new mongoose.Schema({
 
   moneda:       { type: String, enum: ['PEN', 'USD'], required: true },
   montoEnviado: { type: Number, required: true },
+  // Desglose de lo enviado: cuánto es venta y cuánto es TIP (montoVenta+montoTip ==
+  // montoEnviado) y el conteo físico por billete/moneda que se envía (misma
+  // denominación que conteoApertura/Cierre, pero de una sola moneda — `denominacion`
+  // = { "200": 2, "100": 1, ... }).
+  montoVenta: { type: Number, default: 0 },
+  montoTip:   { type: Number, default: 0 },
+  denominacion: { type: mongoose.Schema.Types.Mixed, default: {} },
 
   estado:          { type: String, enum: ['ENVIADO', 'CONFIRMADO'], default: 'ENVIADO' },
   montoConfirmado: { type: Number, default: null },

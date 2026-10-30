@@ -70,6 +70,23 @@ function cjeSumaConteo(conteo, moneda) {
   return Object.entries(conteo[moneda]).reduce((s, [denom, qty]) => s + Number(denom) * Number(qty || 0), 0);
 }
 
+// Tabla de denominación de UNA sola moneda (para el envío a Oficina: se desglosa el
+// billetaje de lo que se envía, no un conteo de las 2 monedas a la vez). Reusa las
+// mismas clases cje-denom-* — cjeDenomListener/cjeDenomValores funcionan igual.
+function cjeDenomTableUnaMoneda(prefix, moneda) {
+  const mon = moneda.toLowerCase();
+  return `
+    <table style="font-size:12px">
+      ${CJE_DENOMS[mon].map(d => `
+        <tr>
+          <td style="padding:2px 8px 2px 0;color:var(--text-muted)">${mon==='pen'?'S/':'US$'} ${d}</td>
+          <td style="padding:2px"><input type="number" min="0" step="1" class="form-control cje-denom-input" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}" value="0" style="width:80px"></td>
+          <td style="padding:2px 0 2px 8px;color:var(--text-muted)" class="cje-denom-subtotal" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}">0.00</td>
+        </tr>`).join('')}
+    </table>
+    <div style="text-align:right;font-weight:700;font-size:13px;margin-top:4px">Total: <span class="cje-denom-total" data-prefix="${prefix}" data-mon="${mon}">0.00</span></div>`;
+}
+
 const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP: 'TIP', VUELTO: 'Vuelto' };
 
 function cjeSelectOperacionHtml(id, operaciones) {
@@ -331,17 +348,16 @@ async function viewCajaEfectivoCaja(container) {
 
       ${cfg.tieneOficina ? `
       <div class="card mb-16"><div class="card-body">
-        <div style="font-weight:700;margin-bottom:10px">Enviar a Oficina</div>
-        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
-            <select id="cje-env-moneda" class="form-control" style="width:90px"><option value="PEN">PEN</option><option value="USD">USD</option></select></div>
-          <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Monto</label>
-            <input type="number" min="0" step="0.1" id="cje-env-monto" class="form-control" style="width:110px"></div>
-          <button class="btn btn-outline" id="cje-env-btn">📤 Enviar</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-weight:700">Envíos a Oficina</div>
+          <button class="btn btn-outline" id="cje-env-btn">📤 Enviar a Oficina</button>
         </div>
-        <table class="data-table mt-16" style="font-size:12px">
-          <thead><tr><th>Moneda</th><th class="text-right">Monto enviado</th><th>Estado</th></tr></thead>
-          <tbody>${envios.map(e => `<tr><td>${e.moneda}</td><td class="text-right">${fmt(e.montoEnviado)}</td><td>${e.estado === 'ENVIADO' ? '⏳ Enviado' : '✔️ Confirmado'}</td></tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center">Sin envíos aún</td></tr>'}</tbody>
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Moneda</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Total enviado</th><th>Estado</th></tr></thead>
+          <tbody>${envios.map(e => `<tr>
+            <td>${e.moneda}</td><td class="text-right">${fmt(e.montoVenta)}</td><td class="text-right">${fmt(e.montoTip)}</td>
+            <td class="text-right">${fmt(e.montoEnviado)}</td><td>${e.estado === 'ENVIADO' ? '⏳ Enviado' : '✔️ Confirmado'}</td>
+          </tr>`).join('') || '<tr><td colspan="5" class="text-muted text-center">Sin envíos aún</td></tr>'}</tbody>
         </table>
       </div></div>` : `
       <div class="card mb-16"><div class="card-body">
@@ -376,18 +392,93 @@ async function viewCajaEfectivoCaja(container) {
       });
     });
 
-    document.getElementById('cje-env-btn')?.addEventListener('click', async () => {
-      const moneda = document.getElementById('cje-env-moneda').value;
-      const montoEnviado = Number(document.getElementById('cje-env-monto').value);
-      if (!montoEnviado) { toast('Ingresa un monto', 'error'); return; }
+    document.getElementById('cje-env-btn')?.addEventListener('click', () => abrirModalEnvio());
+
+    document.getElementById('cje-cerrar-btn').addEventListener('click', () => abrirModalCierre());
+  }
+
+  function abrirModalEnvio() {
+    const render = moneda => `
+      <div class="form-group"><label>Moneda</label>
+        <select id="cje-env-moneda" class="form-control" style="width:110px">
+          <option value="PEN" ${moneda==='PEN'?'selected':''}>PEN</option>
+          <option value="USD" ${moneda==='USD'?'selected':''}>USD</option>
+        </select>
+      </div>
+      <div style="font-weight:600;font-size:13px;margin:10px 0 6px">Desglose de billetes/monedas enviados</div>
+      <div id="cje-env-denom">${cjeDenomTableUnaMoneda('env', moneda)}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+        <div class="form-group"><label>Monto de Venta</label>
+          <input type="number" min="0" step="0.1" id="cje-env-venta" class="form-control" style="width:140px" value="0"></div>
+        <div class="form-group"><label>Monto de TIP</label>
+          <input type="number" min="0" step="0.1" id="cje-env-tip" class="form-control" style="width:140px" value="0"></div>
+      </div>
+      <div id="cje-env-check" style="font-size:12px;margin-top:4px"></div>
+      <div class="form-group mt-16"><label>Comentario</label>
+        <input type="text" id="cje-env-comentario" class="form-control"></div>`;
+
+    openModal('📤 Enviar a Oficina', `
+      ${render('PEN')}
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
+        <button class="btn btn-primary" id="cje-env-guardar-btn">💾 Enviar</button>
+      </div>`, null, { medium: true });
+
+    const modal = document.getElementById('modal');
+    let monedaActual = 'PEN';
+
+    function totalDenom() {
+      const valores = cjeDenomValores(modal, 'env');
+      return cjeSumaConteo(valores, monedaActual.toLowerCase());
+    }
+
+    function actualizarCheck() {
+      const total = totalDenom();
+      const venta = Number(document.getElementById('cje-env-venta').value) || 0;
+      const tip = Number(document.getElementById('cje-env-tip').value) || 0;
+      const el = document.getElementById('cje-env-check');
+      const cuadra = Math.abs(venta + tip - total) < 0.01;
+      el.innerHTML = `Total desglose: ${fmt(total)} — Venta + TIP: ${fmt(venta + tip)} ${cuadra ? '✔️' : '⚠️ no cuadra'}`;
+      el.style.color = cuadra ? '#16a34a' : '#ef4444';
+    }
+
+    // Re-ata solo los inputs de denominación (se recrean al cambiar de moneda);
+    // venta/TIP/comentario son fijos en el DOM, se atan una sola vez más abajo.
+    function wireDenom() {
+      cjeDenomListener(modal, 'env');
+      modal.querySelectorAll('.cje-denom-input[data-prefix="env"]').forEach(inp => inp.addEventListener('input', actualizarCheck));
+      actualizarCheck();
+    }
+
+    wireDenom();
+    document.getElementById('cje-env-venta').addEventListener('input', actualizarCheck);
+    document.getElementById('cje-env-tip').addEventListener('input', actualizarCheck);
+
+    document.getElementById('cje-env-moneda').addEventListener('change', e => {
+      monedaActual = e.target.value;
+      document.getElementById('cje-env-denom').innerHTML = cjeDenomTableUnaMoneda('env', monedaActual);
+      wireDenom();
+    });
+
+    document.getElementById('cje-env-guardar-btn').addEventListener('click', async () => {
+      const denominacion = cjeDenomValores(modal, 'env')[monedaActual.toLowerCase()];
+      if (!Object.keys(denominacion || {}).length) { toast('Ingresa el desglose de billetes/monedas', 'error'); return; }
+      const montoVenta = Number(document.getElementById('cje-env-venta').value) || 0;
+      const montoTip = Number(document.getElementById('cje-env-tip').value) || 0;
+      if (Math.abs(montoVenta + montoTip - totalDenom()) > 0.01) {
+        toast('Venta + TIP debe sumar el mismo total que el desglose', 'error'); return;
+      }
       try {
-        await POST('/caja-efectivo/envios', { operacion: operacionActual, origenTurnoId: turnoActual._id, moneda, montoEnviado });
+        await POST('/caja-efectivo/envios', {
+          operacion: operacionActual, origenTurnoId: turnoActual._id, moneda: monedaActual,
+          denominacion, montoVenta, montoTip,
+          comentario: document.getElementById('cje-env-comentario').value.trim(),
+        });
+        closeModal();
         toast('Enviado a Oficina', 'success');
         await cargar();
       } catch (e) { toast(e.message, 'error'); }
     });
-
-    document.getElementById('cje-cerrar-btn').addEventListener('click', () => abrirModalCierre());
   }
 
   function abrirModalCierre() {
@@ -466,15 +557,16 @@ async function viewCajaEfectivoOficina(container) {
       <div class="card mb-16"><div class="card-body">
         <div style="font-weight:700;margin-bottom:8px">Envíos de Tienda pendientes de confirmar</div>
         <table class="data-table" style="font-size:13px">
-          <thead><tr><th class="text-right">Monto enviado</th><th>Moneda</th><th>Confirmar</th></tr></thead>
+          <thead><tr><th>Moneda</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Total enviado</th><th>Confirmar</th></tr></thead>
           <tbody>
             ${pendientes.map(p => `<tr>
-              <td class="text-right">${fmt(p.montoEnviado)}</td><td>${p.moneda}</td>
+              <td>${p.moneda}</td><td class="text-right">${fmt(p.montoVenta)}</td><td class="text-right">${fmt(p.montoTip)}</td>
+              <td class="text-right">${fmt(p.montoEnviado)}</td>
               <td style="display:flex;gap:6px;align-items:center">
                 <input type="number" step="0.1" class="form-control cjo-conf-monto" data-id="${p._id}" value="${p.montoEnviado}" style="width:100px">
                 <button class="btn btn-primary btn-xs cjo-conf-btn" data-id="${p._id}">✔️ Confirmar</button>
               </td>
-            </tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center">Sin envíos pendientes</td></tr>'}
+            </tr>`).join('') || '<tr><td colspan="5" class="text-muted text-center">Sin envíos pendientes</td></tr>'}
           </tbody>
         </table>
       </div></div>

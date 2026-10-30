@@ -221,9 +221,12 @@ router.put('/turnos/:id/cerrar', requireRol('CAJA'), async (req, res) => {
 // ─── Envíos Tienda → Oficina (solo operaciones con oficina) ────────────────
 router.post('/envios', requireRol('CAJA'), async (req, res) => {
   try {
-    const { operacion, origenTurnoId, moneda, montoEnviado, comentario } = req.body;
+    const { operacion, origenTurnoId, moneda, denominacion, montoVenta, montoTip, comentario } = req.body;
     if (!operacion || !checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-    if (!['PEN', 'USD'].includes(moneda) || !montoEnviado) return res.status(400).json({ error: 'Faltan moneda/monto' });
+    if (!['PEN', 'USD'].includes(moneda)) return res.status(400).json({ error: 'Falta la moneda' });
+    if (!denominacion || typeof denominacion !== 'object' || Array.isArray(denominacion)) {
+      return res.status(400).json({ error: 'Falta el desglose de billetes/monedas' });
+    }
 
     const { tieneOficina } = await configDe(operacion);
     if (!tieneOficina) return res.status(400).json({ error: 'Esta operación no tiene oficina' });
@@ -231,8 +234,17 @@ router.post('/envios', requireRol('CAJA'), async (req, res) => {
     const turno = await TurnoCaja.findById(origenTurnoId);
     if (!turno || turno.operacion !== operacion) return res.status(400).json({ error: 'Turno de origen inválido' });
 
+    // El monto enviado sale del desglose (no se confía en lo que mande el cliente);
+    // venta + TIP debe cuadrar exacto con esa suma.
+    const montoEnviado = Object.entries(denominacion).reduce((s, [d, q]) => s + Number(d) * Number(q || 0), 0);
+    if (!montoEnviado) return res.status(400).json({ error: 'El desglose no suma nada' });
+    const venta = Number(montoVenta) || 0, tip = Number(montoTip) || 0;
+    if (Math.abs(venta + tip - montoEnviado) > 0.01) {
+      return res.status(400).json({ error: 'Venta + TIP debe sumar el mismo total que el desglose de billetes/monedas' });
+    }
+
     const envio = await EnvioEfectivo.create({
-      operacion, origenTurnoId, moneda, montoEnviado: Number(montoEnviado),
+      operacion, origenTurnoId, moneda, montoEnviado, montoVenta: venta, montoTip: tip, denominacion,
       enviadoPor: req.user.username || '', comentario: comentario || '',
     });
     res.json(envio);
