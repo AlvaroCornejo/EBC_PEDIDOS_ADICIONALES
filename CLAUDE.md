@@ -1900,3 +1900,9 @@ el servidor real antes de dar el módulo por validado.
     refactorizó el cálculo/reclamo de `cubre[]` en helpers compartidos
     (`calcularCubre`, `reclamarCubre`, `liberarCubre`) para reusarlo entre crear
     y editar sin duplicar la lógica.
+- El modal de depósito ya no pregunta "Fecha del depósito" — se usa automáticamente
+  la fecha de apertura del turno/día actualmente abierto (fallback a hoy si no hay
+  nada abierto), pasada como parámetro (`fechaApertura`) desde la vista Caja/Oficina.
+- `POST /turnos` valida explícitamente (`findOne` antes de `create`, no solo el
+  catch de `11000`) que no exista ya un turno con la misma operación/fecha/turno,
+  por si el índice único no llegó a crearse en la colección reusada.
