@@ -1874,3 +1874,22 @@ el servidor real antes de dar el módulo por validado.
   Supervisor (columna en la lista de turnos pendientes de contar, vía
   `GET /supervisor/pendientes`), Contabilidad y Gerencia (columna `TIP_FACTURADO_PEN`
   en `GET /contabilidad/movimientos`, mismo endpoint que usan ambas pantallas).
+- **Editar envío/depósito hasta antes de cerrar el turno**: ambos registros pasaron
+  de ser inmutables una vez creados a editables mientras el turno (o el día de
+  Oficina) sigue abierto.
+  - `EnvioEfectivo`: `PUT /envios/:id` — solo si `estado === 'ENVIADO'` (Oficina
+    todavía no confirmó) Y el turno de origen sigue `ABIERTO`. Reusa el mismo modal
+    "Enviar a Oficina" (botón ✏️ en la tabla de envíos del turno, solo visible para
+    envíos aún `ENVIADO`).
+  - `DepositoBanco`: antes solo se podía crear contra turnos ya `CERRADO` (en
+    operaciones sin oficina) — ahora `/depositos/disponibles` y `POST /depositos`
+    también aceptan turnos `ABIERTO`, para poder depositar y seguir editando antes
+    de cerrar. Nuevo `PUT /depositos/:id` + `GET /depositos/editables`
+    (`depositoEsEditable()`: para origen CAJA, todos sus turnos deben seguir
+    `ABIERTO`; para origen OFICINA, el día de Oficina en que se registró debe
+    seguir sin `fechaCierre`). La sección "Depósitos al Banco" (Caja/Oficina) ahora
+    muestra, además de lo pendiente de depositar, una lista aparte de depósitos ya
+    registrados pero todavía editables, con botón ✏️ que reabre el mismo modal
+    precargado. Se refactorizó el cálculo/reclamo de `cubre[]` en helpers
+    compartidos (`calcularCubre`, `reclamarCubre`, `liberarCubre`) para reusarlo
+    entre crear y editar sin duplicar la lógica.
