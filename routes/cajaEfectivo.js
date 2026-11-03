@@ -196,9 +196,9 @@ router.post('/turnos/:id/movimientos', requireRol('CAJA'), async (req, res) => {
     if (turno.estado !== 'ABIERTO') return res.status(400).json({ error: 'El turno ya está cerrado' });
 
     const { tipo, moneda, monto, comentario } = req.body;
-    if (!['VENTA', 'TIP', 'VUELTO'].includes(tipo)) return res.status(400).json({ error: 'Tipo de movimiento inválido' });
+    if (!['VENTA', 'TIP', 'VUELTO', 'TIP_FACTURADO'].includes(tipo)) return res.status(400).json({ error: 'Tipo de movimiento inválido' });
     if (!['PEN', 'USD'].includes(moneda)) return res.status(400).json({ error: 'Moneda inválida' });
-    if (tipo === 'VUELTO' && moneda !== 'PEN') return res.status(400).json({ error: 'El vuelto siempre es en soles' });
+    if ((tipo === 'VUELTO' || tipo === 'TIP_FACTURADO') && moneda !== 'PEN') return res.status(400).json({ error: 'El vuelto y el TIP facturado siempre son en soles' });
     if (!monto || Number(monto) <= 0) return res.status(400).json({ error: 'Falta el monto' });
 
     const mov = await MovimientoEfectivoCaja.create({
@@ -526,9 +526,16 @@ router.get('/supervisor/pendientes', requireRol('SUPERVISOR'), async (req, res) 
       SupervisorConteo.find({ operacion }).lean(),
     ]);
     const yaContado = new Set(conteos.map(c => `${c.ubicacion}:${c.refId}`));
+    const tienda = turnosCerrados.filter(t => !yaContado.has(`TIENDA:${t._id}`));
+
+    // TIP Facturado por turno — dato informativo (no efectivo), se muestra junto al
+    // turno pendiente de contar como referencia para el supervisor.
+    const movimientos = await MovimientoEfectivoCaja.find({ turnoId: { $in: tienda.map(t => t._id) }, tipo: 'TIP_FACTURADO' }).lean();
+    const tipFacturadoPorTurno = {};
+    movimientos.forEach(m => { const k = String(m.turnoId); tipFacturadoPorTurno[k] = (tipFacturadoPorTurno[k] || 0) + m.monto; });
 
     res.json({
-      tienda: turnosCerrados.filter(t => !yaContado.has(`TIENDA:${t._id}`)),
+      tienda: tienda.map(t => ({ ...t, tipFacturado: tipFacturadoPorTurno[String(t._id)] || 0 })),
       oficina: diasCerrados.filter(d => !yaContado.has(`OFICINA:${d._id}`)),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -577,7 +584,7 @@ router.get('/contabilidad/movimientos', requireRol('CONTABILIDAD', 'GERENCIA'), 
     cobranzasErp.forEach(c => { const k = ymd(c.fecha); erpPorDia[k] = (erpPorDia[k] || 0) + c.efectivo; });
 
     const porDia = {};
-    const diaVacio = k => ({ fecha: k, VENTA_PEN: 0, VENTA_USD: 0, TIP_PEN: 0, TIP_USD: 0, VUELTO_PEN: 0, turnos: 0, turnosCerrados: 0 });
+    const diaVacio = k => ({ fecha: k, VENTA_PEN: 0, VENTA_USD: 0, TIP_PEN: 0, TIP_USD: 0, VUELTO_PEN: 0, TIP_FACTURADO_PEN: 0, turnos: 0, turnosCerrados: 0 });
     turnos.forEach(t => {
       const k = ymd(t.fecha);
       if (!porDia[k]) porDia[k] = diaVacio(k);

@@ -87,7 +87,7 @@ function cjeDenomTableUnaMoneda(prefix, moneda) {
     <div style="text-align:right;font-weight:700;font-size:13px;margin-top:4px">Total: <span class="cje-denom-total" data-prefix="${prefix}" data-mon="${mon}">0.00</span></div>`;
 }
 
-const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP: 'TIP', VUELTO: 'Vuelto' };
+const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP: 'TIP', VUELTO: 'Vuelto', TIP_FACTURADO: 'TIP Facturado (no efectivo)' };
 
 // Fila(s) de la tabla "saldo teórico vs. conteo real" (Gerencia y Contabilidad) —
 // una por moneda, comparando contra AMBOS conteos: el del cajero/oficina al cerrar
@@ -449,12 +449,14 @@ async function viewCajaEfectivoCaja(container) {
 
       <div class="card mb-16"><div class="card-body">
         <div style="font-weight:700;margin-bottom:10px">Registrar Venta, TIP o Vuelto</div>
+        <p class="text-muted" style="font-size:12px;margin:-4px 0 10px">"TIP Facturado" es informativo — no es efectivo, no afecta ningún cuadre.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo</label>
-            <select id="cje-mov-tipo" class="form-control" style="width:140px">
+            <select id="cje-mov-tipo" class="form-control" style="width:170px">
               <option value="VENTA">Venta</option>
               <option value="TIP">TIP</option>
               <option value="VUELTO">Vuelto</option>
+              <option value="TIP_FACTURADO">TIP Facturado (no efectivo)</option>
             </select>
           </div>
           <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
@@ -505,7 +507,7 @@ async function viewCajaEfectivoCaja(container) {
 
     document.getElementById('cje-mov-tipo').addEventListener('change', e => {
       const monedaSel = document.getElementById('cje-mov-moneda');
-      if (e.target.value === 'VUELTO') { monedaSel.value = 'PEN'; monedaSel.disabled = true; } else { monedaSel.disabled = false; }
+      if (e.target.value === 'VUELTO' || e.target.value === 'TIP_FACTURADO') { monedaSel.value = 'PEN'; monedaSel.disabled = true; } else { monedaSel.disabled = false; }
     });
 
     document.getElementById('cje-mov-btn').addEventListener('click', async () => {
@@ -816,8 +818,8 @@ async function viewCajaEfectivoSupervisor(container) {
       <div class="card mb-16"><div class="card-body">
         <div style="font-weight:700;margin-bottom:8px">Turnos de Tienda pendientes de conteo</div>
         <table class="data-table" style="font-size:13px">
-          <thead><tr><th>Fecha</th><th>Turno</th><th></th></tr></thead>
-          <tbody>${tienda.map(t => `<tr><td>${esc(fmtDate(t.fecha))}</td><td>${esc(t.turno)}</td><td><button class="btn btn-primary btn-xs cjs-contar" data-ubicacion="TIENDA" data-id="${t._id}">Contar</button></td></tr>`).join('') || '<tr><td colspan="3" class="text-muted text-center">Sin pendientes</td></tr>'}</tbody>
+          <thead><tr><th>Fecha</th><th>Turno</th><th class="text-right">TIP Facturado</th><th></th></tr></thead>
+          <tbody>${tienda.map(t => `<tr><td>${esc(fmtDate(t.fecha))}</td><td>${esc(t.turno)}</td><td class="text-right">${fmt(t.tipFacturado)}</td><td><button class="btn btn-primary btn-xs cjs-contar" data-ubicacion="TIENDA" data-id="${t._id}">Contar</button></td></tr>`).join('') || '<tr><td colspan="4" class="text-muted text-center">Sin pendientes</td></tr>'}</tbody>
         </table>
       </div></div>
       <div class="card"><div class="card-body">
@@ -916,15 +918,16 @@ async function viewCajaEfectivoContabilidad(container) {
         <p class="text-muted" style="font-size:12px;margin:-4px 0 8px">"Cobranza ERP" es la venta en efectivo (sin TIP) registrada en el ERP — EBC COBRANZA EFECTIVO.xlsx — comparada contra "Venta PEN" de Caja.</p>
         <div class="table-wrap">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Fecha</th><th class="text-right">Venta PEN</th><th class="text-right">Venta USD</th><th class="text-right">TIP PEN</th><th class="text-right">TIP USD</th><th class="text-right">Vuelto PEN</th><th class="text-right">Cobranza ERP</th><th class="text-right">Diferencia</th><th class="text-right">Turnos cerrados</th></tr></thead>
+          <thead><tr><th>Fecha</th><th class="text-right">Venta PEN</th><th class="text-right">Venta USD</th><th class="text-right">TIP PEN</th><th class="text-right">TIP USD</th><th class="text-right">Vuelto PEN</th><th class="text-right">TIP Facturado</th><th class="text-right">Cobranza ERP</th><th class="text-right">Diferencia</th><th class="text-right">Turnos cerrados</th></tr></thead>
           <tbody>
             ${dias.map(d => `<tr>
               <td>${esc(d.fecha)}</td><td class="text-right">${fmt(d.VENTA_PEN)}</td><td class="text-right">${fmt(d.VENTA_USD)}</td>
               <td class="text-right">${fmt(d.TIP_PEN)}</td><td class="text-right">${fmt(d.TIP_USD)}</td><td class="text-right">${fmt(d.VUELTO_PEN)}</td>
+              <td class="text-right">${fmt(d.TIP_FACTURADO_PEN)}</td>
               <td class="text-right">${d.cobranzaErp == null ? '—' : fmt(d.cobranzaErp)}</td>
               <td class="text-right" style="${d.diferenciaErp == null ? '' : (Math.abs(d.diferenciaErp) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700')}">${d.diferenciaErp == null ? '—' : fmt(d.diferenciaErp)}</td>
               <td class="text-right">${d.turnosCerrados}/${d.turnos}</td>
-            </tr>`).join('') || '<tr><td colspan="9" class="text-muted text-center">Sin movimientos en el rango</td></tr>'}
+            </tr>`).join('') || '<tr><td colspan="10" class="text-muted text-center">Sin movimientos en el rango</td></tr>'}
           </tbody>
         </table>
         </div>
@@ -1033,12 +1036,13 @@ async function viewCajaEfectivoGerencia(container) {
             <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjg-tabla-erp','Cobranza Efectivo vs. ERP')">🖨️ Imprimir</button>
           </div>
           <table class="data-table" style="font-size:13px">
-            <thead><tr><th class="text-right">Venta PEN (Caja)</th><th class="text-right">Cobranza ERP</th><th class="text-right">Diferencia</th></tr></thead>
+            <thead><tr><th class="text-right">Venta PEN (Caja)</th><th class="text-right">Cobranza ERP</th><th class="text-right">Diferencia</th><th class="text-right">TIP Facturado</th></tr></thead>
             <tbody>${movDia ? `<tr>
               <td class="text-right">${fmt(movDia.VENTA_PEN)}</td>
               <td class="text-right">${movDia.cobranzaErp == null ? '—' : fmt(movDia.cobranzaErp)}</td>
               <td class="text-right" style="${movDia.diferenciaErp == null ? '' : (Math.abs(movDia.diferenciaErp) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700')}">${movDia.diferenciaErp == null ? '—' : fmt(movDia.diferenciaErp)}</td>
-            </tr>` : '<tr><td colspan="3" class="text-muted text-center">Sin datos para esa fecha</td></tr>'}</tbody>
+              <td class="text-right">${fmt(movDia.TIP_FACTURADO_PEN)}</td>
+            </tr>` : '<tr><td colspan="4" class="text-muted text-center">Sin datos para esa fecha</td></tr>'}</tbody>
           </table>
         </div></div>`;
       const dep = document.getElementById('cjg-depositos');

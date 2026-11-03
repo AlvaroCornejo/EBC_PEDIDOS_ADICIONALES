@@ -1854,3 +1854,23 @@ el servidor real antes de dar el módulo por validado.
   ERP trae pero no tienen turno registrado en el módulo, en 0, para que la diferencia
   quede visible igual) — columnas nuevas en la tabla de Contabilidad, y una tarjeta
   aparte "Cobranza efectivo vs. ERP" en Gerencia (mismo endpoint, un solo día).
+- `importCobranzaEfectivo.js` solo carga filas desde `FECHA_MINIMA = 2026-11-01` (el
+  módulo recién arrancó ese mes, el histórico del Excel desde 2020 no tiene nada que
+  cruzar). Como el import reemplaza todo, para que el filtro aplique hay que volver a
+  correr `sync-cobranza-efectivo.bat` después de actualizar el código en el servidor
+  (`git pull`) — no basta con desplegar el código solo.
+- Borrado (ADMIN) de un turno/día que ya fue reclamado por un depósito: antes se
+  bloqueaba; ahora el backend responde `409` + `requiereConfirmarDeposito`, el
+  frontend pide una segunda confirmación explícita, y si se confirma
+  (`?confirmarDeposito=true`) se borra también el `DepositoBanco` — liberando
+  (desreclamando) los demás turnos/envíos que cubría, que vuelven a quedar
+  disponibles para un depósito nuevo (`borrarDepositoYLiberar()` en el backend,
+  `cjeBorrarConDeposito()` compartido en el frontend).
+- **TIP_FACTURADO** (nuevo tipo de movimiento, `models/MovimientoEfectivoCaja.js`):
+  dato informativo — NO es efectivo, siempre en PEN, y **no entra en ningún cálculo**
+  de saldo/cuadre (`netoVentaTip`/`netoIngresos` lo ignoran por construcción, sin
+  necesidad de un caso especial — simplemente no hay ningún `if` que lo capture).
+  Se registra desde el mismo form "Registrar Venta, TIP o Vuelto" de Caja. Visible en
+  Supervisor (columna en la lista de turnos pendientes de contar, vía
+  `GET /supervisor/pendientes`), Contabilidad y Gerencia (columna `TIP_FACTURADO_PEN`
+  en `GET /contabilidad/movimientos`, mismo endpoint que usan ambas pantallas).

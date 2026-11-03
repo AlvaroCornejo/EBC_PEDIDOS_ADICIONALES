@@ -5,12 +5,15 @@ const mongoose = require('mongoose');
 // VUELTO es el único egreso de movimiento — siempre en PEN, porque el negocio
 // solo vende en soles: un pago en dólares da su vuelto en soles, registrado
 // como un VUELTO independiente, no emparejado con el ingreso que lo generó.
+// TIP_FACTURADO es dato informativo — NO es efectivo, no entra en ningún
+// cálculo de saldo/cuadre (netoIngresos/netoVentaTip lo ignoran a propósito),
+// solo se muestra en Supervisor/Contabilidad/Gerencia como referencia.
 const movimientoEfectivoCajaSchema = new mongoose.Schema({
   turnoId:   { type: mongoose.Schema.Types.ObjectId, ref: 'TurnoCaja', required: true, index: true },
   operacion: { type: String, required: true },
   fecha:     { type: Date, required: true },
 
-  tipo:   { type: String, enum: ['VENTA', 'TIP', 'VUELTO'], required: true },
+  tipo:   { type: String, enum: ['VENTA', 'TIP', 'VUELTO', 'TIP_FACTURADO'], required: true },
   moneda: { type: String, enum: ['PEN', 'USD'], required: true },
   monto:  { type: Number, required: true },
 
