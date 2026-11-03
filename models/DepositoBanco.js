@@ -38,6 +38,14 @@ const depositoBancoSchema = new mongoose.Schema({
   registradoPor: { type: String, default: '' },
   fechaRegistro: { type: Date, default: Date.now },
   comentario:    { type: String, default: '' },
+
+  // El turno (origen CAJA) o día de Oficina (origen OFICINA) que estaba ABIERTO
+  // cuando se registró este depósito — no necesariamente el mismo turno/envío que
+  // cubre (`cubre[]`), que puede ser de un turno ya cerrado cuya plata se deposita
+  // recién ahora. El depósito es editable mientras ESE turno/día (el "vigente" al
+  // momento de registrarlo) siga abierto, no mientras lo estén los que cubre.
+  turnoVigenteId: { type: mongoose.Schema.Types.ObjectId, ref: 'TurnoCaja', default: null },
+  diaVigenteId:   { type: mongoose.Schema.Types.ObjectId, ref: 'CierreOficinaDiario', default: null },
 });
 depositoBancoSchema.index({ operacion: 1, moneda: 1, fechaDeposito: -1 });
 

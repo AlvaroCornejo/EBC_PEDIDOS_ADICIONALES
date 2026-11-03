@@ -130,15 +130,39 @@ async function reclamarCubre(origen, moneda, cubreCalculado, depositoId) {
   }
 }
 
-// Un depósito es editable "hasta antes de cerrar el turno": mientras sea de
-// origen CAJA, todos los turnos que cubre deben seguir ABIERTO; si es de
-// origen OFICINA, el día de Oficina en que se registró debe seguir sin cerrar.
+// Resuelve el turno/día "vigente" (abierto) de una operación al momento de
+// registrar un depósito — no necesariamente el mismo turno/envío que el depósito
+// termina cubriendo (p.ej. se deposita en el turno de hoy la plata que quedó sin
+// depositar de un turno ya cerrado de días anteriores).
+async function vigenteDe(origen, operacion) {
+  if (origen === 'CAJA') {
+    const turno = await TurnoCaja.findOne({ operacion, estado: 'ABIERTO' }).lean();
+    return turno ? turno._id : null;
+  }
+  const dia = await CierreOficinaDiario.findOne({ operacion, fechaCierre: null }).sort({ fechaApertura: -1 }).lean();
+  return dia ? dia._id : null;
+}
+
+// Un depósito es editable "hasta antes de cerrar el turno": el turno (origen CAJA)
+// o día de Oficina (origen OFICINA) que estaba abierto cuando se registró el
+// depósito (`turnoVigenteId`/`diaVigenteId`) debe seguir abierto — no los
+// turnos/envíos que el depósito cubre, que pueden ser de un turno ya cerrado.
 async function depositoEsEditable(dep) {
   if (dep.origen === 'CAJA') {
+    if (dep.turnoVigenteId) {
+      const turno = await TurnoCaja.findById(dep.turnoVigenteId, 'estado').lean();
+      return !!turno && turno.estado === 'ABIERTO';
+    }
+    // Depósitos creados antes de guardar turnoVigenteId: criterio anterior,
+    // de compatibilidad (compara contra los turnos que cubre).
     const turnoIds = dep.cubre.filter(c => c.tipo === 'TURNO').map(c => c.id);
     if (!turnoIds.length) return false;
     const turnos = await TurnoCaja.find({ _id: { $in: turnoIds } }, 'estado').lean();
     return turnos.length === turnoIds.length && turnos.every(t => t.estado === 'ABIERTO');
+  }
+  if (dep.diaVigenteId) {
+    const dia = await CierreOficinaDiario.findById(dep.diaVigenteId, 'fechaCierre').lean();
+    return !!dia && !dia.fechaCierre;
   }
   const diaAbierto = await CierreOficinaDiario.findOne({
     operacion: dep.operacion, fechaApertura: { $lte: dep.fechaRegistro }, fechaCierre: null,
@@ -575,11 +599,14 @@ router.post('/depositos', async (req, res) => {
     try { resultado = await calcularCubre(origen, operacion, moneda, cubre); }
     catch (err) { return res.status(400).json({ error: err.message }); }
     const { cubreCalculado, totalCubierto, montoVenta, montoTip } = resultado;
+    const vigenteId = await vigenteDe(origen, operacion);
 
     const deposito = await DepositoBanco.create({
       operacion, origen, moneda, montoDepositado: Number(montoDepositado), fechaDeposito: new Date(fechaDeposito),
       cubre: cubreCalculado, totalCubierto, diferencia: Number(montoDepositado) - totalCubierto,
       montoVenta, montoTip,
+      turnoVigenteId: origen === 'CAJA' ? vigenteId : null,
+      diaVigenteId: origen === 'OFICINA' ? vigenteId : null,
       registradoPor: req.user.username || '', comentario: comentario || '',
     });
     await reclamarCubre(origen, moneda, cubreCalculado, deposito._id);
