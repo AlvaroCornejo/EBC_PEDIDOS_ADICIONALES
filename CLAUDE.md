@@ -1884,12 +1884,19 @@ el servidor real antes de dar el módulo por validado.
   - `DepositoBanco`: antes solo se podía crear contra turnos ya `CERRADO` (en
     operaciones sin oficina) — ahora `/depositos/disponibles` y `POST /depositos`
     también aceptan turnos `ABIERTO`, para poder depositar y seguir editando antes
-    de cerrar. Nuevo `PUT /depositos/:id` + `GET /depositos/editables`
-    (`depositoEsEditable()`: para origen CAJA, todos sus turnos deben seguir
-    `ABIERTO`; para origen OFICINA, el día de Oficina en que se registró debe
-    seguir sin `fechaCierre`). La sección "Depósitos al Banco" (Caja/Oficina) ahora
-    muestra, además de lo pendiente de depositar, una lista aparte de depósitos ya
-    registrados pero todavía editables, con botón ✏️ que reabre el mismo modal
-    precargado. Se refactorizó el cálculo/reclamo de `cubre[]` en helpers
-    compartidos (`calcularCubre`, `reclamarCubre`, `liberarCubre`) para reusarlo
-    entre crear y editar sin duplicar la lógica.
+    de cerrar. Nuevo `PUT /depositos/:id` + `GET /depositos/editables`.
+    **Corrección post-prueba del usuario**: un depósito puede cubrir plata de un
+    turno YA CERRADO de días anteriores (se deposita recién cuando se abre un
+    turno nuevo) — la ventana de edición depende del turno/día que estaba
+    **abierto al momento de registrar el depósito**, no de los turnos/envíos que
+    cubre. Nuevos campos `DepositoBanco.turnoVigenteId`/`diaVigenteId` (resueltos
+    en `POST /depositos` vía `vigenteDe()`), usados por `depositoEsEditable()` en
+    vez de mirar `cubre[]`. Depósitos creados antes de este cambio (sin esos
+    campos) caen a un fallback de compatibilidad que sí compara contra los
+    turnos/envíos cubiertos (criterio anterior, más restrictivo). La sección
+    "Depósitos al Banco" (Caja/Oficina) muestra, además de lo pendiente de
+    depositar, una lista aparte de depósitos ya registrados pero todavía
+    editables, con botón ✏️ que reabre el mismo modal precargado. Se
+    refactorizó el cálculo/reclamo de `cubre[]` en helpers compartidos
+    (`calcularCubre`, `reclamarCubre`, `liberarCubre`) para reusarlo entre crear
+    y editar sin duplicar la lógica.
