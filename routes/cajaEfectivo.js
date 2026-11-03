@@ -252,6 +252,15 @@ router.post('/turnos', requireRol('CAJA'), async (req, res) => {
     const abierto = await TurnoCaja.findOne({ operacion, estado: 'ABIERTO' });
     if (abierto) return res.status(400).json({ error: `Ya hay un turno abierto (${abierto.turno} del ${ymd(abierto.fecha)}) en esta operación` });
 
+    // Chequeo explícito además del índice único de Mongo — no depender solo del
+    // catch de 11000 (por si el índice no llegó a crearse en una colección vieja).
+    const duplicado = await TurnoCaja.findOne({ operacion, fecha: new Date(fecha), turno });
+    if (duplicado) {
+      return res.status(400).json({
+        error: `Ya existe un turno "${turno}" para el ${ymd(duplicado.fecha)} en esta operación (${duplicado.estado === 'ABIERTO' ? 'sigue abierto' : 'ya cerrado'})`,
+      });
+    }
+
     const turnoDoc = await TurnoCaja.create({
       operacion, fecha: new Date(fecha), turno,
       conteoApertura: conteoApertura || {},

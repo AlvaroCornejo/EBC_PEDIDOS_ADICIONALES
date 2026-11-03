@@ -247,9 +247,13 @@ function viewCajaEfectivoMultiRol(container, roles) {
 // por moneda. `onDone` se llama al guardar con éxito. `existente`: si se pasa, edita
 // ese depósito (PUT) en vez de crear uno nuevo (POST) — permitido mientras siga
 // "abierto" (su turno sin cerrar, o el día de Oficina sin cerrar).
-function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone, existente) {
+// `fechaApertura`: fecha del turno (CAJA) o día (OFICINA) actualmente abierto — se usa
+// como fecha del depósito sin preguntarla (no tiene por qué ser distinta del día en
+// que se está trabajando). Si no hay nada abierto, se usa hoy.
+function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone, existente, fechaApertura) {
   const editando = !!existente;
   const fmtFecha = f => String(f).slice(0, 10);
+  const fechaDeposito = editando ? fmtFecha(existente.fechaDeposito) : fmtFecha(fechaApertura || today());
 
   // Al editar, los ítems que YA cubre este depósito no aparecen en `disponibles`
   // (están reclamados por él mismo) — se agregan aparte, preseleccionados.
@@ -285,8 +289,7 @@ function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone, existente
     </div>
     <div class="form-group mt-16"><label>Monto depositado (según voucher)</label>
       <input type="number" min="0" step="0.1" id="cje-dep-monto" class="form-control" style="width:160px" value="${editando ? existente.montoDepositado : ''}"></div>
-    <div class="form-group"><label>Fecha del depósito</label>
-      <input type="date" id="cje-dep-fecha" class="form-control" value="${editando ? fmtFecha(existente.fechaDeposito) : today()}" style="width:160px"></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Fecha del depósito: ${esc(fechaDeposito)} (fecha de apertura del turno/día en curso)</div>
     <div class="form-group"><label>Comentario</label>
       <input type="text" id="cje-dep-comentario" class="form-control" value="${editando ? esc(existente.comentario || '') : ''}"></div>
     <div class="modal-footer">
@@ -310,8 +313,7 @@ function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone, existente
     const montoDepositado = Number(document.getElementById('cje-dep-monto').value);
     if (!montoDepositado) { toast('Ingresa el monto depositado', 'error'); return; }
     const body = {
-      operacion, moneda, montoDepositado,
-      fechaDeposito: document.getElementById('cje-dep-fecha').value,
+      operacion, moneda, montoDepositado, fechaDeposito,
       cubre, comentario: document.getElementById('cje-dep-comentario').value.trim(),
     };
     try {
@@ -331,7 +333,9 @@ function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone, existente
   });
 }
 
-async function cjeRenderSeccionDepositos(root, operacion, origen) {
+// `fechaApertura`: fecha del turno/día actualmente abierto — se pasa al modal para
+// usarla como fecha del depósito sin preguntarla.
+async function cjeRenderSeccionDepositos(root, operacion, origen, fechaApertura) {
   root.innerHTML = `
     <div class="card"><div class="card-body">
       <div style="font-weight:700;margin-bottom:10px">Depósitos al Banco</div>
@@ -363,12 +367,12 @@ async function cjeRenderSeccionDepositos(root, operacion, origen) {
           </tr>`).join('')}</tbody>
         </table>` : ''}`;
       el.querySelector('.cje-dep-abrir')?.addEventListener('click', () => {
-        cjeAbrirModalDeposito(operacion, moneda, disponibles, () => cjeRenderSeccionDepositos(root, operacion, origen));
+        cjeAbrirModalDeposito(operacion, moneda, disponibles, () => cjeRenderSeccionDepositos(root, operacion, origen, fechaApertura), null, fechaApertura);
       });
       el.querySelectorAll('.cje-dep-edit').forEach(btn => {
         btn.addEventListener('click', () => {
           const dep = editables.find(d => d._id === btn.dataset.id);
-          if (dep) cjeAbrirModalDeposito(operacion, moneda, disponibles, () => cjeRenderSeccionDepositos(root, operacion, origen), dep);
+          if (dep) cjeAbrirModalDeposito(operacion, moneda, disponibles, () => cjeRenderSeccionDepositos(root, operacion, origen, fechaApertura), dep, fechaApertura);
         });
       });
     } catch (e) { el.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
@@ -416,7 +420,7 @@ async function viewCajaEfectivoCaja(container) {
       turnoActual = turnos.find(t => t.estado === 'ABIERTO') || null;
       if (turnoActual) await renderTurnoAbierto(turnos);
       else renderAbrirTurno(turnos);
-      if (!cfg.tieneOficina) await cjeRenderSeccionDepositos(document.getElementById('cje-depositos'), operacionActual, 'CAJA');
+      if (!cfg.tieneOficina) await cjeRenderSeccionDepositos(document.getElementById('cje-depositos'), operacionActual, 'CAJA', turnoActual?.fecha);
       else document.getElementById('cje-depositos').innerHTML = '';
       root.querySelectorAll('.cje-turno-del').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -756,7 +760,7 @@ async function viewCajaEfectivoOficina(container) {
         GET(`/caja-efectivo/envios/pendientes?operacion=${encodeURIComponent(operacionActual)}`),
       ]);
       render(dia, pendientes);
-      await cjeRenderSeccionDepositos(document.getElementById('cjo-depositos'), operacionActual, 'OFICINA');
+      await cjeRenderSeccionDepositos(document.getElementById('cjo-depositos'), operacionActual, 'OFICINA', dia && !dia.fechaCierre ? dia.fecha : null);
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
