@@ -73,18 +73,19 @@ function cjeSumaConteo(conteo, moneda) {
 // Tabla de denominación de UNA sola moneda (para el envío a Oficina: se desglosa el
 // billetaje de lo que se envía, no un conteo de las 2 monedas a la vez). Reusa las
 // mismas clases cje-denom-* — cjeDenomListener/cjeDenomValores funcionan igual.
-function cjeDenomTableUnaMoneda(prefix, moneda) {
+function cjeDenomTableUnaMoneda(prefix, moneda, valores) {
   const mon = moneda.toLowerCase();
+  const val = d => Number(valores?.[d] || 0);
   return `
     <table style="font-size:12px">
       ${CJE_DENOMS[mon].map(d => `
         <tr>
           <td style="padding:2px 8px 2px 0;color:var(--text-muted)">${mon==='pen'?'S/':'US$'} ${d}</td>
-          <td style="padding:2px"><input type="number" min="0" step="1" class="form-control cje-denom-input" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}" value="0" style="width:80px"></td>
-          <td style="padding:2px 0 2px 8px;color:var(--text-muted)" class="cje-denom-subtotal" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}">0.00</td>
+          <td style="padding:2px"><input type="number" min="0" step="1" class="form-control cje-denom-input" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}" value="${val(d)}" style="width:80px"></td>
+          <td style="padding:2px 0 2px 8px;color:var(--text-muted)" class="cje-denom-subtotal" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}">${(Number(d) * val(d)).toFixed(2)}</td>
         </tr>`).join('')}
     </table>
-    <div style="text-align:right;font-weight:700;font-size:13px;margin-top:4px">Total: <span class="cje-denom-total" data-prefix="${prefix}" data-mon="${mon}">0.00</span></div>`;
+    <div style="text-align:right;font-weight:700;font-size:13px;margin-top:4px">Total: <span class="cje-denom-total" data-prefix="${prefix}" data-mon="${mon}">${CJE_DENOMS[mon].reduce((s,d)=>s+Number(d)*val(d),0).toFixed(2)}</span></div>`;
 }
 
 const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP: 'TIP', VUELTO: 'Vuelto', TIP_FACTURADO: 'TIP Facturado (no efectivo)' };
@@ -243,20 +244,36 @@ function viewCajaEfectivoMultiRol(container, roles) {
 
 // ─── Modal de depósito al banco (compartido por Caja y Oficina) ───────────
 // `origen` CAJA|OFICINA, `disponibles` = [{tipo,id,fecha,monto,turno?}] ya filtrados
-// por moneda. `onDone` se llama al guardar con éxito.
-function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone) {
+// por moneda. `onDone` se llama al guardar con éxito. `existente`: si se pasa, edita
+// ese depósito (PUT) en vez de crear uno nuevo (POST) — permitido mientras siga
+// "abierto" (su turno sin cerrar, o el día de Oficina sin cerrar).
+function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone, existente) {
+  const editando = !!existente;
   const fmtFecha = f => String(f).slice(0, 10);
-  openModal(`🏦 Depositar al Banco — ${moneda}`, `
+
+  // Al editar, los ítems que YA cubre este depósito no aparecen en `disponibles`
+  // (están reclamados por él mismo) — se agregan aparte, preseleccionados.
+  let items = disponibles;
+  if (editando) {
+    const yaListados = new Set(disponibles.map(d => String(d.id)));
+    const propios = existente.cubre
+      .filter(c => !yaListados.has(String(c.id)))
+      .map(c => ({ tipo: c.tipo, id: c.id, fecha: c.fecha, monto: c.monto, venta: null, tip: null }));
+    items = [...propios, ...disponibles].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+  }
+  const preSeleccionados = new Set((existente?.cubre || []).map(c => String(c.id)));
+
+  openModal(editando ? `✏️ Editar Depósito — ${moneda}` : `🏦 Depositar al Banco — ${moneda}`, `
     <p class="text-muted" style="font-size:13px">Selecciona los turnos u envíos completos que cubre este depósito (no se puede elegir una parte). No hace falta desglose de billetes aquí — ya se contó al enviar/cerrar.</p>
     <table class="data-table" style="font-size:13px">
-      <thead><tr><th></th><th>Fecha</th><th>${disponibles[0]?.turno !== undefined ? 'Turno' : 'Origen'}</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Monto</th></tr></thead>
+      <thead><tr><th></th><th>Fecha</th><th>${items[0]?.turno !== undefined ? 'Turno' : 'Origen'}</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Monto</th></tr></thead>
       <tbody>
-        ${disponibles.map(d => `<tr>
-          <td><input type="checkbox" class="cje-dep-chk" value="${d.id}" data-monto="${d.monto}" data-venta="${d.venta}" data-tip="${d.tip}"></td>
+        ${items.map(d => `<tr>
+          <td><input type="checkbox" class="cje-dep-chk" value="${d.id}" data-monto="${d.monto}" data-venta="${d.venta ?? 0}" data-tip="${d.tip ?? 0}" ${preSeleccionados.has(String(d.id)) ? 'checked' : ''}></td>
           <td>${esc(fmtFecha(d.fecha))}</td>
           <td>${esc(d.turno || (d.tipo === 'ENVIO' ? 'Envío de Caja' : ''))}</td>
-          <td class="text-right">${fmt(d.venta)}</td>
-          <td class="text-right">${fmt(d.tip)}</td>
+          <td class="text-right">${d.venta != null ? fmt(d.venta) : '—'}</td>
+          <td class="text-right">${d.tip != null ? fmt(d.tip) : '—'}</td>
           <td class="text-right">${fmt(d.monto)}</td>
         </tr>`).join('') || '<tr><td colspan="6" class="text-muted text-center">Nada disponible para depositar en esta moneda</td></tr>'}
       </tbody>
@@ -267,14 +284,14 @@ function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone) {
       Total seleccionado: <strong id="cje-dep-total">0.00</strong>
     </div>
     <div class="form-group mt-16"><label>Monto depositado (según voucher)</label>
-      <input type="number" min="0" step="0.1" id="cje-dep-monto" class="form-control" style="width:160px"></div>
+      <input type="number" min="0" step="0.1" id="cje-dep-monto" class="form-control" style="width:160px" value="${editando ? existente.montoDepositado : ''}"></div>
     <div class="form-group"><label>Fecha del depósito</label>
-      <input type="date" id="cje-dep-fecha" class="form-control" value="${today()}" style="width:160px"></div>
+      <input type="date" id="cje-dep-fecha" class="form-control" value="${editando ? fmtFecha(existente.fechaDeposito) : today()}" style="width:160px"></div>
     <div class="form-group"><label>Comentario</label>
-      <input type="text" id="cje-dep-comentario" class="form-control"></div>
+      <input type="text" id="cje-dep-comentario" class="form-control" value="${editando ? esc(existente.comentario || '') : ''}"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
-      <button class="btn btn-primary" id="cje-dep-btn">💾 Registrar Depósito</button>
+      <button class="btn btn-primary" id="cje-dep-btn">💾 ${editando ? 'Guardar cambios' : 'Registrar Depósito'}</button>
     </div>`, null, { medium: true });
 
   const modal = document.getElementById('modal');
@@ -285,22 +302,26 @@ function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone) {
     modal.querySelector('#cje-dep-tip').textContent = chk.reduce((s, c) => s + Number(c.dataset.tip), 0).toFixed(2);
   };
   modal.querySelectorAll('.cje-dep-chk').forEach(c => c.addEventListener('change', recalc));
+  recalc();
 
   document.getElementById('cje-dep-btn').addEventListener('click', async () => {
     const cubre = [...modal.querySelectorAll('.cje-dep-chk:checked')].map(c => ({ id: c.value }));
     if (!cubre.length) { toast('Selecciona al menos un ítem', 'error'); return; }
     const montoDepositado = Number(document.getElementById('cje-dep-monto').value);
     if (!montoDepositado) { toast('Ingresa el monto depositado', 'error'); return; }
+    const body = {
+      operacion, moneda, montoDepositado,
+      fechaDeposito: document.getElementById('cje-dep-fecha').value,
+      cubre, comentario: document.getElementById('cje-dep-comentario').value.trim(),
+    };
     try {
-      const deposito = await POST('/caja-efectivo/depositos', {
-        operacion, moneda, montoDepositado,
-        fechaDeposito: document.getElementById('cje-dep-fecha').value,
-        cubre, comentario: document.getElementById('cje-dep-comentario').value.trim(),
-      });
-      toast('Depósito registrado', 'success');
+      const deposito = editando
+        ? await PUT(`/caja-efectivo/depositos/${existente._id}`, body)
+        : await POST('/caja-efectivo/depositos', body);
+      toast(editando ? 'Depósito actualizado' : 'Depósito registrado', 'success');
       onDone?.();
       document.getElementById('modal-body').innerHTML = `
-        <p>✅ Depósito registrado correctamente.</p>
+        <p>✅ ${editando ? 'Depósito actualizado correctamente.' : 'Depósito registrado correctamente.'}</p>
         <div class="modal-footer">
           <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cerrar</button>
           <button class="btn btn-primary" id="cje-dep-print-btn">🖨️ Imprimir</button>
@@ -321,15 +342,34 @@ async function cjeRenderSeccionDepositos(root, operacion, origen) {
   async function cargarMoneda(moneda, elId) {
     const el = document.getElementById(elId);
     try {
-      const disponibles = await GET(`/caja-efectivo/depositos/disponibles?operacion=${encodeURIComponent(operacion)}&moneda=${moneda}`);
+      const [disponibles, editables] = await Promise.all([
+        GET(`/caja-efectivo/depositos/disponibles?operacion=${encodeURIComponent(operacion)}&moneda=${moneda}`),
+        GET(`/caja-efectivo/depositos/editables?operacion=${encodeURIComponent(operacion)}&moneda=${moneda}`),
+      ]);
       const total = disponibles.reduce((s, d) => s + d.monto, 0);
       el.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div><strong>${moneda}</strong> — ${disponibles.length} pendiente(s) de depositar, total ${fmt(total)}</div>
           <button class="btn btn-outline btn-sm cje-dep-abrir" ${!disponibles.length ? 'disabled' : ''}>🏦 Depositar</button>
-        </div>`;
+        </div>
+        ${editables.length ? `
+        <table class="data-table mt-16" style="font-size:12px">
+          <thead><tr><th>Fecha registro</th><th class="text-right">Monto depositado</th><th class="text-right">Diferencia</th><th></th></tr></thead>
+          <tbody>${editables.map(d => `<tr>
+            <td>${esc(String(d.fechaRegistro).slice(0, 10))}</td>
+            <td class="text-right">${fmt(d.montoDepositado)}</td>
+            <td class="text-right" style="${Math.abs(d.diferencia) < 0.01 ? '' : 'color:#ef4444;font-weight:700'}">${fmt(d.diferencia)}</td>
+            <td><button class="btn btn-outline btn-xs cje-dep-edit" data-id="${d._id}" title="Editar depósito (aún se puede, no cerró el turno/día)">✏️ Editar</button></td>
+          </tr>`).join('')}</tbody>
+        </table>` : ''}`;
       el.querySelector('.cje-dep-abrir')?.addEventListener('click', () => {
         cjeAbrirModalDeposito(operacion, moneda, disponibles, () => cjeRenderSeccionDepositos(root, operacion, origen));
+      });
+      el.querySelectorAll('.cje-dep-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const dep = editables.find(d => d._id === btn.dataset.id);
+          if (dep) cjeAbrirModalDeposito(operacion, moneda, disponibles, () => cjeRenderSeccionDepositos(root, operacion, origen), dep);
+        });
       });
     } catch (e) { el.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
@@ -495,7 +535,10 @@ async function viewCajaEfectivoCaja(container) {
           <tbody>${envios.map(e => `<tr>
             <td>${e.moneda}</td><td class="text-right">${fmt(e.montoVenta)}</td><td class="text-right">${fmt(e.montoTip)}</td>
             <td class="text-right">${fmt(e.montoEnviado)}</td><td>${e.estado === 'ENVIADO' ? '⏳ Enviado' : '✔️ Confirmado'}</td>
-            <td><button class="btn btn-outline btn-xs cje-env-print" data-id="${e._id}">🖨️</button></td>
+            <td>
+              ${e.estado === 'ENVIADO' ? `<button class="btn btn-outline btn-xs cje-env-edit" data-id="${e._id}" title="Editar envío">✏️</button>` : ''}
+              <button class="btn btn-outline btn-xs cje-env-print" data-id="${e._id}">🖨️</button>
+            </td>
           </tr>`).join('') || '<tr><td colspan="6" class="text-muted text-center">Sin envíos aún</td></tr>'}</tbody>
         </table>
       </div></div>` : `
@@ -540,38 +583,49 @@ async function viewCajaEfectivoCaja(container) {
       });
     });
 
+    root.querySelectorAll('.cje-env-edit').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const envio = envios.find(e => e._id === btn.dataset.id);
+        if (envio) abrirModalEnvio(envio);
+      });
+    });
+
     document.getElementById('cje-cerrar-btn').addEventListener('click', () => abrirModalCierre());
   }
 
-  function abrirModalEnvio() {
+  // `envioExistente`: si se pasa, edita ese envío (PUT) en vez de crear uno nuevo
+  // (POST) — permitido mientras no lo haya confirmado Oficina y el turno siga abierto.
+  function abrirModalEnvio(envioExistente) {
+    const editando = !!envioExistente;
+    const monedaInicial = envioExistente?.moneda || 'PEN';
     const render = moneda => `
       <div class="form-group"><label>Moneda</label>
-        <select id="cje-env-moneda" class="form-control" style="width:110px">
+        <select id="cje-env-moneda" class="form-control" style="width:110px" ${editando ? 'disabled' : ''}>
           <option value="PEN" ${moneda==='PEN'?'selected':''}>PEN</option>
           <option value="USD" ${moneda==='USD'?'selected':''}>USD</option>
         </select>
       </div>
       <div style="font-weight:600;font-size:13px;margin:10px 0 6px">Desglose de billetes/monedas enviados</div>
-      <div id="cje-env-denom">${cjeDenomTableUnaMoneda('env', moneda)}</div>
+      <div id="cje-env-denom">${cjeDenomTableUnaMoneda('env', moneda, editando ? envioExistente.denominacion?.[moneda.toLowerCase()] : undefined)}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
         <div class="form-group"><label>Monto de Venta</label>
-          <input type="number" min="0" step="0.1" id="cje-env-venta" class="form-control" style="width:140px" value="0"></div>
+          <input type="number" min="0" step="0.1" id="cje-env-venta" class="form-control" style="width:140px" value="${editando ? envioExistente.montoVenta : 0}"></div>
         <div class="form-group"><label>Monto de TIP</label>
-          <input type="number" min="0" step="0.1" id="cje-env-tip" class="form-control" style="width:140px" value="0"></div>
+          <input type="number" min="0" step="0.1" id="cje-env-tip" class="form-control" style="width:140px" value="${editando ? envioExistente.montoTip : 0}"></div>
       </div>
       <div id="cje-env-check" style="font-size:12px;margin-top:4px"></div>
       <div class="form-group mt-16"><label>Comentario</label>
-        <input type="text" id="cje-env-comentario" class="form-control"></div>`;
+        <input type="text" id="cje-env-comentario" class="form-control" value="${editando ? esc(envioExistente.comentario || '') : ''}"></div>`;
 
-    openModal('📤 Enviar a Oficina', `
-      ${render('PEN')}
+    openModal(editando ? '✏️ Editar Envío a Oficina' : '📤 Enviar a Oficina', `
+      ${render(monedaInicial)}
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
-        <button class="btn btn-primary" id="cje-env-guardar-btn">💾 Enviar</button>
+        <button class="btn btn-primary" id="cje-env-guardar-btn">💾 ${editando ? 'Guardar cambios' : 'Enviar'}</button>
       </div>`, null, { medium: true });
 
     const modal = document.getElementById('modal');
-    let monedaActual = 'PEN';
+    let monedaActual = monedaInicial;
 
     function totalDenom() {
       const valores = cjeDenomValores(modal, 'env');
@@ -614,16 +668,18 @@ async function viewCajaEfectivoCaja(container) {
       if (Math.abs(montoVenta + montoTip - totalDenom()) > 0.01) {
         toast('Venta + TIP debe sumar el mismo total que el desglose', 'error'); return;
       }
+      const comentario = document.getElementById('cje-env-comentario').value.trim();
       try {
-        const envio = await POST('/caja-efectivo/envios', {
-          operacion: operacionActual, origenTurnoId: turnoActual._id, moneda: monedaActual,
-          denominacion, montoVenta, montoTip,
-          comentario: document.getElementById('cje-env-comentario').value.trim(),
-        });
-        toast('Enviado a Oficina', 'success');
+        const envio = editando
+          ? await PUT(`/caja-efectivo/envios/${envioExistente._id}`, { denominacion, montoVenta, montoTip, comentario })
+          : await POST('/caja-efectivo/envios', {
+              operacion: operacionActual, origenTurnoId: turnoActual._id, moneda: monedaActual,
+              denominacion, montoVenta, montoTip, comentario,
+            });
+        toast(editando ? 'Envío actualizado' : 'Enviado a Oficina', 'success');
         await cargar();
         document.getElementById('modal-body').innerHTML = `
-          <p>✅ Envío registrado correctamente.</p>
+          <p>✅ ${editando ? 'Envío actualizado correctamente.' : 'Envío registrado correctamente.'}</p>
           <div class="modal-footer">
             <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cerrar</button>
             <button class="btn btn-primary" id="cje-env-print-btn">🖨️ Imprimir</button>

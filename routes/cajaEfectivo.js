@@ -64,12 +64,9 @@ async function configDe(operacion) {
   return cfg || { tieneOficina: false, turnos: [], fondoFijoCaja: { pen: 0, usd: 0 }, fondoFijoOficina: { pen: 0, usd: 0 } };
 }
 
-// Borra un DepositoBanco y libera (desreclama) todos los turnos/envíos que
-// cubría — vuelven a quedar disponibles para un depósito nuevo. Usado al borrar
-// (ADMIN) un turno/día que ya había sido reclamado, con confirmación explícita.
-async function borrarDepositoYLiberar(depositoId) {
-  const dep = await DepositoBanco.findById(depositoId).lean();
-  if (!dep) return;
+// Libera (desreclama) todos los turnos/envíos que cubre un DepositoBanco —
+// vuelven a quedar disponibles para un depósito nuevo (o para recalcular el mismo).
+async function liberarCubre(dep) {
   const campoClaim = dep.moneda === 'PEN' ? 'depositoPenId' : 'depositoUsdId';
   for (const item of dep.cubre) {
     if (item.tipo === 'TURNO') {
@@ -78,7 +75,75 @@ async function borrarDepositoYLiberar(depositoId) {
       await EnvioEfectivo.updateOne({ _id: item.id, depositoId: dep._id }, { $set: { depositoId: null } });
     }
   }
+}
+
+// Borra un DepositoBanco y libera lo que cubría. Usado al borrar (ADMIN) un
+// turno/día que ya había sido reclamado, con confirmación explícita.
+async function borrarDepositoYLiberar(depositoId) {
+  const dep = await DepositoBanco.findById(depositoId).lean();
+  if (!dep) return;
+  await liberarCubre(dep);
   await DepositoBanco.deleteOne({ _id: dep._id });
+}
+
+// Valida una selección de turnos/envíos para un depósito y calcula lo que cubre
+// (fecha + monto de cada uno) y los totales de venta/TIP. No marca nada como
+// reclamado todavía — eso lo hace `reclamarCubre` una vez que el depósito ya
+// existe (con su _id). Lanza si algún item ya no está disponible.
+async function calcularCubre(origen, operacion, moneda, cubre) {
+  const cubreCalculado = [];
+  let montoVenta = 0, montoTip = 0;
+  if (origen === 'OFICINA') {
+    for (const item of cubre) {
+      const envio = await EnvioEfectivo.findOne({ _id: item.id, operacion, estado: 'CONFIRMADO', moneda, depositoId: null });
+      if (!envio) throw new Error('Un envío seleccionado ya no está disponible');
+      // La fecha que se guarda es la del turno de origen (cuándo se generó el
+      // efectivo), no la de cuándo Oficina confirmó el envío.
+      const turnoOrigen = await TurnoCaja.findById(envio.origenTurnoId).lean();
+      cubreCalculado.push({ tipo: 'ENVIO', id: envio._id, fecha: turnoOrigen ? turnoOrigen.fecha : envio.fechaConfirmacion, monto: envio.montoConfirmado });
+      montoVenta += envio.montoVenta; montoTip += envio.montoTip;
+    }
+  } else {
+    const campoClaim = moneda === 'PEN' ? 'depositoPenId' : 'depositoUsdId';
+    for (const item of cubre) {
+      // Se puede depositar contra un turno todavía ABIERTO (editable hasta que
+      // se cierre) — no solo contra turnos ya CERRADOs.
+      const turno = await TurnoCaja.findOne({ _id: item.id, operacion, [campoClaim]: null });
+      if (!turno) throw new Error('Un turno seleccionado ya no está disponible');
+      const movimientos = await MovimientoEfectivoCaja.find({ turnoId: turno._id }).lean();
+      const { venta, tip } = netoVentaTip(movimientos, moneda);
+      cubreCalculado.push({ tipo: 'TURNO', id: turno._id, fecha: turno.fecha, monto: venta + tip });
+      montoVenta += venta; montoTip += tip;
+    }
+  }
+  const totalCubierto = cubreCalculado.reduce((s, c) => s + c.monto, 0);
+  return { cubreCalculado, totalCubierto, montoVenta, montoTip };
+}
+
+// Marca como reclamados (depositoId) los turnos/envíos ya calculados por `calcularCubre`.
+async function reclamarCubre(origen, moneda, cubreCalculado, depositoId) {
+  if (origen === 'OFICINA') {
+    await EnvioEfectivo.updateMany({ _id: { $in: cubreCalculado.map(c => c.id) } }, { $set: { depositoId } });
+  } else {
+    const campoClaim = moneda === 'PEN' ? 'depositoPenId' : 'depositoUsdId';
+    await TurnoCaja.updateMany({ _id: { $in: cubreCalculado.map(c => c.id) } }, { $set: { [campoClaim]: depositoId } });
+  }
+}
+
+// Un depósito es editable "hasta antes de cerrar el turno": mientras sea de
+// origen CAJA, todos los turnos que cubre deben seguir ABIERTO; si es de
+// origen OFICINA, el día de Oficina en que se registró debe seguir sin cerrar.
+async function depositoEsEditable(dep) {
+  if (dep.origen === 'CAJA') {
+    const turnoIds = dep.cubre.filter(c => c.tipo === 'TURNO').map(c => c.id);
+    if (!turnoIds.length) return false;
+    const turnos = await TurnoCaja.find({ _id: { $in: turnoIds } }, 'estado').lean();
+    return turnos.length === turnoIds.length && turnos.every(t => t.estado === 'ABIERTO');
+  }
+  const diaAbierto = await CierreOficinaDiario.findOne({
+    operacion: dep.operacion, fechaApertura: { $lte: dep.fechaRegistro }, fechaCierre: null,
+  }).lean();
+  return !!diaAbierto;
 }
 
 // ─── Config (solo ADMIN) ──────────────────────────────────────────────────
@@ -312,6 +377,38 @@ router.post('/envios', requireRol('CAJA'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Edita un envío a Oficina — solo mientras Oficina no lo haya confirmado
+// todavía Y el turno de origen siga ABIERTO ("hasta antes de cerrar el turno").
+router.put('/envios/:id', requireRol('CAJA'), async (req, res) => {
+  try {
+    const envio = await EnvioEfectivo.findById(req.params.id);
+    if (!envio) return res.status(404).json({ error: 'Envío no encontrado' });
+    if (!checkOpAccess(req.user, envio.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    if (envio.estado !== 'ENVIADO') return res.status(400).json({ error: 'Ya fue confirmado por Oficina, no se puede editar' });
+    const turno = await TurnoCaja.findById(envio.origenTurnoId).lean();
+    if (!turno || turno.estado !== 'ABIERTO') return res.status(400).json({ error: 'El turno ya se cerró, no se puede editar el envío' });
+
+    const { denominacion, montoVenta, montoTip, comentario } = req.body;
+    if (!denominacion || typeof denominacion !== 'object' || Array.isArray(denominacion)) {
+      return res.status(400).json({ error: 'Falta el desglose de billetes/monedas' });
+    }
+    const montoEnviado = Object.entries(denominacion).reduce((s, [d, q]) => s + Number(d) * Number(q || 0), 0);
+    if (!montoEnviado) return res.status(400).json({ error: 'El desglose no suma nada' });
+    const venta = Number(montoVenta) || 0, tip = Number(montoTip) || 0;
+    if (Math.abs(venta + tip - montoEnviado) > 0.01) {
+      return res.status(400).json({ error: 'Venta + TIP debe sumar el mismo total que el desglose de billetes/monedas' });
+    }
+
+    envio.denominacion = denominacion;
+    envio.montoEnviado = montoEnviado;
+    envio.montoVenta = venta;
+    envio.montoTip = tip;
+    if (comentario !== undefined) envio.comentario = comentario;
+    await envio.save();
+    res.json(envio);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.get('/envios/pendientes', requireRol('OFICINA'), async (req, res) => {
   try {
     const { operacion } = req.query;
@@ -445,7 +542,9 @@ router.get('/depositos/disponibles', async (req, res) => {
       res.json(disponibles);
     } else {
       if (!tieneRol(req.user, 'CAJA')) return res.status(403).json({ error: 'Sin permiso' });
-      const turnos = await TurnoCaja.find({ operacion, estado: 'CERRADO', [campoClaim]: null }).sort({ fecha: 1 }).lean();
+      // Incluye turnos ABIERTO también (no solo CERRADO): se puede depositar
+      // contra el turno en curso y seguir editando el depósito hasta cerrarlo.
+      const turnos = await TurnoCaja.find({ operacion, [campoClaim]: null }).sort({ fecha: 1 }).lean();
       const turnoIds = turnos.map(t => t._id);
       const movimientos = await MovimientoEfectivoCaja.find({ turnoId: { $in: turnoIds } }).lean();
       const movPorTurno = {};
@@ -472,44 +571,82 @@ router.post('/depositos', async (req, res) => {
     const origen = tieneOficina ? 'OFICINA' : 'CAJA';
     if (!tieneRol(req.user, origen)) return res.status(403).json({ error: 'Sin permiso' });
 
-    const cubreCalculado = [];
-    let montoVenta = 0, montoTip = 0;
-    if (origen === 'OFICINA') {
-      for (const item of cubre) {
-        const envio = await EnvioEfectivo.findOne({ _id: item.id, operacion, estado: 'CONFIRMADO', moneda, depositoId: null });
-        if (!envio) return res.status(400).json({ error: 'Un envío seleccionado ya no está disponible' });
-        // La fecha que se guarda es la del turno de origen (cuándo se generó el
-        // efectivo), no la de cuándo Oficina confirmó el envío.
-        const turnoOrigen = await TurnoCaja.findById(envio.origenTurnoId).lean();
-        cubreCalculado.push({ tipo: 'ENVIO', id: envio._id, fecha: turnoOrigen ? turnoOrigen.fecha : envio.fechaConfirmacion, monto: envio.montoConfirmado });
-        montoVenta += envio.montoVenta; montoTip += envio.montoTip;
-      }
-    } else {
-      const campoClaim = moneda === 'PEN' ? 'depositoPenId' : 'depositoUsdId';
-      for (const item of cubre) {
-        const turno = await TurnoCaja.findOne({ _id: item.id, operacion, estado: 'CERRADO', [campoClaim]: null });
-        if (!turno) return res.status(400).json({ error: 'Un turno seleccionado ya no está disponible' });
-        const movimientos = await MovimientoEfectivoCaja.find({ turnoId: turno._id }).lean();
-        const { venta, tip } = netoVentaTip(movimientos, moneda);
-        cubreCalculado.push({ tipo: 'TURNO', id: turno._id, fecha: turno.fecha, monto: venta + tip });
-        montoVenta += venta; montoTip += tip;
-      }
-    }
+    let resultado;
+    try { resultado = await calcularCubre(origen, operacion, moneda, cubre); }
+    catch (err) { return res.status(400).json({ error: err.message }); }
+    const { cubreCalculado, totalCubierto, montoVenta, montoTip } = resultado;
 
-    const totalCubierto = cubreCalculado.reduce((s, c) => s + c.monto, 0);
     const deposito = await DepositoBanco.create({
       operacion, origen, moneda, montoDepositado: Number(montoDepositado), fechaDeposito: new Date(fechaDeposito),
       cubre: cubreCalculado, totalCubierto, diferencia: Number(montoDepositado) - totalCubierto,
       montoVenta, montoTip,
       registradoPor: req.user.username || '', comentario: comentario || '',
     });
+    await reclamarCubre(origen, moneda, cubreCalculado, deposito._id);
+    res.json(deposito);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
-    if (origen === 'OFICINA') {
-      await EnvioEfectivo.updateMany({ _id: { $in: cubreCalculado.map(c => c.id) } }, { $set: { depositoId: deposito._id } });
-    } else {
-      const campoClaim = moneda === 'PEN' ? 'depositoPenId' : 'depositoUsdId';
-      await TurnoCaja.updateMany({ _id: { $in: cubreCalculado.map(c => c.id) } }, { $set: { [campoClaim]: deposito._id } });
+// Depósitos propios (CAJA u OFICINA, según corresponda) que todavía son
+// editables — para mostrar un botón "Editar" en la pantalla operativa.
+router.get('/depositos/editables', async (req, res) => {
+  try {
+    const { operacion, moneda } = req.query;
+    if (!operacion || !checkOpAccess(req.user, operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    if (!['PEN', 'USD'].includes(moneda)) return res.status(400).json({ error: 'Moneda inválida' });
+    const { tieneOficina } = await configDe(operacion);
+    const origen = tieneOficina ? 'OFICINA' : 'CAJA';
+    if (!tieneRol(req.user, origen)) return res.status(403).json({ error: 'Sin permiso' });
+
+    const depositos = await DepositoBanco.find({ operacion, moneda, origen }).sort({ fechaRegistro: -1 }).limit(20).lean();
+    const editables = [];
+    for (const dep of depositos) {
+      if (await depositoEsEditable(dep)) editables.push(dep);
     }
+    res.json(editables);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Edita un depósito ya registrado — permitido solo mientras sigue "abierto"
+// (ver `depositoEsEditable`): sus turnos (CAJA) todavía no cerraron, o el día
+// de Oficina donde se registró todavía no cerró. Recalcula todo desde cero con
+// la selección nueva (misma validación que al crear).
+router.put('/depositos/:id', async (req, res) => {
+  try {
+    const deposito = await DepositoBanco.findById(req.params.id);
+    if (!deposito) return res.status(404).json({ error: 'Depósito no encontrado' });
+    if (!checkOpAccess(req.user, deposito.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    if (!tieneRol(req.user, deposito.origen)) return res.status(403).json({ error: 'Sin permiso' });
+    if (!(await depositoEsEditable(deposito))) {
+      return res.status(400).json({ error: 'Este depósito ya no se puede editar (el turno o el día ya se cerró)' });
+    }
+
+    const { moneda, montoDepositado, fechaDeposito, cubre, comentario } = req.body;
+    if (!['PEN', 'USD'].includes(moneda) || !montoDepositado || !fechaDeposito) return res.status(400).json({ error: 'Faltan datos' });
+    if (!Array.isArray(cubre) || !cubre.length) return res.status(400).json({ error: 'Selecciona al menos un turno/envío' });
+
+    const cubreViejo = deposito.cubre, monedaVieja = deposito.moneda;
+    await liberarCubre(deposito);
+
+    let resultado;
+    try { resultado = await calcularCubre(deposito.origen, deposito.operacion, moneda, cubre); }
+    catch (err) {
+      await reclamarCubre(deposito.origen, monedaVieja, cubreViejo, deposito._id); // revertir la liberación
+      return res.status(400).json({ error: err.message });
+    }
+    const { cubreCalculado, totalCubierto, montoVenta, montoTip } = resultado;
+    await reclamarCubre(deposito.origen, moneda, cubreCalculado, deposito._id);
+
+    deposito.moneda = moneda;
+    deposito.montoDepositado = Number(montoDepositado);
+    deposito.fechaDeposito = new Date(fechaDeposito);
+    deposito.cubre = cubreCalculado;
+    deposito.totalCubierto = totalCubierto;
+    deposito.diferencia = Number(montoDepositado) - totalCubierto;
+    deposito.montoVenta = montoVenta;
+    deposito.montoTip = montoTip;
+    if (comentario !== undefined) deposito.comentario = comentario;
+    await deposito.save();
     res.json(deposito);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
