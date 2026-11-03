@@ -227,6 +227,32 @@ router.put('/turnos/:id/cerrar', requireRol('CAJA'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Borra por completo un turno (lo que registró Caja) y su conteo de supervisor —
+// solo ADMIN, pensado para corregir pruebas/errores. Bloqueado si ya fue reclamado
+// por un depósito (directo o vía un envío ya depositado), para no dejar un
+// DepositoBanco con un `cubre[]` apuntando a un turno que ya no existe.
+router.delete('/turnos/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
+    const turno = await TurnoCaja.findById(req.params.id);
+    if (!turno) return res.status(404).json({ error: 'Turno no encontrado' });
+    if (turno.depositoPenId || turno.depositoUsdId) {
+      return res.status(400).json({ error: 'Este turno ya fue reclamado por un depósito, no se puede borrar' });
+    }
+    const envios = await EnvioEfectivo.find({ origenTurnoId: turno._id }).lean();
+    if (envios.some(e => e.depositoId)) {
+      return res.status(400).json({ error: 'Un envío de este turno ya fue reclamado por un depósito, no se puede borrar' });
+    }
+    await Promise.all([
+      MovimientoEfectivoCaja.deleteMany({ turnoId: turno._id }),
+      EnvioEfectivo.deleteMany({ origenTurnoId: turno._id }),
+      SupervisorConteo.deleteOne({ ubicacion: 'TIENDA', refId: turno._id }),
+      TurnoCaja.deleteOne({ _id: turno._id }),
+    ]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── Envíos Tienda → Oficina (solo operaciones con oficina) ────────────────
 router.post('/envios', requireRol('CAJA'), async (req, res) => {
   try {
@@ -333,6 +359,26 @@ router.put('/oficina/dia/cerrar', requireRol('OFICINA'), async (req, res) => {
     if (comentario !== undefined) dia.comentario = comentario;
     await dia.save();
     res.json(dia);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Borra por completo un día de Oficina (lo que registró Oficina) y su conteo de
+// supervisor — solo ADMIN. Bloqueado si ya hay un depósito de Oficina registrado
+// dentro de su ventana de apertura/cierre, para no dejar un DepositoBanco huérfano.
+router.delete('/oficina/dia/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
+    const dia = await CierreOficinaDiario.findById(req.params.id);
+    if (!dia) return res.status(404).json({ error: 'Día no encontrado' });
+    const ini = dia.fechaApertura || dia.fecha;
+    const fin = dia.fechaCierre || new Date(dia.fecha.getTime() + 86400000);
+    const deposito = await DepositoBanco.findOne({ operacion: dia.operacion, origen: 'OFICINA', fechaRegistro: { $gte: ini, $lt: fin } }).lean();
+    if (deposito) return res.status(400).json({ error: 'Este día ya tiene un depósito registrado, no se puede borrar' });
+    await Promise.all([
+      SupervisorConteo.deleteOne({ ubicacion: 'OFICINA', refId: dia._id }),
+      CierreOficinaDiario.deleteOne({ _id: dia._id }),
+    ]);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

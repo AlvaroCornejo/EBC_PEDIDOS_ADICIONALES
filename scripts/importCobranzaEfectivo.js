@@ -4,6 +4,8 @@
  * Cierre de Caja (Contabilidad/Gerencia) para comparar contra la venta en
  * efectivo registrada en el módulo. Se reemplaza por completo en cada
  * corrida (el Excel ya trae el histórico completo, no se acumula historia propia).
+ * Solo se carga desde FECHA_MINIMA (el módulo Cierre de Caja recién arrancó ese
+ * mes; el histórico del Excel desde 2020 no es comparable, no hay nada que cruzar).
  *
  * Uso:
  *   node scripts/importCobranzaEfectivo.js [ruta_excel]
@@ -21,6 +23,7 @@ const CobranzaEfectivoErp = require('../models/CobranzaEfectivoErp');
 const FILE_PATH = process.argv[2]
   || 'C:\\Users\\CORP.PROCESOS\\Box\\EBC\\EBC AI\\EBC AI BASES\\EBC CIERRE CAJA\\EBC COBRANZA EFECTIVO.xlsx';
 
+const FECHA_MINIMA = new Date('2026-11-01');
 const BATCH = 2000;
 const cellVal = c => (c && typeof c === 'object' ? c.result ?? c.text ?? '' : c);
 const str = v => String(cellVal(v) ?? '').trim();
@@ -53,19 +56,18 @@ async function main() {
   if (faltantes.length) throw new Error(`"EFECTIVO_VENTA": no se encontraron las columnas: ${faltantes.join(', ')}`);
 
   const docs = [];
-  let rechazadas = 0;
+  let rechazadas = 0, fueraDeRango = 0;
   ws.eachRow((row, i) => {
     if (i === 1) return;
     const v = row.values;
     const operacion = str(v[COL.operacion]);
     const fechaRaw = v[COL.fecha];
     if (!operacion || !fechaRaw) { rechazadas++; return; }
-    docs.push({
-      operacion, fecha: fechaRaw instanceof Date ? fechaRaw : new Date(fechaRaw),
-      efectivo: num(v[COL.efectivo]),
-    });
+    const fecha = fechaRaw instanceof Date ? fechaRaw : new Date(fechaRaw);
+    if (fecha < FECHA_MINIMA) { fueraDeRango++; return; }
+    docs.push({ operacion, fecha, efectivo: num(v[COL.efectivo]) });
   });
-  console.log(`"EFECTIVO_VENTA": ${docs.length} filas válidas, ${rechazadas} rechazadas.`);
+  console.log(`"EFECTIVO_VENTA": ${docs.length} filas válidas desde ${FECHA_MINIMA.toISOString().slice(0, 10)}, ${fueraDeRango} anteriores omitidas, ${rechazadas} rechazadas.`);
 
   console.log('Reemplazando CobranzaEfectivoErp...');
   await CobranzaEfectivoErp.deleteMany({});

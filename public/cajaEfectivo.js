@@ -355,18 +355,29 @@ async function viewCajaEfectivoCaja(container) {
       else renderAbrirTurno(turnos);
       if (!cfg.tieneOficina) await cjeRenderSeccionDepositos(document.getElementById('cje-depositos'), operacionActual, 'CAJA');
       else document.getElementById('cje-depositos').innerHTML = '';
+      root.querySelectorAll('.cje-turno-del').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('¿Borrar este turno por completo (movimientos, envíos y conteo de supervisor)? No se puede deshacer.')) return;
+          try { await DEL(`/caja-efectivo/turnos/${btn.dataset.id}`); toast('Turno borrado', 'success'); await cargar(); }
+          catch (e) { toast(e.message, 'error'); }
+        });
+      });
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
   function historialHtml(turnos) {
     const recientes = turnos.slice(0, 8);
     if (!recientes.length) return '';
+    const esAdmin = S.user.role === ROLES.ADMIN;
     return `
       <div class="card mt-16"><div class="card-body">
         <div style="font-weight:700;font-size:13px;margin-bottom:8px">Turnos recientes</div>
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Fecha</th><th>Turno</th><th>Estado</th></tr></thead>
-          <tbody>${recientes.map(t => `<tr><td>${esc(fmtDate(t.fecha))}</td><td>${esc(t.turno)}</td><td>${t.estado === 'ABIERTO' ? '🟢 Abierto' : '✔️ Cerrado'}</td></tr>`).join('')}</tbody>
+          <thead><tr><th>Fecha</th><th>Turno</th><th>Estado</th>${esAdmin ? '<th></th>' : ''}</tr></thead>
+          <tbody>${recientes.map(t => `<tr>
+            <td>${esc(fmtDate(t.fecha))}</td><td>${esc(t.turno)}</td><td>${t.estado === 'ABIERTO' ? '🟢 Abierto' : '✔️ Cerrado'}</td>
+            ${esAdmin ? `<td><button class="btn btn-outline btn-xs cje-turno-del" data-id="${t._id}" title="Borrar turno (ADMIN)">🗑️</button></td>` : ''}
+          </tr>`).join('')}</tbody>
         </table>
       </div></div>`;
   }
@@ -689,7 +700,10 @@ async function viewCajaEfectivoOficina(container) {
       </div></div>
 
       <div class="card"><div class="card-body">
-        <div style="font-weight:700;margin-bottom:10px">Día ${esc(fechaActual)} ${dia?.fechaCierre ? '(cerrado)' : dia?.fechaApertura ? '(abierto)' : '(sin abrir)'}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-weight:700">Día ${esc(fechaActual)} ${dia?.fechaCierre ? '(cerrado)' : dia?.fechaApertura ? '(abierto)' : '(sin abrir)'}</div>
+          ${dia && S.user.role === ROLES.ADMIN ? `<button class="btn btn-outline btn-xs" id="cjo-dia-del" title="Borrar día (ADMIN)">🗑️ Borrar día</button>` : ''}
+        </div>
         ${!dia?.fechaApertura ? `
           <div style="font-weight:600;font-size:13px;margin-bottom:6px">Conteo de apertura (fondo fijo: S/ ${fmt(cfg.fondoFijoOficina?.pen||0)} / US$ ${fmt(cfg.fondoFijoOficina?.usd||0)})</div>
           <div style="display:flex;gap:24px;flex-wrap:wrap">${cjeDenomTableHtml('cjoab')}</div>
@@ -713,6 +727,12 @@ async function viewCajaEfectivoOficina(container) {
           await cargar();
         } catch (e) { toast(e.message, 'error'); }
       });
+    });
+
+    document.getElementById('cjo-dia-del')?.addEventListener('click', async () => {
+      if (!confirm('¿Borrar este día de Oficina por completo (conteo y conteo de supervisor)? No se puede deshacer.')) return;
+      try { await DEL(`/caja-efectivo/oficina/dia/${dia._id}`); toast('Día borrado', 'success'); await cargar(); }
+      catch (e) { toast(e.message, 'error'); }
     });
 
     if (!dia?.fechaApertura) {
