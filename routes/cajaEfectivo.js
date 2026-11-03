@@ -8,6 +8,7 @@ const EnvioEfectivo = require('../models/EnvioEfectivo');
 const CierreOficinaDiario = require('../models/CierreOficinaDiario');
 const DepositoBanco = require('../models/DepositoBanco');
 const SupervisorConteo = require('../models/SupervisorConteo');
+const CobranzaEfectivoErp = require('../models/CobranzaEfectivoErp');
 const Operacion = require('../models/Operacion');
 
 const router = express.Router();
@@ -484,14 +485,20 @@ router.get('/contabilidad/movimientos', requireRol('CONTABILIDAD', 'GERENCIA'), 
 
     const turnos = await TurnoCaja.find({ operacion, fecha: { $gte: fDesde, $lte: fHasta } }).sort({ fecha: 1 }).lean();
     const turnoIds = turnos.map(t => t._id);
-    const movimientos = await MovimientoEfectivoCaja.find({ turnoId: { $in: turnoIds } }).lean();
+    const [movimientos, cobranzasErp] = await Promise.all([
+      MovimientoEfectivoCaja.find({ turnoId: { $in: turnoIds } }).lean(),
+      CobranzaEfectivoErp.find({ operacion, fecha: { $gte: fDesde, $lte: fHasta } }).lean(),
+    ]);
     const movPorTurno = {};
     movimientos.forEach(m => { (movPorTurno[String(m.turnoId)] || (movPorTurno[String(m.turnoId)] = [])).push(m); });
+    const erpPorDia = {};
+    cobranzasErp.forEach(c => { const k = ymd(c.fecha); erpPorDia[k] = (erpPorDia[k] || 0) + c.efectivo; });
 
     const porDia = {};
+    const diaVacio = k => ({ fecha: k, VENTA_PEN: 0, VENTA_USD: 0, TIP_PEN: 0, TIP_USD: 0, VUELTO_PEN: 0, turnos: 0, turnosCerrados: 0 });
     turnos.forEach(t => {
       const k = ymd(t.fecha);
-      if (!porDia[k]) porDia[k] = { fecha: k, VENTA_PEN: 0, VENTA_USD: 0, TIP_PEN: 0, TIP_USD: 0, VUELTO_PEN: 0, turnos: 0, turnosCerrados: 0 };
+      if (!porDia[k]) porDia[k] = diaVacio(k);
       const d = porDia[k];
       d.turnos++;
       if (t.estado === 'CERRADO') d.turnosCerrados++;
@@ -500,7 +507,16 @@ router.get('/contabilidad/movimientos', requireRol('CONTABILIDAD', 'GERENCIA'), 
         if (d[key] !== undefined) d[key] += m.monto;
       });
     });
-    res.json(Object.values(porDia).sort((a, b) => a.fecha.localeCompare(b.fecha)));
+    // Días que el ERP trae pero no tienen turno registrado en el módulo (ej. antes
+    // de usarlo, o se olvidaron de abrir caja) también se muestran, en 0, para que
+    // la diferencia contra el ERP quede visible igual.
+    Object.keys(erpPorDia).forEach(k => { if (!porDia[k]) porDia[k] = diaVacio(k); });
+
+    const dias = Object.values(porDia).map(d => {
+      const erp = erpPorDia[d.fecha] ?? null;
+      return { ...d, cobranzaErp: erp, diferenciaErp: erp === null ? null : d.VENTA_PEN - erp };
+    });
+    res.json(dias.sort((a, b) => a.fecha.localeCompare(b.fecha)));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

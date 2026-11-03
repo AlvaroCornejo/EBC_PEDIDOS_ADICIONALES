@@ -869,18 +869,21 @@ async function viewCajaEfectivoContabilidad(container) {
     root.innerHTML = `
       <div class="card mb-16"><div class="card-body" id="cjb-tabla-movimientos">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-weight:700">Movimiento de efectivo por día</div>
+          <div style="font-weight:700">Movimiento de efectivo por día — Cobranza efectivo vs. ERP</div>
           <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjb-tabla-movimientos','Movimiento de Efectivo')">🖨️ Imprimir</button>
         </div>
+        <p class="text-muted" style="font-size:12px;margin:-4px 0 8px">"Cobranza ERP" es la venta en efectivo (sin TIP) registrada en el ERP — EBC COBRANZA EFECTIVO.xlsx — comparada contra "Venta PEN" de Caja.</p>
         <div class="table-wrap">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Fecha</th><th class="text-right">Venta PEN</th><th class="text-right">Venta USD</th><th class="text-right">TIP PEN</th><th class="text-right">TIP USD</th><th class="text-right">Vuelto PEN</th><th class="text-right">Turnos cerrados</th></tr></thead>
+          <thead><tr><th>Fecha</th><th class="text-right">Venta PEN</th><th class="text-right">Venta USD</th><th class="text-right">TIP PEN</th><th class="text-right">TIP USD</th><th class="text-right">Vuelto PEN</th><th class="text-right">Cobranza ERP</th><th class="text-right">Diferencia</th><th class="text-right">Turnos cerrados</th></tr></thead>
           <tbody>
             ${dias.map(d => `<tr>
               <td>${esc(d.fecha)}</td><td class="text-right">${fmt(d.VENTA_PEN)}</td><td class="text-right">${fmt(d.VENTA_USD)}</td>
               <td class="text-right">${fmt(d.TIP_PEN)}</td><td class="text-right">${fmt(d.TIP_USD)}</td><td class="text-right">${fmt(d.VUELTO_PEN)}</td>
+              <td class="text-right">${d.cobranzaErp == null ? '—' : fmt(d.cobranzaErp)}</td>
+              <td class="text-right" style="${d.diferenciaErp == null ? '' : (Math.abs(d.diferenciaErp) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700')}">${d.diferenciaErp == null ? '—' : fmt(d.diferenciaErp)}</td>
               <td class="text-right">${d.turnosCerrados}/${d.turnos}</td>
-            </tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center">Sin movimientos en el rango</td></tr>'}
+            </tr>`).join('') || '<tr><td colspan="9" class="text-muted text-center">Sin movimientos en el rango</td></tr>'}
           </tbody>
         </table>
         </div>
@@ -961,8 +964,12 @@ async function viewCajaEfectivoGerencia(container) {
     if (!operacionActual) { root.innerHTML = ''; document.getElementById('cjg-depositos').innerHTML = ''; return; }
     root.innerHTML = '<div class="text-muted text-center py-24">⏳ Cargando...</div>';
     try {
-      const dias = await GET(`/caja-efectivo/gerencia/teorico?operacion=${encodeURIComponent(operacionActual)}&desde=${fechaActual}&hasta=${fechaActual}`);
+      const [dias, movDias] = await Promise.all([
+        GET(`/caja-efectivo/gerencia/teorico?operacion=${encodeURIComponent(operacionActual)}&desde=${fechaActual}&hasta=${fechaActual}`),
+        GET(`/caja-efectivo/contabilidad/movimientos?operacion=${encodeURIComponent(operacionActual)}&desde=${fechaActual}&hasta=${fechaActual}`),
+      ]);
       const { tienda, oficina } = dias[0] || { tienda: [], oficina: null };
+      const movDia = movDias[0] || null;
       root.innerHTML = `
         <div class="card mb-16" id="cjg-tabla-teorico"><div class="card-body">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -976,6 +983,21 @@ async function viewCajaEfectivoGerencia(container) {
               ${oficina ? cjeFilaSaldo('Oficina', oficina.saldo) : ''}
               ${!tienda.length && !oficina ? '<tr><td colspan="6" class="text-muted text-center">Sin datos para esa fecha</td></tr>' : ''}
             </tbody>
+          </table>
+        </div></div>
+
+        <div class="card mb-16" id="cjg-tabla-erp"><div class="card-body">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-weight:700">Cobranza efectivo vs. ERP — ${esc(fechaActual)}</div>
+            <button class="btn btn-outline btn-sm" onclick="imprimirVista('cjg-tabla-erp','Cobranza Efectivo vs. ERP')">🖨️ Imprimir</button>
+          </div>
+          <table class="data-table" style="font-size:13px">
+            <thead><tr><th class="text-right">Venta PEN (Caja)</th><th class="text-right">Cobranza ERP</th><th class="text-right">Diferencia</th></tr></thead>
+            <tbody>${movDia ? `<tr>
+              <td class="text-right">${fmt(movDia.VENTA_PEN)}</td>
+              <td class="text-right">${movDia.cobranzaErp == null ? '—' : fmt(movDia.cobranzaErp)}</td>
+              <td class="text-right" style="${movDia.diferenciaErp == null ? '' : (Math.abs(movDia.diferenciaErp) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700')}">${movDia.diferenciaErp == null ? '—' : fmt(movDia.diferenciaErp)}</td>
+            </tr>` : '<tr><td colspan="3" class="text-muted text-center">Sin datos para esa fecha</td></tr>'}</tbody>
           </table>
         </div></div>`;
       const dep = document.getElementById('cjg-depositos');

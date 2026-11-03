@@ -95,6 +95,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | ItemMaestro / ItemPorOperacion | `scripts/importEbcItems.js` (vía `sync-ebc-items.bat`, paso 20/21 de `sync-master.bat`) | EBC ITEMS.xlsx (hojas "MAESTRO_ITEMS" e "ITEMS_POR_OPERACION") | diario, reemplazo completo |
 | InventarioSemanal | `scripts/importInventarioSemanal.js` (vía `sync-inventario-semanal.bat`, paso 21/21 de `sync-master.bat`) | EBC CONTEOS.xlsx (hoja "CONTEO", ya trae varias semanas) | diario, reemplazo completo (sin historia propia) |
 | CostoProduccion | `scripts/importCostoProduccion.js` (vía `sync-costo-produccion.bat`, paso 23/23 de `sync-master.bat`) | EBC COSTO DE PRODUCCION.xlsx (hoja "Datos", meses ENERO … DICIEMBRE en columnas) | diario, reemplaza el año actual (años anteriores se conservan) |
+| CobranzaEfectivoErp | `scripts/importCobranzaEfectivo.js` (vía `sync-cobranza-efectivo.bat`, paso 23/23 de `sync-master.bat`) | EBC CIERRE CAJA\EBC COBRANZA EFECTIVO.xlsx (hoja "EFECTIVO_VENTA": FechaCobranza/EFECTIVO/OPERACION) | diario, reemplazo completo (sin historia propia) |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
@@ -1814,3 +1815,42 @@ poder probar en vivo — sigue sin haber salida de red a Atlas desde este entorn
 si no se corrió ya (limpia las 5 colecciones viejas de la v1, que ya no tienen
 `fondoFijo`/etc. y podrían confundirse con las nuevas). Probar el flujo completo en
 el servidor real antes de dar el módulo por validado.
+
+**Refinamientos posteriores (misma sesión, probando en el servidor):**
+- Rol de un solo valor (`rolCajaEfectivo`) → `rolesCajaEfectivo` (array): un usuario
+  puede tener varios roles a la vez (ej. Oficina + Supervisor). `tieneRol(user,
+  ...roles)` en el backend cumple si tiene AL MENOS UNO de los pedidos.
+- Envío a Oficina ahora captura desglose físico por denominación (una sola moneda) y
+  separa cuánto es venta y cuánto TIP (`EnvioEfectivo.montoVenta/montoTip`,
+  validado contra el desglose). El depósito al banco también separa venta/TIP
+  (`DepositoBanco.montoVenta/montoTip`), pero **sin** desglose de billetaje — se
+  calcula solo a partir de lo que cubre cada turno/envío seleccionado.
+- Comprobantes imprimibles (`cjeImprimirRecibo`/`cjeImprimirEnvio`/`cjeImprimirDeposito`
+  en `public/cajaEfectivo.js`) tras registrar un envío o depósito, más botones de
+  impresión en las tablas de Contabilidad/Gerencia (reusa `imprimirVista()` de `app.js`).
+- Bug: la fecha de los ítems disponibles para depositar (y la guardada en
+  `DepositoBanco.cubre[].fecha`) usaba `fechaConfirmacion` (cuándo Oficina confirmó)
+  o `fechaCierre` del turno, no el día real en que se generó el efectivo — corregido
+  para usar siempre `TurnoCaja.fecha` (resuelto vía `origenTurnoId` para los envíos
+  de Oficina).
+- `GET /gerencia/teorico` generalizado para aceptar un rango (`desde`/`hasta`, no solo
+  un día) y abierto también a `CONTABILIDAD` (antes solo `GERENCIA`) — Contabilidad
+  ahora tiene su propia tabla "Saldo teórico vs. conteo real" para el rango de fechas
+  elegido, con una fila por turno/día. Gerencia sigue mostrando un solo día, pidiendo
+  el mismo endpoint con `desde=hasta=fecha`.
+- La comparación contra el conteo real se hace contra **ambos** conteos: el del
+  cajero/oficina al cerrar (operativo, campo `conteoCajero`/`diferenciaCajero`) Y el
+  del supervisor (independiente, `conteoSupervisor`/`diferenciaSupervisor`) — antes
+  solo se comparaba contra el del supervisor.
+- **Cobranza Efectivo ERP** (nuevo, `models/CobranzaEfectivoErp.js`): el usuario pasó
+  un Excel que se actualiza a diario, `EBC CIERRE CAJA\EBC COBRANZA EFECTIVO.xlsx`
+  (hoja "EFECTIVO_VENTA": FechaCobranza/EFECTIVO/OPERACION — venta en efectivo del
+  ERP, sin TIP; confirmado con el archivo real, cubre solo 3 operaciones a la fecha:
+  AASI/CDL28/CDLAO, histórico desde 2020). `scripts/importCobranzaEfectivo.js` (mismo
+  patrón que `importVentas.js`: reemplazo completo, no acumula historia propia),
+  `sync-cobranza-efectivo.bat`, paso 23/23 nuevo en `sync-master.bat` (antes 22 pasos).
+  `GET /contabilidad/movimientos` ahora también trae `cobranzaErp`/`diferenciaErp`
+  por día (cruce por operación+fecha contra `VENTA_PEN` de Caja, incluye días que el
+  ERP trae pero no tienen turno registrado en el módulo, en 0, para que la diferencia
+  quede visible igual) — columnas nuevas en la tabla de Contabilidad, y una tarjeta
+  aparte "Cobranza efectivo vs. ERP" en Gerencia (mismo endpoint, un solo día).
