@@ -182,6 +182,29 @@ function cjeSelectOperacionHtml(id, operaciones) {
   return `<select id="${id}" class="form-control" style="width:180px"><option value="">— Seleccionar —</option>${operaciones.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select>`;
 }
 
+// Borrado (ADMIN) de un turno o día de Oficina que puede requerir confirmar que
+// también se borre un depósito asociado. Si el backend responde 409 con
+// `requiereConfirmarDeposito`, pide una segunda confirmación explícita y
+// reintenta con `?confirmarDeposito=true`. Devuelve true si quedó borrado.
+async function cjeBorrarConDeposito(path, mensajeOk) {
+  try {
+    await DEL(path);
+    toast(mensajeOk, 'success');
+    return true;
+  } catch (e) {
+    if (e.data?.requiereConfirmarDeposito) {
+      if (!confirm('Ya fue reclamado por un depósito. ¿Borrar también ese depósito? Los demás turnos/envíos que cubría quedarán disponibles para un nuevo depósito. No se puede deshacer.')) return false;
+      try {
+        await DEL(`${path}?confirmarDeposito=true`);
+        toast(`${mensajeOk} (con depósito)`, 'success');
+        return true;
+      } catch (e2) { toast(e2.message, 'error'); return false; }
+    }
+    toast(e.message, 'error');
+    return false;
+  }
+}
+
 // ─── Dispatcher por rol(es) ────────────────────────────────────────────────
 // Un usuario puede tener varios roles a la vez (ej. Oficina + Supervisor). ADMIN
 // ve los 5. Con un solo rol se muestra esa vista directamente; con varios, pestañas.
@@ -358,8 +381,7 @@ async function viewCajaEfectivoCaja(container) {
       root.querySelectorAll('.cje-turno-del').forEach(btn => {
         btn.addEventListener('click', async () => {
           if (!confirm('¿Borrar este turno por completo (movimientos, envíos y conteo de supervisor)? No se puede deshacer.')) return;
-          try { await DEL(`/caja-efectivo/turnos/${btn.dataset.id}`); toast('Turno borrado', 'success'); await cargar(); }
-          catch (e) { toast(e.message, 'error'); }
+          if (await cjeBorrarConDeposito(`/caja-efectivo/turnos/${btn.dataset.id}`, 'Turno borrado')) await cargar();
         });
       });
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
@@ -731,8 +753,7 @@ async function viewCajaEfectivoOficina(container) {
 
     document.getElementById('cjo-dia-del')?.addEventListener('click', async () => {
       if (!confirm('¿Borrar este día de Oficina por completo (conteo y conteo de supervisor)? No se puede deshacer.')) return;
-      try { await DEL(`/caja-efectivo/oficina/dia/${dia._id}`); toast('Día borrado', 'success'); await cargar(); }
-      catch (e) { toast(e.message, 'error'); }
+      if (await cjeBorrarConDeposito(`/caja-efectivo/oficina/dia/${dia._id}`, 'Día borrado')) await cargar();
     });
 
     if (!dia?.fechaApertura) {

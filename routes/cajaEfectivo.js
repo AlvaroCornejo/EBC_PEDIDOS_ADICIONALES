@@ -64,6 +64,23 @@ async function configDe(operacion) {
   return cfg || { tieneOficina: false, turnos: [], fondoFijoCaja: { pen: 0, usd: 0 }, fondoFijoOficina: { pen: 0, usd: 0 } };
 }
 
+// Borra un DepositoBanco y libera (desreclama) todos los turnos/envíos que
+// cubría — vuelven a quedar disponibles para un depósito nuevo. Usado al borrar
+// (ADMIN) un turno/día que ya había sido reclamado, con confirmación explícita.
+async function borrarDepositoYLiberar(depositoId) {
+  const dep = await DepositoBanco.findById(depositoId).lean();
+  if (!dep) return;
+  const campoClaim = dep.moneda === 'PEN' ? 'depositoPenId' : 'depositoUsdId';
+  for (const item of dep.cubre) {
+    if (item.tipo === 'TURNO') {
+      await TurnoCaja.updateOne({ _id: item.id, [campoClaim]: dep._id }, { $set: { [campoClaim]: null } });
+    } else if (item.tipo === 'ENVIO') {
+      await EnvioEfectivo.updateOne({ _id: item.id, depositoId: dep._id }, { $set: { depositoId: null } });
+    }
+  }
+  await DepositoBanco.deleteOne({ _id: dep._id });
+}
+
 // ─── Config (solo ADMIN) ──────────────────────────────────────────────────
 router.get('/config', async (req, res) => {
   try {
@@ -236,20 +253,29 @@ router.delete('/turnos/:id', async (req, res) => {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
     const turno = await TurnoCaja.findById(req.params.id);
     if (!turno) return res.status(404).json({ error: 'Turno no encontrado' });
-    if (turno.depositoPenId || turno.depositoUsdId) {
-      return res.status(400).json({ error: 'Este turno ya fue reclamado por un depósito, no se puede borrar' });
-    }
+    const confirmarDeposito = req.query.confirmarDeposito === 'true';
+
     const envios = await EnvioEfectivo.find({ origenTurnoId: turno._id }).lean();
-    if (envios.some(e => e.depositoId)) {
-      return res.status(400).json({ error: 'Un envío de este turno ya fue reclamado por un depósito, no se puede borrar' });
+    const depositos = new Set();
+    if (turno.depositoPenId) depositos.add(String(turno.depositoPenId));
+    if (turno.depositoUsdId) depositos.add(String(turno.depositoUsdId));
+    envios.forEach(e => { if (e.depositoId) depositos.add(String(e.depositoId)); });
+
+    if (depositos.size && !confirmarDeposito) {
+      return res.status(409).json({
+        error: 'Este turno (o un envío suyo) ya fue reclamado por un depósito',
+        requiereConfirmarDeposito: true,
+      });
     }
+    for (const depId of depositos) await borrarDepositoYLiberar(depId);
+
     await Promise.all([
       MovimientoEfectivoCaja.deleteMany({ turnoId: turno._id }),
       EnvioEfectivo.deleteMany({ origenTurnoId: turno._id }),
       SupervisorConteo.deleteOne({ ubicacion: 'TIENDA', refId: turno._id }),
       TurnoCaja.deleteOne({ _id: turno._id }),
     ]);
-    res.json({ ok: true });
+    res.json({ ok: true, depositosBorrados: depositos.size });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -370,15 +396,25 @@ router.delete('/oficina/dia/:id', async (req, res) => {
     if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
     const dia = await CierreOficinaDiario.findById(req.params.id);
     if (!dia) return res.status(404).json({ error: 'Día no encontrado' });
+    const confirmarDeposito = req.query.confirmarDeposito === 'true';
+
     const ini = dia.fechaApertura || dia.fecha;
     const fin = dia.fechaCierre || new Date(dia.fecha.getTime() + 86400000);
-    const deposito = await DepositoBanco.findOne({ operacion: dia.operacion, origen: 'OFICINA', fechaRegistro: { $gte: ini, $lt: fin } }).lean();
-    if (deposito) return res.status(400).json({ error: 'Este día ya tiene un depósito registrado, no se puede borrar' });
+    const depositos = await DepositoBanco.find({ operacion: dia.operacion, origen: 'OFICINA', fechaRegistro: { $gte: ini, $lt: fin } }).lean();
+
+    if (depositos.length && !confirmarDeposito) {
+      return res.status(409).json({
+        error: 'Este día ya tiene depósito(s) registrado(s)',
+        requiereConfirmarDeposito: true,
+      });
+    }
+    for (const dep of depositos) await borrarDepositoYLiberar(dep._id);
+
     await Promise.all([
       SupervisorConteo.deleteOne({ ubicacion: 'OFICINA', refId: dia._id }),
       CierreOficinaDiario.deleteOne({ _id: dia._id }),
     ]);
-    res.json({ ok: true });
+    res.json({ ok: true, depositosBorrados: depositos.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
