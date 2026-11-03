@@ -420,7 +420,9 @@ async function viewCajaEfectivoCaja(container) {
       turnoActual = turnos.find(t => t.estado === 'ABIERTO') || null;
       if (turnoActual) await renderTurnoAbierto(turnos);
       else renderAbrirTurno(turnos);
-      if (!cfg.tieneOficina) await cjeRenderSeccionDepositos(document.getElementById('cje-depositos'), operacionActual, 'CAJA', turnoActual?.fecha);
+      // Depositar requiere un turno abierto (el depósito queda ligado a ese turno
+      // como "vigente" — sin uno abierto no tendría de qué turno colgar la edición).
+      if (!cfg.tieneOficina && turnoActual) await cjeRenderSeccionDepositos(document.getElementById('cje-depositos'), operacionActual, 'CAJA', turnoActual.fecha);
       else document.getElementById('cje-depositos').innerHTML = '';
       root.querySelectorAll('.cje-turno-del').forEach(btn => {
         btn.addEventListener('click', async () => {
