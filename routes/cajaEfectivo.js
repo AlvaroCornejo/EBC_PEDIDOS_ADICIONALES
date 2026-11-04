@@ -442,6 +442,40 @@ router.put('/envios/:id', requireRol('CAJA'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Elimina un envío a Oficina. CAJA solo mientras siga ENVIADO (sin confirmar) y
+// el turno de origen siga ABIERTO — mismo criterio que editarlo. ADMIN puede
+// borrar cualquiera (p.ej. uno ya CONFIRMADO); si ya fue reclamado por un
+// depósito, pide confirmación explícita (mismo patrón 409/confirmarDeposito que
+// borrar un turno/día) y de confirmarse borra también ese depósito, liberando lo
+// demás que cubría.
+router.delete('/envios/:id', async (req, res) => {
+  try {
+    const envio = await EnvioEfectivo.findById(req.params.id);
+    if (!envio) return res.status(404).json({ error: 'Envío no encontrado' });
+    if (!checkOpAccess(req.user, envio.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+
+    const esAdmin = req.user.role === 'ADMIN';
+    if (!esAdmin) {
+      if (!tieneRol(req.user, 'CAJA')) return res.status(403).json({ error: 'Sin permiso' });
+      if (envio.estado !== 'ENVIADO') return res.status(400).json({ error: 'Ya fue confirmado por Oficina, no se puede eliminar' });
+      const turno = await TurnoCaja.findById(envio.origenTurnoId).lean();
+      if (!turno || turno.estado !== 'ABIERTO') return res.status(400).json({ error: 'El turno ya se cerró, no se puede eliminar el envío' });
+    }
+
+    const confirmarDeposito = req.query.confirmarDeposito === 'true';
+    if (envio.depositoId && !confirmarDeposito) {
+      return res.status(409).json({
+        error: 'Este envío ya fue reclamado por un depósito',
+        requiereConfirmarDeposito: true,
+      });
+    }
+    if (envio.depositoId) await borrarDepositoYLiberar(envio.depositoId);
+
+    await EnvioEfectivo.deleteOne({ _id: envio._id });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.get('/envios/pendientes', requireRol('OFICINA'), async (req, res) => {
   try {
     const { operacion } = req.query;

@@ -538,14 +538,19 @@ async function viewCajaEfectivoCaja(container) {
         </div>
         <table class="data-table" style="font-size:12px">
           <thead><tr><th>Moneda</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Total enviado</th><th>Estado</th><th></th></tr></thead>
-          <tbody>${envios.map(e => `<tr>
+          <tbody>${envios.map(e => {
+            const esAdmin = S.user.role === ROLES.ADMIN;
+            const puedeBorrar = esAdmin || e.estado === 'ENVIADO';
+            return `<tr>
             <td>${e.moneda}</td><td class="text-right">${fmt(e.montoVenta)}</td><td class="text-right">${fmt(e.montoTip)}</td>
             <td class="text-right">${fmt(e.montoEnviado)}</td><td>${e.estado === 'ENVIADO' ? '⏳ Enviado' : '✔️ Confirmado'}</td>
             <td>
               ${e.estado === 'ENVIADO' ? `<button class="btn btn-outline btn-xs cje-env-edit" data-id="${e._id}" title="Editar envío">✏️</button>` : ''}
               <button class="btn btn-outline btn-xs cje-env-print" data-id="${e._id}">🖨️</button>
+              ${puedeBorrar ? `<button class="btn btn-outline btn-xs cje-env-del" data-id="${e._id}" title="Eliminar envío">🗑️</button>` : ''}
             </td>
-          </tr>`).join('') || '<tr><td colspan="6" class="text-muted text-center">Sin envíos aún</td></tr>'}</tbody>
+          </tr>`;
+          }).join('') || '<tr><td colspan="6" class="text-muted text-center">Sin envíos aún</td></tr>'}</tbody>
         </table>
       </div></div>` : `
       <div class="card mb-16"><div class="card-body">
@@ -593,6 +598,13 @@ async function viewCajaEfectivoCaja(container) {
       btn.addEventListener('click', () => {
         const envio = envios.find(e => e._id === btn.dataset.id);
         if (envio) abrirModalEnvio(envio);
+      });
+    });
+
+    root.querySelectorAll('.cje-env-del').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este envío a Oficina? No se puede deshacer.')) return;
+        if (await cjeBorrarConDeposito(`/caja-efectivo/envios/${btn.dataset.id}`, 'Envío eliminado')) await cargar();
       });
     });
 
