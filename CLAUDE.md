@@ -1912,3 +1912,21 @@ el servidor real antes de dar el módulo por validado.
   mismo patrón `409`/`requiereConfirmarDeposito` que borrar un turno/día — de
   confirmarse, borra también ese depósito (`borrarDepositoYLiberar`). Botón 🗑️
   en la tabla de envíos, reusa `cjeBorrarConDeposito`.
+- **ADMIN edita cualquier dato, en cualquier estado, en cualquier caja**: se
+  quitaron las restricciones de estado (turno/día abierto, envío sin confirmar,
+  depósito "editable") para `req.user.role === 'ADMIN'` en todos los endpoints
+  de escritura del módulo — `POST /turnos/:id/movimientos`, `PUT /envios/:id`,
+  `PUT /envios/:id/confirmar` (puede re-confirmar), `PUT /depositos/:id` y
+  `GET /depositos/editables` (ADMIN ve/edita todos, no solo los editables por
+  regla normal). Nuevos endpoints solo-ADMIN: `PUT /movimientos/:id` (antes
+  solo se podía borrar y recrear), `PUT /turnos/:id` (fecha/nombre/estado/
+  conteos/comentario directos, incluye reabrir un turno cerrado — sigue
+  bloqueando 2 turnos `ABIERTO` a la vez por operación) y `PUT /oficina/dia/:id`
+  (ídem para el día, con un campo explícito `cerrado` — no inferido de si
+  mandaron `conteoCierre`, que siempre viaja desde el form de edición aunque
+  esté vacío, para no cerrar un día por error al solo guardar sus conteos).
+  Frontend: botón ✏️ (ADMIN) en el historial de turnos (Caja) abre un modal con
+  todos los campos del turno + movimientos (editar/eliminar inline) + envíos
+  (editar/eliminar/corregir monto confirmado); botón ✏️ "Editar día" análogo en
+  Oficina. `cjeDenomTableHtml` ahora acepta valores iniciales (antes solo
+  `cjeDenomTableUnaMoneda` los soportaba) para precargar los conteos.
