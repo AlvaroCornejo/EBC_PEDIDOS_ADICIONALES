@@ -1906,3 +1906,9 @@ el servidor real antes de dar el módulo por validado.
 - `POST /turnos` valida explícitamente (`findOne` antes de `create`, no solo el
   catch de `11000`) que no exista ya un turno con la misma operación/fecha/turno,
   por si el índice único no llegó a crearse en la colección reusada.
+- **Eliminar envío a Oficina** (`DELETE /envios/:id`, nuevo): CAJA solo mientras
+  siga `ENVIADO` y el turno de origen siga `ABIERTO` (mismo criterio que
+  editarlo); ADMIN puede borrar cualquiera. Si ya fue reclamado por un depósito,
+  mismo patrón `409`/`requiereConfirmarDeposito` que borrar un turno/día — de
+  confirmarse, borra también ese depósito (`borrarDepositoYLiberar`). Botón 🗑️
+  en la tabla de envíos, reusa `cjeBorrarConDeposito`.
