@@ -291,7 +291,7 @@ router.post('/turnos/:id/movimientos', requireRol('CAJA'), async (req, res) => {
     const turno = await TurnoCaja.findById(req.params.id);
     if (!turno) return res.status(404).json({ error: 'Turno no encontrado' });
     if (!checkOpAccess(req.user, turno.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-    if (turno.estado !== 'ABIERTO') return res.status(400).json({ error: 'El turno ya está cerrado' });
+    if (req.user.role !== 'ADMIN' && turno.estado !== 'ABIERTO') return res.status(400).json({ error: 'El turno ya está cerrado' });
 
     const { tipo, moneda, monto, comentario } = req.body;
     if (!['VENTA', 'TIP', 'VUELTO', 'TIP_FACTURADO'].includes(tipo)) return res.status(400).json({ error: 'Tipo de movimiento inválido' });
@@ -304,6 +304,31 @@ router.post('/turnos/:id/movimientos', requireRol('CAJA'), async (req, res) => {
       tipo, moneda, monto: Number(monto),
       comentario: comentario || '', creadoPor: req.user.username || '',
     });
+    res.json(mov);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Edita un movimiento existente (antes solo se podía borrar y volver a crear).
+// CAJA solo mientras el turno siga ABIERTO; ADMIN sin restricción de estado.
+router.put('/movimientos/:id', requireRol('CAJA'), async (req, res) => {
+  try {
+    const mov = await MovimientoEfectivoCaja.findById(req.params.id);
+    if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    if (!checkOpAccess(req.user, mov.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
+    if (req.user.role !== 'ADMIN') {
+      const turno = await TurnoCaja.findById(mov.turnoId).lean();
+      if (!turno || turno.estado !== 'ABIERTO') return res.status(400).json({ error: 'El turno ya está cerrado' });
+    }
+
+    const { tipo, moneda, monto, comentario } = req.body;
+    if (!['VENTA', 'TIP', 'VUELTO', 'TIP_FACTURADO'].includes(tipo)) return res.status(400).json({ error: 'Tipo de movimiento inválido' });
+    if (!['PEN', 'USD'].includes(moneda)) return res.status(400).json({ error: 'Moneda inválida' });
+    if ((tipo === 'VUELTO' || tipo === 'TIP_FACTURADO') && moneda !== 'PEN') return res.status(400).json({ error: 'El vuelto y el TIP facturado siempre son en soles' });
+    if (!monto || Number(monto) <= 0) return res.status(400).json({ error: 'Falta el monto' });
+
+    mov.tipo = tipo; mov.moneda = moneda; mov.monto = Number(monto);
+    if (comentario !== undefined) mov.comentario = comentario;
+    await mov.save();
     res.json(mov);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -340,6 +365,41 @@ router.put('/turnos/:id/cerrar', requireRol('CAJA'), async (req, res) => {
     await turno.save();
     res.json(turno);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Edita directamente cualquier campo de un turno (fecha, nombre, estado, conteos,
+// comentario) — solo ADMIN, sin restricción de estado. Pensado para corregir
+// errores (un conteo mal tipeado, reabrir un turno cerrado por error, etc.), no
+// para el flujo normal de Caja (que usa /turnos, /movimientos y /cerrar).
+router.put('/turnos/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
+    const turno = await TurnoCaja.findById(req.params.id);
+    if (!turno) return res.status(404).json({ error: 'Turno no encontrado' });
+
+    const { fecha, turno: nombreTurno, estado, conteoApertura, conteoCierre, comentario } = req.body;
+    if (estado !== undefined && !['ABIERTO', 'CERRADO'].includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+    if (estado === 'ABIERTO') {
+      const otroAbierto = await TurnoCaja.findOne({ operacion: turno.operacion, estado: 'ABIERTO', _id: { $ne: turno._id } });
+      if (otroAbierto) return res.status(400).json({ error: `Ya hay otro turno abierto (${otroAbierto.turno} del ${ymd(otroAbierto.fecha)}) en esta operación` });
+    }
+
+    if (fecha !== undefined) turno.fecha = new Date(fecha);
+    if (nombreTurno !== undefined) turno.turno = String(nombreTurno).trim();
+    if (conteoApertura !== undefined) turno.conteoApertura = conteoApertura;
+    if (conteoCierre !== undefined) turno.conteoCierre = conteoCierre;
+    if (comentario !== undefined) turno.comentario = comentario;
+    if (estado !== undefined) {
+      turno.estado = estado;
+      if (estado === 'CERRADO' && !turno.fechaCierre) { turno.fechaCierre = new Date(); turno.cerradoPor = turno.cerradoPor || req.user.username || ''; }
+      if (estado === 'ABIERTO') { turno.fechaCierre = null; turno.cerradoPor = ''; }
+    }
+    await turno.save();
+    res.json(turno);
+  } catch (e) {
+    if (e.code === 11000) return res.status(400).json({ error: 'Ya existe un turno con esa operación/fecha/turno' });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Borra por completo un turno (lo que registró Caja) y su conteo de supervisor —
@@ -410,16 +470,19 @@ router.post('/envios', requireRol('CAJA'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Edita un envío a Oficina — solo mientras Oficina no lo haya confirmado
-// todavía Y el turno de origen siga ABIERTO ("hasta antes de cerrar el turno").
+// Edita un envío a Oficina — CAJA solo mientras Oficina no lo haya confirmado
+// todavía Y el turno de origen siga ABIERTO ("hasta antes de cerrar el turno");
+// ADMIN sin esa restricción.
 router.put('/envios/:id', requireRol('CAJA'), async (req, res) => {
   try {
     const envio = await EnvioEfectivo.findById(req.params.id);
     if (!envio) return res.status(404).json({ error: 'Envío no encontrado' });
     if (!checkOpAccess(req.user, envio.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-    if (envio.estado !== 'ENVIADO') return res.status(400).json({ error: 'Ya fue confirmado por Oficina, no se puede editar' });
-    const turno = await TurnoCaja.findById(envio.origenTurnoId).lean();
-    if (!turno || turno.estado !== 'ABIERTO') return res.status(400).json({ error: 'El turno ya se cerró, no se puede editar el envío' });
+    if (req.user.role !== 'ADMIN') {
+      if (envio.estado !== 'ENVIADO') return res.status(400).json({ error: 'Ya fue confirmado por Oficina, no se puede editar' });
+      const turno = await TurnoCaja.findById(envio.origenTurnoId).lean();
+      if (!turno || turno.estado !== 'ABIERTO') return res.status(400).json({ error: 'El turno ya se cerró, no se puede editar el envío' });
+    }
 
     const { denominacion, montoVenta, montoTip, comentario } = req.body;
     if (!denominacion || typeof denominacion !== 'object' || Array.isArray(denominacion)) {
@@ -485,12 +548,14 @@ router.get('/envios/pendientes', requireRol('OFICINA'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// OFICINA solo puede confirmar un envío una vez; ADMIN puede volver a confirmar
+// (p.ej. para corregir el monto confirmado) aunque ya tenga estado CONFIRMADO.
 router.put('/envios/:id/confirmar', requireRol('OFICINA'), async (req, res) => {
   try {
     const envio = await EnvioEfectivo.findById(req.params.id);
     if (!envio) return res.status(404).json({ error: 'Envío no encontrado' });
     if (!checkOpAccess(req.user, envio.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
-    if (envio.estado !== 'ENVIADO') return res.status(400).json({ error: 'El envío ya fue confirmado' });
+    if (req.user.role !== 'ADMIN' && envio.estado !== 'ENVIADO') return res.status(400).json({ error: 'El envío ya fue confirmado' });
 
     const { montoConfirmado, comentario } = req.body;
     if (montoConfirmado === undefined || montoConfirmado === null || montoConfirmado === '') {
@@ -550,6 +615,32 @@ router.put('/oficina/dia/cerrar', requireRol('OFICINA'), async (req, res) => {
     await dia.save();
     res.json(dia);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Edita directamente cualquier campo de un día de Oficina (fecha, conteos,
+// apertura/cierre, comentario) — solo ADMIN, sin restricción de estado. Permite
+// incluso "reabrir" un día ya cerrado (fechaCierre: null).
+router.put('/oficina/dia/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Solo ADMIN' });
+    const dia = await CierreOficinaDiario.findById(req.params.id);
+    if (!dia) return res.status(404).json({ error: 'Día no encontrado' });
+
+    const { fecha, conteoApertura, conteoCierre, comentario, cerrado } = req.body;
+    if (fecha !== undefined) dia.fecha = new Date(fecha);
+    if (conteoApertura !== undefined) dia.conteoApertura = conteoApertura;
+    if (conteoCierre !== undefined) dia.conteoCierre = conteoCierre;
+    if (comentario !== undefined) dia.comentario = comentario;
+    // `cerrado` es explícito (no se infiere de si mandaron conteoCierre, que
+    // siempre viaja desde el formulario de edición aunque esté vacío).
+    if (cerrado === true && !dia.fechaCierre) { dia.fechaCierre = new Date(); dia.cerradoPor = dia.cerradoPor || req.user.username || ''; }
+    else if (cerrado === false) { dia.fechaCierre = null; dia.cerradoPor = ''; }
+    await dia.save();
+    res.json(dia);
+  } catch (e) {
+    if (e.code === 11000) return res.status(400).json({ error: 'Ya existe un día con esa operación/fecha' });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Borra por completo un día de Oficina (lo que registró Oficina) y su conteo de
@@ -669,6 +760,7 @@ router.get('/depositos/editables', async (req, res) => {
     if (!tieneRol(req.user, origen)) return res.status(403).json({ error: 'Sin permiso' });
 
     const depositos = await DepositoBanco.find({ operacion, moneda, origen }).sort({ fechaRegistro: -1 }).limit(20).lean();
+    if (req.user.role === 'ADMIN') return res.json(depositos); // ADMIN: todos, sin filtrar por editable
     const editables = [];
     for (const dep of depositos) {
       if (await depositoEsEditable(dep)) editables.push(dep);
@@ -687,7 +779,7 @@ router.put('/depositos/:id', async (req, res) => {
     if (!deposito) return res.status(404).json({ error: 'Depósito no encontrado' });
     if (!checkOpAccess(req.user, deposito.operacion)) return res.status(403).json({ error: 'Operación no autorizada' });
     if (!tieneRol(req.user, deposito.origen)) return res.status(403).json({ error: 'Sin permiso' });
-    if (!(await depositoEsEditable(deposito))) {
+    if (req.user.role !== 'ADMIN' && !(await depositoEsEditable(deposito))) {
       return res.status(400).json({ error: 'Este depósito ya no se puede editar (el turno o el día ya se cerró)' });
     }
 

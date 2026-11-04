@@ -22,20 +22,23 @@ const CJE_DENOMS = {
   usd: [100, 50, 20, 10, 5, 1],
 };
 
-function cjeDenomTableHtml(prefix) {
-  return ['pen', 'usd'].map(mon => `
+function cjeDenomTableHtml(prefix, valores) {
+  return ['pen', 'usd'].map(mon => {
+    const val = d => Number(valores?.[mon]?.[d] || 0);
+    return `
     <div style="margin-bottom:10px">
       <div style="font-weight:600;font-size:12px;margin-bottom:4px">${mon.toUpperCase()}</div>
       <table style="font-size:12px">
         ${CJE_DENOMS[mon].map(d => `
           <tr>
             <td style="padding:2px 8px 2px 0;color:var(--text-muted)">${mon==='pen'?'S/':'US$'} ${d}</td>
-            <td style="padding:2px"><input type="number" min="0" step="1" class="form-control cje-denom-input" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}" value="0" style="width:80px"></td>
-            <td style="padding:2px 0 2px 8px;color:var(--text-muted)" class="cje-denom-subtotal" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}">0.00</td>
+            <td style="padding:2px"><input type="number" min="0" step="1" class="form-control cje-denom-input" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}" value="${val(d)}" style="width:80px"></td>
+            <td style="padding:2px 0 2px 8px;color:var(--text-muted)" class="cje-denom-subtotal" data-prefix="${prefix}" data-mon="${mon}" data-denom="${d}">${(Number(d) * val(d)).toFixed(2)}</td>
           </tr>`).join('')}
       </table>
-      <div style="text-align:right;font-weight:700;font-size:13px;margin-top:4px">Total ${mon.toUpperCase()}: <span class="cje-denom-total" data-prefix="${prefix}" data-mon="${mon}">0.00</span></div>
-    </div>`).join('');
+      <div style="text-align:right;font-weight:700;font-size:13px;margin-top:4px">Total ${mon.toUpperCase()}: <span class="cje-denom-total" data-prefix="${prefix}" data-mon="${mon}">${CJE_DENOMS[mon].reduce((s,d)=>s+Number(d)*val(d),0).toFixed(2)}</span></div>
+    </div>`;
+  }).join('');
 }
 
 function cjeDenomListener(root, prefix) {
@@ -430,6 +433,9 @@ async function viewCajaEfectivoCaja(container) {
           if (await cjeBorrarConDeposito(`/caja-efectivo/turnos/${btn.dataset.id}`, 'Turno borrado')) await cargar();
         });
       });
+      root.querySelectorAll('.cje-turno-edit').forEach(btn => {
+        btn.addEventListener('click', () => abrirModalEditarTurnoAdmin(btn.dataset.id));
+      });
     } catch (e) { root.innerHTML = `<p style="color:red">${esc(e.message)}</p>`; }
   }
 
@@ -444,7 +450,10 @@ async function viewCajaEfectivoCaja(container) {
           <thead><tr><th>Fecha</th><th>Turno</th><th>Estado</th>${esAdmin ? '<th></th>' : ''}</tr></thead>
           <tbody>${recientes.map(t => `<tr>
             <td>${esc(fmtDate(t.fecha))}</td><td>${esc(t.turno)}</td><td>${t.estado === 'ABIERTO' ? '🟢 Abierto' : '✔️ Cerrado'}</td>
-            ${esAdmin ? `<td><button class="btn btn-outline btn-xs cje-turno-del" data-id="${t._id}" title="Borrar turno (ADMIN)">🗑️</button></td>` : ''}
+            ${esAdmin ? `<td>
+              <button class="btn btn-outline btn-xs cje-turno-edit" data-id="${t._id}" title="Editar turno (ADMIN)">✏️</button>
+              <button class="btn btn-outline btn-xs cje-turno-del" data-id="${t._id}" title="Borrar turno (ADMIN)">🗑️</button>
+            </td>` : ''}
           </tr>`).join('')}</tbody>
         </table>
       </div></div>`;
@@ -731,6 +740,150 @@ async function viewCajaEfectivoCaja(container) {
       } catch (e) { toast(e.message, 'error'); }
     });
   }
+
+  // ADMIN: editar cualquier campo de un turno (abierto o cerrado), sus
+  // movimientos y sus envíos, sin las restricciones normales de estado.
+  async function abrirModalEditarTurnoAdmin(turnoId) {
+    let turno, movimientos, envios;
+    try { ({ turno, movimientos, envios } = await GET(`/caja-efectivo/turnos/${turnoId}`)); }
+    catch (e) { toast(e.message, 'error'); return; }
+    const fmtFecha = f => String(f).slice(0, 10);
+
+    const movFila = m => `<tr data-id="${m._id}">
+      <td><select class="form-control cjea-mov-tipo" style="font-size:12px">
+        ${['VENTA','TIP','VUELTO','TIP_FACTURADO'].map(t => `<option value="${t}" ${m.tipo===t?'selected':''}>${CJE_TIPO_LABEL[t]}</option>`).join('')}
+      </select></td>
+      <td><select class="form-control cjea-mov-moneda" style="font-size:12px;width:70px">
+        <option value="PEN" ${m.moneda==='PEN'?'selected':''}>PEN</option>
+        <option value="USD" ${m.moneda==='USD'?'selected':''}>USD</option>
+      </select></td>
+      <td><input type="number" min="0" step="0.1" class="form-control cjea-mov-monto" style="width:90px" value="${m.monto}"></td>
+      <td><input type="text" class="form-control cjea-mov-comentario" style="width:140px" value="${esc(m.comentario||'')}"></td>
+      <td>
+        <button class="btn btn-outline btn-xs cjea-mov-guardar" title="Guardar">💾</button>
+        <button class="btn btn-outline btn-xs cjea-mov-del" title="Eliminar">🗑️</button>
+      </td>
+    </tr>`;
+
+    openModal(`✏️ Editar Turno (ADMIN) — ${esc(turno.turno)} ${esc(fmtDate(turno.fecha))}`, `
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Fecha</label>
+          <input type="date" id="cjea-fecha" class="form-control" value="${fmtFecha(turno.fecha)}" style="width:150px"></div>
+        <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Turno</label>
+          <input type="text" id="cjea-turno" class="form-control" value="${esc(turno.turno)}" style="width:120px"></div>
+        <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Estado</label>
+          <select id="cjea-estado" class="form-control" style="width:120px">
+            <option value="ABIERTO" ${turno.estado==='ABIERTO'?'selected':''}>Abierto</option>
+            <option value="CERRADO" ${turno.estado==='CERRADO'?'selected':''}>Cerrado</option>
+          </select></div>
+      </div>
+      <div class="form-group"><label>Comentario</label>
+        <input type="text" id="cjea-comentario" class="form-control" value="${esc(turno.comentario||'')}"></div>
+
+      <div style="font-weight:600;font-size:13px;margin:14px 0 6px">Conteo de apertura</div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap">${cjeDenomTableHtml('cjea-ap', turno.conteoApertura)}</div>
+      <div style="font-weight:600;font-size:13px;margin:14px 0 6px">Conteo de cierre</div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap">${cjeDenomTableHtml('cjea-ci', turno.conteoCierre)}</div>
+      <div style="text-align:right;margin-top:10px"><button class="btn btn-primary" id="cjea-guardar-btn">💾 Guardar turno</button></div>
+
+      <hr style="margin:18px 0">
+      <div style="font-weight:700;margin-bottom:8px">Movimientos</div>
+      <table class="data-table" style="font-size:12px">
+        <thead><tr><th>Tipo</th><th>Moneda</th><th>Monto</th><th>Comentario</th><th></th></tr></thead>
+        <tbody id="cjea-movs">${movimientos.map(movFila).join('') || '<tr><td colspan="5" class="text-muted text-center">Sin movimientos</td></tr>'}</tbody>
+      </table>
+
+      ${cfg.tieneOficina ? `
+      <div style="font-weight:700;margin:16px 0 8px">Envíos a Oficina</div>
+      <table class="data-table" style="font-size:12px">
+        <thead><tr><th>Moneda</th><th class="text-right">Venta</th><th class="text-right">TIP</th><th class="text-right">Total</th><th>Estado</th><th>Monto confirmado</th><th></th></tr></thead>
+        <tbody>${envios.map(e => `<tr data-id="${e._id}">
+          <td>${e.moneda}</td><td class="text-right">${fmt(e.montoVenta)}</td><td class="text-right">${fmt(e.montoTip)}</td>
+          <td class="text-right">${fmt(e.montoEnviado)}</td><td>${e.estado === 'ENVIADO' ? '⏳ Enviado' : '✔️ Confirmado'}</td>
+          <td style="display:flex;gap:4px;align-items:center">
+            <input type="number" step="0.1" class="form-control cjea-env-confirmado" style="width:90px" value="${e.montoConfirmado ?? e.montoEnviado}">
+            <button class="btn btn-outline btn-xs cjea-env-confirmar" title="Guardar monto confirmado (ADMIN)">💾</button>
+          </td>
+          <td>
+            <button class="btn btn-outline btn-xs cjea-env-edit" data-id="${e._id}" title="Editar envío (ADMIN)">✏️</button>
+            <button class="btn btn-outline btn-xs cjea-env-del" data-id="${e._id}" title="Eliminar envío (ADMIN)">🗑️</button>
+          </td>
+        </tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center">Sin envíos</td></tr>'}</tbody>
+      </table>` : ''}
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cerrar</button>
+      </div>`, null, { wide: true });
+
+    const modal = document.getElementById('modal');
+    cjeDenomListener(modal, 'cjea-ap');
+    cjeDenomListener(modal, 'cjea-ci');
+
+    document.getElementById('cjea-guardar-btn').addEventListener('click', async () => {
+      try {
+        await PUT(`/caja-efectivo/turnos/${turnoId}`, {
+          fecha: document.getElementById('cjea-fecha').value,
+          turno: document.getElementById('cjea-turno').value.trim(),
+          estado: document.getElementById('cjea-estado').value,
+          comentario: document.getElementById('cjea-comentario').value.trim(),
+          conteoApertura: cjeDenomValores(modal, 'cjea-ap'),
+          conteoCierre: cjeDenomValores(modal, 'cjea-ci'),
+        });
+        toast('Turno actualizado', 'success');
+        closeModal();
+        await cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+
+    modal.querySelectorAll('#cjea-movs tr[data-id]').forEach(tr => {
+      tr.querySelector('.cjea-mov-guardar').addEventListener('click', async () => {
+        try {
+          await PUT(`/caja-efectivo/movimientos/${tr.dataset.id}`, {
+            tipo: tr.querySelector('.cjea-mov-tipo').value,
+            moneda: tr.querySelector('.cjea-mov-moneda').value,
+            monto: Number(tr.querySelector('.cjea-mov-monto').value),
+            comentario: tr.querySelector('.cjea-mov-comentario').value.trim(),
+          });
+          toast('Movimiento actualizado', 'success');
+        } catch (e) { toast(e.message, 'error'); }
+      });
+      tr.querySelector('.cjea-mov-del').addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este movimiento?')) return;
+        try {
+          await DEL(`/caja-efectivo/movimientos/${tr.dataset.id}`);
+          tr.remove();
+          toast('Movimiento eliminado', 'success');
+        } catch (e) { toast(e.message, 'error'); }
+      });
+    });
+
+    modal.querySelectorAll('.cjea-env-edit').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const envio = envios.find(e => e._id === btn.dataset.id);
+        if (envio) abrirModalEnvio(envio);
+      });
+    });
+    modal.querySelectorAll('.cjea-env-del').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este envío a Oficina? No se puede deshacer.')) return;
+        if (await cjeBorrarConDeposito(`/caja-efectivo/envios/${btn.dataset.id}`, 'Envío eliminado')) {
+          closeModal();
+          await cargar();
+        }
+      });
+    });
+    modal.querySelectorAll('.cjea-env-confirmar').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const tr = btn.closest('tr');
+        try {
+          await PUT(`/caja-efectivo/envios/${tr.dataset.id}/confirmar`, {
+            montoConfirmado: Number(tr.querySelector('.cjea-env-confirmado').value),
+          });
+          toast('Monto confirmado actualizado', 'success');
+        } catch (e) { toast(e.message, 'error'); }
+      });
+    });
+  }
 }
 
 // ─── Vista OFICINA ──────────────────────────────────────────────────────────
@@ -800,7 +953,11 @@ async function viewCajaEfectivoOficina(container) {
       <div class="card"><div class="card-body">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <div style="font-weight:700">Día ${esc(fechaActual)} ${dia?.fechaCierre ? '(cerrado)' : dia?.fechaApertura ? '(abierto)' : '(sin abrir)'}</div>
-          ${dia && S.user.role === ROLES.ADMIN ? `<button class="btn btn-outline btn-xs" id="cjo-dia-del" title="Borrar día (ADMIN)">🗑️ Borrar día</button>` : ''}
+          ${dia && S.user.role === ROLES.ADMIN ? `
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-xs" id="cjo-dia-edit" title="Editar día (ADMIN)">✏️ Editar día</button>
+            <button class="btn btn-outline btn-xs" id="cjo-dia-del" title="Borrar día (ADMIN)">🗑️ Borrar día</button>
+          </div>` : ''}
         </div>
         ${!dia?.fechaApertura ? `
           <div style="font-weight:600;font-size:13px;margin-bottom:6px">Conteo de apertura (fondo fijo: S/ ${fmt(cfg.fondoFijoOficina?.pen||0)} / US$ ${fmt(cfg.fondoFijoOficina?.usd||0)})</div>
@@ -831,6 +988,7 @@ async function viewCajaEfectivoOficina(container) {
       if (!confirm('¿Borrar este día de Oficina por completo (conteo y conteo de supervisor)? No se puede deshacer.')) return;
       if (await cjeBorrarConDeposito(`/caja-efectivo/oficina/dia/${dia._id}`, 'Día borrado')) await cargar();
     });
+    document.getElementById('cjo-dia-edit')?.addEventListener('click', () => abrirModalEditarDiaAdmin(dia));
 
     if (!dia?.fechaApertura) {
       cjeDenomListener(root, 'cjoab');
@@ -851,6 +1009,49 @@ async function viewCajaEfectivoOficina(container) {
         } catch (e) { toast(e.message, 'error'); }
       });
     }
+  }
+
+  // ADMIN: editar cualquier campo de un día de Oficina (abierto o cerrado),
+  // incluyendo "reabrirlo" sin las restricciones normales de estado.
+  function abrirModalEditarDiaAdmin(dia) {
+    const fmtFecha = f => String(f).slice(0, 10);
+    openModal(`✏️ Editar Día (ADMIN) — ${fmtFecha(dia.fecha)}`, `
+      <div class="form-group"><label>Fecha</label>
+        <input type="date" id="cjoa-fecha" class="form-control" value="${fmtFecha(dia.fecha)}" style="width:160px"></div>
+      <div class="form-group"><label>Comentario</label>
+        <input type="text" id="cjoa-comentario" class="form-control" value="${esc(dia.comentario || '')}"></div>
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:10px">
+        <input type="checkbox" id="cjoa-cerrado" ${dia.fechaCierre ? 'checked' : ''}> Día cerrado
+      </label>
+
+      <div style="font-weight:600;font-size:13px;margin:10px 0 6px">Conteo de apertura</div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap">${cjeDenomTableHtml('cjoa-ap', dia.conteoApertura)}</div>
+      <div style="font-weight:600;font-size:13px;margin:14px 0 6px">Conteo de cierre</div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap">${cjeDenomTableHtml('cjoa-ci', dia.conteoCierre)}</div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('modal').classList.add('hidden')">Cancelar</button>
+        <button class="btn btn-primary" id="cjoa-guardar-btn">💾 Guardar día</button>
+      </div>`, null, { wide: true });
+
+    const modal = document.getElementById('modal');
+    cjeDenomListener(modal, 'cjoa-ap');
+    cjeDenomListener(modal, 'cjoa-ci');
+
+    document.getElementById('cjoa-guardar-btn').addEventListener('click', async () => {
+      try {
+        await PUT(`/caja-efectivo/oficina/dia/${dia._id}`, {
+          fecha: document.getElementById('cjoa-fecha').value,
+          comentario: document.getElementById('cjoa-comentario').value.trim(),
+          cerrado: document.getElementById('cjoa-cerrado').checked,
+          conteoApertura: cjeDenomValores(modal, 'cjoa-ap'),
+          conteoCierre: cjeDenomValores(modal, 'cjoa-ci'),
+        });
+        toast('Día actualizado', 'success');
+        closeModal();
+        await cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
   }
 }
 
