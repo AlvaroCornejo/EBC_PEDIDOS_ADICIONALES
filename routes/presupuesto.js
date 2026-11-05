@@ -18,7 +18,7 @@ function puedeEditar(user, operacion) { return rolDe(user) === 'editar' && puede
 router.use((req, res, next) => rolDe(req.user) ? next() : res.status(403).json({ error: 'Sin acceso a Presupuesto' }));
 
 // Ítems presupuestados como % de la venta neta A&B
-const ITEMS_PCT = ['COMISION TARJETA DE CREDITO', 'COMISION DELIVERY'];
+const ITEMS_PCT = ['COMISION TARJETA DE CREDITO', 'COMISION DELIVERY', 'REGALIAS'];   // REGALIAS: un solo % para el año (se guarda repetido en los 12 meses)
 const anioDe = v => { const a = parseInt(v); return a >= 2000 && a <= 2100 ? a : null; };
 
 // GET /operaciones — operaciones que el usuario puede ver, con indicador de edición

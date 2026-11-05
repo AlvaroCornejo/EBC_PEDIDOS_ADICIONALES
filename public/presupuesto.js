@@ -13,6 +13,7 @@
 
 const PR_MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic'];
 const PR_AYB = 'VENTA NETA A&B';
+const PR_REGALIA = 'REGALIAS';   // un solo % anual sobre la venta neta total (no solo A&B)
 const PR_ITEMS_PCT = ['COMISION TARJETA DE CREDITO', 'COMISION DELIVERY'];   // se presupuestan como % de la venta neta A&B
 
 // Renglones del presupuesto, en el orden del PL: rubros (subtotales y líneas sueltas) y calculados.
@@ -85,7 +86,7 @@ async function viewPresupuesto(container) {
         verReal ? GET(`/presupuesto/real?operacion=${encodeURIComponent(operacion)}&anio=${anioReal}`) : Promise.resolve(null),
       ]);
       // Presupuestos anteriores guardaban la venta neta directa (partidas 'L:ítem' / base A&B): ya no se usan, se descartan al guardar.
-      const obsoleta = x => x.esAyB || x.rubro === 'VENTA_NETA' || (x.id.startsWith('L:') && VENTA_ITEMS.includes(x.rubro));
+      const obsoleta = x => x.esAyB || x.rubro === 'VENTA_NETA' || x.rubro === PR_REGALIA || (x.id.startsWith('L:') && VENTA_ITEMS.includes(x.rubro));
       pres = { cvPct: p.cvPct, pcts: p.pcts || {}, tasas: p.tasas ? { igv: [...p.tasas.igv], rc: [...p.tasas.rc] } : tasasOp(), partidas: p.partidas.filter(x => !obsoleta(x)).map(x => ({ ...x, montos: [...x.montos] })) };
       puedeEditar = p.puedeEditar; real = r ? r.datos : null; dirty = false;
       meta = p.actualizadoEn ? `Última actualización: ${p.actualizadoPor || '—'} · ${new Date(p.actualizadoEn).toLocaleString('es-PE')}` : 'Sin presupuesto guardado todavía';
@@ -104,7 +105,8 @@ async function viewPresupuesto(container) {
   // magnitud presupuestada del rubro en el mes m (positiva)
   const magPres = (r, m) => r.key === 'COSTO_VENTA' ? ayb(m) * (Number(pres.cvPct[m]) || 0) / 100 : [...new Set([r.key, ...r.grupos])].reduce((t, k) => t + magItem(k, m), 0);
   const pctDe = (g, m) => Number(pres.pcts[g]?.[m]) || 0;
-  const magItem = (g, m) => VENTA_ITEMS.includes(g) ? brutaDe(g, m) / divisor(m) : PR_ITEMS_PCT.includes(g) ? ayb(m) * pctDe(g, m) / 100 : partidasDe(g).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
+  const ventaNetaTot = m => VENTA_ITEMS.reduce((t, g) => t + brutaDe(g, m) / divisor(m), 0);
+  const magItem = (g, m) => VENTA_ITEMS.includes(g) ? brutaDe(g, m) / divisor(m) : g === PR_REGALIA ? ventaNetaTot(m) * pctDe(g, m) / 100 : PR_ITEMS_PCT.includes(g) ? ayb(m) * pctDe(g, m) / 100 : partidasDe(g).reduce((s, p) => s + (Number(p.montos[m]) || 0), 0);
   const magItemReal = (r, g, m) => { const v = real?.[g]?.[String(m + 1).padStart(2, '0')] || 0; return r.key === 'VENTA_NETA' ? v : -v; };
   // Ítems que se desglosan en partidas; en los demás el importe se presupuesta en la misma línea del ítem (partida 'L:ítem').
   const ITEMS_CON_PARTIDAS = new Set(['ASESORIA ADMINISTRATIVA', 'ASESORIA CONTABLE', 'ASESORIA LEGAL', 'MANTENIMIENTO', 'FUMIGACION', 'JARDINERIA',
@@ -192,6 +194,12 @@ async function viewPresupuesto(container) {
             if (real) h += `<tr class="pr-real"><td class="pr-c1">% real ${anioReal}</td>${PR_MESES.map((_, m) => `<td class="pr-n" data-pctreal="${esc(g)}" data-m="${m}"></td>`).join('')}<td class="pr-n pr-tot" data-pctreal="${esc(g)}" data-m="t"></td></tr>`;
           } else if (VENTA_ITEMS.includes(g)) {
             h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span></div></td>${celdas(g, 'pi')}</tr>`;
+          } else if (g === PR_REGALIA) {
+            h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span></div></td>${celdas(g, 'pi')}</tr>`;
+            const pv = pres.pcts[g]?.[0] || 0;
+            h += `<tr class="pr-partida"><td class="pr-c1"><div class="pr-c1i"><span>% anual sobre la venta neta total</span></div></td><td colspan="12" style="text-align:left">${ed
+              ? `<input class="pr-in pr-pct" type="number" step="any" min="0" max="100" data-regalia value="${pv || ''}" placeholder="0"> <span style="font-size:11px;color:var(--text-muted)">% aplicado cada mes a la venta neta total (todas las líneas)</span>`
+              : `${pv ? fP(pv) : '—'}`}</td><td class="pr-n pr-tot"></td></tr>`;
           } else if (ITEMS_CON_PARTIDAS.has(g)) {
             h += `<tr class="pr-item"><td class="pr-c1"><div class="pr-c1i"><span>${esc(g)}</span>${ed ? `<button class="pr-add" data-acc="agregar" data-rubro="${esc(g)}">＋ Partida</button>` : ''}</div></td>${celdas(g, 'pi')}</tr>`;
           } else {
@@ -255,7 +263,8 @@ async function viewPresupuesto(container) {
     const t = e.target;
     if (t.classList.contains('pr-in')) {
       const v = t.value === '' ? 0 : parseFloat(t.value);
-      if (t.dataset.bruta !== undefined) asegurarBruta(t.dataset.bruta).montos[Number(t.dataset.m)] = Number.isFinite(v) ? v : 0;
+      if (t.dataset.regalia !== undefined) pres.pcts[PR_REGALIA] = Array(12).fill(Number.isFinite(v) ? v : 0);
+      else if (t.dataset.bruta !== undefined) asegurarBruta(t.dataset.bruta).montos[Number(t.dataset.m)] = Number.isFinite(v) ? v : 0;
       else if (t.dataset.tasa !== undefined) pres.tasas[t.dataset.tasa][Number(t.dataset.m)] = Number.isFinite(v) ? v : 0;
       else if (t.dataset.pct !== undefined) { const g = t.dataset.pct; (pres.pcts[g] = pres.pcts[g] || Array(12).fill(0))[Number(t.dataset.m)] = Number.isFinite(v) ? v : 0; }
       else if (t.dataset.linea !== undefined) {
