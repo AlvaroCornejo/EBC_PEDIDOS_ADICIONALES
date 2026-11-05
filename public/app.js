@@ -13192,10 +13192,10 @@ async function viewVentas(container) {
   // serie en el tiempo abren en Gráfico; los resúmenes con muchas cifras abren en Tabla.
   const vistas = {}, periodosGraf = {};
   const VISTA_DEF = { turno: 'grafico', semanas: 'grafico', mensual: 'grafico' };
-  const vistaDe = k => vistas[k] || VISTA_DEF[k] || 'tabla';
+  const vistaDe = () => 'tabla';   // gráficos retirados de la consulta: solo tablas
   const periodoDe = k => periodosGraf[k] || 'dia';
   const cabecera = (key, titulo, extra = '') => `<div class="vc-head"><div style="font-weight:700">${titulo}</div>
-    <div class="vc-head-r">${extra}${vcSeg('vista:' + key, [['tabla', 'Tabla'], ['grafico', 'Gráfico']], vistaDe(key))}</div></div>`;
+    <div class="vc-head-r">${extra}</div></div>`;
   const selPeriodo = key => vcSeg('periodo:' + key, PERIODOS.map(([p, l]) => [p, l.split(' (')[0]]), periodoDe(key));
   const fmtCompacto = v => vcCompacto(v);
   const TURNO_COLOR = { DESAYUNO: ['#2a78d6', '#fff'], ALMUERZO: ['#eb6834', '#fff'], LONCHE: ['#1baf7a', '#0b0b0b'], CENA: ['#eda100', '#0b0b0b'] };
