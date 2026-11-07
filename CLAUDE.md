@@ -1950,3 +1950,11 @@ el servidor real antes de dar el módulo por validado.
   pueden divergir; cuando coincidían por casualidad, egreso cancelaba
   ingreso y el saldo quedaba == apertura. Corregido para usar el monto real
   de `DepositoBanco.cubre[]` de ese turno específico, no una aproximación.
+  **Importante**: ese "quedar == apertura" también pasa legítimamente cuando
+  un turno SÍ fue depositado por completo y no hubo movimientos nuevos
+  después (ingreso neto − egreso = 0) — no es en sí un bug. Para que el
+  usuario pueda distinguir ambos casos sin tener que preguntar, la celda
+  "Saldo calculado" ahora tiene un tooltip con el desglose completo
+  (`saldo[mon].detalle` en `/gerencia/teorico`: apertura/venta/tip/vuelto/
+  enviado-oficina/depositado-directo para Tienda; apertura/recibido/
+  depositado para Oficina), vía `cjeDetalleTitle()` en el frontend.
