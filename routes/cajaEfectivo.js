@@ -988,11 +988,18 @@ router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (r
         const enviadoOficina = envs.filter(e => e.moneda === mon).reduce((s, e) => s + e.montoEnviado, 0);
         const depositadoDirecto = montoDepositadoDeTurno(t, mon);
         const egreso = enviadoOficina + depositadoDirecto;
-        const calculado = sumaConteo(t.conteoApertura, key) + netoIngresos(movs, mon) - egreso;
+        const apertura = sumaConteo(t.conteoApertura, key);
+        // Desglose bruto (sin netear vuelto contra venta, a diferencia de
+        // netoVentaTip) — solo para mostrar el detalle del cálculo al usuario.
+        const ventaBruta = movs.filter(m => m.tipo === 'VENTA' && m.moneda === mon).reduce((s, m) => s + m.monto, 0);
+        const tipTotal = movs.filter(m => m.tipo === 'TIP' && m.moneda === mon).reduce((s, m) => s + m.monto, 0);
+        const vueltoTotal = movs.filter(m => m.tipo === 'VUELTO' && m.moneda === mon).reduce((s, m) => s + m.monto, 0);
+        const calculado = apertura + netoIngresos(movs, mon) - egreso;
         const conteoCajero = t.conteoCierre ? sumaConteo(t.conteoCierre, key) : null;
         const conteoSupervisor = sup ? sumaConteo(sup.conteo, key) : null;
         saldo[mon] = {
           saldoCalculado: calculado,
+          detalle: { apertura, venta: ventaBruta, tip: tipTotal, vuelto: vueltoTotal, enviadoOficina, depositadoDirecto },
           conteoCajero, diferenciaCajero: conteoCajero === null ? null : conteoCajero - calculado,
           conteoSupervisor, diferenciaSupervisor: conteoSupervisor === null ? null : conteoSupervisor - calculado,
         };
@@ -1011,11 +1018,13 @@ router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (r
         const key = mon.toLowerCase();
         const ingreso = recibidos.filter(e => e.moneda === mon).reduce((s, e) => s + e.montoConfirmado, 0);
         const egreso = depositado.filter(d => d.moneda === mon).reduce((s, d) => s + d.montoDepositado, 0);
-        const calculado = sumaConteo(dia.conteoApertura, key) + ingreso - egreso;
+        const apertura = sumaConteo(dia.conteoApertura, key);
+        const calculado = apertura + ingreso - egreso;
         const conteoCajero = dia.conteoCierre ? sumaConteo(dia.conteoCierre, key) : null;
         const conteoSupervisor = sup ? sumaConteo(sup.conteo, key) : null;
         saldo[mon] = {
           saldoCalculado: calculado,
+          detalle: { apertura, recibidoOficina: ingreso, depositado: egreso },
           conteoCajero, diferenciaCajero: conteoCajero === null ? null : conteoCajero - calculado,
           conteoSupervisor, diferenciaSupervisor: conteoSupervisor === null ? null : conteoSupervisor - calculado,
         };

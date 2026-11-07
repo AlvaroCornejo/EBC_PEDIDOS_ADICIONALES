@@ -97,16 +97,30 @@ const CJE_TIPO_LABEL = { VENTA: 'Venta', TIP: 'TIP', VUELTO: 'Vuelto', TIP_FACTU
 // una por moneda, comparando contra AMBOS conteos: el del cajero/oficina al cerrar
 // (operativo) y el del supervisor (independiente). `fecha` es opcional — se agrega
 // una columna de fecha al inicio para la vista de rango (Contabilidad).
+// Texto del detalle del cálculo del saldo teórico, para el tooltip de la celda
+// "Saldo calculado" — deja ver apertura/venta/tip/vuelto/egreso sin tener que
+// confiar a ciegas en el número final.
+function cjeDetalleTitle(det) {
+  if (!det) return '';
+  if ('venta' in det) {
+    return `Apertura ${fmt(det.apertura)} + Venta ${fmt(det.venta)} + TIP ${fmt(det.tip)} − Vuelto ${fmt(det.vuelto)}`
+      + (det.enviadoOficina ? ` − Enviado a Oficina ${fmt(det.enviadoOficina)}` : '')
+      + (det.depositadoDirecto ? ` − Depositado ${fmt(det.depositadoDirecto)}` : '');
+  }
+  return `Apertura ${fmt(det.apertura)} + Recibido de Tienda ${fmt(det.recibidoOficina)} − Depositado ${fmt(det.depositado)}`;
+}
+
 function cjeFilaSaldo(label, saldo, fecha) {
   const colFecha = fecha != null ? `<td>${esc(fecha)}</td>` : '';
   return ['PEN', 'USD'].map(m => {
     const s = saldo[m];
     const colorCajero = s.diferenciaCajero == null ? '' : (Math.abs(s.diferenciaCajero) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
     const colorSup = s.diferenciaSupervisor == null ? '' : (Math.abs(s.diferenciaSupervisor) < 0.01 ? 'color:#16a34a' : 'color:#ef4444;font-weight:700');
+    const detTitle = cjeDetalleTitle(s.detalle);
     return `<tr>
       ${colFecha}
       <td>${esc(label)} — ${m}</td>
-      <td class="text-right">${fmt(s.saldoCalculado)}</td>
+      <td class="text-right" title="${esc(detTitle)}" style="cursor:help;border-bottom:1px dotted var(--text-muted)">${fmt(s.saldoCalculado)}</td>
       <td class="text-right">${s.conteoCajero == null ? '—' : fmt(s.conteoCajero)}</td>
       <td class="text-right" style="${colorCajero}">${s.diferenciaCajero == null ? '—' : fmt(s.diferenciaCajero)}</td>
       <td class="text-right">${s.conteoSupervisor == null ? '—' : fmt(s.conteoSupervisor)}</td>
