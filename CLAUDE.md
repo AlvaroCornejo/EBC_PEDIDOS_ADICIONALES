@@ -1958,3 +1958,14 @@ el servidor real antes de dar el módulo por validado.
   (`saldo[mon].detalle` en `/gerencia/teorico`: apertura/venta/tip/vuelto/
   enviado-oficina/depositado-directo para Tienda; apertura/recibido/
   depositado para Oficina), vía `cjeDetalleTitle()` en el frontend.
+- **Bug real confirmado con el tooltip anterior**: el egreso de un depósito
+  de Caja se restaba del turno que CUBRE (`cubre[]`), no del turno durante
+  el cual se REGISTRÓ el depósito — un depósito puede cubrir plata de un
+  turno ya cerrado de días antes (recién se deposita al abrir un turno
+  nuevo), y esa plata sigue físicamente en caja hasta que se deposita de
+  verdad. Restarla del turno viejo dejaba su saldo calculado == apertura
+  (sin sumar venta/TIP de ese día) y el turno donde sí se depositó no
+  reflejaba el egreso. Corregido en `montoDepositadoDeTurno()` para usar
+  `DepositoBanco.turnoVigenteId` (el turno ABIERTO al momento de registrar
+  el depósito) en vez de `cubre[]`; depósitos de antes de ese campo
+  mantienen el criterio viejo como compatibilidad.
