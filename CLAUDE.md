@@ -1930,3 +1930,8 @@ el servidor real antes de dar el módulo por validado.
   (editar/eliminar/corregir monto confirmado); botón ✏️ "Editar día" análogo en
   Oficina. `cjeDenomTableHtml` ahora acepta valores iniciales (antes solo
   `cjeDenomTableUnaMoneda` los soportaba) para precargar los conteos.
+- El modal de depósito (crear o editar) le muestra a ADMIN la "Fecha del
+  depósito" como campo editable (`input type="date"`) — para el resto de
+  roles sigue sin pedirse (se usa la fecha de apertura del turno/día, sin
+  mostrar el input). El backend (`PUT /depositos/:id`) ya aceptaba cualquier
+  fecha para ADMIN; solo faltaba exponerlo en el frontend.
