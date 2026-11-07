@@ -942,12 +942,16 @@ router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (r
     // Margen de 2 días para las ventanas de apertura/cierre de oficina, por si
     // caen justo en el borde del rango pedido.
     const margen = 2 * 86400000;
-    const [movimientos, envios, supervisor, recibidosOficina, depositosOficina] = await Promise.all([
+    const depositoIdsCaja = new Set();
+    turnos.forEach(t => { if (t.depositoPenId) depositoIdsCaja.add(String(t.depositoPenId)); if (t.depositoUsdId) depositoIdsCaja.add(String(t.depositoUsdId)); });
+
+    const [movimientos, envios, supervisor, recibidosOficina, depositosOficina, depositosCaja] = await Promise.all([
       MovimientoEfectivoCaja.find({ turnoId: { $in: turnoIds } }).lean(),
       EnvioEfectivo.find({ origenTurnoId: { $in: turnoIds } }).lean(),
       SupervisorConteo.find({ operacion, fecha: { $gte: fDesde, $lt: fHastaSiguiente } }).lean(),
       EnvioEfectivo.find({ operacion, estado: 'CONFIRMADO', fechaConfirmacion: { $gte: new Date(fDesde.getTime() - margen), $lt: new Date(fHastaSiguiente.getTime() + margen) } }).lean(),
       DepositoBanco.find({ operacion, origen: 'OFICINA', fechaRegistro: { $gte: new Date(fDesde.getTime() - margen), $lt: new Date(fHastaSiguiente.getTime() + margen) } }).lean(),
+      depositoIdsCaja.size ? DepositoBanco.find({ _id: { $in: [...depositoIdsCaja] } }).lean() : [],
     ]);
 
     const movPorTurno = {};
@@ -956,6 +960,20 @@ router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (r
     envios.forEach(e => { (enviosPorTurno[String(e.origenTurnoId)] || (enviosPorTurno[String(e.origenTurnoId)] = [])).push(e); });
     const supPorRef = {};
     supervisor.forEach(s => { supPorRef[`${s.ubicacion}:${s.refId}`] = s; });
+    const depositoCajaPorId = {};
+    depositosCaja.forEach(d => { depositoCajaPorId[String(d._id)] = d; });
+    // Monto realmente depositado de ESTE turno (el `cubre[].monto` que quedó
+    // fijado al registrar/editar el depósito), no la venta neta actual del turno
+    // — pueden diferir si se agregaron movimientos después de depositar, o si el
+    // depósito cubre solo parte (por denominación, o lo editó el ADMIN).
+    function montoDepositadoDeTurno(t, mon) {
+      const depId = t[mon === 'PEN' ? 'depositoPenId' : 'depositoUsdId'];
+      if (!depId) return 0;
+      const dep = depositoCajaPorId[String(depId)];
+      if (!dep) return 0;
+      const item = dep.cubre.find(c => c.tipo === 'TURNO' && String(c.id) === String(t._id));
+      return item ? item.monto : 0;
+    }
 
     function saldoTurno(t) {
       const movs = movPorTurno[String(t._id)] || [];
@@ -968,7 +986,7 @@ router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (r
         // depositado directo al banco (operaciones sin oficina) — solo uno de los
         // dos aplica por operación, pero se suman ambos por si acaso sin riesgo.
         const enviadoOficina = envs.filter(e => e.moneda === mon).reduce((s, e) => s + e.montoEnviado, 0);
-        const depositadoDirecto = (t[mon === 'PEN' ? 'depositoPenId' : 'depositoUsdId']) ? netoIngresos(movs, mon) : 0;
+        const depositadoDirecto = montoDepositadoDeTurno(t, mon);
         const egreso = enviadoOficina + depositadoDirecto;
         const calculado = sumaConteo(t.conteoApertura, key) + netoIngresos(movs, mon) - egreso;
         const conteoCajero = t.conteoCierre ? sumaConteo(t.conteoCierre, key) : null;
