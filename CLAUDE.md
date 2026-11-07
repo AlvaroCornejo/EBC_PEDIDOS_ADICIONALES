@@ -1935,3 +1935,18 @@ el servidor real antes de dar el módulo por validado.
   roles sigue sin pedirse (se usa la fecha de apertura del turno/día, sin
   mostrar el input). El backend (`PUT /depositos/:id`) ya aceptaba cualquier
   fecha para ADMIN; solo faltaba exponerlo en el frontend.
+- La lista de depósitos editables (sección "Depósitos al Banco") mostraba
+  `fechaRegistro` (cuándo se creó el documento) en la columna "Fecha
+  registro" — confundía al no coincidir con la fecha real del depósito.
+  Cambiada a `fechaDeposito`, columna "Fecha depósito".
+- **Bug: saldo calculado (Gerencia/Contabilidad) mostraba el de apertura, no
+  el de cierre**, en turnos ya depositados directo (operaciones sin
+  oficina). `saldoTurno()` aproximaba "depositado directo" como el ingreso
+  neto ACTUAL del turno con solo verificar que estuviera reclamado
+  (`depositoPenId`/`depositoUsdId` seteado) — válido en el modelo viejo
+  (depósito solo tras cerrar el turno, ya no cambiaba), pero desde que se
+  puede depositar contra un turno abierto y seguir agregando movimientos o
+  editar el depósito, el ingreso neto actual y lo realmente depositado
+  pueden divergir; cuando coincidían por casualidad, egreso cancelaba
+  ingreso y el saldo quedaba == apertura. Corregido para usar el monto real
+  de `DepositoBanco.cubre[]` de ese turno específico, no una aproximación.
