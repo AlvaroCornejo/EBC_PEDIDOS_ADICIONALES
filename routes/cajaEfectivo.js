@@ -951,7 +951,13 @@ router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (r
       SupervisorConteo.find({ operacion, fecha: { $gte: fDesde, $lt: fHastaSiguiente } }).lean(),
       EnvioEfectivo.find({ operacion, estado: 'CONFIRMADO', fechaConfirmacion: { $gte: new Date(fDesde.getTime() - margen), $lt: new Date(fHastaSiguiente.getTime() + margen) } }).lean(),
       DepositoBanco.find({ operacion, origen: 'OFICINA', fechaRegistro: { $gte: new Date(fDesde.getTime() - margen), $lt: new Date(fHastaSiguiente.getTime() + margen) } }).lean(),
-      depositoIdsCaja.size ? DepositoBanco.find({ _id: { $in: [...depositoIdsCaja] } }).lean() : [],
+      // Depósitos de Caja relevantes para estos turnos: los que algún turno del
+      // rango tiene reclamados (depositoPenId/depositoUsdId, por si son de antes
+      // de turnoVigenteId) y los que tuvieron a alguno de estos turnos como
+      // "vigente" al momento de registrarse — ver por qué abajo.
+      (depositoIdsCaja.size || turnoIds.length)
+        ? DepositoBanco.find({ operacion, origen: 'CAJA', $or: [{ _id: { $in: [...depositoIdsCaja] } }, { turnoVigenteId: { $in: turnoIds } }] }).lean()
+        : [],
     ]);
 
     const movPorTurno = {};
@@ -962,17 +968,26 @@ router.get('/gerencia/teorico', requireRol('GERENCIA', 'CONTABILIDAD'), async (r
     supervisor.forEach(s => { supPorRef[`${s.ubicacion}:${s.refId}`] = s; });
     const depositoCajaPorId = {};
     depositosCaja.forEach(d => { depositoCajaPorId[String(d._id)] = d; });
-    // Monto realmente depositado de ESTE turno (el `cubre[].monto` que quedó
-    // fijado al registrar/editar el depósito), no la venta neta actual del turno
-    // — pueden diferir si se agregaron movimientos después de depositar, o si el
-    // depósito cubre solo parte (por denominación, o lo editó el ADMIN).
+    // El egreso de un depósito de Caja se atribuye al turno que estaba VIGENTE
+    // (ABIERTO) cuando se REGISTRÓ el depósito (`turnoVigenteId`), no a los
+    // turnos que cubre (`cubre[]`) — un depósito puede cubrir plata de un turno
+    // ya cerrado de días anteriores, que recién se deposita en el turno actual;
+    // el dinero sigue físicamente en caja hasta que efectivamente se deposita.
+    // Depósitos de antes de turnoVigenteId (sin ese campo) usan el criterio
+    // anterior, de compatibilidad: se atribuyen al turno que cubren directamente.
     function montoDepositadoDeTurno(t, mon) {
+      let total = depositosCaja
+        .filter(d => d.turnoVigenteId && String(d.turnoVigenteId) === String(t._id) && d.moneda === mon)
+        .reduce((s, d) => s + d.montoDepositado, 0);
       const depId = t[mon === 'PEN' ? 'depositoPenId' : 'depositoUsdId'];
-      if (!depId) return 0;
-      const dep = depositoCajaPorId[String(depId)];
-      if (!dep) return 0;
-      const item = dep.cubre.find(c => c.tipo === 'TURNO' && String(c.id) === String(t._id));
-      return item ? item.monto : 0;
+      if (depId) {
+        const dep = depositoCajaPorId[String(depId)];
+        if (dep && !dep.turnoVigenteId) {
+          const item = dep.cubre.find(c => c.tipo === 'TURNO' && String(c.id) === String(t._id));
+          if (item) total += item.monto;
+        }
+      }
+      return total;
     }
 
     function saldoTurno(t) {
