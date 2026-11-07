@@ -806,6 +806,21 @@ async function viewCajaEfectivoCaja(container) {
 
       <hr style="margin:18px 0">
       <div style="font-weight:700;margin-bottom:8px">Movimientos</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Tipo</label>
+          <select id="cjea-nuevo-tipo" class="form-control" style="font-size:12px;width:150px">
+            ${['VENTA','TIP','VUELTO','TIP_FACTURADO'].map(t => `<option value="${t}">${CJE_TIPO_LABEL[t]}</option>`).join('')}
+          </select></div>
+        <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Moneda</label>
+          <select id="cjea-nuevo-moneda" class="form-control" style="font-size:12px;width:80px">
+            <option value="PEN">PEN</option><option value="USD">USD</option>
+          </select></div>
+        <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Monto</label>
+          <input type="number" min="0" step="0.1" id="cjea-nuevo-monto" class="form-control" style="width:100px"></div>
+        <div><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Comentario</label>
+          <input type="text" id="cjea-nuevo-comentario" class="form-control" style="width:160px"></div>
+        <button class="btn btn-primary btn-sm" id="cjea-nuevo-btn">+ Agregar</button>
+      </div>
       <table class="data-table" style="font-size:12px">
         <thead><tr><th>Tipo</th><th>Moneda</th><th>Monto</th><th>Comentario</th><th></th></tr></thead>
         <tbody id="cjea-movs">${movimientos.map(movFila).join('') || '<tr><td colspan="5" class="text-muted text-center">Sin movimientos</td></tr>'}</tbody>
@@ -850,6 +865,25 @@ async function viewCajaEfectivoCaja(container) {
         toast('Turno actualizado', 'success');
         closeModal();
         await cargar();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+
+    document.getElementById('cjea-nuevo-tipo').addEventListener('change', e => {
+      const monedaSel = document.getElementById('cjea-nuevo-moneda');
+      if (e.target.value === 'VUELTO' || e.target.value === 'TIP_FACTURADO') { monedaSel.value = 'PEN'; monedaSel.disabled = true; } else { monedaSel.disabled = false; }
+    });
+    document.getElementById('cjea-nuevo-btn').addEventListener('click', async () => {
+      const monto = Number(document.getElementById('cjea-nuevo-monto').value);
+      if (!monto) { toast('Ingresa un monto', 'error'); return; }
+      try {
+        await POST(`/caja-efectivo/turnos/${turnoId}/movimientos`, {
+          tipo: document.getElementById('cjea-nuevo-tipo').value,
+          moneda: document.getElementById('cjea-nuevo-moneda').value,
+          monto,
+          comentario: document.getElementById('cjea-nuevo-comentario').value.trim(),
+        });
+        toast('Movimiento agregado', 'success');
+        await abrirModalEditarTurnoAdmin(turnoId);
       } catch (e) { toast(e.message, 'error'); }
     });
 
