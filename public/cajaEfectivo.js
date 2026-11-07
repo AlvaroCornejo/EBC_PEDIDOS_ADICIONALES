@@ -292,7 +292,10 @@ function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone, existente
     </div>
     <div class="form-group mt-16"><label>Monto depositado (según voucher)</label>
       <input type="number" min="0" step="0.1" id="cje-dep-monto" class="form-control" style="width:160px" value="${editando ? existente.montoDepositado : ''}"></div>
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Fecha del depósito: ${esc(fechaDeposito)} (fecha de apertura del turno/día en curso)</div>
+    ${S.user.role === ROLES.ADMIN ? `
+    <div class="form-group"><label>Fecha del depósito (ADMIN)</label>
+      <input type="date" id="cje-dep-fecha" class="form-control" value="${fechaDeposito}" style="width:160px"></div>` : `
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Fecha del depósito: ${esc(fechaDeposito)} (fecha de apertura del turno/día en curso)</div>`}
     <div class="form-group"><label>Comentario</label>
       <input type="text" id="cje-dep-comentario" class="form-control" value="${editando ? esc(existente.comentario || '') : ''}"></div>
     <div class="modal-footer">
@@ -315,8 +318,9 @@ function cjeAbrirModalDeposito(operacion, moneda, disponibles, onDone, existente
     if (!cubre.length) { toast('Selecciona al menos un ítem', 'error'); return; }
     const montoDepositado = Number(document.getElementById('cje-dep-monto').value);
     if (!montoDepositado) { toast('Ingresa el monto depositado', 'error'); return; }
+    const fechaDepositoFinal = document.getElementById('cje-dep-fecha')?.value || fechaDeposito;
     const body = {
-      operacion, moneda, montoDepositado, fechaDeposito,
+      operacion, moneda, montoDepositado, fechaDeposito: fechaDepositoFinal,
       cubre, comentario: document.getElementById('cje-dep-comentario').value.trim(),
     };
     try {
