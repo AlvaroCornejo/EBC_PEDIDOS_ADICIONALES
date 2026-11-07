@@ -365,9 +365,9 @@ async function cjeRenderSeccionDepositos(root, operacion, origen, fechaApertura)
         </div>
         ${editables.length ? `
         <table class="data-table mt-16" style="font-size:12px">
-          <thead><tr><th>Fecha registro</th><th class="text-right">Monto depositado</th><th class="text-right">Diferencia</th><th></th></tr></thead>
+          <thead><tr><th>Fecha depósito</th><th class="text-right">Monto depositado</th><th class="text-right">Diferencia</th><th></th></tr></thead>
           <tbody>${editables.map(d => `<tr>
-            <td>${esc(String(d.fechaRegistro).slice(0, 10))}</td>
+            <td>${esc(String(d.fechaDeposito).slice(0, 10))}</td>
             <td class="text-right">${fmt(d.montoDepositado)}</td>
             <td class="text-right" style="${Math.abs(d.diferencia) < 0.01 ? '' : 'color:#ef4444;font-weight:700'}">${fmt(d.diferencia)}</td>
             <td><button class="btn btn-outline btn-xs cje-dep-edit" data-id="${d._id}" title="Editar depósito (aún se puede, no cerró el turno/día)">✏️ Editar</button></td>
