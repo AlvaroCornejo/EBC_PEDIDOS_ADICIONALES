@@ -474,9 +474,10 @@ async function viewSolicitar(container, params = {}) {
 
 // ─── Kardex Modal ────────────────────────────────────────────────
 const TRX_MAIN   = ['COMPRA','PRODUCCION','TRANSFORMACION','TRANSFERENCIA',
-                    'VENTA','CONSUMOS','BAJA','MERMA',
+                    'VENTA','CONSUMOS','RANCHO','BAJA','MERMA',
                     'CONSUMO PRODUCCION','CONSUMO TRANSFORMACION'];
-const TRX_BOTTOM = ['SOBRANTE','FALTANTE'];
+// CIERRE EXCEL: en operaciones con Kardex de Odoo, saldo del Excel que se cierra en la 1ª semana de Odoo
+const TRX_BOTTOM = ['CIERRE EXCEL','SOBRANTE','FALTANTE'];
 
 // ─── Helpers de semana ISO para el Kardex (rango de fechas bajo cada columna) ───
 function kxMondayOfAñoSem(añosem) {
@@ -16224,6 +16225,7 @@ const helpContent = {
             <tr><td>SOBRANTE / FALTANTE</td><td>Ajustes de inventario</td></tr>
             <tr><td><strong>SALDO FINAL</strong></td><td>Stock al cierre de esa semana</td></tr>
           </table>
+          <div style="margin-top:6px">Desde la semana 2026-44 los movimientos se leen de <strong>Odoo</strong> (actualización diaria): INICIAL es la carga inicial, CONSUMOS los gastos generales y RANCHO el consumo por rancho. En esa semana, CIERRE EXCEL cierra el saldo del sistema anterior para que el saldo final cuadre con el stock de Odoo.</div>
         </div></div>
         <div class="help-tip">💡 También puedes ver el Kardex de un ítem directamente desde la pantalla de Solicitar, haciendo clic en el botón 📊 junto a cada línea.</div>
       </div>`

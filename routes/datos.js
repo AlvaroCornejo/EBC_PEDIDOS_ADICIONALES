@@ -13,6 +13,10 @@ const fs = require('fs');
 const path = require('path');
 const authMiddleware = require('../middleware/auth');
 const Item = require('../models/Item');
+const KardexOdoo = require('../models/KardexOdoo');
+
+// Primera semana del Kardex leído de Odoo (inventario en Odoo desde el 01/11/2026; carga inicial al 31/10)
+const SEMANA_INICIO_ODOO = 202644;
 
 const router = express.Router();
 const DATA_DIR = path.join(__dirname, '../data');
@@ -361,11 +365,25 @@ router.get('/kardex-item', async (req, res) => {
     // previo, sin cambios).
     const hasta = /^\d{6}$/.test(hastaQ || '') ? parseInt(hastaQ) : null;
 
+    const itemKey = String(item).trim();
     const fp = findFile(operacion);
-    if (!fp) return res.status(404).json({ error: `No se encontró archivo para ${operacion}` });
+    const conOdoo = !!(await KardexOdoo.exists({ operacion }));
+    if (!fp && !conOdoo) return res.status(404).json({ error: `No se encontró archivo para ${operacion}` });
 
-    const wb    = await loadWB(fp);
-    const rows  = readKardex(wb).filter(r => r.item === String(item).trim());
+    // Operaciones con datos de Odoo (scripts/syncKardexOdoo.js): semanas anteriores a la salida en
+    // vivo desde el Excel, y desde SEMANA_INICIO_ODOO desde Odoo. En la primera semana de Odoo se
+    // agrega CIERRE EXCEL = −saldo del Excel, para que el saldo final cuadre con el stock de Odoo
+    // (la carga inicial de Odoo ya es el conteo físico de apertura).
+    let rows = fp ? readKardex(await loadWB(fp)).filter(r => r.item === itemKey) : [];
+    if (conOdoo) {
+      rows = rows.filter(r => r.añosem < SEMANA_INICIO_ODOO);
+      const saldoExcel = rows.reduce((a, r) => a + r.cant, 0);
+      if (Math.abs(saldoExcel) > 1e-6) {
+        rows.push({ item: itemKey, trx: 'CIERRE EXCEL', añosem: SEMANA_INICIO_ODOO, cant: -saldoExcel });
+      }
+      const odoo = await KardexOdoo.find({ operacion, item: itemKey, añosem: { $gte: SEMANA_INICIO_ODOO } }).lean();
+      rows.push(...odoo.map(r => ({ item: itemKey, trx: r.trx, añosem: r.añosem, cant: r.cantidad })));
+    }
 
     if (!rows.length) return res.json([]);
 

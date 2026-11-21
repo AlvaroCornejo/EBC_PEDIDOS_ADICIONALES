@@ -81,6 +81,8 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 
 ### MongoDB (colecciones y scripts de importación)
 
+> **Kardex**: `/api/datos/kardex-item` usa el Excel (hoja Kardex) hasta la semana 202643 y `KardexOdoo` desde 202644 para las operaciones que ya tienen datos de Odoo; en 202644 agrega la fila `CIERRE EXCEL` (= −saldo del Excel) para que el saldo final cuadre con el stock de Odoo.
+
 | Colección | Script | Fuente | Frecuencia |
 |-----------|--------|--------|------------|
 | Item | `scripts/syncItems.js` (vía `sync-items.bat`) | data/*ADICIONALES.xlsx | diario |
@@ -96,6 +98,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 | InventarioSemanal | `scripts/importInventarioSemanal.js` (vía `sync-inventario-semanal.bat`, paso 21/21 de `sync-master.bat`) | EBC CONTEOS.xlsx (hoja "CONTEO", ya trae varias semanas) | diario, reemplazo completo (sin historia propia) |
 | CostoProduccion | `scripts/importCostoProduccion.js` (vía `sync-costo-produccion.bat`, paso 23/23 de `sync-master.bat`) | EBC COSTO DE PRODUCCION.xlsx (hoja "Datos", meses ENERO … DICIEMBRE en columnas) | diario, reemplaza el año actual (años anteriores se conservan) |
 | CobranzaEfectivoErp | `scripts/importCobranzaEfectivo.js` (vía `sync-cobranza-efectivo.bat`, paso 23/23 de `sync-master.bat`) | EBC CIERRE CAJA\EBC COBRANZA EFECTIVO.xlsx (hoja "EFECTIVO_VENTA": FechaCobranza/EFECTIVO/OPERACION) | diario, reemplazo completo (sin historia propia) |
+| KardexOdoo | `scripts/syncKardexOdoo.js` (vía `sync-kardex-odoo.bat`, paso 24/24 de `sync-master.bat`) | Odoo 18 por XML-RPC (`utils/odooClient.js`, solo lectura; credenciales `ODOO_URL`/`ODOO_DB`/`ODOO_USER`/`ODOO_API_KEY` en `.env` del servidor, nunca en git ni en el frontend). Movimientos hechos que entran/salen de cada almacén → ITEM (código legacy), TRX, AÑOSEM, CANTIDAD, IMPORTE. Almacén Odoo → operación: PTAFK→PLANTA, GBPTA→GBPLANTA, GBGLF→GBGOL, GBFDR→GBCFR, resto igual. `--simular [--item X --op Y]` no escribe y muestra el cuadre con `stock.quant` | diario, reemplazo completo |
 
 > `RecetaCosteo`/`RecetaCosteoDetalle` (módulo **Costeo de Recetas**, costo de receta vs.
 > costo real de producción) es distinto del modelo `Receta` existente (`models/Receta.js`,
