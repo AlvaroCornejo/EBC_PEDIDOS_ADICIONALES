@@ -11486,6 +11486,7 @@ async function viewPL(container) {
         <button class="btn btn-primary" onclick="plConsultar()">🔍 Consultar</button>
         <button class="btn btn-outline" id="pl-sedes-btn" onclick="plToggleSedes()" title="Oculta o muestra la selección de sedes (la selección se mantiene)">🙈 Ocultar sedes</button>
         <button class="btn btn-outline" id="pl-export-btn" style="display:none" onclick="plExportarExcel()">📥 Exportar a Excel</button>
+        <button class="btn btn-outline" onclick="plBajarBase()" title="Descarga cada asiento del período y sedes seleccionados (sin agrupar)">📥 Base detallada</button>
         <button class="btn btn-outline" id="pl-export-vista-btn" style="display:none" onclick="exportarVistaExcel('pl-resultado','pl-detalle')">📥 Exportar vista actual</button>
         ${isAdmin ? '<button class="btn btn-outline" id="pl-analisis-btn" style="display:none" onclick="plAnalizarMes()" title="Análisis automático del último mes de la vista seriado por meses">🔍 Análisis del último mes</button>' : ''}
       </div>
@@ -11880,6 +11881,25 @@ async function viewPL(container) {
       if (exportVistaBtn) exportVistaBtn.style.display = '';
 
     } catch(e) { wrap.innerHTML = `<div class="msg-error">${esc(e.message)}</div>`; }
+  };
+
+  // Base detallada: asientos sin agrupar del período y sedes elegidos (Excel generado en el servidor).
+  window.plBajarBase = async function() {
+    const unidades = [...document.querySelectorAll('input[name="pl-unidad"]:checked')].map(c => c.value);
+    if (!unidades.length) return toast('Selecciona al menos una sede', 'warning');
+    const desde = document.getElementById('pl-anio-desde').value + document.getElementById('pl-mes-desde').value;
+    const hasta = document.getElementById('pl-anio-hasta').value + document.getElementById('pl-mes-hasta').value;
+    const btn = event?.currentTarget; if (btn) btn.disabled = true;
+    toast('⏳ Generando base detallada…', 'info');
+    try {
+      const qs = new URLSearchParams({ periodoDesde: desde, periodoHasta: hasta, unidades: unidades.join(',') });
+      const res = await fetch(`${API}/eerr/base?${qs}`, { headers: S.token ? { Authorization: `Bearer ${S.token}` } : {} });
+      if (!res.ok) { let m = `Error ${res.status}`; try { m = (await res.json()).error || m; } catch (_) {} throw new Error(m); }
+      const blob = await res.blob(), url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = `PL_base_detallada_${desde}_${hasta}.xlsx`; a.click(); URL.revokeObjectURL(url);
+      toast('✅ Base detallada descargada', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+    finally { if (btn) btn.disabled = false; }
   };
 
   window.plExportarExcel = function() {
@@ -13262,7 +13282,7 @@ async function viewVentas(container) {
     try { d = await GET(`/ventas/pronostico?operacion=${encodeURIComponent([...operacionesSel].join(','))}&fecha=${fechaActual}&semanas=${nSemanas}`); }
     catch (e) { document.getElementById('modal-body').innerHTML = `<p style="color:red">${esc(e.message)}</p>`; return; }
 
-    const fmtFecha = f => { const x = new Date(f); return `${String(x.getDate()).padStart(2, '0')}/${String(x.getMonth() + 1).padStart(2, '0')}`; };
+    const fmtFecha = f => { const x = new Date(f); return `${String(x.getUTCDate()).padStart(2, '0')}/${String(x.getUTCMonth() + 1).padStart(2, '0')}`; };
     const lblSem = p => `S${String(p.periodo).slice(4)} (${fmtFecha(p.lunes)}–${fmtFecha(p.domingo)})`;
     const dif = (real, pron) => pron == null ? null : real - pron;
     const cumpl = (real, pron) => pron ? real / pron : null;
@@ -13538,8 +13558,9 @@ async function viewVentas(container) {
   }
 
   function fmtFechaCorta(iso) {
+    // UTC: las fechas llegan como medianoche UTC; en hora de Lima (UTC-5) getDate() daría el día anterior.
     const d = new Date(iso);
-    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   }
 
   function tablaMensual() {

@@ -2,6 +2,7 @@ const express = require('express');
 const authMiddleware = require('../middleware/auth');
 const Eerr = require('../models/Eerr');
 const CostoVenta = require('../models/CostoVenta');
+const ExcelJS = require('exceljs');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -239,6 +240,43 @@ router.get('/detalle', async (req, res) => {
 
     res.json({ columnas, datos });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /base — base detallada del PL: una fila por asiento (sin agregar), en .xlsx.
+// Query: periodoDesde, periodoHasta, unidades (csv). Mismo scoping de sedes que /resumen.
+router.get('/base', async (req, res) => {
+  try {
+    if (!canAccess(req.user)) return res.status(403).json({ error: 'Sin acceso' });
+    const periodoDesde = parseInt(req.query.periodoDesde) || 0;
+    const periodoHasta = parseInt(req.query.periodoHasta) || 999999;
+    const sedesReq = req.query.unidades ? req.query.unidades.split(',').map(u => u.trim()).filter(Boolean) : [];
+    const sedes = req.user.role === 'ADMIN' ? sedesReq : (req.user.operations || []).filter(u => sedesReq.includes(u));
+    if (!sedes.length) return res.status(400).json({ error: 'Selecciona al menos una sede' });
+
+    const cols = [
+      ['Periodo', 'periodo', 10], ['Sociedad', 'sociedad', 14], ['Sede', 'sede', 12], ['Unidad', 'unidad', 12],
+      ['Grupo', 'grupo', 30], ['Cuenta', 'cuenta', 12], ['Nombre cuenta', 'nombreCuenta', 36],
+      ['AD', 'ad', 12], ['Descripción AD', 'descripcionAd', 36], ['Persona', 'persona', 36], ['Factura', 'factura', 16], ['Soles', 'soles', 14],
+    ];
+    // Escritura en streaming: la base puede tener decenas de miles de filas.
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="PL_base_detallada_${periodoDesde}_${periodoHasta}.xlsx"`);
+    const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
+    const ws = wb.addWorksheet('Base PL', { views: [{ state: 'frozen', ySplit: 1 }] });
+    ws.columns = cols.map(([header, key, width]) => ({ header, key, width }));
+    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).commit();
+
+    const cursor = Eerr.find({ periodo: { $gte: periodoDesde, $lte: periodoHasta }, sede: { $in: sedes } })
+      .sort({ periodo: 1, sede: 1, grupo: 1 }).lean().cursor();
+    for await (const d of cursor) {
+      ws.addRow(cols.reduce((o, [, k]) => { o[k] = d[k] ?? ''; return o; }, {})).commit();
+    }
+    ws.commit();
+    await wb.commit();
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: e.message }); else res.end();
+  }
 });
 
 // Agrega CostoVenta por una llave (nombreOp o nombreItem) x columna (sede/año/mes),
