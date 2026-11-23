@@ -22,6 +22,12 @@
  * si es anterior a la validación (salvo recepciones programadas antes del 01/11).
  * Importe = valorización de Odoo del movimiento (stock.valuation.layer), sin IGV; 0 si Odoo no lo valorizó.
  *
+ * Además, para la pantalla de Adicionales (todo desde Odoo, sin los Excel ADICIONALES):
+ *   ItemOdoo            ítems = productos de los RQ Programados recientes (categoría, costo de Odoo)
+ *   ConsumoEstimadoOdoo consumo proyectado por semana objetivo del RQ Programado
+ *   ConsumoDiarioOdoo   consumo real diario (venta + consumo) de los últimos 14 días
+ * Si los RQ no se pueden leer, se mantienen los ítems y el estimado de la corrida anterior.
+ *
  * Uso:
  *   node scripts/syncKardexOdoo.js                       lee Odoo y reemplaza KardexOdoo en MongoDB
  *   node scripts/syncKardexOdoo.js --simular             solo muestra el resumen, no escribe nada
@@ -37,10 +43,17 @@ const mongoose = require('mongoose');
 
 const OdooClient = require('../utils/odooClient');
 const KardexOdoo = require('../models/KardexOdoo');
+const ItemOdoo = require('../models/ItemOdoo');
+const ConsumoEstimadoOdoo = require('../models/ConsumoEstimadoOdoo');
+const ConsumoDiarioOdoo = require('../models/ConsumoDiarioOdoo');
 
 // Almacén Odoo → operación de la app (los que no están aquí usan el mismo código)
 const OPERACION_DE_ALMACEN = { PTAFK: 'PLANTA', GBPTA: 'GBPLANTA', GBGLF: 'GBGOL', GBFDR: 'GBCFR' };
 const PLANTAS = new Set(['PTAFK', 'GBPTA']);
+// Consumo real para Adicionales (consumo real de la semana y promedio diario)
+const TRX_CONSUMO = new Set(['VENTA', 'CONSUMO TRANSFORMACION', 'CONSUMO PRODUCCION']);
+const DIAS_PROMEDIO = 14;          // ventana del consumo diario (antes hoja DosSemanas)
+const SEMANAS_ITEMS_RQ = 8;        // RQ Programados recientes que definen los ítems de cada operación
 
 const LIMA_MS = 5 * 3600 * 1000;
 const INICIO_31_10_UTC = '2026-10-31 05:00:00';   // 31/10 00:00 Lima
@@ -60,6 +73,8 @@ function esApertura(ref) {
   const r = (ref || '').toUpperCase();
   return esInicial(r) && !r.startsWith('REGULARIZ') && !r.includes('POSTERIOR DESCARGOS');
 }
+
+const fechaLima = fechaUtc => new Date(new Date(fechaUtc.replace(' ', 'T') + 'Z').getTime() - LIMA_MS).toISOString().slice(0, 10);
 
 function añoSemLima(fechaUtc) {
   const d = new Date(new Date(fechaUtc.replace(' ', 'T') + 'Z').getTime() - LIMA_MS);
@@ -152,6 +167,10 @@ async function leerOdoo(odoo) {
   log(`Capas de valorización: ${capas.length}`);
 
   const agg = new Map();
+  const diario = new Map();
+  const hoyLima = new Date(Date.now() - LIMA_MS).toISOString().slice(0, 10);
+  const d0 = new Date(hoyLima + 'T00:00:00Z'); d0.setUTCDate(d0.getUTCDate() - DIAS_PROMEDIO);
+  const desdeDiario = d0.toISOString().slice(0, 10);   // ventana: [hoy-14, ayer]
   const stats = { sinCodigo: 0, internas: 0, lineasKardex: 0 };
   const detalle = []; // movimientos del item de prueba
   const enAlmacen = l => l.usage === 'internal' && l.warehouse_id ? whCode[l.warehouse_id[0]] : null;
@@ -186,12 +205,102 @@ async function leerOdoo(odoo) {
       a.importe += signo * valor;
       agg.set(k, a);
       stats.lineasKardex++;
+      if (!entra && TRX_CONSUMO.has(trx)) {
+        const dia = fechaLima(fecha);
+        if (dia >= desdeDiario && dia < hoyLima) {
+          const kd = `${operacion}|${item}|${dia}`;
+          const x = diario.get(kd) || { operacion, item, fecha: dia, cantidad: 0 };
+          x.cantidad += qty;
+          diario.set(kd, x);
+        }
+      }
       if (ITEM_PRUEBA && item === ITEM_PRUEBA && (operacion === OP_PRUEBA || wh === OP_PRUEBA)) {
         detalle.push({ fecha, añosem, trx, cantidad: signo * qty, ref: l.reference });
       }
     }
   }
-  return { filas: [...agg.values()], stats, detalle, almacenes, legacy };
+  return { filas: [...agg.values()], diario: [...diario.values()], stats, detalle, almacenes, legacy };
+}
+
+/**
+ * Ítems y consumo estimado de Adicionales desde los RQ Programados de Odoo (requirement.weekly,
+ * tipo 'weekly'). Ítems = productos de los RQ Programados de las últimas SEMANAS_ITEMS_RQ semanas;
+ * consumo estimado = "Consumo proy semana obj" (target_consumption) de cada semana objetivo. Si un
+ * almacén tiene varios RQ Programados de la misma semana, por producto vale el más reciente.
+ * Operaciones sin RQ Programado (p.ej. tiendas GB, CORPQ): ítems = productos con stock o movimientos
+ * en el almacén desde el 01/11 (filas del Kardex), sin consumo estimado.
+ */
+async function leerAdicionales(odoo, almacenes, filasKardex, legacy) {
+  const whCode = Object.fromEntries(almacenes.map(w => [w.id, w.code]));
+  const whCompania = Object.fromEntries(almacenes.map(w => [w.code, w.company_id[0]]));
+  const desde = añoSemLima(new Date(Date.now() - SEMANAS_ITEMS_RQ * 7 * 86400000).toISOString().slice(0, 19).replace('T', ' '));
+  const rqs = (await odoo.searchRead('requirement.weekly', [['requirement_type', '=', 'weekly'],
+    ['state', 'not in', ['cancel', 'denied']], ['warehouse_id', '!=', false]],
+    ['name', 'warehouse_id', 'year', 'week_number'], { order: 'id' }))
+    .filter(r => r.year * 100 + r.week_number >= desde && whCode[r.warehouse_id[0]]);
+  const rqPorId = Object.fromEntries(rqs.map(r => [r.id, r]));
+  const lineas = rqs.length ? await odoo.searchRead('requirement.weekly.line', [['requirement_id', 'in', rqs.map(r => r.id)],
+    ['product_id', '!=', false]], ['requirement_id', 'product_id', 'target_consumption'], { order: 'id' }) : [];
+
+  // Operaciones sin RQ Programado → productos con movimiento en su almacén
+  const opsConRq = new Set(lineas.map(l => {
+    const wh = whCode[rqPorId[l.requirement_id[0]].warehouse_id[0]];
+    return OPERACION_DE_ALMACEN[wh] || wh;
+  }));
+  const pidDeItem = {};
+  for (const [pid, code] of Object.entries(legacy)) if (!pidDeItem[code]) pidDeItem[code] = +pid;
+  const respaldo = new Map();   // "op|item" → { operacion, wh, pid }
+  for (const f of filasKardex) {
+    if (opsConRq.has(f.operacion) || !pidDeItem[f.item]) continue;
+    respaldo.set(`${f.operacion}|${f.item}`, { operacion: f.operacion, wh: f.almacen, pid: pidDeItem[f.item] });
+  }
+
+  const prodIds = [...new Set([...lineas.map(l => l.product_id[0]), ...[...respaldo.values()].map(r => r.pid)])];
+  const prod = {};
+  for (let i = 0; i < prodIds.length; i += 500) {
+    for (const p of await odoo.execute('product.product', 'read', [prodIds.slice(i, i + 500)],
+      { fields: ['default_code_legacy', 'name', 'categ_id', 'uom_id'] })) prod[p.id] = p;
+  }
+  // Costo de Odoo por empresa (standard_price depende de la empresa activa = primera de allowed_company_ids)
+  const costo = {};
+  for (const cid of [...new Set(Object.values(whCompania))]) {
+    costo[cid] = {};
+    for (let i = 0; i < prodIds.length; i += 500) {
+      for (const p of await odoo.execute('product.product', 'read', [prodIds.slice(i, i + 500)],
+        { fields: ['standard_price'], context: { ...odoo.contexto, allowed_company_ids: [cid, ...odoo.contexto.allowed_company_ids.filter(x => x !== cid)] } })) costo[cid][p.id] = p.standard_price;
+    }
+  }
+
+  const fichaItem = (operacion, wh, item, p) => ({
+    operacion, item, nombre: p.name,
+    grupoCompra: p.categ_id ? p.categ_id[1].split(' / ').pop() : '',
+    uom: p.uom_id ? p.uom_id[1] : '',
+    costo: costo[whCompania[wh]][p.id] || 0,
+  });
+  const items = new Map(), estimado = new Map();
+  for (const [k, r] of respaldo) if (prod[r.pid]) items.set(k, fichaItem(r.operacion, r.wh, k.split('|')[1], prod[r.pid]));
+  for (const l of lineas) {   // orden por id: la línea más reciente pisa a la anterior
+    const rq = rqPorId[l.requirement_id[0]], p = prod[l.product_id[0]];
+    if (!p || !p.default_code_legacy) continue;
+    const wh = whCode[rq.warehouse_id[0]], operacion = OPERACION_DE_ALMACEN[wh] || wh;
+    const item = String(p.default_code_legacy).trim();
+    const añosem = rq.year * 100 + rq.week_number;
+    items.set(`${operacion}|${item}`, fichaItem(operacion, wh, item, p));
+    const ke = `${operacion}|${añosem}|${item}`;
+    const prev = estimado.get(ke);
+    if (prev && prev.rqId === rq.id) prev.cantidad += l.target_consumption || 0;   // mismo producto 2 veces en un RQ
+    else estimado.set(ke, { operacion, item, añosem, cantidad: l.target_consumption || 0, rq: rq.name, rqId: rq.id });
+  }
+  return { items: [...items.values()], estimado: [...estimado.values()].map(({ rqId, ...e }) => e), nRq: rqs.length,
+           opsSinRq: [...new Set([...respaldo.values()].map(r => r.operacion))].sort() };
+}
+
+async function reemplazar(Model, filas, ahora) {
+  await Model.deleteMany({});
+  for (let i = 0; i < filas.length; i += 5000) {
+    await Model.insertMany(filas.slice(i, i + 5000).map(f => ({ ...f, sincronizadoEn: ahora })), { ordered: false });
+  }
+  console.log(`MongoDB: ${Model.modelName} reemplazado con ${filas.length} filas.`);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────
@@ -199,7 +308,7 @@ async function leerOdoo(odoo) {
 async function main() {
   console.log(`\nKardex desde Odoo${SIMULAR ? ' — SIMULACIÓN (no escribe nada)' : ''}`);
   const odoo = await OdooClient.conectar();
-  const { filas, stats, detalle, almacenes, legacy } = await leerOdoo(odoo);
+  const { filas, diario, stats, detalle, almacenes, legacy } = await leerOdoo(odoo);
 
   filas.forEach(f => { f.cantidad = Math.round(f.cantidad * 1e6) / 1e6; f.importe = Math.round(f.importe * 100) / 100; });
   console.log(`\nFilas Kardex (operación × item × semana × TRX): ${filas.length}`);
@@ -257,15 +366,34 @@ async function main() {
   console.log(`\nCuadre con stock.quant: ${Object.keys(saldoK).length} operación×item; ${difs.length} con diferencia` +
     (difs.length ? ` (p.ej. ${difs.slice(0, 5).map(x => `${x.k}: ${x.d.toFixed(3)}`).join(', ')})` : ' ✔'));
 
+  // Adicionales: consumo diario, ítems y consumo estimado (RQ Programado)
+  diario.forEach(d => { d.cantidad = Math.round(d.cantidad * 1e6) / 1e6; });
+  console.log(`\nConsumo diario (${DIAS_PROMEDIO} días): ${diario.length} filas`);
+  let adic = null;
+  try {
+    adic = await leerAdicionales(odoo, almacenes, filas, legacy);
+    const porOp = {};
+    adic.items.forEach(i => { porOp[i.operacion] = (porOp[i.operacion] || 0) + 1; });
+    const sems = [...new Set(adic.estimado.map(e => e.añosem))].sort();
+    console.log(`RQ Programados leídos: ${adic.nRq} | Ítems por operación: ${Object.entries(porOp).sort().map(([k, v]) => `${k}:${v}`).join('  ')}`);
+    console.log(`Consumo estimado: ${adic.estimado.length} filas, semanas ${sems.join(', ')}`);
+    if (adic.opsSinRq.length) console.log(`Sin RQ Programado (ítems = productos con movimiento): ${adic.opsSinRq.join(', ')}`);
+  } catch (err) {
+    // No se borra lo cargado antes: los ítems y el estimado anteriores siguen en MongoDB
+    console.error(`AVISO: no se pudieron leer los RQ Programados de Odoo; se mantienen los ítems y el consumo estimado anteriores. ${err.message.slice(0, 300)}`);
+  }
+
   if (SIMULAR) { console.log('\nSimulación: no se escribió en MongoDB.'); return; }
 
   await mongoose.connect(process.env.MONGODB_URI);
   const ahora = new Date();
-  await KardexOdoo.deleteMany({});
-  for (let i = 0; i < filas.length; i += 5000) {
-    await KardexOdoo.insertMany(filas.slice(i, i + 5000).map(f => ({ ...f, sincronizadoEn: ahora })), { ordered: false });
+  console.log('');
+  await reemplazar(KardexOdoo, filas, ahora);
+  await reemplazar(ConsumoDiarioOdoo, diario, ahora);
+  if (adic && adic.items.length) {
+    await reemplazar(ItemOdoo, adic.items, ahora);
+    await reemplazar(ConsumoEstimadoOdoo, adic.estimado, ahora);
   }
-  console.log(`\nMongoDB: KardexOdoo reemplazado con ${filas.length} filas.`);
   await mongoose.disconnect();
 }
 

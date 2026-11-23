@@ -81,7 +81,9 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 
 ### MongoDB (colecciones y scripts de importación)
 
-> **Kardex**: `/api/datos/kardex-item` lee **solo** `KardexOdoo` (Odoo, desde la semana 202644 con la carga inicial al 31/10); ya no usa la hoja Kardex del Excel. El saldo final cuadra con `stock.quant` de Odoo. (La hoja Kardex del Excel sigue usándose en la proyección de Requisiciones.)
+> **Kardex**: `/api/datos/kardex-item` lee **solo** `KardexOdoo` (Odoo, desde la semana 202644 con la carga inicial al 31/10); ya no usa la hoja Kardex del Excel. El saldo final cuadra con `stock.quant` de Odoo. 
+>
+> **Adicionales (Solicitar, item-data, requisiciones-resumen)**: también solo Odoo, desde las colecciones que carga el mismo `syncKardexOdoo.js`: `ItemOdoo` (ítems = productos de los RQ Programados de las últimas 8 semanas; operaciones sin RQ Programado → productos con movimiento en Odoo; grupo = categoría Odoo; costo = `standard_price` de la empresa), `ConsumoEstimadoOdoo` ("Consumo proy semana obj" del RQ Programado, reemplaza la hoja Requisiciones) y `ConsumoDiarioOdoo` (venta + consumo de los últimos 14 días, reemplaza DosSemanas). Gestión y lote de compra siguen en `Item`. Si Odoo no deja leer los RQ, el sync conserva ítems/estimado anteriores.
 
 | Colección | Script | Fuente | Frecuencia |
 |-----------|--------|--------|------------|

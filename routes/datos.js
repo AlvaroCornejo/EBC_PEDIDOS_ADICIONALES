@@ -1,5 +1,7 @@
 /**
- * datos.js — lee desde archivo único por operación: {OPERACION} - ADICIONALES.xlsx
+ * datos.js — Adicionales y Kardex leen SOLO datos de Odoo (colecciones *Odoo de MongoDB, cargadas a diario
+ * por scripts/syncKardexOdoo.js). Los lectores de Excel que quedan (Items, Costos) los usan otras pantallas
+ * (items.js /sync, recetas.js). Formato histórico del archivo {OPERACION} - ADICIONALES.xlsx:
  *
  * Hoja "Items":        col1=ITEM, col2=NOMBRE, col3=GRUPO COMPRA  (común a todas las operaciones)
  * Hoja "Kardex":       col1=ITEM, col2=TRX (VTA/TRE/OTR), col3=AÑOSEM (YYYYWW), col4=CANTIDAD
@@ -14,6 +16,9 @@ const path = require('path');
 const authMiddleware = require('../middleware/auth');
 const Item = require('../models/Item');
 const KardexOdoo = require('../models/KardexOdoo');
+const ItemOdoo = require('../models/ItemOdoo');
+const ConsumoEstimadoOdoo = require('../models/ConsumoEstimadoOdoo');
+const ConsumoDiarioOdoo = require('../models/ConsumoDiarioOdoo');
 
 // Primera semana del Kardex leído de Odoo (inventario en Odoo desde el 01/11/2026; carga inicial al 31/10)
 const SEMANA_INICIO_ODOO = 202644;
@@ -96,22 +101,6 @@ function readItems(wb) {
   return items;
 }
 
-/** Kardex sheet: col1=ITEM, col2=TRX, col3=AÑOSEM, col4=CANTIDAD */
-function readKardex(wb) {
-  const sh = wb.getWorksheet('Kardex');
-  if (!sh) return [];
-  const rows = [];
-  sh.eachRow((row, rn) => {
-    if (rn === 1) return;
-    const item   = str(row, 1);
-    const trx    = str(row, 2).toUpperCase();
-    const añosem = num(row, 3);
-    const cant   = num(row, 4);
-    if (item && añosem) rows.push({ item, trx, añosem, cant });
-  });
-  return rows;
-}
-
 /** Costos sheet: col1=ITEM, col?=COSTO (detectado desde cabecera — col2 o col3 según operación) */
 function readCostos(wb) {
   const sh = wb.getWorksheet('Costos');
@@ -130,71 +119,50 @@ function readCostos(wb) {
   return map;
 }
 
-/**
- * DosSemanas sheet (Fecha, Almacen, Item, Cantidad): consumo real TOTAL (venta + consumo) por
- * ítem y día de las últimas semanas. Sirve para proyectar el consumo de los días que faltan de
- * la semana. Devuelve { dias: nº de fechas distintas de la hoja, sumaPorItem: {item: Σ cantidad} }.
- */
-function readDosSemanas(wb) {
-  const sh = wb.getWorksheet('DosSemanas');
-  if (!sh) return { dias: 0, sumaPorItem: {} };
-  const hdr = {};
-  sh.getRow(1).eachCell((cell, col) => { hdr[String(cell.value || '').trim().toUpperCase()] = col; });
-  const cFecha = hdr.FECHA || 1, cItem = hdr.ITEM || 3, cCant = hdr.CANTIDAD || 4;
-  const fechas = new Set();
-  const sumaPorItem = {};
-  sh.eachRow((row, rn) => {
-    if (rn === 1) return;
-    const item = str(row, cItem);
-    // cellVal() descarta los Date (los toma por objeto de fórmula): la fecha se lee directo de la celda.
-    let f = row.getCell(cFecha).value;
-    if (f && typeof f === 'object' && !(f instanceof Date)) f = f.result;
-    if (!item || f == null) return;
-    fechas.add(f instanceof Date ? f.toISOString().slice(0, 10) : String(f).slice(0, 10));
-    sumaPorItem[item] = (sumaPorItem[item] || 0) + num(row, cCant);
-  });
-  return { dias: fechas.size, sumaPorItem };
-}
-
-/** Requisiciones sheet: col1=Item, col2=CONSUMO PROY SEM ANT, col3=CONSUMO PROY SEM ACT, col4=AJUSTE SEM ACT, col5=AJUSTE SEM ANT */
-function readRequisiciones(wb) {
-  const sh = wb.getWorksheet('Requisiciones');
-  if (!sh) return {};
-  const map = {};
-  sh.eachRow((row, rn) => {
-    if (rn === 1) return;
-    const item = str(row, 1);
-    if (item) map[item] = {
-      semAnt:      num(row, 2),
-      semAct:      num(row, 3),
-      ajusteSemAct: num(row, 4),
-      ajusteSemAnt: num(row, 5)
-    };
-  });
-  return map;
-}
-
 // ─── Routes ──────────────────────────────────────────────────────
 
-/** Todo lo necesario para calcular los consumos de cualquier ítem de una operación en una fecha. */
-function prepararContexto(wb, fecha) {
-  const kardexPorItem = new Map();
-  for (const r of readKardex(wb)) {
-    if (!kardexPorItem.has(r.item)) kardexPorItem.set(r.item, []);
-    kardexPorItem.get(r.item).push(r);
-  }
+/**
+ * Todo lo necesario para calcular los consumos de los ítems de una operación en una fecha, desde
+ * los datos de Odoo que carga scripts/syncKardexOdoo.js (ya no se leen los Excel ADICIONALES):
+ *   ítems y costo ← ItemOdoo · consumo real y saldo ← KardexOdoo · consumo estimado ← ConsumoEstimadoOdoo
+ *   (RQ Programado) · promedio diario ← ConsumoDiarioOdoo (últimos 14 días).
+ * `soloItem` limita la lectura a un ítem (pantalla de solicitud).
+ */
+async function prepararContexto(operacion, fecha, soloItem) {
   const date = new Date(fecha + 'T12:00:00');
   const { week: cw, year: cy } = getISOWeek(date);
+  const añoSemAct = toAñoSem(cy, cw);
+  const añoSemAnt = cw > 1 ? toAñoSem(cy, cw - 1) : toAñoSem(cy - 1, 52);
+  const f = soloItem ? { operacion, item: soloItem } : { operacion };
+
+  const [items, kardex, estimado, diario, fechas] = await Promise.all([
+    ItemOdoo.find(f).lean(),
+    KardexOdoo.find(f, { item: 1, trx: 1, añosem: 1, cantidad: 1, _id: 0 }).lean(),
+    ConsumoEstimadoOdoo.find({ ...f, añosem: { $in: [añoSemAct, añoSemAnt] } }).lean(),
+    ConsumoDiarioOdoo.find(f, { item: 1, cantidad: 1, _id: 0 }).lean(),
+    ConsumoDiarioOdoo.distinct('fecha'),
+  ]);
+
+  const kardexPorItem = new Map();
+  for (const r of kardex) {
+    if (!kardexPorItem.has(r.item)) kardexPorItem.set(r.item, []);
+    kardexPorItem.get(r.item).push({ item: r.item, trx: r.trx, añosem: r.añosem, cant: r.cantidad });
+  }
+  const reqMap = {};
+  for (const e of estimado) {
+    reqMap[e.item] = reqMap[e.item] || { semAnt: 0, semAct: 0 };
+    reqMap[e.item][e.añosem === añoSemAct ? 'semAct' : 'semAnt'] += e.cantidad;
+  }
+  const sumaPorItem = {};
+  for (const d of diario) sumaPorItem[d.item] = (sumaPorItem[d.item] || 0) + d.cantidad;
+
   return {
-    itemsMap:   Object.fromEntries(readItems(wb).map(i => [i.item, i])),
-    costosMap:  readCostos(wb),
+    itemsMap:  Object.fromEntries(items.map(i => [i.item, i])),
+    costosMap: Object.fromEntries(items.map(i => [i.item, i.costo])),
     kardexPorItem,
-    reqMap:     readRequisiciones(wb),
-    dosSemanas: readDosSemanas(wb),
-    date, cw, cy,
-    añoSemAct: toAñoSem(cy, cw),
-    // Semana anterior en el kardex = semana previa
-    añoSemAnt: cw > 1 ? toAñoSem(cy, cw - 1) : toAñoSem(cy - 1, 52),
+    reqMap,
+    dosSemanas: { dias: fechas.length, sumaPorItem },
+    date, cw, cy, añoSemAct, añoSemAnt,
   };
 }
 
@@ -202,7 +170,7 @@ function prepararContexto(wb, fecha) {
 function calcularItemData(ctx, itemKey, dbItem) {
   const { itemsMap, costosMap, kardexPorItem, reqMap, dosSemanas, date, cw, cy, añoSemAct, añoSemAnt } = ctx;
 
-  // Maestro (Excel + MongoDB para loteCompra/gestion actualizado)
+  // Maestro (Odoo + MongoDB para loteCompra/gestion)
   const maestro       = itemsMap[itemKey] || {};
   const grupoCompra   = maestro.grupoCompra || '';
   const gestion       = dbItem?.gestion ?? maestro.gestion ?? 'COMPRAS';
@@ -263,29 +231,22 @@ function calcularItemData(ctx, itemKey, dbItem) {
   };
 }
 
-/** GET /api/datos/items?operacion=AASI */
+/** GET /api/datos/items?operacion=AASI — ítems de la operación desde Odoo (RQ Programados recientes) */
 router.get('/items', async (req, res) => {
   try {
     const { operacion } = req.query;
-    if (operacion && !checkOpAccess(req.user, operacion))
+    if (!operacion) return res.json([]);
+    if (!checkOpAccess(req.user, operacion))
       return res.status(403).json({ error: 'Sin acceso a esa operación' });
-    // Con operación específica solo se usa SU archivo: si no existe, lista vacía (no los ítems
-    // y costos de otra operación). Sin operación, se usa cualquier archivo disponible.
-    let fp = operacion ? findFile(operacion) : null;
-    if (operacion && !fp) return res.json([]);
-    if (!fp) {
-      // Buscar cualquier archivo ADICIONALES disponible
-      const any = fs.readdirSync(DATA_DIR).find(f => f.includes('ADICIONALES') && f.endsWith('.xlsx'));
-      if (any) fp = path.join(DATA_DIR, any);
-    }
-    if (!fp) return res.json([]);
-    const wb = await loadWB(fp);
-    const costosMap = readCostos(wb);
-    const items = readItems(wb).map(it => ({
-      ...it,
-      costoUnitario: costosMap[String(it.item)] || 0,
-    }));
-    res.json(items);
+    const [items, dbItems] = await Promise.all([
+      ItemOdoo.find({ operacion }).sort({ nombre: 1 }).lean(),
+      Item.find({ operacion }, { item: 1, gestion: 1, _id: 0 }).lean(),
+    ]);
+    const gestion = Object.fromEntries(dbItems.map(i => [i.item, i.gestion]));
+    res.json(items.map(it => ({
+      item: it.item, nombre: it.nombre, grupoCompra: it.grupoCompra,
+      gestion: gestion[it.item] || 'COMPRAS', costoUnitario: it.costo || 0,
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -300,12 +261,8 @@ router.get('/item-data', async (req, res) => {
     if (!checkOpAccess(req.user, operacion))
       return res.status(403).json({ error: 'Sin acceso a esa operación' });
 
-    const fp = findFile(operacion);
-    if (!fp) return res.status(404).json({ error: `No se encontró archivo para operación ${operacion}` });
-
-    const wb  = await loadWB(fp);
-    const ctx = prepararContexto(wb, fecha);
     const itemKey = String(item).trim();
+    const ctx = await prepararContexto(operacion, fecha, itemKey);
     const dbItem  = await Item.findOne({ operacion, item: itemKey }).lean();
     res.json(calcularItemData(ctx, itemKey, dbItem));
   } catch (err) {
@@ -315,9 +272,9 @@ router.get('/item-data', async (req, res) => {
 
 /**
  * GET /api/datos/requisiciones-resumen?operacion=AASI&fecha=2026-10-14
- * Relación de TODOS los ítems de la hoja Requisiciones con los mismos datos que muestra la
- * pantalla de solicitud (consumos de semana anterior/actual, proyección, saldo, costo). Se
- * calcula al pedirlo: el Excel se lee una sola vez y los ítems se resuelven en memoria.
+ * Relación de TODOS los ítems del RQ Programado de Odoo (semana actual y anterior) con los mismos
+ * datos que muestra la pantalla de solicitud (consumos de semana anterior/actual, proyección,
+ * saldo, costo). Se calcula al pedirlo desde las colecciones *Odoo de MongoDB.
  */
 router.get('/requisiciones-resumen', async (req, res) => {
   try {
@@ -327,11 +284,7 @@ router.get('/requisiciones-resumen', async (req, res) => {
     if (!checkOpAccess(req.user, operacion))
       return res.status(403).json({ error: 'Sin acceso a esa operación' });
 
-    const fp = findFile(operacion);
-    if (!fp) return res.status(404).json({ error: `No se encontró archivo para operación ${operacion}` });
-
-    const wb  = await loadWB(fp);
-    const ctx = prepararContexto(wb, fecha);
+    const ctx = await prepararContexto(operacion, fecha);
     const dbItems = await Item.find({ operacion }, { item: 1, gestion: 1, loteCompra: 1, _id: 0 }).lean();
     const dbPorItem = Object.fromEntries(dbItems.map(i => [i.item, i]));
 
