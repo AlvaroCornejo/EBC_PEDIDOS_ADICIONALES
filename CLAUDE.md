@@ -81,7 +81,7 @@ todas las operaciones de esas sociedades (ver `showUserModal` en `public/app.js`
 
 ### MongoDB (colecciones y scripts de importación)
 
-> **Kardex**: `/api/datos/kardex-item` usa el Excel (hoja Kardex) hasta la semana 202643 y `KardexOdoo` desde 202644 para las operaciones que ya tienen datos de Odoo; en 202644 agrega la fila `CIERRE EXCEL` (= −saldo del Excel) para que el saldo final cuadre con el stock de Odoo.
+> **Kardex**: `/api/datos/kardex-item` lee **solo** `KardexOdoo` (Odoo, desde la semana 202644 con la carga inicial al 31/10); ya no usa la hoja Kardex del Excel. El saldo final cuadra con `stock.quant` de Odoo. (La hoja Kardex del Excel sigue usándose en la proyección de Requisiciones.)
 
 | Colección | Script | Fuente | Frecuencia |
 |-----------|--------|--------|------------|

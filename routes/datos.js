@@ -366,24 +366,10 @@ router.get('/kardex-item', async (req, res) => {
     const hasta = /^\d{6}$/.test(hastaQ || '') ? parseInt(hastaQ) : null;
 
     const itemKey = String(item).trim();
-    const fp = findFile(operacion);
-    const conOdoo = !!(await KardexOdoo.exists({ operacion }));
-    if (!fp && !conOdoo) return res.status(404).json({ error: `No se encontró archivo para ${operacion}` });
-
-    // Operaciones con datos de Odoo (scripts/syncKardexOdoo.js): semanas anteriores a la salida en
-    // vivo desde el Excel, y desde SEMANA_INICIO_ODOO desde Odoo. En la primera semana de Odoo se
-    // agrega CIERRE EXCEL = −saldo del Excel, para que el saldo final cuadre con el stock de Odoo
-    // (la carga inicial de Odoo ya es el conteo físico de apertura).
-    let rows = fp ? readKardex(await loadWB(fp)).filter(r => r.item === itemKey) : [];
-    if (conOdoo) {
-      rows = rows.filter(r => r.añosem < SEMANA_INICIO_ODOO);
-      const saldoExcel = rows.reduce((a, r) => a + r.cant, 0);
-      if (Math.abs(saldoExcel) > 1e-6) {
-        rows.push({ item: itemKey, trx: 'CIERRE EXCEL', añosem: SEMANA_INICIO_ODOO, cant: -saldoExcel });
-      }
-      const odoo = await KardexOdoo.find({ operacion, item: itemKey, añosem: { $gte: SEMANA_INICIO_ODOO } }).lean();
-      rows.push(...odoo.map(r => ({ item: itemKey, trx: r.trx, añosem: r.añosem, cant: r.cantidad })));
-    }
+    // Solo datos de Odoo (colección KardexOdoo, cargada a diario por scripts/syncKardexOdoo.js
+    // desde el servidor). Ya no se usa la hoja Kardex del Excel; el saldo cuadra con el stock de Odoo.
+    const odoo = await KardexOdoo.find({ operacion, item: itemKey, añosem: { $gte: SEMANA_INICIO_ODOO } }).lean();
+    const rows = odoo.map(r => ({ item: itemKey, trx: r.trx, añosem: r.añosem, cant: r.cantidad }));
 
     if (!rows.length) return res.json([]);
 
